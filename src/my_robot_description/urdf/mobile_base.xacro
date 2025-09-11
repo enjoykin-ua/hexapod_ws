@@ -1,0 +1,186 @@
+<?xml version="1.0"?>
+<!--
+  Hexapod robot description for visualization and simulation
+  - Base link with 6 legs (front, middle, back pairs)
+  - Each leg has 3 segments (coxa, femur, tibia) with revolute joints
+-->
+<robot name="hexapod" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- Body Parameters -->
+  <xacro:property name="body_start_pos" value="0.1"/>  <!-- desired distance from ground to bottom of body -->
+  <xacro:property name="body_length" value="0.175"/>
+  <xacro:property name="body_width" value="0.130"/>
+  <xacro:property name="body_width_middle" value="0.170"/>
+  <xacro:property name="body_height" value="0.043"/>
+
+
+  <!-- Leg Segment Parameters -->
+  <!-- Coxa (Hip) -->
+  <xacro:property name="coxa_length" value="0.0436"/>
+  <xacro:property name="coxa_width"  value="0.0254"/>
+  <xacro:property name="coxa_height" value="0.0582"/>
+  
+  <!-- Femur (Thigh) -->
+  <xacro:property name="femur_length" value="0.07994"/>
+  <xacro:property name="femur_width"  value="0.059"/>
+  <xacro:property name="femur_height" value="0.02"/>
+  
+  <!-- Tibia (Shin) -->
+  <xacro:property name="tibia_length" value="0.1787"/>
+  <xacro:property name="tibia_width"  value="0.012"/>
+  <xacro:property name="tibia_height" value="0.012"/>
+
+  <!-- Joint Limits -->
+  <xacro:property name="coxa_joint_limit" value="1.57"/> 
+  <xacro:property name="femur_joint_limit" value="1.57"/> <!-- 90 degrees -->
+  <xacro:property name="tibia_joint_limit" value="1.5"/>  <!-- ~86 degrees -->
+
+  <!-- Computed Properties -->
+  <xacro:property name="half_body_height" value="${body_height/2}"/>
+  <xacro:property name="half_body_width"  value="${body_width/2}"/>
+  <xacro:property name="half_coxa_width"  value="${coxa_width/2}"/>
+
+  <!-- base_footprint empty frame at world z=0 -->
+  <link name="base_footprint"/>
+
+  <!-- Leg mounting position -->
+  <xacro:property name="leg_mount_z" value="${body_height/2}"/>  <!-- z offset for leg mounting points -->
+
+
+  <!-- base_link robot body center -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}"/>
+      </geometry>
+      <origin xyz="0 0 ${body_height/2}" rpy="0 0 0"/>
+      <material name="body_material">
+        <color rgba="${body_color_rgba}"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Joint connecting base_footprint to base_link -->
+  <joint name="base_footprint_to_base_link" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Leg macro definition 
+       prefix: Name prefix for this leg
+       parent: Parent link to attach to
+       x: X offset from parent
+       y: Y offset from parent
+       z: Z offset from parent
+       roll: Roll rotation
+       pitch: Pitch rotation
+       yaw: Yaw rotation
+       color_rgba: Color for all leg segments (R G B A)
+  -->
+  <xacro:macro name="leg" params="prefix parent x y z roll pitch yaw color_rgba">
+    
+    <!-- Coxa (hip) link and joint -->
+    <link name="${prefix}_coxa_link">
+      <visual>
+        <origin xyz="${coxa_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${coxa_length} ${coxa_width} ${coxa_height}"/>
+        </geometry>
+        <material name="${prefix}_material_coxa"><color rgba="${color_rgba}"/></material>
+      </visual>
+    </link>
+
+    <joint name="${prefix}_base_to_coxa_joint" type="revolute">
+      <parent link="${parent}"/>
+      <child  link="${prefix}_coxa_link"/>
+      <origin xyz="${x} ${y} ${z}" rpy="${roll} ${pitch} ${yaw}"/>
+      <axis  xyz="0 0 1"/>
+      <limit lower="${-coxa_joint_limit}" upper="${coxa_joint_limit}" effort="5.0" velocity="2.0"/>
+    </joint>
+
+    <!-- Femur (thigh) link and joint -->
+    <link name="${prefix}_femur_link">
+      <visual>
+        <origin xyz="${femur_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${femur_length} ${femur_width} ${femur_height}"/>
+        </geometry>
+        <material name="${prefix}_material_femur"><color rgba="${color_rgba}"/></material>
+      </visual>
+    </link>
+
+    <joint name="${prefix}_coxa_to_femur_joint" type="revolute">
+      <parent link="${prefix}_coxa_link"/>
+      <child  link="${prefix}_femur_link"/>
+      <origin xyz="${coxa_length} 0 0" rpy="0 0 0"/>
+      <axis  xyz="0 1 0"/>
+      <limit lower="${-femur_joint_limit}" upper="${femur_joint_limit}" effort="5.0" velocity="2.0"/>
+    </joint>
+
+    <!-- Tibia (shin) link and joint -->
+    <link name="${prefix}_tibia_link">
+      <visual>
+        <origin xyz="${tibia_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${tibia_length} ${tibia_width} ${tibia_height}"/>
+        </geometry>
+        <material name="${prefix}_material_tibia"><color rgba="${color_rgba}"/></material>
+      </visual>
+    </link>
+
+    <joint name="${prefix}_femur_to_tibia_joint" type="revolute">
+      <parent link="${prefix}_femur_link"/>
+      <child  link="${prefix}_tibia_link"/>
+      <origin xyz="${femur_length} 0 0" rpy="0 0 0"/>
+      <axis  xyz="0 1 0"/>
+      <limit lower="${-tibia_joint_limit}" upper="${tibia_joint_limit}" effort="5.0" velocity="2.0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Front legs (45 degrees orientation) -->
+  <xacro:leg prefix="leg_fr" parent="base_link"
+            x="${body_length/2}"
+            y="${-(body_width / 2)}"
+            z="${leg_mount_z}"
+            roll="0" pitch="0" yaw="-0.7854"
+            color_rgba="${color_green}"/>  
+
+  <xacro:leg prefix="leg_fl" parent="base_link"
+            x="${body_length/2}"
+            y="${body_width / 2}"
+            z="${leg_mount_z}"
+            roll="0" pitch="0" yaw="0.7854"
+            color_rgba="${color_yellow}"/>  
+
+  <!-- Middle legs (keeping original 90 degree orientation) -->
+  <xacro:leg prefix="leg_mr" parent="base_link"
+            x="0"
+            y="${-(body_width_middle / 2)}"
+            z="${leg_mount_z}"
+            roll="0" pitch="0" yaw="-1.5708"
+            color_rgba="${color_cyan}"/> 
+
+  <xacro:leg prefix="leg_ml" parent="base_link"
+            x="0"
+            y="${body_width_middle / 2}"
+            z="${leg_mount_z}"
+            roll="0" pitch="0" yaw="1.5708"
+            color_rgba="${color_orange}"/>  
+
+  <!-- Back legs (135 degrees orientation - pointing backwards) -->
+  <xacro:leg prefix="leg_br" parent="base_link"
+            x="${-body_length/2}"
+            y="${-(body_width / 2)}"
+            z="${leg_mount_z}"
+            roll="0" pitch="0" yaw="-2.3562"
+            color_rgba="${color_red}"/>  
+
+  <xacro:leg prefix="leg_bl" parent="base_link"
+            x="${-body_length/2}"
+            y="${body_width / 2}"
+            z="${leg_mount_z}"
+            roll="0" pitch="0" yaw="2.3562"
+            color_rgba="${color_violet}"/>  
+
+</robot>
