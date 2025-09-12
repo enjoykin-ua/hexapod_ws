@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+    <!-- Body Parameters -->
+    <xacro:property name="body_start_pos" value="0.1"/>  <!-- desired distance from ground to bottom of body -->
+    <xacro:property name="body_length" value="0.175"/>
+    <xacro:property name="body_width" value="0.130"/>
+    <xacro:property name="body_width_middle" value="0.170"/>
+    <xacro:property name="body_height" value="0.043"/>
+
+    <!-- Leg Segment Parameters -->
+    <!-- Coxa -->
+    <xacro:property name="coxa_length" value="0.0436"/>
+    <xacro:property name="coxa_width"  value="0.0254"/>
+    <xacro:property name="coxa_height" value="0.0582"/>
+    
+    <!-- Femur -->
+    <xacro:property name="femur_length" value="0.07994"/>
+    <xacro:property name="femur_width"  value="0.059"/>
+    <xacro:property name="femur_height" value="0.02"/>
+    
+    <!-- Tibia -->
+    <xacro:property name="tibia_length" value="0.1787"/>
+    <xacro:property name="tibia_width"  value="0.012"/>
+    <xacro:property name="tibia_height" value="0.012"/>
+
+    <!-- Joint Limits -->
+    <xacro:property name="coxa_joint_limit" value="1.57"/> 
+    <xacro:property name="femur_joint_limit" value="1.57"/>
+    <xacro:property name="tibia_joint_limit" value="1.5"/>
+
+
+
+
+    <!-- Masses -->
+    <xacro:property name="base_link_mass" value="0.5"/>
+    <xacro:property name="leg_segment_mass" value="0.1167"/>
+
+    <!-- Computed Properties -->
+    <xacro:property name="half_body_height" value="${body_height/2}"/>
+    <xacro:property name="half_body_width"  value="${body_width/2}"/>
+    <xacro:property name="half_coxa_width"  value="${coxa_width/2}"/>
+
+    <!-- Leg mounting position -->
+    <xacro:property name="leg_mount_z" value="${body_height/2}"/>
+
+</robot>

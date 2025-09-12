@@ -1,7 +1,13 @@
 <?xml version="1.0"?>
 <robot name="my_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+    <!-- Physical properties of the hexapod -->
+    <xacro:include filename="my_robot_physical_properties.xacro" />
+    
+    <!-- Common properties (colors, inertia macros, etc.) -->
     <xacro:include filename="common_properties.xacro" />
+    
+    <!-- Robot structure -->
     <xacro:include filename="mobile_base.xacro" />
 
 </robot>
