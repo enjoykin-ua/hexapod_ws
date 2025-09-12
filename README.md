@@ -1,6 +1,8 @@
 # Hexapod Robot Description (ROS2)
 
-A ROS2-based hexapod (six-legged) robot project focusing on learning and implementing various robotics technologies. The system is designed for battery-powered operation, utilizing a Raspberry Pi 4 as the main computing unit and a Servo2040 board for precise servo control.
+A ROS2-based hexapod robot project focusing on learning and implementing various robotics technologies. The system is designed for battery-powered operation, utilizing a Raspberry Pi 4 as the main computing unit and a Servo2040 board for precise servo control.
+
+![Hexapod Robot in RViz](media/rviz.png)
 
 ## Project Goals
 
