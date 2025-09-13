@@ -20,15 +20,7 @@
         <color rgba="${body_color_rgba}"/>
       </material>
     </visual>
-    <inertial>
-      <mass value="${base_link_mass}"/>
-      <origin xyz="0 0 ${body_height/2}" rpy="0 0 0"/>
-      <inertia  ixx="${base_link_mass/12 * (body_width*body_width + body_height*body_height)}"
-                ixy="0" ixz="0"
-                iyy="${base_link_mass/12 * (body_length*body_length + body_height*body_height)}"
-                iyz="0"
-                izz="${base_link_mass/12 * (body_length*body_length + body_width*body_width)}"/>
-    </inertial>
+    <xacro:base_link_inertial/>
     <collision>
       <geometry>
         <box size="${body_length} ${body_width} ${body_height}"/>
@@ -64,15 +56,7 @@
         </geometry>
         <material name="${prefix}_material_coxa"><color rgba="${color_rgba}"/></material>
       </visual>
-      <inertial>
-        <mass value="${leg_segment_mass}"/>
-        <origin xyz="${coxa_length/2} 0 0" rpy="0 0 0"/>
-        <inertia  ixx="${leg_segment_mass/12 * (coxa_width*coxa_width + coxa_height*coxa_height)}"
-                  ixy="0" ixz="0"
-                  iyy="${leg_segment_mass/12 * (coxa_length*coxa_length + coxa_height*coxa_height)}"
-                  iyz="0"
-                  izz="${leg_segment_mass/12 * (coxa_length*coxa_length + coxa_width*coxa_width)}"/>
-      </inertial>
+      <xacro:leg_segment_inertial x="${coxa_length}" y="${coxa_width}" z="${coxa_height}"/>
       <collision>
         <origin xyz="${coxa_length/2} 0 0" rpy="0 0 0"/>
         <geometry>
@@ -97,15 +81,7 @@
         </geometry>
         <material name="${prefix}_material_femur"><color rgba="${color_rgba}"/></material>
       </visual>
-      <inertial>
-        <mass value="${leg_segment_mass}"/>
-        <origin xyz="${femur_length/2} 0 0" rpy="0 0 0"/>
-        <inertia  ixx="${leg_segment_mass/12 * (femur_width*femur_width + femur_height*femur_height)}"
-                  ixy="0" ixz="0"
-                  iyy="${leg_segment_mass/12 * (femur_length*femur_length + femur_height*femur_height)}"
-                  iyz="0"
-                  izz="${leg_segment_mass/12 * (femur_length*femur_length + femur_width*femur_width)}"/>
-      </inertial>
+      <xacro:leg_segment_inertial x="${femur_length}" y="${femur_width}" z="${femur_height}"/>
       <collision>
         <origin xyz="${femur_length/2} 0 0" rpy="0 0 0"/>
         <geometry>
@@ -130,15 +106,7 @@
         </geometry>
         <material name="${prefix}_material_tibia"><color rgba="${color_rgba}"/></material>
       </visual>
-      <inertial>
-        <mass value="${leg_segment_mass}"/>
-        <origin xyz="${tibia_length/2} 0 0" rpy="0 0 0"/>
-        <inertia  ixx="${leg_segment_mass/12 * (tibia_width*tibia_width + tibia_height*tibia_height)}"
-                  ixy="0" ixz="0"
-                  iyy="${leg_segment_mass/12 * (tibia_length*tibia_length + tibia_height*tibia_height)}"
-                  iyz="0"
-                  izz="${leg_segment_mass/12 * (tibia_length*tibia_length + tibia_width*tibia_width)}"/>
-      </inertial>
+      <xacro:leg_segment_inertial x="${tibia_length}" y="${tibia_width}" z="${tibia_height}"/>
       <collision>
         <origin xyz="${tibia_length/2} 0 0" rpy="0 0 0"/>
         <geometry>

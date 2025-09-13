@@ -10,4 +10,7 @@
     <!-- Robot structure -->
     <xacro:include filename="mobile_base.xacro" />
 
+    <!-- Gazebo properties, uncomment the line if dont want to use gazebo -->
+    <!-- <xacro:include filename="mobile_base_gazebo.xacro" /> -->
+
 </robot>

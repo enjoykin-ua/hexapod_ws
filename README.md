@@ -37,8 +37,11 @@ colcon build
 # Source
 source install/setup.bash
 
-# Launch visualization
+# Launch visualization (Rviz)
 ros2 launch my_robot_description display.launch.xml
+
+# Launch Gazebo & Rviz
+ros2 launch my_robot_bringup my_robot_gazebo.launch.xml
 ```
 
 ## Acknowledgments
