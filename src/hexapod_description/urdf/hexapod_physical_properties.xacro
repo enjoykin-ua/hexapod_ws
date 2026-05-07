@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Chassis -->
+  <xacro:property name="body_length"        value="0.175"/>
+  <xacro:property name="body_width"         value="0.130"/>
+  <xacro:property name="body_width_middle"  value="0.170"/>
+  <xacro:property name="body_height"        value="0.043"/>
+  <xacro:property name="base_mass"          value="0.5"/>
+
+  <!-- Beinsegmente -->
+  <xacro:property name="coxa_length" value="0.0436"/>
+  <xacro:property name="coxa_width"  value="0.0254"/>
+  <xacro:property name="coxa_height" value="0.0582"/>
+
+  <xacro:property name="femur_length" value="0.07994"/>
+  <xacro:property name="femur_width"  value="0.059"/>
+  <xacro:property name="femur_height" value="0.020"/>
+
+  <xacro:property name="tibia_length" value="0.1787"/>
+  <xacro:property name="tibia_width"  value="0.012"/>
+  <xacro:property name="tibia_height" value="0.012"/>
+
+  <xacro:property name="segment_mass" value="0.1167"/>
+
+  <!-- Foot (Kugel am Tibia-Ende fuer Punktkontakt, wird in Stufe B genutzt) -->
+  <xacro:property name="foot_radius" value="0.008"/>
+  <xacro:property name="foot_mass"   value="0.005"/>
+
+  <!-- Joint-Limits (physisch verifiziert, siehe 00_conventions.md §11.4) -->
+  <xacro:property name="coxa_lower"   value="-1.57"/>
+  <xacro:property name="coxa_upper"   value=" 1.57"/>
+  <xacro:property name="femur_lower"  value="-1.57"/>
+  <xacro:property name="femur_upper"  value=" 1.57"/>
+  <xacro:property name="tibia_lower"  value="-1.50"/>
+  <xacro:property name="tibia_upper"  value=" 1.50"/>
+  <xacro:property name="joint_effort"   value="5.0"/>  <!-- effort/velocity: vom Servo-DB -->
+  <xacro:property name="joint_velocity" value="2.0"/>
+
+  <!-- Mountpunkt-Hoehe der Beine relativ zu base_link -->
+  <xacro:property name="leg_mount_z" value="${body_height/2}"/>
+
+</robot>

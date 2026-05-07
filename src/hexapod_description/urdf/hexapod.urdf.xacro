@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot name="hexapod" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="hexapod_physical_properties.xacro"/>
+  <xacro:include filename="materials.xacro"/>
+  <xacro:include filename="inertials.xacro"/>
+  <xacro:include filename="leg.xacro"/>
+
+  <!-- ===== Base ===== -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}"/>
+      </geometry>
+    </collision>
+    <xacro:box_inertia mass="${base_mass}"
+                       x="${body_length}" y="${body_width}" z="${body_height}"/>
+  </link>
+
+  <!-- ===== Beine =====
+       Stufe A: nur leg_1 instanziiert. leg_2..leg_6 folgen in Stufe C. -->
+  <xacro:leg id="1"
+             mount_x="${ body_length/2}" mount_y="${-body_width/2}"
+             mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"/>
+
+</robot>

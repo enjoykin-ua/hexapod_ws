@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="leg" params="id mount_x mount_y mount_z mount_yaw">
+
+    <!-- ===== Coxa ===== -->
+    <joint name="leg_${id}_coxa_joint" type="revolute">
+      <parent link="base_link"/>
+      <child  link="leg_${id}_coxa_link"/>
+      <origin xyz="${mount_x} ${mount_y} ${mount_z}"
+              rpy="0 0 ${mount_yaw}"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${coxa_lower}" upper="${coxa_upper}"
+             effort="${joint_effort}" velocity="${joint_velocity}"/>
+    </joint>
+
+    <link name="leg_${id}_coxa_link">
+      <visual>
+        <origin xyz="${coxa_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${coxa_length} ${coxa_width} ${coxa_height}"/>
+        </geometry>
+        <material name="grey"/>
+      </visual>
+      <collision>
+        <origin xyz="${coxa_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${coxa_length} ${coxa_width} ${coxa_height}"/>
+        </geometry>
+      </collision>
+      <xacro:box_inertia mass="${segment_mass}"
+                         x="${coxa_length}" y="${coxa_width}" z="${coxa_height}"/>
+    </link>
+
+    <!-- ===== Femur ===== -->
+    <joint name="leg_${id}_femur_joint" type="revolute">
+      <parent link="leg_${id}_coxa_link"/>
+      <child  link="leg_${id}_femur_link"/>
+      <origin xyz="${coxa_length} 0 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${femur_lower}" upper="${femur_upper}"
+             effort="${joint_effort}" velocity="${joint_velocity}"/>
+    </joint>
+
+    <link name="leg_${id}_femur_link">
+      <visual>
+        <origin xyz="${femur_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${femur_length} ${femur_width} ${femur_height}"/>
+        </geometry>
+        <material name="orange"/>
+      </visual>
+      <collision>
+        <origin xyz="${femur_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${femur_length} ${femur_width} ${femur_height}"/>
+        </geometry>
+      </collision>
+      <xacro:box_inertia mass="${segment_mass}"
+                         x="${femur_length}" y="${femur_width}" z="${femur_height}"/>
+    </link>
+
+    <!-- ===== Tibia ===== -->
+    <joint name="leg_${id}_tibia_joint" type="revolute">
+      <parent link="leg_${id}_femur_link"/>
+      <child  link="leg_${id}_tibia_link"/>
+      <origin xyz="${femur_length} 0 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${tibia_lower}" upper="${tibia_upper}"
+             effort="${joint_effort}" velocity="${joint_velocity}"/>
+    </joint>
+
+    <link name="leg_${id}_tibia_link">
+      <visual>
+        <origin xyz="${tibia_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${tibia_length} ${tibia_width} ${tibia_height}"/>
+        </geometry>
+        <material name="grey"/>
+      </visual>
+      <collision>
+        <origin xyz="${tibia_length/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${tibia_length} ${tibia_width} ${tibia_height}"/>
+        </geometry>
+      </collision>
+      <xacro:box_inertia mass="${segment_mass}"
+                         x="${tibia_length}" y="${tibia_width}" z="${tibia_height}"/>
+    </link>
+
+    <!-- Foot-Link wird in Stufe B ergaenzt -->
+
+  </xacro:macro>
+
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Mindest-Inertia gegen Solver-Vibration bei duennen Geometrien
+       (siehe 00_conventions.md §11.5) -->
+  <xacro:property name="inertia_min" value="1.0e-5"/>
+
+  <xacro:macro name="box_inertia" params="mass x y z">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${max((1.0/12.0)*mass*(y*y + z*z), inertia_min)}"
+        ixy="0.0" ixz="0.0"
+        iyy="${max((1.0/12.0)*mass*(x*x + z*z), inertia_min)}"
+        iyz="0.0"
+        izz="${max((1.0/12.0)*mass*(x*x + y*y), inertia_min)}"/>
+    </inertial>
+  </xacro:macro>
+
+</robot>
