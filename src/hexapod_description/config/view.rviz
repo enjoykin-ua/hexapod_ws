@@ -53,7 +53,7 @@ Visualization Manager:
       Value: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: base_link
+    Fixed Frame: world
     Frame Rate: 30
   Tools:
     - Class: rviz_default_plugins/MoveCamera

@@ -1,6 +1,8 @@
 """Display the hexapod URDF in RViz with joint sliders.
 
 Startet:
+  - static_transform_publisher (world -> base_link, hebt Roboter so an,
+    dass die Chassis-Unterseite auf world.z=0 liegt)
   - robot_state_publisher (mit xacro-verarbeitetem URDF)
   - joint_state_publisher_gui (Slider fuer alle revolute Joints)
   - rviz2 (mit config/view.rviz)
@@ -11,6 +13,11 @@ from launch.substitutions import Command, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
+# body_height/2 (siehe urdf/hexapod_physical_properties.xacro).
+# Hard-coded weil Launch-Files keine Xacro-Properties lesen koennen.
+# Bei Aenderung von body_height: hier nachziehen.
+BASE_LINK_Z_OVER_WORLD = '0.0215'
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -27,6 +34,17 @@ def generate_launch_description() -> LaunchDescription:
     }
 
     return LaunchDescription([
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='world_to_base_link',
+            output='screen',
+            arguments=[
+                '--x', '0', '--y', '0', '--z', BASE_LINK_Z_OVER_WORLD,
+                '--frame-id', 'world',
+                '--child-frame-id', 'base_link',
+            ],
+        ),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',

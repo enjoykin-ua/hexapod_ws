@@ -197,7 +197,12 @@ und sind die einzige Stelle, an der sie geändert werden dürfen.
 
 ### 11.3 Mountpunkte der Beine (relativ zu `base_link`)
 
-`leg_mount_z = body_height / 2` für alle Beine.
+`leg_mount_z = 0` für alle Beine — die Coxa-Joint-Achse liegt
+horizontal in der Chassis-Z-Mitte (= Z-Mitte von `base_link`).
+Die Coxa-Box ist Z-symmetrisch um den Joint und ragt
+`(coxa_height − body_height) / 2 ≈ 0.0076 m` über die Chassis-
+Ober- und Unterkante hinaus, weil `coxa_height > body_height`
+(Servo-Block etwas höher als der Chassis-Querschnitt).
 
 | Bein | x | y | yaw |
 |---|---|---|---|
