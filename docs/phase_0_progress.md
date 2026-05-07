@@ -33,9 +33,9 @@ Beim Neustart: diese Datei lesen, dann mit dem ersten offenen Schritt weitermach
 
 ---
 
-## Offen (nächster Schritt: 9)
+## Alle Schritte abgeschlossen ✅
 
-- [ ] **Schritt 9** — Git-Identität setzen + `git init` + `.gitignore` + erster Commit
+- [x] **Schritt 9** — Git-Identität gesetzt, `git init`, `.gitignore`, Commits, SSH-Key für GitHub eingerichtet, Remote `git@github.com:enjoykin-ua/hexapod_ws.git` verbunden, nach `main` gepusht
 - [x] **Schritt 10** — 4 Smoke-Tests grün:
   1. talker / listener ✅
   2. `gz sim` ✅ (libEGL-Warnungen harmlos, Fenster öffnet korrekt)
@@ -43,6 +43,10 @@ Beim Neustart: diese Datei lesen, dann mit dem ersten offenen Schritt weitermach
   4. `colcon build` ✅ (0 packages, 0 errors)
   > Hinweis: Neue Terminals sourced `~/.bashrc` automatisch. Bereits offene
   > Terminals einmalig mit `source ~/.bashrc` aktivieren.
-- [ ] Timeshift-Snapshot `phase_0_done` anlegen
-- [ ] Git-Tag `phase-0-done`
-- [ ] `PHASE.md` auf Phase 1 setzen
+- [x] Timeshift-Snapshot `phase_0_done` angelegt
+- [x] Git-Tag `phase-0-done` gesetzt und gepusht
+- [x] `PHASE.md` auf Phase 1 aktualisiert
+
+---
+
+## Phase 0 abgeschlossen am 2026-05-07
