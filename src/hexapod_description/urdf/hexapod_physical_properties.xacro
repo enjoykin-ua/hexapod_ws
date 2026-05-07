@@ -37,7 +37,11 @@
   <xacro:property name="joint_effort"   value="5.0"/>  <!-- effort/velocity: vom Servo-DB -->
   <xacro:property name="joint_velocity" value="2.0"/>
 
-  <!-- Mountpunkt-Hoehe der Beine relativ zu base_link -->
-  <xacro:property name="leg_mount_z" value="${body_height/2}"/>
+  <!-- Mountpunkt-Hoehe der Beine relativ zu base_link.
+       Joint-Achse sitzt in der Chassis-Z-Mitte, sodass die Coxa-Box
+       (Z-symmetrisch um den Joint) zentriert um die Chassis-Mittelebene
+       liegt und gleichmaessig oben/unten ueberragt
+       (coxa_height > body_height). Siehe 00_conventions.md §11.3. -->
+  <xacro:property name="leg_mount_z" value="0"/>
 
 </robot>
