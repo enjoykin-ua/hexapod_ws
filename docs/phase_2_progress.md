@@ -23,12 +23,12 @@ Stufenplan A–E gemäss `docs/phase_2_description.md` §Strategie.
 
 ---
 
-## Stufe B — Foot-Link (Kugel) am Bein-Ende
+## Stufe B — Foot-Link (Kugel) am Bein-Ende ✅
 
-- [ ] `sphere_inertia` Macro in `inertials.xacro` ergänzt (mit `inertia_min`-Schranke)
-- [ ] Foot-Link in `leg.xacro`: `joint type=fixed`, parent=tibia, child=foot, origin `${tibia_length} 0 0`
-- [ ] Foot-Link mit `<visual>` + `<collision>` (Kugel `foot_radius`) und `sphere_inertia`
-- [ ] `xacro` + `check_urdf` erneut grün, Foot-Link erscheint im Baum
+- [x] `sphere_inertia` Macro in `inertials.xacro` ergänzt (mit `inertia_min`-Schranke)
+- [x] Foot-Link in `leg.xacro`: `joint type=fixed`, parent=tibia, child=foot, origin `${tibia_length} 0 0`
+- [x] Foot-Link mit `<visual>` + `<collision>` (Kugel `foot_radius`) und `sphere_inertia`
+- [x] `xacro` + `check_urdf` erneut grün, Foot-Link erscheint im Baum
 
 ---
 
@@ -55,7 +55,7 @@ Stufenplan A–E gemäss `docs/phase_2_description.md` §Strategie.
 - [x] `launch/display.launch.py` (xacro Command-Substitution, `robot_state_publisher`, `joint_state_publisher_gui`, `rviz2 -d view.rviz`) — vorgezogen für Smoke-Test mit 1 Bein
 - [x] `config/view.rviz` initial: Fixed Frame `base_link`, Displays `RobotModel` + `TF` + `Grid`
 - [x] `colcon build --symlink-install` grün
-- [ ] `ros2 launch hexapod_description display.launch.py` öffnet RViz ohne Fehler
+- [x] `ros2 launch hexapod_description display.launch.py` öffnet RViz ohne Fehler (1-Bein-Smoke verifiziert: Chassis sichtbar, leg_1 sichtbar, 3 Slider bewegen leg_1 plausibel)
 - [ ] Alle 6 Beine sichtbar, alle 18 Joints in Slider-GUI bewegbar, Drehrichtungen plausibel
 - [ ] `ros2 run tf2_tools view_frames` erzeugt `frames.pdf` mit allen 6 Beinen bis `foot_link`
 - [ ] `README.md` in `hexapod_description/` (Zweck, Launch-Aufruf, Frame-Tree-Auszug)
