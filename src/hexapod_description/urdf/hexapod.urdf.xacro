@@ -23,10 +23,24 @@
                        x="${body_length}" y="${body_width}" z="${body_height}"/>
   </link>
 
-  <!-- ===== Beine =====
-       Stufe A: nur leg_1 instanziiert. leg_2..leg_6 folgen in Stufe C. -->
+  <!-- ===== Beine (Mountpunkte + yaw aus 00_conventions.md §11.3) ===== -->
   <xacro:leg id="1"
              mount_x="${ body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"/>
+  <xacro:leg id="2"
+             mount_x="0"                 mount_y="${-body_width_middle/2}"
+             mount_z="${leg_mount_z}"    mount_yaw="${-pi/2}"/>
+  <xacro:leg id="3"
+             mount_x="${-body_length/2}" mount_y="${-body_width/2}"
+             mount_z="${leg_mount_z}"    mount_yaw="${-3*pi/4}"/>
+  <xacro:leg id="4"
+             mount_x="${-body_length/2}" mount_y="${ body_width/2}"
+             mount_z="${leg_mount_z}"    mount_yaw="${ 3*pi/4}"/>
+  <xacro:leg id="5"
+             mount_x="0"                 mount_y="${ body_width_middle/2}"
+             mount_z="${leg_mount_z}"    mount_yaw="${ pi/2}"/>
+  <xacro:leg id="6"
+             mount_x="${ body_length/2}" mount_y="${ body_width/2}"
+             mount_z="${leg_mount_z}"    mount_yaw="${ pi/4}"/>
 
 </robot>

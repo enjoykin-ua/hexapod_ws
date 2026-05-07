@@ -32,11 +32,11 @@ Stufenplan A–E gemäss `docs/phase_2_description.md` §Strategie.
 
 ---
 
-## Stufe C — Bein als Macro, 6× instanziiert
+## Stufe C — Bein als Macro, 6× instanziiert ✅
 
-- [ ] In `hexapod.urdf.xacro` alle 6 Beine instanziiert mit Mountpunkten + yaw aus Konventionen §11.3
-- [ ] `xacro` + `check_urdf` grün
-- [ ] Frame-Anzahl plausibel: `1 base_link + 6 × 4 = 25` Links
+- [x] In `hexapod.urdf.xacro` alle 6 Beine instanziiert mit Mountpunkten + yaw aus Konventionen §11.3
+- [x] `xacro` + `check_urdf` grün
+- [x] Frame-Anzahl plausibel: `1 base_link + 6 × 4 = 25` Links (verifiziert: 25 Links / 24 Joints, davon 18 revolute + 6 fixed)
 
 ---
 
