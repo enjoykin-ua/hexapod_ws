@@ -14,10 +14,14 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
-# body_height/2 (siehe urdf/hexapod_physical_properties.xacro).
-# Hard-coded weil Launch-Files keine Xacro-Properties lesen koennen.
-# Bei Aenderung von body_height: hier nachziehen.
-BASE_LINK_Z_OVER_WORLD = '0.0215'
+# Z-Offset von base_link ueber world.
+# Ergibt sich aus max(coxa_height, body_height) / 2, weil die Coxa-Boxen
+# Z-symmetrisch um die Chassis-Mitte sitzen und (weil coxa_height > body_height)
+# der unterste Punkt des Roboters die Coxa-Unterkante ist, nicht der Body.
+# Hard-coded weil Launch-Files keine Xacro-Properties lesen koennen
+# (Werte aus urdf/hexapod_physical_properties.xacro: coxa_height = 0.0582).
+# Bei Aenderung von coxa_height oder body_height: hier nachziehen.
+BASE_LINK_Z_OVER_WORLD = '0.0291'
 
 
 def generate_launch_description() -> LaunchDescription:
