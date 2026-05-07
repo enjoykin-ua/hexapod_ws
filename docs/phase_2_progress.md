@@ -62,11 +62,31 @@ Stufenplan A–E gemäss `docs/phase_2_description.md` §Strategie.
 
 ---
 
-## Phasenabschluss
+## Phasenabschluss ✅
 
-- [ ] Alle 6 Done-Kriterien aus `phase_2_description.md` erfüllt
-- [ ] `package.xml` ohne `TODO:`-Stubs
-- [ ] Timeshift-Snapshot `phase_2_done`
-- [ ] Git-Commit + Tag `phase-2-done`
-- [ ] `PHASE.md` auf Phase 3 aktualisiert
-- [ ] Kurze Retro: was lief gut, was hat länger gedauert, was bleibt offen
+- [x] Alle 6 Done-Kriterien aus `phase_2_description.md` erfüllt (Build, Launch, 6 Beine + 18 Joints, check_urdf, tf-Tree, README)
+- [x] `package.xml` ohne `TODO:`-Stubs (Description gesetzt, Maintainer/E-Mail/License gesetzt)
+- [x] Timeshift-Snapshot `phase_2_done` (User)
+- [x] Git-Commit + Tag `phase-2-done` (User, gepusht)
+- [x] `PHASE.md` auf Phase 3 aktualisiert
+- [x] Workspace-`README.md` mit Phase-2-Bericht angelegt (Designentscheidungen, Verifikation, offene Punkte)
+- [x] Retro: siehe unten
+
+---
+
+## Retro Phase 2
+
+**Was lief gut**
+- Stufenplan A→E aus der Phasen-Doku war 1:1 umsetzbar; pre-built Code-Listings ersparten Tippen.
+- `--symlink-install` macht Iteration auf URDF/Launch/RViz schmerzfrei (kein Rebuild nötig).
+- xacro + `check_urdf` als feste Validierungs-Pipeline nach jeder Änderung — Fehler fallen sofort auf.
+
+**Was hat länger gedauert**
+- **Coxa-Z-Position:** zwei Iterationen nötig. Die initiale Frage zu drei Coxa-Visual-Varianten (Z-symmetrisch / oberhalb / unterhalb) war die falsche Frage — der eigentliche Fix war `leg_mount_z = 0` statt `body_height/2`.
+- **Boden-Visualisierung:** `world → base_link` Static-Transform mit dem richtigen Z-Offset (`coxa_height/2`, nicht `body_height/2`) brauchte einen zweiten Anlauf, weil die Coxa unter den Body ragt.
+- **Headless-`view_frames`:** Bash-Subshell-Env-Issues mit Background-Jobs, gelöst über `bash -c` Wrapper.
+
+**Was bleibt offen**
+- KDL-Warning für `base_link` mit Inertia (nicht funktional kritisch, eventuell in Phase 4 mit Dummy-Root-Link fixen).
+- Der `world`-Frame im Display-Launch ist Phase-2-Hilfe; wird in Phase 3 durch Gazebo-Spawn ersetzt.
+- `effort` und `velocity` der Joint-Limits sind aus Servo-DB geschätzt, nicht unter Last gemessen — Phase-7-Thema.
