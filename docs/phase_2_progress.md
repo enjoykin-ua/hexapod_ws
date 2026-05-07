@@ -50,15 +50,15 @@ Stufenplan A–E gemäss `docs/phase_2_description.md` §Strategie.
 
 ---
 
-## Stufe E — Launch, RViz, tf-Tree, README
+## Stufe E — Launch, RViz, tf-Tree, README ✅
 
-- [x] `launch/display.launch.py` (xacro Command-Substitution, `robot_state_publisher`, `joint_state_publisher_gui`, `rviz2 -d view.rviz`) — vorgezogen für Smoke-Test mit 1 Bein
-- [x] `config/view.rviz` initial: Fixed Frame `base_link`, Displays `RobotModel` + `TF` + `Grid`
+- [x] `launch/display.launch.py` (xacro Command-Substitution, `robot_state_publisher`, `joint_state_publisher_gui`, `rviz2 -d view.rviz`) — vorgezogen für Smoke-Test mit 1 Bein, später um `world → base_link` static-tf ergänzt
+- [x] `config/view.rviz` initial: Fixed Frame `world`, Displays `RobotModel` + `TF` + `Grid`
 - [x] `colcon build --symlink-install` grün
 - [x] `ros2 launch hexapod_description display.launch.py` öffnet RViz ohne Fehler (1-Bein-Smoke verifiziert: Chassis sichtbar, leg_1 sichtbar, 3 Slider bewegen leg_1 plausibel)
 - [x] Alle 6 Beine sichtbar, alle 18 Joints in Slider-GUI bewegbar, Drehrichtungen plausibel (User-bestätigt nach Coxa-Z-Fix)
-- [ ] `ros2 run tf2_tools view_frames` erzeugt `frames.pdf` mit allen 6 Beinen bis `foot_link`
-- [ ] `README.md` in `hexapod_description/` (Zweck, Launch-Aufruf, Frame-Tree-Auszug)
+- [x] `ros2 run tf2_tools view_frames` erzeugt `frames_<timestamp>.pdf` mit allen 6 Beinen bis `foot_link` (25 unique Frames: 1 base + 6×4 Bein-Links, in `/tmp/hexapod_frames/`)
+- [x] `README.md` in `hexapod_description/` (Zweck, Launch-Aufruf, Frame-Tree, Konventionen, Joint-Limits)
 
 ---
 
