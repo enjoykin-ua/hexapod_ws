@@ -40,13 +40,13 @@ Stufenplan A–E gemäss `docs/phase_2_description.md` §Strategie.
 
 ---
 
-## Stufe D — Inertien, Kollisionen, Joint-Limits final
+## Stufe D — Inertien, Kollisionen, Joint-Limits final ✅
 
-- [ ] `box_inertia` und `sphere_inertia` mit `max(..., inertia_min)` an allen Links
-- [ ] Alle Links haben `<collision>` mit derselben Geometrie wie `<visual>`
-- [ ] Alle revolute Joints haben `<limit>` mit Werten aus Konventionen §11.4
-- [ ] Foot-Joint ist `fixed` (kein Slider in `joint_state_publisher_gui`)
-- [ ] Cross-Check gegen `docs/00_conventions.md` §11 (Maße, Massen, Mountpunkte, Limits)
+- [x] `box_inertia` und `sphere_inertia` mit `max(..., inertia_min)` an allen Links (5 Aufrufe: base + coxa+femur+tibia+foot pro Bein-Macro)
+- [x] Alle Links haben `<collision>` mit derselben Geometrie wie `<visual>` (25× / 25×)
+- [x] Alle revolute Joints haben `<limit>` mit Werten aus Konventionen §11.4 (18 `<limit>`-Tags = 6 × 3 revolute)
+- [x] Foot-Joint ist `fixed` (kein Slider in `joint_state_publisher_gui`) — 6 fixed joints im URDF, in RViz keine Foot-Slider sichtbar
+- [x] Cross-Check gegen `docs/00_conventions.md` §11 — Maße §11.1/11.2 ✓, Massen ✓, Mountpunkte §11.3 (`leg_mount_z=0` aktualisiert) ✓, Limits §11.4 ✓
 
 ---
 
@@ -56,7 +56,7 @@ Stufenplan A–E gemäss `docs/phase_2_description.md` §Strategie.
 - [x] `config/view.rviz` initial: Fixed Frame `base_link`, Displays `RobotModel` + `TF` + `Grid`
 - [x] `colcon build --symlink-install` grün
 - [x] `ros2 launch hexapod_description display.launch.py` öffnet RViz ohne Fehler (1-Bein-Smoke verifiziert: Chassis sichtbar, leg_1 sichtbar, 3 Slider bewegen leg_1 plausibel)
-- [ ] Alle 6 Beine sichtbar, alle 18 Joints in Slider-GUI bewegbar, Drehrichtungen plausibel
+- [x] Alle 6 Beine sichtbar, alle 18 Joints in Slider-GUI bewegbar, Drehrichtungen plausibel (User-bestätigt nach Coxa-Z-Fix)
 - [ ] `ros2 run tf2_tools view_frames` erzeugt `frames.pdf` mit allen 6 Beinen bis `foot_link`
 - [ ] `README.md` in `hexapod_description/` (Zweck, Launch-Aufruf, Frame-Tree-Auszug)
 
