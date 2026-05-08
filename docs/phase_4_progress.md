@@ -14,7 +14,7 @@ Stufenplan A–F abgeleitet aus `docs/phase_4_ros2_control.md`.
 
 ---
 
-## Stufe A — Paket-Skelette `hexapod_control` + `hexapod_bringup` ⬜
+## Stufe A — Paket-Skelette `hexapod_control` + `hexapod_bringup` ✅
 
 **Ziel:** Zwei neue ROS2-Pakete neben `hexapod_description` und `hexapod_gazebo`.
 Saubere Trennung der Verantwortlichkeiten:
@@ -41,15 +41,15 @@ Community.
 **Frage zu klären in Stufe D:** Was passiert mit `hexapod_gazebo/launch/sim.launch.py`?
 Optionen werden in Stufe D behandelt — A nimmt nur die neuen Pakete an.
 
-- [ ] Tools verifiziert (`ros-jazzy-ros2-control`, `ros-jazzy-ros2-controllers`, `ros-jazzy-controller-manager`, `ros-jazzy-gz-ros2-control`) — `apt list --installed | grep -E 'ros2-control|gz-ros2-control'`
-- [ ] `ros2 pkg create --build-type ament_cmake --license Apache-2.0 --maintainer-email "noreply@gmx.net" --maintainer-name "enjoykin-ua" hexapod_control` in `src/`
-- [ ] `ros2 pkg create --build-type ament_cmake --license Apache-2.0 --maintainer-email "noreply@gmx.net" --maintainer-name "enjoykin-ua" hexapod_bringup` in `src/`
-- [ ] Verzeichnisse `hexapod_control/config/`, `hexapod_bringup/launch/` angelegt; auto-generierte `include/`, `src/` entfernt (Resource-only)
-- [ ] `hexapod_control/CMakeLists.txt`: `install(DIRECTORY config DESTINATION share/${PROJECT_NAME})`
-- [ ] `hexapod_bringup/CMakeLists.txt`: `install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})`
-- [ ] `hexapod_control/package.xml` `<exec_depend>`s: `ros2_control`, `ros2_controllers`, `controller_manager`
-- [ ] `hexapod_bringup/package.xml` `<exec_depend>`s: `ros_gz_sim`, `ros_gz_bridge`, `hexapod_description`, `hexapod_gazebo`, `hexapod_control`, `xacro`, `robot_state_publisher`, `controller_manager`, `joint_state_broadcaster`, `joint_trajectory_controller`
-- [ ] `colcon build --packages-select hexapod_control hexapod_bringup` grün (leere Pakete bauen)
+- [x] Tools verifiziert (`ros-jazzy-ros2-control`, `ros-jazzy-ros2-controllers`, `ros-jazzy-controller-manager`, `ros-jazzy-gz-ros2-control`) — `apt list --installed | grep -E 'ros2-control|gz-ros2-control'`
+- [x] `ros2 pkg create --build-type ament_cmake --license Apache-2.0 --maintainer-email "noreply@gmx.net" --maintainer-name "enjoykin-ua" hexapod_control` in `src/`
+- [x] `ros2 pkg create --build-type ament_cmake --license Apache-2.0 --maintainer-email "noreply@gmx.net" --maintainer-name "enjoykin-ua" hexapod_bringup` in `src/`
+- [x] Verzeichnisse `hexapod_control/config/`, `hexapod_bringup/launch/` angelegt; auto-generierte `include/`, `src/` entfernt (Resource-only)
+- [x] `hexapod_control/CMakeLists.txt`: `install(DIRECTORY config DESTINATION share/${PROJECT_NAME})`
+- [x] `hexapod_bringup/CMakeLists.txt`: `install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})`
+- [x] `hexapod_control/package.xml` `<exec_depend>`s: `ros2_control`, `ros2_controllers`, `controller_manager`
+- [x] `hexapod_bringup/package.xml` `<exec_depend>`s: `ros_gz_sim`, `ros_gz_bridge`, `hexapod_description`, `hexapod_gazebo`, `hexapod_control`, `xacro`, `robot_state_publisher`, `controller_manager`, `joint_state_broadcaster`, `joint_trajectory_controller`
+- [x] `colcon build --packages-select hexapod_control hexapod_bringup` grün (leere Pakete bauen)
 
 ---
 
