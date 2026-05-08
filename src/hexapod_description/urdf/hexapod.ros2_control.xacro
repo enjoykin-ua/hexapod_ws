@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    ros2_control-Anbindung fuer die 18 Bein-Joints + gz_ros2_control-Plugin.
+
+    Wird vom robot_state_publisher ignoriert (auf dem Pi unschaedlich).
+    Phase 7 ersetzt das gz_ros2_control-Plugin durch ein Custom-
+    HardwareInterface fuer die Servo2040; controllers.yaml und
+    Interface-Deklarationen bleiben dabei unveraendert.
+
+    Limit-Werte stammen aus hexapod_physical_properties.xacro
+    (Single Source of Truth, siehe 00_conventions.md §11.4).
+    Doppeltes Sicherheitsnetz: controller_manager clamped auf
+    <param min/max>, Gazebo zusaetzlich auf <limit>.
+  -->
+
+  <ros2_control name="GazeboSimSystem" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+
+    <xacro:macro name="joint_iface" params="name lower upper">
+      <joint name="${name}">
+        <command_interface name="position">
+          <param name="min">${lower}</param>
+          <param name="max">${upper}</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </xacro:macro>
+
+    <!-- Bein 1 -->
+    <xacro:joint_iface name="leg_1_coxa_joint"  lower="${coxa_lower}"  upper="${coxa_upper}"/>
+    <xacro:joint_iface name="leg_1_femur_joint" lower="${femur_lower}" upper="${femur_upper}"/>
+    <xacro:joint_iface name="leg_1_tibia_joint" lower="${tibia_lower}" upper="${tibia_upper}"/>
+
+    <!-- Bein 2 -->
+    <xacro:joint_iface name="leg_2_coxa_joint"  lower="${coxa_lower}"  upper="${coxa_upper}"/>
+    <xacro:joint_iface name="leg_2_femur_joint" lower="${femur_lower}" upper="${femur_upper}"/>
+    <xacro:joint_iface name="leg_2_tibia_joint" lower="${tibia_lower}" upper="${tibia_upper}"/>
+
+    <!-- Bein 3 -->
+    <xacro:joint_iface name="leg_3_coxa_joint"  lower="${coxa_lower}"  upper="${coxa_upper}"/>
+    <xacro:joint_iface name="leg_3_femur_joint" lower="${femur_lower}" upper="${femur_upper}"/>
+    <xacro:joint_iface name="leg_3_tibia_joint" lower="${tibia_lower}" upper="${tibia_upper}"/>
+
+    <!-- Bein 4 -->
+    <xacro:joint_iface name="leg_4_coxa_joint"  lower="${coxa_lower}"  upper="${coxa_upper}"/>
+    <xacro:joint_iface name="leg_4_femur_joint" lower="${femur_lower}" upper="${femur_upper}"/>
+    <xacro:joint_iface name="leg_4_tibia_joint" lower="${tibia_lower}" upper="${tibia_upper}"/>
+
+    <!-- Bein 5 -->
+    <xacro:joint_iface name="leg_5_coxa_joint"  lower="${coxa_lower}"  upper="${coxa_upper}"/>
+    <xacro:joint_iface name="leg_5_femur_joint" lower="${femur_lower}" upper="${femur_upper}"/>
+    <xacro:joint_iface name="leg_5_tibia_joint" lower="${tibia_lower}" upper="${tibia_upper}"/>
+
+    <!-- Bein 6 -->
+    <xacro:joint_iface name="leg_6_coxa_joint"  lower="${coxa_lower}"  upper="${coxa_upper}"/>
+    <xacro:joint_iface name="leg_6_femur_joint" lower="${femur_lower}" upper="${femur_upper}"/>
+    <xacro:joint_iface name="leg_6_tibia_joint" lower="${tibia_lower}" upper="${tibia_upper}"/>
+  </ros2_control>
+
+  <!--
+    gz_ros2_control-System-Plugin: laedt controllers.yaml und startet
+    den controller_manager im Sim-Prozess. $(find ...) wird von xacro
+    aufgeloest, daher muss hexapod_control vorher gebaut + gesourct sein.
+  -->
+  <gazebo>
+    <plugin filename="gz_ros2_control-system"
+            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find hexapod_control)/config/controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+</robot>

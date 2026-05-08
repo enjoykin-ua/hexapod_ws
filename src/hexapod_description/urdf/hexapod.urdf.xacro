@@ -46,4 +46,7 @@
   <!-- ===== Gazebo-spezifische Eigenschaften (Reibung an Foot-Kugeln) ===== -->
   <xacro:include filename="hexapod.gazebo.xacro"/>
 
+  <!-- ===== ros2_control (Phase 4): Joint-Interfaces + gz_ros2_control-Plugin ===== -->
+  <xacro:include filename="hexapod.ros2_control.xacro"/>
+
 </robot>

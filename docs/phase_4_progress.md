@@ -53,7 +53,7 @@ Optionen werden in Stufe D behandelt — A nimmt nur die neuen Pakete an.
 
 ---
 
-## Stufe B — URDF um `<ros2_control>`-Block + `gz_ros2_control`-Plugin erweitern ⬜
+## Stufe B — URDF um `<ros2_control>`-Block + `gz_ros2_control`-Plugin erweitern ✅
 
 **Ziel:** Das URDF lernt zwei neue Dinge:
 1. Pro Joint ein `<command_interface>` (Position-Soll) und `<state_interface>`
@@ -83,17 +83,70 @@ weil xacro die Substitution **vor** dem Spawn auflöst. Setzt voraus,
 dass `hexapod_control` gebaut und gesourct ist (sonst findet der Spawn
 das Paket nicht und der Plugin-Block schlägt fehl).
 
-- [ ] Neue Datei `hexapod_description/urdf/hexapod.ros2_control.xacro` angelegt (xacro-Header)
-- [ ] Macro `joint_iface(name, min, max)` mit `<command_interface name="position">` (mit `<param min/max>`) und `<state_interface position>` + `<state_interface velocity>`
-- [ ] `<ros2_control name="GazeboSimSystem" type="system">`-Block mit `<plugin>gz_ros2_control/GazeboSimSystem</plugin>`
-- [ ] Macro 18× instanziiert (alle Joints, Limits aus `00_conventions.md` §11.4)
-- [ ] `<gazebo>`-Block mit `<plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">` + `<parameters>$(find hexapod_control)/config/controllers.yaml</parameters>`
-- [ ] In `hexapod.urdf.xacro` am Ende (vor `</robot>`): `<xacro:include filename="hexapod.ros2_control.xacro"/>` mit Kommentar-Banner
-- [ ] `xacro hexapod.urdf.xacro > /tmp/hexapod.urdf` läuft fehlerfrei
-- [ ] `check_urdf /tmp/hexapod.urdf` weiterhin grün
-- [ ] Im generierten URDF: 18× `<joint name="leg_*_*_joint">` innerhalb des `<ros2_control>`-Blocks (`grep -c '<joint name=' /tmp/hexapod.urdf`)
-- [ ] Im generierten URDF: 18× `<command_interface name="position"` und 18× `<state_interface name="position"`
-- [ ] `colcon build --packages-select hexapod_description` grün (Plugin-Pfad-Auflösung erfordert dass `hexapod_control` aus Stufe A schon installiert ist!)
+- [x] Neue Datei `hexapod_description/urdf/hexapod.ros2_control.xacro` angelegt (xacro-Header)
+- [x] Macro `joint_iface(name, min, max)` mit `<command_interface name="position">` (mit `<param min/max>`) und `<state_interface position>` + `<state_interface velocity>` _(Param-Namen `lower`/`upper` statt `min`/`max`, wiederverwendet die Properties aus `hexapod_physical_properties.xacro`)_
+- [x] `<ros2_control name="GazeboSimSystem" type="system">`-Block mit `<plugin>gz_ros2_control/GazeboSimSystem</plugin>`
+- [x] Macro 18× instanziiert (alle Joints, Limits aus `00_conventions.md` §11.4)
+- [x] `<gazebo>`-Block mit `<plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">` + `<parameters>$(find hexapod_control)/config/controllers.yaml</parameters>`
+- [x] In `hexapod.urdf.xacro` am Ende (vor `</robot>`): `<xacro:include filename="hexapod.ros2_control.xacro"/>` mit Kommentar-Banner
+- [x] `xacro hexapod.urdf.xacro > /tmp/hexapod.urdf` läuft fehlerfrei
+- [x] `check_urdf /tmp/hexapod.urdf` weiterhin grün (`base_link has 6 child(ren)`, alle 6 Beine vollständig)
+- [x] Im generierten URDF: 18× `<command_interface name="position"` und 18× `<state_interface name="position"` (`<command_interface>` kommt nur im `<ros2_control>`-Block vor → eindeutiger Beleg für 18 ros2_control-Joint-Refs) — zusätzlich verifiziert: 18× `<state_interface name="velocity"`, 1× `<ros2_control>`-Block, 1× `gz_ros2_control-system`-Plugin
+- [x] `colcon build --packages-select hexapod_description` grün (Plugin-Pfad-Auflösung erfordert dass `hexapod_control` aus Stufe A schon installiert ist!)
+
+### Umsetzungsnotizen Stufe B
+
+**Datei-Layout:** Separate Datei `hexapod.ros2_control.xacro` neben dem
+schon existierenden `hexapod.gazebo.xacro` — gleiches Pattern (eigene
+xacro-Datei, am Ende von `hexapod.urdf.xacro` per `<xacro:include>`
+eingebunden, Banner-Kommentar). Konsistent zur Phase-2/3-Struktur.
+
+**Macro-Signatur:** `joint_iface(name, lower, upper)` statt der im Plan
+formulierten `(name, min, max)`. Grund: die Param-Namen `lower`/`upper`
+matchen die existierenden Properties (`coxa_lower`, `coxa_upper`, ...) in
+`hexapod_physical_properties.xacro` und vermeiden mentales Umsortieren
+beim Lesen. Im URDF werden die Werte trotzdem in `<param name="min">`
+und `<param name="max">` geschrieben (das ist die ros2_control-Schema-
+Vorgabe und nicht verhandelbar).
+
+**Limit-Werte — keine Duplikation:** Die 18 Macro-Aufrufe übergeben
+`${coxa_lower}` / `${coxa_upper}` / `${femur_*}` / `${tibia_*}` aus den
+existierenden Properties. Das hält §11.4 (00_conventions.md) als
+Single Source of Truth — wenn dort jemand Limits ändert, ändern sich
+sowohl die mechanischen `<limit>`-Werte (über `leg.xacro`) als auch
+die ros2_control-`<param min/max>` automatisch mit. Doppeltes
+Sicherheitsnetz bleibt, doppelte Wartung wird vermieden.
+
+**Macro-Layout im Block:** 6 Bein-Gruppen à 3 Aufrufe (`coxa`, `femur`,
+`tibia`), durch Kommentar `<!-- Bein N -->` getrennt. Lesbarer als 18
+flache Aufrufe, gleiches Muster wie `<xacro:foot_friction id="N"/>` in
+`hexapod.gazebo.xacro` (dort allerdings noch kompakter mit `id`-Param).
+Bewusste Entscheidung gegen ein zusätzliches Bein-Wrapper-Macro: in
+einem Resource-File ist explizite Aufzählung der 18 Joint-Namen
+auditierbar (man sieht direkt, welche Joints angemeldet sind).
+
+**Plugin-Block:** `gz_ros2_control-system` mit `$(find hexapod_control)`
+für den controllers.yaml-Pfad. `$(find ...)` wird **nicht** zur xacro-
+Zeit aufgelöst (bleibt als Text-String im generierten URDF), sondern
+erst beim Sim-Start vom `gz_ros2_control`-Plugin. Daher braucht es
+beim `xacro`-/`check_urdf`-Test keine gesourctes `hexapod_control` —
+das wird erst in Stufe E (Spawn) wichtig.
+
+**grep-Bullet-Bereinigung:** Der ursprüngliche Bullet
+`grep -c '<joint name=' = 18` war falsch (zählt mech. Joints +
+ros2_control-Refs zusammen, also nicht 18). Durch User-Entscheidung
+(Option B) gestrichen. Beleg für die 18 ros2_control-Joint-Refs liegt
+jetzt eindeutig beim `command_interface`-Check (`command_interface`
+kommt nur im `<ros2_control>`-Block vor, keine Mehrdeutigkeit).
+Zusätzliche Stichproben-Counts (`state_interface velocity`, Anzahl
+`<ros2_control>`-Blöcke, `gz_ros2_control-system`-Plugin) als
+Querprüfung mitverifiziert.
+
+**Was Stufe B explizit NICHT macht:**
+- Keine `controllers.yaml` (Stufe C)
+- Keine Launch-Anpassung (Stufe D)
+- Kein Sim-Lauftest mit aktivem Plugin (Stufe E)
+- Kein Bewegungstest auf einem Joint (Stufe E)
 
 ---
 
