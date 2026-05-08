@@ -250,7 +250,7 @@ gesourct.
 
 ---
 
-## Stufe D — Bringup-Launch-File ⬜
+## Stufe D — Bringup-Launch-File ✅
 
 **Ziel:** `hexapod_bringup/launch/sim.launch.py` ist ab jetzt der einzige
 Launcher für die Sim. Phase-3-`hexapod_gazebo/launch/sim.launch.py`
@@ -282,19 +282,105 @@ Phase-3-Launcher bleibt als „nur Physik, ohne Controller" für isolierte
 URDF-/Reibungs-Debugging-Sessions. `hexapod_bringup/launch/sim.launch.py`
 ist die Standard-Variante ab Phase 4.
 
-- [ ] `hexapod_bringup/launch/sim.launch.py` angelegt
-- [ ] Basis-Aktionen aus Phase 3 übernommen (xacro→robot_description, gz_sim, RSP, Spawn, Bridge)
-- [ ] LaunchArgs übernommen (`urdf`, `world`, `spawn_z`)
-- [ ] Spawner-Node `joint_state_broadcaster` über `controller_manager/spawner` (One-Shot)
-- [ ] 6× Spawner-Node für `leg_1_controller`..`leg_6_controller`
-- [ ] `RegisterEventHandler` mit `OnProcessExit`: JSB-Exit → Bein-Controller-Spawner starten
-- [ ] `colcon build --packages-select hexapod_bringup` grün
-- [ ] `ros2 launch hexapod_bringup sim.launch.py --print` (Dry-Run) listet alle erwarteten Aktionen ohne Python-Fehler
-- [ ] `hexapod_gazebo/launch/sim.launch.py` bleibt unverändert (alternativer „Plain-Sim"-Launcher) und ist im hexapod_gazebo-README dokumentiert
+- [x] `hexapod_bringup/launch/sim.launch.py` angelegt
+- [x] Basis-Aktionen aus Phase 3 übernommen (xacro→robot_description, gz_sim, RSP, Spawn, Bridge)
+- [x] LaunchArgs übernommen (`urdf`, `world`, `spawn_z`)
+- [x] Spawner-Node `joint_state_broadcaster` über `controller_manager/spawner` (One-Shot)
+- [x] 6× Spawner-Node für `leg_1_controller`..`leg_6_controller`
+- [x] `RegisterEventHandler` mit `OnProcessExit`: JSB-Exit → Bein-Controller-Spawner starten _(zweistufige Sequenz: Spawn-Exit → JSB → JSB-Exit → 6× Bein-Spawner; Option 2)_
+- [x] `colcon build --packages-select hexapod_bringup` grün
+- [x] `ros2 launch hexapod_bringup sim.launch.py --print` (Dry-Run) listet alle erwarteten Aktionen ohne Python-Fehler (3× DeclareLaunchArgument, 1× IncludeLaunchDescription, 3× ExecuteProcess + 2× RegisterEventHandler mit verschachtelten Spawnern verifiziert)
+- [x] `hexapod_gazebo/launch/sim.launch.py` bleibt unverändert (alternativer „Plain-Sim"-Launcher) und ist im hexapod_gazebo-README dokumentiert (Hinweis-Box oben in `hexapod_gazebo/README.md`)
+
+### Umsetzungsnotizen Stufe D
+
+> **Konzept-Hintergrund** (Launch-File-Aufbau, Substitutions, Spawner-
+> Pattern, Event-Handler, `ParameterValue(value_type=str)`-Gotcha,
+> `--print`-Dry-Run, wie der Launch in Phase 5/6/7 erweitert wird):
+> siehe [phase_4_launch_explained.md](phase_4_launch_explained.md).
+
+**Strukturentscheidung — Phase-3-Launch 1:1 übernommen + erweitert:**
+Der Phase-3-Launch [hexapod_gazebo/launch/sim.launch.py](../src/hexapod_gazebo/launch/sim.launch.py)
+ist sauber strukturiert. Die 7 dortigen Aktionen (3× DeclareLaunchArgument
++ 1× IncludeLaunchDescription für gz_sim + 3× Node für RSP/Spawn/Bridge)
+werden 1:1 übernommen, inklusive `ParameterValue(value_type=str)`-Wrapping
+um den `Command(['xacro ', ...])`-Aufruf (verhindert YAML-Parse-Versuch
+von rclpy auf den URDF-String). LaunchArgs (`urdf`, `world`, `spawn_z`)
+und ihre Defaults bleiben identisch — User-Aufrufe wie
+`spawn_z:=1.5` funktionieren weiter wie in Phase 3.
+
+**Sequenzialisierung — zweistufige `OnProcessExit`-Kette (Option 2):**
+Standard-ros2_control-Pattern statt einstufiger Variante.
+
+```
+gz_sim, RSP, spawn, bridge   (parallel beim Launch-Start)
+        spawn-Exit ─► JSB-spawner
+                         JSB-Exit ─► leg_1..leg_6 spawner (parallel)
+```
+
+Begründung gegen die einstufige Variante (JSB-Spawner sofort beim
+Launch-Start mit Re-Tries): Re-Try-Spam in den Logs verstellt die
+Sicht auf echte Probleme, und dieses Pattern ist in jedem
+ros2_control-Tutorial der Standard. Kostenpunkt: **eine** zusätzliche
+Codezeile (zweiter `RegisterEventHandler`).
+
+**Spawner-Nodes nicht in `LaunchDescription`-Liste:** Stattdessen
+nur die zwei `RegisterEventHandler`. Wenn die Spawner direkt in der
+Liste stünden, würden sie sofort beim Launch-Start parallel zu allem
+anderen gestartet — genau das, was wir mit Option 2 vermeiden wollen.
+
+**Bein-Spawner per List-Comprehension generiert:** Statt 6× Copy-
+Paste-Node-Definitionen.
+
+```python
+leg_controller_spawners = [
+    Node(
+        package='controller_manager',
+        executable='spawner',
+        name=f'spawn_leg_{i}_controller',
+        arguments=[f'leg_{i}_controller', '--controller-manager', '/controller_manager'],
+        output='screen',
+    )
+    for i in range(1, 7)
+]
+```
+
+Bewusst kompakt, weil pro Bein nichts variiert außer der ID. Wenn
+in Phase 5+ pro Bein unterschiedliche Spawner-Args nötig werden
+(z. B. PID-Profile pro Bein), kann das aufgelöst werden.
+
+**Kein neues Bridge-Mapping für `/joint_states`:** Die Phase-3-Bridge
+(`bridge.yaml` mit nur `/clock`) bleibt unverändert. Grund: sobald
+`gz_ros2_control` plus JSB läuft, publisht JSB `/joint_states` direkt
+als ROS-Topic im Sim-Prozess — keine `gz↔ros`-Bridge nötig dafür.
+Wäre eine doppelte Quelle, wenn man's trotzdem konfiguriert.
+
+**`hexapod_gazebo/README.md`-Update:** Hinweis-Box oben rein, dass
+Phase-4-Bringup ab jetzt der Standard ist und der Phase-3-Launcher
+bewusst als „Plain-Sim ohne Controller" für Physik-/Reibungs-Debugging
+erhalten bleibt. Die JSP-Krücken-Sektion bleibt stehen — wird in der
+Phase-4-Variante obsolet, ist aber für Plain-Sim-Sessions weiterhin
+relevant.
+
+**Verifikation `--print`:** Dry-Run zeigt korrekte Struktur:
+3× `DeclareLaunchArgument`, 1× `IncludeLaunchDescription` (gz_sim),
+3× `ExecuteProcess` (RSP, spawn_hexapod, ros_gz_bridge),
+1× `RegisterEventHandler` mit `OnProcessExit` und 1× nested Spawner
+(JSB), 1× `RegisterEventHandler` mit `OnProcessExit` und 6× nested
+Spawnern (leg_1..leg_6_controller). Was `--print` **nicht** prüft:
+tatsächlicher Sim-Start, Plugin-Auflösung, Controller-Aktivierung —
+das alles ist Stufe E.
+
+**Was Stufe D explizit NICHT macht:**
+- Kein echter Sim-Start (Stufe E)
+- Kein `ros2 control list_controllers`-Check (Stufe E)
+- Kein Bewegungstest (Stufe E)
+- Kein RViz-Integration (separat startbar; falls in Phase 5+ ein
+  `display:=true` LaunchArg gewünscht ist, dort ergänzen)
 
 ---
 
-## Stufe E — Inbetriebnahme + Controller-Verifikation ⬜
+## Stufe E — Inbetriebnahme + Controller-Verifikation ✅
 
 **Ziel:** Done-Kriterien 1–6 aus `phase_4_ros2_control.md` erfüllen.
 Sim läuft, Controller sind aktiv, ein einzelner Joint reagiert auf
@@ -316,16 +402,77 @@ liefert echte Live-`/joint_states`, RSP rechnet daraus `/tf`, RViz folgt
 Gazebo synchron. Damit ist auch die Erwartung „RViz-Modell bewegt sich
 mit Gazebo" aus Phase 3 (deferiert in E.2) jetzt **erfüllt**.
 
-- [ ] `colcon build --packages-select hexapod_description hexapod_gazebo hexapod_control hexapod_bringup --symlink-install` grün
-- [ ] `source install/setup.bash`
-- [ ] `ros2 launch hexapod_bringup sim.launch.py` startet ohne Crash; alle 4 Sim-Komponenten + JSB-Spawner + 6 JTC-Spawner laufen durch
-- [ ] `ros2 control list_controllers` → `joint_state_broadcaster` (active), `leg_1_controller`..`leg_6_controller` (alle active)
-- [ ] `ros2 control list_hardware_interfaces` → 18 `available command interfaces` (position) + 36 `available state interfaces` (18 position + 18 velocity)
-- [ ] `ros2 topic list` zeigt `/joint_states` + 6× `/leg_*_controller/joint_trajectory`
-- [ ] `ros2 topic echo /joint_states --once` → 18 Joint-Namen, alle Positionen ~0 (Default-Pose)
-- [ ] Manueller Bewegungstest: `ros2 topic pub --once /leg_1_controller/joint_trajectory ...` mit Ziel `[0.3, -0.5, 1.0]`, `time_from_start=2s`; Bein 1 in Gazebo bewegt sich sichtbar
-- [ ] In RViz mit `use_sim_time:=true`: Modell folgt Gazebo synchron (Phase-3-E.2-Defer eingelöst); JSP-Krücke ist obsolet und **nicht** zu starten
-- [ ] Zweiter Bewegungstest auf einem anderen Bein (z. B. Bein 4) zur Bestätigung der Symmetrie
+- [x] `colcon build --packages-select hexapod_description hexapod_gazebo hexapod_control hexapod_bringup --symlink-install` grün (4 packages finished, keine Fehler)
+- [x] `source install/setup.bash` _(Vorbereitung in allen 3 Terminals durch User)_
+- [x] `ros2 launch hexapod_bringup sim.launch.py` startet ohne Crash; alle 4 Sim-Komponenten + JSB-Spawner + 6 JTC-Spawner laufen durch _(Roboter liegt erwartungsgemäß auf dem Bauch — Default-Pose alle Joints=0 heißt Beine horizontal ausgestreckt. Stand auf Foot-Kugeln kommt erst in Stufe F mit `coxa=0/femur=-0.5/tibia=+1.0`)_
+- [x] `ros2 control list_controllers` → `joint_state_broadcaster` (active), `leg_1_controller`..`leg_6_controller` (alle active) — bestätigt
+- [x] `ros2 control list_hardware_interfaces` → 18 `available command interfaces` (position) + 36 `available state interfaces` (18 position + 18 velocity) — bestätigt; alle 18 command interfaces zusätzlich `[claimed]` (JTCs halten ihre Interfaces aktiv)
+- [x] `ros2 topic list` zeigt `/joint_states` + 6× `/leg_*_controller/joint_trajectory` — exakt 7 Zeilen, bestätigt
+- [x] `ros2 topic echo /joint_states --once` → 18 Joint-Namen, alle Positionen ~0 (Default-Pose) — bestätigt; coxa/tibia ~0 (FP-Noise e-19), femur ~0.012 rad (Bodenkontakt-Penetration der Bauch-Pose, harmlos), velocity ~0 (steht still), effort=NaN (erwartet — kein effort-State-Interface deklariert, JSB füllt Slot mit NaN)
+- [x] Manueller Bewegungstest: `ros2 topic pub --once /leg_1_controller/joint_trajectory ...` mit Ziel `[0.3, -0.5, 1.0]`, `time_from_start=2s`; Bein 1 in Gazebo bewegt sich sichtbar — bestätigt; Bein 1 fährt smooth in 2s, Hexapod hebt sich auf einer Seite an
+- [x] In RViz mit `use_sim_time:=true`: Modell folgt Gazebo synchron (Phase-3-E.2-Defer eingelöst); JSP-Krücke ist obsolet und **nicht** zu starten — bestätigt; RViz folgt allen Bein-Bewegungen live
+- [x] Zweiter Bewegungstest auf einem anderen Bein (z. B. Bein 4) zur Bestätigung der Symmetrie — bestätigt; zusätzlich Multi-Bein-Tests 7b (Reset auf Ursprung, alle 6 synchron) und 7c (alle 6 angehoben mit `[0.3, -1.0, 1.5]`) durchgeführt; Bein-Bewegungen synchron, Körperhöhe stieg dabei aber **nicht linear** mit den Joint-Werten (geometrisches IK-Verhalten — siehe Notizen)
+
+### Umsetzungsnotizen Stufe E
+
+> **Test-Anleitung** (User-Operations-Handbuch mit allen Befehlen pro
+> Terminal, Erwartungen, Status-Format): siehe
+> [phase_4_stage_E_test_commands.md](phase_4_stage_E_test_commands.md).
+
+**Vorgehensweise — interaktiv mit klarer Rollen-Aufteilung:** Im Gegensatz
+zu A-D (alles per Bash-Tool durch Claude ausführbar) erforderte E erstmals
+echte Sim-Ausführung mit GUI. Lösung: User führt alle Befehle in eigenen
+Terminals aus, Claude wartet auf knappe Status-Rückmeldungen. Vorteil:
+Claude-Kontext bleibt schlank (Sim + 7 Spawner würden hunderte Log-Zeilen
+liefern); User hat klare Schritt-für-Schritt-Anweisung. Memory-Eintrag
+[feedback_interactive_stage_test_doc.md](file:///home/enjoykin/.claude/projects/-home-enjoykin-hexapod-ws/memory/feedback_interactive_stage_test_doc.md)
+für zukünftige Live-Stufen (Phase 7 HW-Tests).
+
+**Test-Schritte 1-7:**
+- Schritt 1 — Full Build (4 Pakete, `--symlink-install` für YAML/Launch-
+  Live-Reload) → grün
+- Schritt 2 — Sim-Start; Hexapod fällt aus 0.20 m, **liegt auf dem Bauch**
+  (erwartetes Verhalten bei Default-Pose alle Joints=0); alle 7 Spawner
+  durchgelaufen
+- Schritt 3 — `list_controllers` 7 active, `list_hardware_interfaces`
+  18 cmd `[claimed]` + 36 state, `topic list` 7 erwartete Topics
+- Schritt 4 — `/joint_states`-Echo: 18 Joints, coxa/tibia ~0 (FP-Noise
+  e-19), femur ~0.012 rad (Bauch-Bodenkontakt-Penetration, harmlos),
+  velocity ~0, **effort=NaN** (erwartet — kein effort-State-Interface
+  deklariert; JSB füllt Slot mit NaN)
+- Schritt 5 — Bewegungstest Bein 1 mit `[0.3, -0.5, 1.0]` über 2 s →
+  smooth Bewegung, Hexapod hebt sich einseitig
+- Schritt 6 — RViz parallel mit `use_sim_time:=true`, RobotModel +
+  Fixed Frame `base_link` → folgt Gazebo synchron, Phase-3-E.2-Defer
+  („RViz-Modell folgt Gazebo") damit eingelöst
+- Schritt 7 — Bein-4-Symmetrie-Test (7a) + Multi-Bein-Tests (7b Reset,
+  7c „doppelt anheben" auf `[0.3, -1.0, 1.5]`) → alle 6 Beine fahren
+  synchron via `for...&;wait`-Pattern
+
+**Erkenntnis aus Schritt 7c — Geometrie ist nichtlinear:** „Doppelt so
+hohe Joint-Werte" ≠ doppelt so hoher Körper. Bei tibia=1.5 (am Limit)
+knickt das Bein so stark ein, dass der Foot näher zum Coxa-Joint zieht
+statt einfach „länger nach unten" zu reichen. Folge: Körper hebt sich
+weniger als naiv erwartet. Die Auflösung kommt mit echter inverser
+Kinematik in Phase 5 — dort gibt man eine Wunschhöhe vor und IK rechnet
+die passenden Joint-Winkel rückwärts.
+
+**`A message was lost!!!`-Warning bei `--once`:** bekannter ros2-CLI-
+Warnhinweis, irrelevant — der Subscriber wird kurz nach dem
+Topic-Connect fertig und verpasst eine Frühnachricht. Tritt bei
+`topic echo --once` und `topic pub --once` auf, beeinträchtigt nichts.
+
+**Stand auf den Foot-Kugeln in Phase 4 noch nicht erreicht:** Stufe-7c-
+Pose hebt zwar an, aber ohne IK ist die Höhe instabil/asymmetrisch
+und coxa-Schwenk verzerrt die Geometrie. Saubere Stand-Pose ist
+**Aufgabe von Stufe F** mit `[0, -0.5, 1.0]` (kein coxa-Schwenk,
+moderater Hub) und Reibungs-Verifikation.
+
+**Was Stufe E NICHT erreicht hat / NICHT machen sollte:**
+- Kein stabiler Stand auf Foot-Kugeln (→ Stufe F)
+- Keine PID-Tuning-Iteration (→ Stufe F bei Bedarf)
+- Keine multi-Bein-Trajektorien-Synchronisation für Gait (→ Phase 5)
+- Kein RViz-Launch-Integration (eigener manueller Aufruf reichte)
 
 ---
 

@@ -3,6 +3,17 @@
 Gazebo-Harmonic-Bringup für die Hexapod-Simulation. **Desktop-only** —
 auf dem Pi wird dieses Paket nicht gebaut.
 
+> **Ab Phase 4: dies ist der „Plain-Sim ohne Controller"-Launcher.**
+> Der Standard-Bringup für die Sim ist jetzt
+> `ros2 launch hexapod_bringup sim.launch.py` — der startet zusätzlich
+> zu allem hier auch die `ros2_control`-Controller (`joint_state_broadcaster`
+> + 6× `joint_trajectory_controller`, einer pro Bein).
+>
+> `hexapod_gazebo/launch/sim.launch.py` (dieses Paket) bleibt bewusst
+> erhalten als isolierter Physik-/Reibungs-Test ohne Controller-Layer:
+> nützlich, wenn du Bodenkontakt-Verhalten, Inertien oder Spawn-Pose
+> debuggen willst, ohne dass JTC oder JSB ins Bild spielen.
+
 ## Was dieses Paket tut
 
 - Startet Gazebo Harmonic über `ros_gz_sim` mit der Default-Welt (`empty.sdf`,
@@ -12,7 +23,8 @@ auf dem Pi wird dieses Paket nicht gebaut.
   jeder ROS-Node mit `use_sim_time:=true` Sim-Zeit statt Wallclock nutzt.
 
 Was es **nicht** tut: Joints aktiv steuern, Sensoren bridgen, Joint-States
-nach ROS2 brücken — das alles kommt mit `gz_ros2_control` in Phase 4.
+nach ROS2 brücken — das alles macht der Phase-4-Bringup
+(`hexapod_bringup`).
 
 ## Standard-Aufruf
 
