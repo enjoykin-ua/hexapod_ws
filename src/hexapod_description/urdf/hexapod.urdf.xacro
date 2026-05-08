@@ -43,4 +43,7 @@
              mount_x="${ body_length/2}" mount_y="${ body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ pi/4}"/>
 
+  <!-- ===== Gazebo-spezifische Eigenschaften (Reibung an Foot-Kugeln) ===== -->
+  <xacro:include filename="hexapod.gazebo.xacro"/>
+
 </robot>

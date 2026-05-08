@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    Gazebo-spezifische Eigenschaften der Foot-Kugeln.
+    Wird vom robot_state_publisher ignoriert, ist also auch auf dem Pi unschädlich.
+
+    mu1, mu2  - Coulomb-Reibung in zwei Tangentialrichtungen (Gummi/Beton ~ 1.0)
+    kp        - Kontakt-Steifigkeit (Penalty-Feder); zu niedrig -> Foot sinkt ein
+    kd        - Kontakt-Daempfung;                  verhindert Bouncing
+  -->
+  <xacro:macro name="foot_friction" params="id">
+    <gazebo reference="leg_${id}_foot_link">
+      <mu1>1.0</mu1>
+      <mu2>1.0</mu2>
+      <kp>1000000.0</kp>
+      <kd>100.0</kd>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:foot_friction id="1"/>
+  <xacro:foot_friction id="2"/>
+  <xacro:foot_friction id="3"/>
+  <xacro:foot_friction id="4"/>
+  <xacro:foot_friction id="5"/>
+  <xacro:foot_friction id="6"/>
+
+</robot>
