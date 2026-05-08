@@ -1,0 +1,14 @@
+# ros_gz_bridge configuration for hexapod simulation.
+#
+# Phase 3 scope: only /clock (Gazebo -> ROS), so every ROS node started
+# with use_sim_time:=true sees the simulation's time, not wall-clock.
+#
+# Phase 4 will add joint_states (GZ_TO_ROS) and joint command topics
+# (ROS_TO_GZ) here -- or rather: most of those will be handled by the
+# gz_ros2_control plugin directly, not by this bridge.
+
+- ros_topic_name: /clock
+  gz_topic_name: /clock
+  ros_type_name: rosgraph_msgs/msg/Clock
+  gz_type_name: gz.msgs.Clock
+  direction: GZ_TO_ROS

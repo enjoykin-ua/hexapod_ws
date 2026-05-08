@@ -157,7 +157,7 @@ colcon build                                      # alles frisch bauen
 
 ---
 
-## Stufe C — Bridge-Config + Launch-File ⬜
+## Stufe C — Bridge-Config + Launch-File ✅
 
 **Ziel:** Gazebo und ROS2 sind zwei getrennte Middleware-Welten — Gazebo
 spricht intern `gz-transport`, ROS2 spricht DDS. Damit Topics, Services und
@@ -182,8 +182,8 @@ schlagen fehl. Joint-States, Cmd-Topics usw. kommen erst in Phase 4 mit
 Konsumenten. Die andere Richtung (`ROS_TO_GZ`) wäre falsch und würde nicht
 funktionieren.
 
-- [ ] `hexapod_gazebo/config/bridge.yaml` angelegt mit nur `/clock` (`GZ_TO_ROS`, `rosgraph_msgs/msg/Clock` ↔ `gz.msgs.Clock`)
-- [ ] YAML syntaktisch valide (`python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' bridge.yaml`)
+- [x] `hexapod_gazebo/config/bridge.yaml` angelegt mit nur `/clock` (`GZ_TO_ROS`, `rosgraph_msgs/msg/Clock` ↔ `gz.msgs.Clock`)
+- [x] YAML syntaktisch valide (`yaml.safe_load` → 1 Eintrag mit 5 Pflichtfeldern: `ros_topic_name`, `gz_topic_name`, `ros_type_name`, `gz_type_name`, `direction`)
 
 ### C.2 Launch-File `sim.launch.py`
 
@@ -218,19 +218,159 @@ ROS2-Launch garantiert keine harte Sequenz, die Nodes warten intern auf
 ihre Abhängigkeiten (Spawn wartet auf `/robot_description`, Bridge auf
 `gz sim`-Process).
 
-- [ ] `hexapod_gazebo/launch/sim.launch.py` angelegt
-- [ ] xacro → `robot_description` via `Command(['xacro ', PathJoinSubstitution([..., 'urdf', 'hexapod.urdf.xacro'])])`
-- [ ] `IncludeLaunchDescription` für `ros_gz_sim/launch/gz_sim.launch.py` mit `gz_args='-r empty.sdf'`
-- [ ] `robot_state_publisher`-Node mit `use_sim_time: True`
-- [ ] Spawn-Node `ros_gz_sim/create` mit `-topic /robot_description -name hexapod -z 0.20`
-- [ ] Bridge-Node `ros_gz_bridge/parameter_bridge` mit `config_file=…/bridge.yaml`
-- [ ] LaunchArgument für URDF-Pfad optional, Default = `hexapod_description`-Share-Path
-- [ ] `colcon build --packages-select hexapod_gazebo` grün
-- [ ] `ros2 launch hexapod_gazebo sim.launch.py --print` (Dry-Run) listet alle 4 Aktionen ohne Python-Fehler
+- [x] `hexapod_gazebo/launch/sim.launch.py` angelegt
+- [x] xacro → `robot_description` via `Command(['xacro ', LaunchConfiguration('urdf')])`, gewrappt in `ParameterValue(..., value_type=str)` (verhindert YAML-Reparse durch rclpy)
+- [x] `IncludeLaunchDescription` für `ros_gz_sim/launch/gz_sim.launch.py` mit `gz_args='-r <world>'` und `on_exit_shutdown=true` (Launch endet, wenn Gazebo geschlossen wird)
+- [x] `robot_state_publisher`-Node mit `use_sim_time: True`
+- [x] Spawn-Node `ros_gz_sim/create` mit `-topic /robot_description -name hexapod -z <spawn_z>`
+- [x] Bridge-Node `ros_gz_bridge/parameter_bridge` mit `config_file=…/bridge.yaml` und `use_sim_time: True`
+- [x] LaunchArguments: `urdf` (Default = `hexapod_description/urdf/hexapod.urdf.xacro`), `world` (Default = `empty.sdf`), `spawn_z` (Default = `0.20`)
+- [x] `colcon build --packages-select hexapod_gazebo` grün (0.09s)
+- [x] `ros2 launch hexapod_gazebo sim.launch.py --print` (Dry-Run) listet 3 LaunchArgs + IncludeLaunchDescription (gz_sim) + 3 ExecuteProcesses (RSP, Spawn, Bridge) ohne Python-Fehler
+
+### Ablaufplan: Was passiert beim `ros2 launch hexapod_gazebo sim.launch.py`
+
+Grobsicht — wie aus den 4 Aktionen im Launch-File ein laufender Sim-Stack wird:
+
+```
+                 ros2 launch sim.launch.py
+                            │
+       ┌────────────────────┼────────────────────────────────┐
+       │                    │                                │
+       ▼                    ▼                                ▼
+  LaunchArguments      Substitutions ausgewertet     4 Aktionen parallel
+  (urdf, world,        - default_urdf-Pfad           starten
+   spawn_z mit         - bridge.yaml-Pfad
+   Defaults gesetzt)   - xacro ausgeführt → URDF-XML-String
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │                                                                      │
+  │   (1) IncludeLaunchDescription → ros_gz_sim/gz_sim.launch.py         │
+  │       └─► startet Prozess `gz sim -r empty.sdf`                      │
+  │           └─► Welt geladen: ground_plane + sun                       │
+  │           └─► Physik-Loop läuft (g = -9.81 m/s²)                     │
+  │                                                                      │
+  │   (2) Node: robot_state_publisher                                    │
+  │       parameter robot_description = <URDF-String aus xacro>          │
+  │       use_sim_time = True                                            │
+  │       └─► publisht /robot_description (latched) + /tf                │
+  │                                                                      │
+  │   (3) Node: ros_gz_sim/create  (Spawn)                               │
+  │       wartet auf Topic /robot_description                            │
+  │       └─► liest URDF, konvertiert zu SDF                             │
+  │       └─► Service-Call an gz sim: "spawn entity 'hexapod' @ z=0.20"  │
+  │           └─► Roboter erscheint, fällt unter Schwerkraft             │
+  │           └─► Foot-Kugeln treffen ground_plane                       │
+  │               (mu1/mu2/kp/kd aus URDF-Gazebo-Tags aktiv)             │
+  │       └─► Node beendet sich nach erfolgreichem Spawn (One-Shot)      │
+  │                                                                      │
+  │   (4) Node: ros_gz_bridge/parameter_bridge                           │
+  │       config_file = bridge.yaml                                      │
+  │       use_sim_time = True                                            │
+  │       └─► subscribt gz-Topic /clock                                  │
+  │       └─► publisht ROS-Topic /clock (rosgraph_msgs/msg/Clock)        │
+  │           └─► alle ROS-Nodes mit use_sim_time:=true                  │
+  │               benutzen ab jetzt Sim-Zeit statt Wallclock             │
+  │                                                                      │
+  └──────────────────────────────────────────────────────────────────────┘
+```
+
+**Datenfluss zur Laufzeit:**
+
+```
+   Gazebo (Physik-Engine) ─── /clock (Sim-Zeit) ───► ros_gz_bridge ───► ROS /clock
+                          ─── /world/.../pose-info ──────────────────► (in Phase 4
+                                                                          gebrückt)
+   Gazebo                 ◄── Spawn-Service-Call ───── ros_gz_sim/create
+                                                        ▲
+                                                        │ /robot_description
+                                                        │ (latched topic)
+                                                        │
+   robot_state_publisher  ────────────────────────────────────┘
+       URDF-Parameter
+```
+
+**Was Phase 3 noch NICHT macht** (kommt in Phase 4):
+- Kein `/joint_states`-Topic von Gazebo nach ROS — RSP hat in Phase 3 keine
+  Live-Gelenkwinkel und kann das tf-Modell nicht aktualisieren. RViz würde
+  daher den Roboter in seiner Spawn-Pose sehen, nicht in der echten Sim-Pose.
+- Kein Controller, der Joints aktiv hält. Daher fallen Beine unter Schwerkraft
+  passiv mit dem Körper zusammen — das ist erwartetes Verhalten, kein Bug.
+- Keine Joint-Cmd-Topics. Stand-Pose nur manuell über Gazebo-GUI (Stufe E).
+
+### Befehls-Cheatsheet (Stufe C / Sim-Bedienung)
+
+**Sim starten / stoppen:**
+```bash
+ros2 launch hexapod_gazebo sim.launch.py
+# Override per LaunchArgument:
+ros2 launch hexapod_gazebo sim.launch.py spawn_z:=0.50
+ros2 launch hexapod_gazebo sim.launch.py world:=empty.sdf
+ros2 launch hexapod_gazebo sim.launch.py urdf:=/pfad/zu/eigener.urdf.xacro
+
+# Dry-Run (zeigt geplante Aktionen, startet nichts):
+ros2 launch hexapod_gazebo sim.launch.py --print
+
+# Sauberes Stoppen: Ctrl+C im Launch-Terminal (on_exit_shutdown=true
+# räumt alle Kindprozesse auf). Falls etwas hängt:
+pkill -f 'gz sim'
+pkill -f 'parameter_bridge'
+pkill -f 'robot_state_publisher'
+pkill -f 'ros_gz_sim'
+ps aux | grep -E '(gz sim|ruby|parameter_bridge|robot_state)' | grep -v grep
+```
+
+**ROS-Seite inspizieren (zweites Terminal mit `source install/setup.bash`):**
+```bash
+ros2 topic list                                      # alle ROS-Topics
+ros2 topic echo /clock                               # tickt Sim-Zeit?
+ros2 topic hz /clock                                 # Tick-Rate (~1000 Hz Sim-Default)
+ros2 topic info /clock                               # Publisher/Subscriber-Anzahl
+ros2 node list                                       # laufende ROS-Nodes
+ros2 node info /robot_state_publisher                # Topics/Params/Services dieses Nodes
+ros2 param list /robot_state_publisher               # Parameter
+ros2 param get /robot_state_publisher use_sim_time   # → True erwartet
+ros2 topic echo /tf_static --once                    # statische tf-Frames
+```
+
+**Gazebo-Seite inspizieren:**
+```bash
+gz topic -l                                          # alle gz-Topics
+gz topic -i -t /clock                                # Type-Info zu einem Topic
+gz topic -e -t /clock                               # Topic live mitlesen (Ctrl+C)
+gz model -l                                          # Modelle in der laufenden Sim
+gz model -m hexapod -p                               # Pose des Hexapods
+gz service -l                                        # verfügbare Services
+gz sim --help                                        # CLI-Optionen von gz sim
+```
+
+**Bridge-Probleme diagnostizieren:**
+```bash
+# Lädt der Bridge-Node die Config? Logs anschauen:
+ros2 launch hexapod_gazebo sim.launch.py 2>&1 | grep -i bridge
+
+# Prüfen, ob Config-Pfad korrekt zum Install-Path zeigt:
+ros2 pkg prefix hexapod_gazebo
+ls $(ros2 pkg prefix hexapod_gazebo)/share/hexapod_gazebo/config/
+```
+
+**URDF-Pfad zur Laufzeit verifizieren:**
+```bash
+# So sieht der RSP das robot_description-Topic:
+ros2 topic echo /robot_description --once | head -20
+```
+
+**Hot-Reload-Workflow nach `--symlink-install`:**
+```bash
+# Änderung an .xacro / launch.py / yaml → kein Rebuild nötig:
+# Sim einfach mit Ctrl+C beenden und neu launchen.
+# Aber: Änderungen an package.xml / CMakeLists.txt brauchen Rebuild.
+colcon build --packages-select hexapod_gazebo --symlink-install
+```
 
 ---
 
-## Stufe D — Erste Inbetriebnahme ⬜
+## Stufe D — Erste Inbetriebnahme ✅
 
 **Ziel:** Erster vollständiger End-to-End-Test. Wir wollen sehen, dass alle
 Komponenten aus Stufen A–C zusammen funktionieren: Build grün, Launch ohne
@@ -259,17 +399,137 @@ Joint-Winkeln.
 (siehe CLAUDE.md §5 Goldene Regel). Typische Ursachen sind Pfadfehler im
 Launch oder fehlende `<gazebo>`-Tags im URDF.
 
-- [ ] `colcon build --packages-select hexapod_description hexapod_gazebo` grün
-- [ ] `source install/setup.bash` im Terminal
-- [ ] `ros2 launch hexapod_gazebo sim.launch.py` startet ohne Crash
-- [ ] Gazebo-Fenster öffnet sich, Welt mit Sun + `ground_plane` sichtbar
-- [ ] Roboter erscheint bei `z=0.20 m`, fällt unter Schwerkraft auf den Boden
-- [ ] Roboter durchschlägt **nicht** den Boden (Done-Kriterium 3)
-- [ ] Roboter kollabiert nicht in sich (keine Inertien-Explosion)
-- [ ] In zweitem Terminal: `ros2 topic list` zeigt `/clock`
-- [ ] `ros2 topic echo /clock` → tickt → Bridge funktioniert (Done-Kriterium 5)
-- [ ] `ros2 topic echo /tf` zeigt aktualisierte Transforms (rsp läuft mit `use_sim_time`)
-- [ ] Stolperfallen-Tabelle gegengeprüft, falls Symptome auftreten — Fixes dokumentiert in README
+- [x] `colcon build --packages-select hexapod_description hexapod_gazebo --symlink-install` grün (1.33s gesamt)
+- [x] `source install/setup.bash` im Terminal (im Test-Setup pro Bash-Aufruf)
+- [x] `ros2 launch hexapod_gazebo sim.launch.py` startet ohne Crash (User-Test, GUI-Modus); im Claude-Terminal nur headless via `world:='-s empty.sdf'` (Snap-Library-Konflikt mit `gz sim gui` in Claude-Shell, in User-Terminal kein Problem)
+- [x] Gazebo-Fenster öffnet sich, Welt mit Sun + `ground_plane` sichtbar (User-bestätigt)
+- [x] Roboter erscheint bei `z=0.20 m`, fällt unter Schwerkraft auf den Boden (visuell + headless via `gz model -m hexapod -p` → Endpose `z=0.029 m`)
+- [x] Roboter durchschlägt **nicht** den Boden (Done-Kriterium 3) — Endpose `z=0.029 > 0`
+- [x] Roboter kollabiert nicht in sich (keine Inertien-Explosion) — User-bestätigt; Beine liegen passiv ausgestreckt (kein Controller in Phase 3, erwartet)
+- [x] In zweitem Terminal: `ros2 topic list` zeigt `/clock` (+ `/tf`, `/tf_static`, `/robot_description`, `/joint_states`)
+- [x] `ros2 topic echo /clock` → tickt mit ~935 Hz (~1 kHz Sim-Step-Rate); Bridge funktioniert (Done-Kriterium 5)
+- [x] `/tf_static` zeigt fixe Transforms (foot-Joints); dynamische `/tf`-Updates kommen erst in Phase 4 mit `/joint_states`-Bridging via `gz_ros2_control`
+- [x] `use_sim_time=True` auf `/robot_state_publisher` und `/ros_gz_bridge` verifiziert (`ros2 param get`)
+- [x] `gz model -l` zeigt `ground_plane` + `hexapod` in Welt `empty`
+- [x] KDL-Warning für `base_link` mit Inertia weiterhin vorhanden (aus Phase 2 bekannt, nicht funktional kritisch — Phase-4-Thema)
+- [x] Keine Stolperfallen aus der Tabelle aktiv (rutschen/zittern/springen nicht beobachtet)
+
+### Verifikations-Workflow (Stufe D)
+
+So wurde die "läuft alles zusammen?"-Frage zerlegt — Reihenfolge zum
+Wiederholen, falls nach späteren Änderungen der Sim-Stack erneut abgenommen
+werden muss:
+
+```
+  1. Build verify
+       └─► colcon build --packages-select hexapod_description hexapod_gazebo
+           --symlink-install   (1–2 s erwartet)
+
+  2. Source verify
+       └─► source install/setup.bash
+           (pro neuem Terminal! sonst kennt ros2 die Pakete nicht)
+
+  3. Launch starten
+       ├─ Terminal A:  ros2 launch hexapod_gazebo sim.launch.py
+       │              -> Gazebo öffnet sich (GUI-Mode)
+       │
+       └─ Alternative: headless für reine Topic-Tests
+                       ros2 launch hexapod_gazebo sim.launch.py world:='-s empty.sdf'
+                       (-s = server only, keine GUI; siehe Hinweis unten)
+
+  4. ROS-Sicht prüfen (Terminal B, gesourced)
+       ├─► ros2 topic list                     erwartet: /clock dabei
+       ├─► ros2 topic hz /clock --window 100   erwartet: ~1000 Hz (Sim-Step)
+       ├─► ros2 topic echo /clock --once       erwartet: sec/nanosec > 0
+       ├─► ros2 param get /robot_state_publisher use_sim_time   -> True
+       ├─► ros2 param get /ros_gz_bridge use_sim_time           -> True
+       └─► ros2 node list                      erwartet: /robot_state_publisher,
+                                                         /ros_gz_bridge
+
+  5. Gazebo-Sicht prüfen (Terminal B oder C — gz braucht kein source)
+       ├─► gz model --list                     erwartet: ground_plane, hexapod
+       ├─► gz model -m hexapod -p              erwartet: z > 0 (kein Durchbruch)
+       └─► gz topic -l                         erwartet: /clock, /world/.../...
+
+  6. Sauber stoppen (Terminal A: Ctrl+C; bei Hängern: siehe Cheatsheet unten)
+```
+
+**Hinweis zum headless-Workaround `world:='-s empty.sdf'`:**
+Funktioniert, weil das LaunchArgument `world` als Suffix an `gz_args` gehängt
+wird (`-r ` + `world` ⇒ `-r -s empty.sdf`). Der `-s`-Flag schaltet die GUI
+ab und startet nur den Server. Pragmatisch, aber semantisch unsauber —
+falls dauerhafte Headless-Unterstützung gewünscht ist, sollte später ein
+eigenes `headless`-LaunchArgument ergänzt werden.
+
+### Befehls-Cheatsheet (Stufe D / Inbetriebnahme + Diagnose)
+
+**Pose-Verifikation (kann der Roboter wirklich stehen?):**
+```bash
+# Aktuelle Modell-Pose abfragen (XYZ + RPY):
+gz model -m hexapod -p
+
+# Erwartet in Phase 3 (Body liegt passiv):
+#   XYZ: ~ (0, 0, 0.029)   <- Body-Höhe-Hälfte über Boden
+#   RPY: ~ 0,0,0           <- nicht gekippt
+# z gegen 0 -> Body durchbricht den Boden (Bug)
+# z stark schwankend -> kollabiert / explodiert (Inertien-Bug)
+
+# Pose im 1-Hz-Tempo live mitlesen:
+gz topic -e -t /world/empty/dynamic_pose/info | head -50
+```
+
+**Bridge-Health (tickt /clock?):**
+```bash
+# Tick-Rate und Stabilität (Sim-Default: 1 kHz)
+ros2 topic hz /clock --window 200
+
+# Aktuelle Sim-Zeit ablesen:
+ros2 topic echo /clock --once
+
+# Wenn /clock fehlt obwohl Bridge gestartet:
+# - bridge.yaml-Pfad falsch? -> ros2 launch ... 2>&1 | grep -i bridge
+# - direction: GZ_TO_ROS gesetzt?
+# - gz topic -l zeigt /clock auf gz-Seite?
+```
+
+**Stop / Cleanup (besonders wichtig nach Crash):**
+```bash
+# Sauberer Stop:
+#   im Launch-Terminal: Ctrl+C einmal -> on_exit_shutdown räumt auf
+
+# Wenn was hängt (z. B. nach Snap-Konflikt):
+pkill -INT -f 'ros2 launch hexapod_gazebo'   # SIGINT zuerst (sauber)
+sleep 2
+pkill -f 'gz sim'                            # Server (überlebt manchmal)
+pkill -f 'parameter_bridge'
+pkill -f 'robot_state_publisher'
+
+# Verbleibende Prozesse anzeigen:
+ps aux | grep -E '(gz sim|parameter_bridge|robot_state|ros_gz)' | grep -v grep
+```
+
+**Fault-Tree — wenn etwas nicht stimmt:**
+
+| Symptom | Erste Checks |
+|---|---|
+| Gazebo-GUI crasht mit `__libc_pthread_init` | Snap-Library-Konflikt, nicht Treiber. `LD_LIBRARY_PATH` prüfen, ob `/snap/...` darin steht. Workaround: headless (`world:='-s empty.sdf'`) oder Snap-Apps deinstallieren, die LD-Pfade setzen. |
+| Roboter spawnt nicht | `ros2 topic echo /robot_description --once \| head` — leer? xacro-Fehler. Voll? Spawn-Service-Problem (`gz service -l`, `gz service -i ... /create`). |
+| Roboter sinkt durch den Boden | `gz model -m hexapod -p` zeigt `z<0`? Welt ohne `ground_plane` geladen — `gz_args` muss `empty.sdf` enthalten, nicht leere Szene. |
+| `/clock` fehlt in `ros2 topic list` | Bridge-Crash. Launch-Output nach `Creating GZ->ROS Bridge` durchsuchen. `bridge.yaml`-Pfad und Permissions prüfen. |
+| `/clock` da, aber tickt nicht (`ros2 topic hz` zeigt nichts) | Sim pausiert? `gz service -s /world/empty/control --reqtype gz.msgs.WorldControl --reptype gz.msgs.Boolean --timeout 1000 --req 'pause: false'` |
+| RSP `use_sim_time=False` | Parameter wird nicht durchgereicht. Launch-File prüfen: `parameters=[{... 'use_sim_time': True}]` muss als dict-Eintrag drin sein. |
+| `tf` zeigt sich nicht aktualisierend | Erwartet in Phase 3! Kein `/joint_states`-Bridging → RSP hat keine Live-Winkel. Kommt mit `gz_ros2_control` in Phase 4. |
+| `KDL warning: root link has inertia` | Kosmetisch, aus Phase 2 bekannt. Nicht-blockierend. Fix in Phase 4 mit Dummy-Root-Link erwogen. |
+
+**Fundstellen, wenn was im Launch hakt:**
+```bash
+# Live-Logs des aktuellen Launches:
+tail -f ~/.ros/log/latest/launch.log
+
+# Alle Logs des letzten Runs:
+ls -lt ~/.ros/log/ | head -3
+ls ~/.ros/log/latest/                        # pro Node ein Verzeichnis
+```
 
 ---
 
