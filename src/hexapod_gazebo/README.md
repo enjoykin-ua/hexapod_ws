@@ -77,16 +77,17 @@ Phase-3-Defaults für jede der 6 Foot-Kugeln:
 | `kp` | `1.0e6` | Kontakt-Steifigkeit (Penalty-Feder) |
 | `kd` | `100` | Kontakt-Dämpfung |
 
-> **⚠ Phase-3-Status:** Diese Werte sind konservative Default-Werte aus
-> der Phase-3-Doku, **noch nicht unter realer Belastung verifiziert.**
-> Done-Kriterium 4 aus `docs/phase_3_gazebo.md` (Stand-Test mit gesetzten
-> Joint-Winkeln) wurde auf Phase 4 deferiert, weil Phase 3 ohne
-> `gz_ros2_control` keinen Joint-Controller besitzt — die Slider in der
-> Gazebo-GUI senden Position-Topics ins Leere. Begründung der Defer-
-> Entscheidung in `docs/phase_3_progress.md` Stufe E.1.
+> **✅ Verifiziert in Phase 4 Stufe F (2026-05-08):** Default-Werte
+> tragen den Roboter unter realer Stand-Last sauber. Stand-Pose
+> `coxa=0/femur=-0.5/tibia=+1.0` auf alle 6 Beine, Drift gemessen via
+> `gz model -m hexapod -p` über 5 s: **z und RPY bit-genau identisch
+> über alle Samples, Drift = 0 mm / 0°** (Done-Kriterium fordert nur
+> < 1 mm / < 0.5°). Kein Zittern, kein Wegrutschen — kein Tuning der
+> Default-Werte nötig. Details in `docs/phase_4_progress.md` Stufe F
+> Umsetzungsnotizen.
 >
-> Erste echte Verifikation der Reibungswerte erfolgt beim ersten Stand-
-> Test in Phase 4. Falls dort Zittern oder Wegrutschen auftritt:
+> **Falls in späteren Phasen (5+) doch Probleme auftreten** (z. B. unter
+> dynamischer Gait-Last):
 > - Wegrutschen → `mu1`, `mu2` auf `1.5`
 > - Zittern → `kp` auf `1.0e7`, ggf. `inertia_min` von `1.0e-5` auf
 >   `1.0e-4` in `hexapod_description/urdf/inertials.xacro`
@@ -132,13 +133,14 @@ am Ende der Stufen B/C/D) und `docs/phase_3_stage_D_tryout.md`.
 
 ## Phase-3-Status
 
-5 von 6 Done-Kriterien aus `docs/phase_3_gazebo.md` erfüllt:
+**Alle 6 Done-Kriterien aus `docs/phase_3_gazebo.md` erfüllt** (Kriterium 4
+nachträglich in **Phase 4 Stufe F** verifiziert):
 
 | # | Kriterium | Status |
 |---|---|---|
 | 1 | `hexapod_gazebo` baut | ✅ |
 | 2 | Launch startet Gazebo + Roboter + Bodenebene | ✅ |
 | 3 | Roboter durchschlägt Boden nicht, kollabiert nicht | ✅ |
-| 4 | Stabiler Stand bei manuell gesetzten Joint-Winkeln | ⏸ deferiert auf Phase 4 |
+| 4 | Stabiler Stand bei manuell gesetzten Joint-Winkeln | ✅ (Phase 4 Stufe F: Drift = 0 mm / 0° über 5 s, Default-Reibung ausreichend) |
 | 5 | `/clock` in ROS sichtbar | ✅ (~935 Hz) |
-| 6 | RViz zeigt Modell mit `use_sim_time:=true` | ✅ (mit JSP-Krücke) |
+| 6 | RViz zeigt Modell mit `use_sim_time:=true` | ✅ (Phase 3: mit JSP-Krücke; Phase 4 Stufe E: ohne JSP-Krücke synchron via JSB) |

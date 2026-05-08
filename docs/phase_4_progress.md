@@ -476,7 +476,7 @@ moderater Hub) und Reibungs-Verifikation.
 
 ---
 
-## Stufe F — Phase-3-Defers einsammeln: Stand-Test + Reibungswerte verifizieren ⬜
+## Stufe F — Phase-3-Defers einsammeln: Stand-Test + Reibungswerte verifizieren ✅
 
 **Ziel:** Done-Kriterium 4 aus Phase 3 nachholen. Roboter steht stabil
 auf seinen 6 Foot-Kugeln in der Test-Pose, Reibungswerte sind unter
@@ -506,18 +506,59 @@ echter Last verifiziert (oder nachjustiert).
 Wenn Werte angepasst wurden → in `hexapod.gazebo.xacro` ändern und
 kurz im Phase-4-Bericht festhalten.
 
-- [ ] Stand-Pose-Skript / Multi-Trajectory: alle 6 Beine fahren auf `coxa=0/femur=-0.5/tibia=+1.0` in 4 s
-- [ ] Roboter sitzt nach Pose-Setting auf 6 Foot-Kugeln (nicht auf dem Bauch); visuell verifiziert
-- [ ] `gz model -m hexapod -p` zeigt konstante Pose über 5 s (Drift `< 1 mm` / `< 0.5°`)
-- [ ] Kein sichtbares Zittern oder Wegrutschen
-- [ ] Reibungswerte (`mu1`, `mu2`, `kp`, `kd`) **verifiziert** oder **nachjustiert**; Werte im `hexapod_gazebo/README.md` aktualisiert (Defer-Hinweis durch verifizierte Werte ersetzt)
-- [ ] `inertia_min` ggf. nachgezogen in `inertials.xacro` (falls Zittern)
-- [ ] Memory-Eintrag `project_phase3_defer_stand_test.md` als „erledigt" markiert oder gelöscht
-- [ ] Phase-3-Done-Kriterium 4 in `phase_3_progress.md` und Workspace-`README.md` von ⏸ auf ✅ aktualisieren (mit Verweis auf Phase-4-Verifikation)
+- [x] Stand-Pose-Skript / Multi-Trajectory: alle 6 Beine fahren auf `coxa=0/femur=-0.5/tibia=+1.0` in 4 s — bestätigt, for-loop mit `&;wait`-Pattern
+- [x] Roboter sitzt nach Pose-Setting auf 6 Foot-Kugeln (nicht auf dem Bauch); visuell verifiziert — bestätigt
+- [x] `gz model -m hexapod -p` zeigt konstante Pose über 5 s (Drift `< 1 mm` / `< 0.5°`) — **Drift = 0**: `z=0.055348 m` und `RPY=[0, 0, -0.000253]` rad **identisch** über alle 5 Samples
+- [x] Kein sichtbares Zittern oder Wegrutschen — bestätigt
+- [x] Reibungswerte (`mu1`, `mu2`, `kp`, `kd`) **verifiziert** (Default-Werte `mu=1.0`, `kp=1e6`, `kd=100` ausreichend, **kein Tuning nötig**); Werte im `hexapod_gazebo/README.md` aktualisiert
+- [x] `inertia_min` ggf. nachgezogen in `inertials.xacro` (falls Zittern) — **nicht nötig**, kein Zittern aufgetreten
+- [x] Memory-Eintrag `project_phase3_defer_stand_test.md` als „erledigt" markiert oder gelöscht
+- [x] Phase-3-Done-Kriterium 4 in `phase_3_progress.md` und Workspace-`README.md` von ⏸ auf ✅ aktualisieren (mit Verweis auf Phase-4-Verifikation)
+
+### Umsetzungsnotizen Stufe F
+
+> **Test-Anleitung** (User-Operations-Handbuch mit allen Befehlen pro
+> Terminal): siehe
+> [phase_4_stage_F_test_commands.md](phase_4_stage_F_test_commands.md).
+
+**Resultat — Pfad A (Default-Werte ausreichend):** Kein Reibungs-/
+Inertia-Tuning nötig, kein PID-Eingriff. Die Phase-3-Reibungs-Defaults
+(`mu1=mu2=1.0`, `kp=1e6`, `kd=100`) tragen den Roboter unter realer
+Stand-Last sauber. Damit ist das Phase-3-Defer endgültig eingelöst und
+keine `hexapod.gazebo.xacro`-Änderung nötig.
+
+**Stand-Pose-Wahl:** `[0, -0.5, 1.0]` mit `time_from_start=4 s`.
+Bewusste Unterschiede zu Stufe-7c-„Anhebe-Pose":
+- coxa = 0 statt 0.3 → kein Schwenk, jedes Bein zeigt natürlich in
+  seine Mountpunkt-Richtung (kanonische Stand-Pose, ohne IK
+  analytisch nachvollziehbar)
+- femur = -0.5 statt -1.0 → moderater Hub, kein Extrem-Knicken
+- tibia = 1.0 statt 1.5 → fern vom Limit, strukturell stabil
+- 4 s statt 2 s → sanfteres Anfahren, kein Spring-Effekt beim
+  ersten Foot-Bodenkontakt
+
+**Numerische Stabilität — besser als Done-Kriterium fordert:**
+`gz model -m hexapod -p` über 5 Samples mit 1 s Abstand:
+- z = 0.055348 m **identisch** in allen 5 Samples
+- RPY = [0, 0, -0.000253] rad **identisch** in allen 5 Samples
+- Drift = **0 mm / 0°** (Done-Kriterium fordert nur < 1 mm / < 0.5°)
+
+Dass die Pose bit-genau über 5 s konstant bleibt, ist physikalisch
+plausibel: bei stabilem Stand mit ausreichend Reibung gibt es keine
+Tendenz zur Bewegung, der Solver findet einen Fixpunkt. Die kleine
+Restpose-Asymmetrie (`y=-0.020 m`, `yaw=-0.014°`) kommt vom Settling
+des asymmetrischen Bauch-Bodenkontakts vor dem Pose-Anfahren — ist
+nach dem Anheben nicht mehr aktiv und verschwindet nicht mehr von
+selbst (kein Drift, aber auch keine Re-Zentrierung).
+
+**Was Stufe F NICHT machte (alles Phase-5-Themen oder unnötig):**
+- Kein PID-Tuning (Default-JTC reicht offensichtlich)
+- Kein Multi-Pose-Test (Aufgabe der IK in Phase 5)
+- Kein KDL-Warning-Fix (siehe Phasenabschluss-Optionen)
 
 ---
 
-## Phasenabschluss ⬜
+## Phasenabschluss ✅
 
 **Ziel:** Phase 4 formell schließen. Drei Ebenen wie immer: technisch
 (Done-Kriterien grün), dokumentarisch (READMEs + Workspace-Bericht),
@@ -534,36 +575,74 @@ prozessual (Snapshot, Git-Tag, `PHASE.md`-Update, Retro).
 - Kein Teleop (Phase 6)
 - Kein Custom-Controller (`JointTrajectoryController` reicht)
 
-- [ ] Alle 6 Done-Kriterien aus `phase_4_ros2_control.md` erfüllt:
-  - [ ] 1) `hexapod_control` baut
-  - [ ] 2) Beim Launch sind `joint_state_broadcaster` + 6× `joint_trajectory_controller` aktiv
-  - [ ] 3) `ros2 control list_controllers` zeigt alle Controller `active`
-  - [ ] 4) `ros2 control list_hardware_interfaces` zeigt 18 Position-Command + 18 Position-State (+ 18 Velocity-State)
-  - [ ] 5) Manueller Trajectory-Goal bewegt Bein 1 sichtbar in Gazebo
-  - [ ] 6) `/joint_states` zeigt aktuelle Positionen aller 18 Joints
-- [ ] Bewegungstest auf mindestens zwei Beinen erfolgreich (Stufe E)
-- [ ] **Phase-3-Defers eingelöst:** Stand-Test bestanden, Reibungswerte verifiziert/nachjustiert (Stufe F)
-- [ ] `README.md` in `hexapod_control/` und `hexapod_bringup/` aktuell (Zweck, Launch-Aufruf, Controller-Liste, bekannte Stolperfallen)
-- [ ] `hexapod_gazebo/README.md` Defer-Hinweis durch verifizierte Reibungswerte ersetzt
-- [ ] `package.xml` in beiden neuen Paketen ohne `TODO:`-Stubs
-- [ ] (optional) KDL-Warning gefixt mit Dummy-Root-Link, sonst auf Phase 5 schieben (im README dokumentieren)
-- [ ] Timeshift-Snapshot `phase_4_done` angelegt — **User-Aufgabe**
-- [ ] Git-Commit + Tag `phase-4-done` — **User-Aufgabe**
-- [ ] `PHASE.md` auf Phase 5 aktualisiert (Status: Phase 4 🟢, Phase 5 🟡)
-- [ ] Workspace-`README.md` um Phase-4-Bericht ergänzt
-- [ ] Retro: Was lief gut, was hat länger gedauert, was bleibt offen
+- [x] Alle 6 Done-Kriterien aus `phase_4_ros2_control.md` erfüllt:
+  - [x] 1) `hexapod_control` baut
+  - [x] 2) Beim Launch sind `joint_state_broadcaster` + 6× `joint_trajectory_controller` aktiv
+  - [x] 3) `ros2 control list_controllers` zeigt alle Controller `active`
+  - [x] 4) `ros2 control list_hardware_interfaces` zeigt 18 Position-Command + 18 Position-State (+ 18 Velocity-State)
+  - [x] 5) Manueller Trajectory-Goal bewegt Bein 1 sichtbar in Gazebo
+  - [x] 6) `/joint_states` zeigt aktuelle Positionen aller 18 Joints
+- [x] Bewegungstest auf mindestens zwei Beinen erfolgreich (Stufe E) — Bein 1 + Bein 4 + Multi-Bein-Tests (7b Reset, 7c Anhebung)
+- [x] **Phase-3-Defers eingelöst:** Stand-Test bestanden, Reibungswerte verifiziert/nachjustiert (Stufe F) — Drift = 0 mm / 0° über 5 s, kein Tuning nötig
+- [x] `README.md` in `hexapod_control/` und `hexapod_bringup/` aktuell (Zweck, Launch-Aufruf, Controller-Liste, bekannte Stolperfallen)
+- [x] `hexapod_gazebo/README.md` Defer-Hinweis durch verifizierte Reibungswerte ersetzt
+- [x] `package.xml` in beiden neuen Paketen ohne `TODO:`-Stubs (Description gesetzt: Kurzbeschreibung des Paket-Zwecks)
+- [x] (optional) KDL-Warning gefixt mit Dummy-Root-Link, sonst auf Phase 5 schieben (im README dokumentieren) — **auf Phase 5 verschoben**, Memory-Eintrag `project_phase5_kdl_warning_fix.md` als Reminder
+- [x] Timeshift-Snapshot `phase_4_done` angelegt — **User-Aufgabe**
+- [x] Git-Commit + Tag `phase-4-done` — **User-Aufgabe**
+- [x] `PHASE.md` auf Phase 5 aktualisiert (Status: Phase 4 🟢, Phase 5 🟡) — inklusive Übergabe-Block für Phase 5 (KDL-Warning + Stand-Pose-Plausibilitätscheck)
+- [x] Workspace-`README.md` um Phase-4-Bericht ergänzt (was angelegt, Designentscheidungen, Verifikation, offene Punkte; Stand-Tabelle und Pakete-Tabelle aktualisiert)
+- [x] Retro: Was lief gut, was hat länger gedauert, was bleibt offen — siehe unten
 
 ---
 
 ## Retro Phase 4
 
-_(wird beim Phasenabschluss befüllt)_
-
 **Was lief gut**
--
+- **Stufenplan A→F linear durchgelaufen** ohne Sprünge oder Rollbacks.
+  Jede Stufe sauber abhakbar, Konzept-vor-Implementation-vor-Test
+  konsequent durchgezogen.
+- **Wiederverwendung der Limit-Properties (`coxa_lower/upper` etc.) im
+  ros2_control-Block** — keine Wert-Duplikation, Single-Source-of-Truth-
+  Prinzip aus §11.4 sauber gewahrt.
+- **Zweistufige `OnProcessExit`-Sequenz** statt naiver Re-Try-Variante:
+  saubere Logs, klar nachvollziehbare Lade-Reihenfolge.
+- **Konzept-Dokus separat** (`*_explained.md` neben `*_progress.md`):
+  bleiben in Phase 5-7 als Nachschlagewerk verfügbar, ohne den
+  Fortschritts-Tracker zu fluten.
+- **Test-Doku-Pattern für interaktive Stufen**: `phase_4_stage_E_test_commands.md`
+  und `..._F...md` haben in Stufen E/F den Kontext schlank gehalten —
+  Sim-Logs liefen lokal in `/tmp/sim.log`, Status-Rückmeldungen einzeilig.
+  Memory-Eintrag dafür angelegt, gilt für alle künftigen Live-Stufen
+  (Phase 7 HW).
+- **Stand-Test (Phase-3-Defer) sofort grün**: Default-Reibungswerte
+  ausreichend, kein Tuning-Lauf nötig. Drift = 0 über 5 s.
 
 **Was hat länger gedauert**
--
+- **`grep -c '<joint name='`-Verifikations-Bullet in Stufe B**: war im
+  Progress-File falsch formuliert (zählt mech. Joints + ros2_control-Refs
+  zusammen, nicht 18). Diskussion + User-Entscheidung kostete eine
+  Iteration. Lessons learned: bei Verifikations-Befehlen vorher selbst
+  rechnen, was tatsächlich erwartet wird.
+- **`tail -20`-Trim in Stufe-B-Verifikation hat `leg_1` aus `check_urdf`-
+  Output verdeckt** — User musste fragen, ob `leg_1` fehlt. War nur
+  visueller Effekt, aber Vertrauen geschadet. Memory-Eintrag
+  `feedback_no_trim_verification_output.md` angelegt.
+- **Stufe-7c-Höhe-Verdopplung war nicht-linear**: User-Erwartung (doppelt
+  so hoch beim Körper) wurde nicht erfüllt, weil naive Joint-Wert-
+  Verdopplung das Bein einfach stärker einklappt statt es zu strecken.
+  War aber ein Lehrmoment für die Notwendigkeit von IK in Phase 5.
 
 **Was bleibt offen**
--
+- **KDL-Warning** für `base_link` mit Inertia weiterhin offen — auf
+  Phase 5 verschoben (Memory-Eintrag als Reminder). Funktional unkritisch.
+- **`use_sim_time: true` in `controllers.yaml`** ist Phase-4-6-korrekt,
+  in Phase 7 muss überschrieben werden. Kommentar im YAML weist darauf
+  hin, aber konkrete Lösung (Launch-Override vs. zweite YAML) ist
+  Phase-7-Entscheidung.
+- **Stand-Pose ist visuell asymmetrisch** (`y=-0.020 m`, `yaw=-0.014°`):
+  Settling-Effekt vor dem Pose-Anfahren. Verschwindet in Phase 5 mit
+  IK-basiertem Anfahren.
+- **Echte IK + dynamische Posen** — komplette Phase 5.
+- **Headless-LaunchArg** in `hexapod_bringup/sim.launch.py` für CI-Tests
+  fehlt noch (bekannt seit Phase-3-Retro).

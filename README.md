@@ -13,9 +13,9 @@ aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/`.
 | 0 | Desktop-Setup, ROS-Toolchain | ✅ |
 | 1 | ROS 2 Basics (Udemy-Kurs, Phase übersprungen) | ✅ |
 | 2 | URDF/Xacro-Beschreibung | ✅ |
-| 3 | Gazebo-Simulation | ✅ (5/6 Kriterien; Kriterium 4 deferiert auf Phase 4) |
-| 4 | `ros2_control` | 🟡 aktiv |
-| 5 | Inverse Kinematik & Gait | offen |
+| 3 | Gazebo-Simulation | ✅ (alle 6 Kriterien; Kriterium 4 nachträglich in Phase 4 Stufe F verifiziert) |
+| 4 | `ros2_control` | ✅ |
+| 5 | Inverse Kinematik & Gait | 🟡 aktiv |
 | 6 | Teleop | offen |
 | 7 | Pi-Portierung & Hardware | offen |
 
@@ -23,14 +23,14 @@ aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/`.
 
 | Paket | Status | Zweck |
 |---|---|---|
-| `hexapod_description` | ✅ Phase 2 | URDF/Xacro, RViz-Display |
-| `hexapod_gazebo` | ✅ Phase 3 | Sim-Bringup (Launch, Bridge, Reibungswerte im URDF-Gazebo-Tag) |
-| `hexapod_control` | offen | `ros2_control`-Config |
+| `hexapod_description` | ✅ Phase 2 | URDF/Xacro, RViz-Display, ros2_control-Block + gz_ros2_control-Plugin (Phase 4) |
+| `hexapod_gazebo` | ✅ Phase 3 | Plain-Sim-Bringup (Launch, Bridge, Reibungswerte im URDF-Gazebo-Tag) |
+| `hexapod_control` | ✅ Phase 4 | `ros2_control`-Config (controllers.yaml: JSB + 6 JTC) |
+| `hexapod_bringup` | ✅ Phase 4 | Standard-Sim-Launch mit Controller-Spawnern (sim.launch.py) |
 | `hexapod_kinematics` | offen | IK |
 | `hexapod_gait` | offen | Gait-Engine |
 | `hexapod_teleop` | offen | Joystick/Tastatur |
 | `hexapod_hardware` | offen | C++ HardwareInterface (Pi) |
-| `hexapod_bringup` | offen | Launch-Files sim/real |
 
 ## Quickstart
 
@@ -38,7 +38,15 @@ aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/`.
 cd ~/hexapod_ws
 colcon build --symlink-install
 source install/setup.bash
+
+# Phase 2: nur RViz mit Modell + Slider (kein Sim, kein Controller)
 ros2 launch hexapod_description display.launch.py
+
+# Phase 3: Plain-Sim ohne Controller (nur Physik / Reibung debuggen)
+ros2 launch hexapod_gazebo sim.launch.py
+
+# Phase 4: Standard-Sim mit ros2_control (1× JSB + 6× JTC active)
+ros2 launch hexapod_bringup sim.launch.py
 ```
 
 ---
@@ -204,13 +212,101 @@ ros2 run joint_state_publisher joint_state_publisher \
 
 ### Bekannte offene Punkte
 
-- **Stand-Test** (Done-Kriterium 4) — deferiert, siehe oben. Erste Aufgabe
-  in Phase 4.
+- **Stand-Test** (Done-Kriterium 4) — deferiert, in **Phase 4 Stufe F
+  nachgeholt** (Drift = 0 mm / 0° über 5 s, Default-Reibung ausreichend).
 - **KDL-Warning** für `base_link` mit Inertia — aus Phase 2 bekannt, bleibt
-  bestehen. Eventuell mit Dummy-Root-Link in Phase 4 fixen.
+  bestehen. Auf **Phase 5** verschoben (Memory-Eintrag
+  `project_phase5_kdl_warning_fix.md`).
 - **Snap-Library-Konflikt** mit `gz sim gui` (`__libc_pthread_init`-Symbol)
   trat im Claude-Bash-Subshell auf, **nicht** im normalen User-Terminal.
   Workaround dort: headless-Launch (`world:='-s empty.sdf'`). Im
   Default-User-Setup kein Problem.
-- **`/joint_states`-Brücke** und aktive Joint-Steuerung — bewusst Phase-4-
-  Scope.
+- **`/joint_states`-Brücke** und aktive Joint-Steuerung — in Phase 4 mit
+  `gz_ros2_control` + JSB erledigt (kein `parameter_bridge`-Mapping nötig,
+  JSB publisht direkt im Sim-Prozess).
+
+---
+
+## Phase 4 — Bericht (2026-05-08)
+
+**Ergebnis:** `ros2_control` vollständig integriert. Beim Sim-Launch
+laufen 7 Controller (1× `JointStateBroadcaster` + 6× `JointTrajectoryController`,
+einer pro Bein) im Status `active`. Manueller Bewegungstest auf
+mehreren Beinen grün, Stand-Pose stabil (Drift = 0). RViz folgt Gazebo
+synchron — die Phase-3-JSP-Krücke ist obsolet. Alle 6 Done-Kriterien
+aus `docs/phase_4_ros2_control.md` erfüllt, plus die Phase-3-Defers
+aus DK4 eingelöst.
+
+### Was angelegt wurde
+
+Zwei neue Pakete:
+
+```
+hexapod_control/
+├── config/controllers.yaml       # CM + JSB + 6 JTC, use_sim_time=true
+├── README.md
+├── package.xml
+└── CMakeLists.txt
+
+hexapod_bringup/
+├── launch/sim.launch.py          # Standard-Sim-Bringup ab Phase 4
+├── README.md
+├── package.xml
+└── CMakeLists.txt
+```
+
+Erweiterung in `hexapod_description`:
+- `urdf/hexapod.ros2_control.xacro` — `joint_iface(name, lower, upper)`-
+  Macro 18× instanziiert + `gz_ros2_control-system`-Plugin-Block.
+  Limit-Werte ziehen direkt aus den Properties in
+  `hexapod_physical_properties.xacro` (Single Source of Truth).
+
+Vier neue Konzept-/Test-Dokus in `docs/`:
+- `phase_4_controllers_explained.md` — `controllers.yaml`, Lifecycle,
+  CLI-Befehle, Phasen-übergreifende Nutzung
+- `phase_4_launch_explained.md` — Launch-Files, Substitutions,
+  Event-Handler, Spawner-Pattern
+- `phase_4_stage_E_test_commands.md` — User-Operations-Handbuch für
+  die Inbetriebnahme (3 Terminals, Schritt-für-Schritt)
+- `phase_4_stage_F_test_commands.md` — User-Operations-Handbuch für
+  Stand-Test + Reibungs-Verifikation
+
+### Wichtige Designentscheidungen
+
+| Entscheidung | Begründung |
+|---|---|
+| Ein JTC pro Bein (statt 1 großer für alle 18 Joints) | Tripod-Gait braucht parallele Trajektorien (3 schwingen, 3 stützen); Beine isoliert testbar; HW-Fehler isolieren sich |
+| Position-only Command-Interface | Servo2040 in Phase 7 spricht ebenfalls Position; State-Interface zusätzlich `velocity` (breiter, viele Controller stützen sich darauf) |
+| Limit-Werte aus existierenden Properties (`coxa_lower/upper` etc.) | Single Source of Truth in §11.4 — keine Duplikation zwischen `<limit>` und `<param min/max>` |
+| Zweistufige `OnProcessExit`-Sequenz im Launch | Standard-ros2_control-Pattern: spawn-Exit → JSB → JSB-Exit → 6 JTCs. Re-Try-Spam in Logs vermieden |
+| `hexapod_gazebo/sim.launch.py` bleibt erhalten | Plain-Sim ohne Controller für Physik-/Reibungs-Debugging |
+| Explizit ausgeschriebene 6 JTC-Blöcke in YAML (keine Anchors) | ROS-YAML-Parser haben mit Anchors gelegentlich Macken, alle Tutorials machen es explizit |
+| Konzept-Dokus separat von Implementierungs-Notizen | `*_explained.md` bleibt in Phase 5-7 als Nachschlagewerk nützlich; Progress-File pflegt nur den Fortschritts-Tracking |
+
+### Verifikation
+
+- `colcon build --packages-select hexapod_description hexapod_gazebo hexapod_control hexapod_bringup --symlink-install` grün
+- `ros2 control list_controllers` → 7 Controller, alle `active`
+- `ros2 control list_hardware_interfaces` → 18 cmd `[claimed]` + 36 state
+- `ros2 topic list` → `/joint_states` + 6× `/leg_*_controller/joint_trajectory`
+- Bewegungstest Bein 1 + Bein 4 + Multi-Bein-Reset + Multi-Bein-Anhebung — alle visuell und in RViz synchron
+- **Stand-Test (Phase-3-Defer):** `gz model -m hexapod -p` über 5 s — z=0.0553 m und RPY identisch über alle Samples, Drift = 0
+- Default-Reibungswerte (`mu=1.0`, `kp=1e6`, `kd=100`) tragen sauber, kein Tuning nötig
+
+### Konventions-Änderungen während Phase 4
+
+Keine. Stack und Naming aus `00_conventions.md` haben 1:1 getragen,
+Limit-Werte aus §11.4 wurden direkt wiederverwendet.
+
+### Bekannte offene Punkte
+
+- **KDL-Warning** weiterhin offen — auf **Phase 5** verschoben
+  (Memory-Eintrag `project_phase5_kdl_warning_fix.md` als Reminder).
+- **`use_sim_time: true`** in `controllers.yaml` ist Phase-4-6-korrekt, in
+  Phase 7 muss entweder per Launch-Override `false` gesetzt oder eine
+  separate `controllers.real.yaml` angelegt werden — Kommentar im YAML
+  weist explizit darauf hin.
+- **Stand-Pose ist visuell asymmetrisch** (`y=-0.020 m`, `yaw=-0.014°`):
+  kommt vom Settling des Bauch-Bodenkontakts vor dem Pose-Anfahren,
+  nach dem Anheben kein Drift mehr aber auch keine Re-Zentrierung. Wird
+  in Phase 5 mit IK-basiertem Anfahren der Stand-Pose verschwinden.

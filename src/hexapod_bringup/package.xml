@@ -3,7 +3,7 @@
 <package format="3">
   <name>hexapod_bringup</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Top-level launch orchestration for the Hexapod. Combines Gazebo sim bringup (gz sim + RSP + spawn + bridge) with ros2_control spawners (JSB + 6 JTC) in a two-stage OnProcessExit sequence. From Phase 4 onwards the standard sim launcher; phase 3 hexapod_gazebo/sim.launch.py remains as plain-sim alternative.</description>
   <maintainer email="noreply@gmx.net">enjoykin-ua</maintainer>
   <license>Apache-2.0</license>
 
