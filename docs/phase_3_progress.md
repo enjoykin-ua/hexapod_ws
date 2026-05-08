@@ -533,19 +533,56 @@ ls ~/.ros/log/latest/                        # pro Node ein Verzeichnis
 
 ---
 
-## Stufe E — Statisches Stehen + RViz-Andockung ⬜
+## Stufe E — Statisches Stehen + RViz-Andockung ✅ (E.1 deferiert, E.2 erfüllt)
 
 **Ziel:** Done-Kriterien 4 und 6 nachweisen — der Roboter kann unter
 Schwerkraft stabil auf seinen 6 Foot-Kugeln stehen, wenn die Joints in
 einer geeigneten Stand-Pose festgehalten werden, und das Modell ist auch
 in RViz live mit Sim-Zeit sichtbar.
 
-### E.1 Manueller Stand-Test
+### E.1 Manueller Stand-Test ⏸ DEFERIERT auf Phase 4
 
-**Ziel:** Verifizieren, dass die in Stufe B gesetzten Reibungs- und Kontakt-
-Werte für ein stabiles Stehen ausreichen. **Manuell**, weil wir noch keinen
-Controller haben — die Gazebo-GUI hat einen eingebauten Joint-Slider, mit
-dem sich Position-Targets pro Joint setzen lassen.
+> **Entscheidung am 2026-05-08:** Stand-Test wird nicht in Phase 3 abgenommen.
+> Begründung siehe Block direkt unten ("Warum deferiert"). Die ursprüngliche
+> Konzept-Beschreibung bleibt zur Dokumentation stehen.
+
+**Warum deferiert (Weg B aus drei Optionen):**
+
+In reinem URDF ohne Plugin gibt es in Gazebo keinen Mechanismus, der einzelne
+Joint-Winkel hält. Der GUI-Slider „Joint Position Controller" sendet zwar
+Position-Topics, aber serverseitig hört niemand zu — solange kein
+`JointPositionController`-System-Plugin (oder `gz_ros2_control`) im SDF
+geladen ist. **Phase 3 hat bewusst keine solchen Plugins** (gehört zu
+Phase 4).
+
+Drei diskutierte Wege:
+- **A)** 18× `JointPositionController`-Plugin pro Joint im URDF — Wegwerfcode,
+  den Phase 4 sofort wieder durch `gz_ros2_control` ersetzt.
+- **B)** Stand-Test auf Phase 4 verschieben — gewählt.
+- **C)** Stand-Pose beim Spawn + hohe Joint-Damping — verfälscht die Dynamik
+  temporär, müsste in Phase 4 zurückgedreht werden.
+
+Weg B ist der einzige, der den Phasen-Schnitt nicht verletzt.
+
+**Konsequenzen / wie wir damit umgehen:**
+- Done-Kriterium 4 aus `phase_3_gazebo.md` wird in der Phasenabschluss-
+  Checkliste als „⏸ deferiert auf Phase 4" markiert, nicht als „erfüllt".
+- Die Reibungs-/Kontaktwerte (`mu1=mu2=1.0`, `kp=1e6`, `kd=100`) bleiben als
+  konservativer Default stehen und werden im `hexapod_gazebo`-README mit
+  Defer-Hinweis dokumentiert.
+- Erste echte Verifikation der Werte erfolgt beim ersten Stand-Test in
+  Phase 4, sobald `gz_ros2_control` Joint-Steuerung etabliert. Nachjustierung
+  der Werte dort, falls nötig.
+- In der Phase-3-Retro festhalten als „offener Punkt aus Phasen-Schnitt".
+
+---
+
+**Ziel (ursprüngliches Konzept, nicht mehr in Phase 3 ausgeführt):**
+Verifizieren, dass die in Stufe B gesetzten Reibungs- und Kontakt-Werte für
+ein stabiles Stehen ausreichen. **Manuell**, weil wir noch keinen Controller
+haben — die Gazebo-GUI hat einen eingebauten Joint-Slider, mit dem sich
+Position-Targets pro Joint setzen lassen. (Dokumentations-Lücke: dieser
+Slider funktioniert nur mit serverseitigem Plugin, das in Phase 3 fehlt.)
 
 **Die Test-Pose (`coxa=0`, `femur=-0.5`, `tibia=+1.0`):** Eine grobe
 Standard-Hexapod-Pose. Coxa neutral = Beine radial nach außen wie im URDF
@@ -564,12 +601,12 @@ zuständige Stellschraube.
 diesen Werten auf. Wenn wir später einen Gait debuggen, müssen wir
 nachvollziehen können, mit welcher Reibung das Stehen kalibriert wurde.
 
-- [ ] In Gazebo-GUI Joint-Slider geöffnet (Entity Tree → hexapod → Joints)
-- [ ] Test-Pose gesetzt: coxa=0, femur=-0.5 rad, tibia=+1.0 rad (alle 6 Beine)
-- [ ] Roboter steht stabil auf 6 Foot-Kugeln, kein konstantes Zittern (Done-Kriterium 4)
-- [ ] Kein Wegrutschen → `mu1/mu2`-Werte ausreichend
-- [ ] Falls Zittern: `kp` / `inertia_min` schrittweise erhöht und Wert dokumentiert
-- [ ] Finale Reibungs-/Kontaktwerte (`mu1`, `mu2`, `kp`, `kd`) im Paket-README dokumentiert
+- ⏸ In Gazebo-GUI Joint-Slider geöffnet (Entity Tree → hexapod → Joints) — Slider sichtbar (User-bestätigt 2026-05-08), aber wirkungslos ohne Server-Plugin
+- ⏸ Test-Pose gesetzt: coxa=0, femur=-0.5 rad, tibia=+1.0 rad (alle 6 Beine) — **deferiert auf Phase 4**
+- ⏸ Roboter steht stabil auf 6 Foot-Kugeln, kein konstantes Zittern (Done-Kriterium 4) — **deferiert auf Phase 4**
+- ⏸ Kein Wegrutschen → `mu1/mu2`-Werte ausreichend — **deferiert auf Phase 4**
+- ⏸ Falls Zittern: `kp` / `inertia_min` schrittweise erhöht und Wert dokumentiert — **deferiert auf Phase 4**
+- [x] Finale Reibungs-/Kontaktwerte (`mu1=mu2=1.0`, `kp=1.0e6`, `kd=100`) im Paket-README dokumentiert (Defaults + Defer-Hinweis — Verifikation in Phase 4); siehe `src/hexapod_gazebo/README.md`
 
 ### E.2 RViz optional an Sim andocken
 
@@ -589,14 +626,33 @@ läuft.
 Blocker — Phase 3 funktioniert auch ohne. Aber kostet 30 Sekunden und
 spart später Stunden.
 
-- [ ] `rviz2` in zweitem Terminal mit `--ros-args -p use_sim_time:=true` gestartet
-- [ ] Fixed Frame auf `base_link` (oder `world`) gesetzt
-- [ ] `RobotModel` + `TF` Display zeigt Modell live, synchron zur Sim (Done-Kriterium 6)
-- [ ] Bei Joint-Bewegung in Gazebo-GUI bewegt sich RViz-Modell mit
+- [x] `rviz2` in zweitem Terminal mit `--ros-args -p use_sim_time:=true` gestartet (User-Test 2026-05-08)
+- [x] Fixed Frame auf `base_link` gesetzt (nach JSP-Krücke verfügbar — siehe Hinweis unten)
+- [x] `RobotModel`-Display über „By display type" hinzugefügt; Description Source = `Topic`, Description Topic = `/robot_description`; URDF parsed ok, Topic ankommt mit `RELIABLE`/`TRANSIENT_LOCAL`-QoS (`ros2 topic info -v` verifiziert)
+- [x] Roboter im 3D-View sichtbar in Default-Pose (alle Joints = 0); Done-Kriterium 6 mit Krücke erfüllt
+- ⏸ Bei Joint-Bewegung in Gazebo-GUI bewegt sich RViz-Modell mit — **deferiert auf Phase 4** (kein `/joint_states`-Bridging in Phase 3, siehe E.1)
+
+**Dokumentierte Phase-3-Krücke für RViz-Abnahme:**
+Ohne `/joint_states` aus Gazebo bleibt `/tf` unvollständig (nur die 6
+fixed `foot→tibia`-Transforms aus `/tf_static`), und `base_link` taucht
+gar nicht im Fixed-Frame-Dropdown auf. Workaround: ein `joint_state_publisher`
+(headless, ohne GUI) in einem dritten Terminal starten — der publisht alle
+18 Joints auf 0, RSP berechnet daraus das vollständige `/tf`, RViz zeigt
+den Roboter.
+
+```bash
+# Terminal 3 nur für RViz-Test, danach mit Ctrl+C beenden
+ros2 run joint_state_publisher joint_state_publisher --ros-args -p use_sim_time:=true
+```
+
+**Bewusst NICHT** ins `sim.launch.py` aufgenommen, weil es in Phase 4 mit
+`gz_ros2_control` kollidieren würde (beide wollten `/joint_states` publishen).
+In Phase 4 entfällt die Krücke — `gz_ros2_control` liefert echte Live-States
+aus der Sim, das Modell in RViz folgt dann Gazebo synchron.
 
 ---
 
-## Phasenabschluss ⬜
+## Phasenabschluss 🟡 (offene Punkte: Snapshot + Git-Tag — User-Aufgaben)
 
 **Ziel:** Phase formell schließen, sodass Phase 4 sauber starten kann.
 Drei Ebenen: technisch (alle Done-Kriterien grün), dokumentarisch
@@ -613,32 +669,65 @@ und installierte ROS-Pakete nicht im Repo liegen.
 für die nächsten Phasen. Bei Phase 2 z. B. die Coxa-Z-Position — solche
 Erkenntnisse gehen sonst beim Phasenwechsel verloren.
 
-- [ ] Alle 6 Done-Kriterien aus `phase_3_gazebo.md` erfüllt:
-  - [ ] 1) `hexapod_gazebo` baut
-  - [ ] 2) `ros2 launch hexapod_gazebo sim.launch.py` startet Gazebo + Roboter + Bodenebene
-  - [ ] 3) Roboter fällt nicht durch den Boden, kollabiert nicht
-  - [ ] 4) Bei manuell gesetzten Joint-Winkeln steht der Roboter stabil
-  - [ ] 5) `/clock` ist in ROS sichtbar
-  - [ ] 6) RViz mit `use_sim_time:=true` zeigt Modell live
-- [ ] `README.md` in `hexapod_gazebo/` aktuell (Zweck, Launch-Aufruf, Reibungswerte, Bekannte Stolperfallen)
-- [ ] `package.xml` ohne `TODO:`-Stubs
-- [ ] Timeshift-Snapshot `phase_3_done` angelegt
-- [ ] Git-Commit + Tag `phase-3-done`
-- [ ] `PHASE.md` auf Phase 4 aktualisiert (Status: Phase 3 🟢, Phase 4 🟡)
-- [ ] Workspace-`README.md` um Phase-3-Bericht ergänzt
-- [ ] Retro: Was lief gut, was hat länger gedauert, was bleibt offen
+- [ ] 5 von 6 Done-Kriterien aus `phase_3_gazebo.md` erfüllt; Kriterium 4 deferiert (siehe Stufe E.1):
+  - [x] 1) `hexapod_gazebo` baut
+  - [x] 2) `ros2 launch hexapod_gazebo sim.launch.py` startet Gazebo + Roboter + Bodenebene
+  - [x] 3) Roboter fällt nicht durch den Boden, kollabiert nicht
+  - ⏸ 4) Bei manuell gesetzten Joint-Winkeln steht der Roboter stabil — **deferiert auf Phase 4** (Phase 3 hat bewusst keinen Joint-Controller; siehe Stufe E.1 Begründung)
+  - [x] 5) `/clock` ist in ROS sichtbar (~935 Hz)
+  - [x] 6) RViz mit `use_sim_time:=true` zeigt Modell live (mit JSP-Krücke; Live-Sync zu Gazebo deferiert auf Phase 4)
+- [x] `README.md` in `hexapod_gazebo/` aktuell (Zweck, Launch-Aufruf, LaunchArgs-Tabelle, Reibungswerte mit Defer-Hinweis, RViz-Krücken-Doku, Stolperfallen-Tabelle, Phase-3-Status)
+- [x] `package.xml` ohne `TODO:`-Stubs (Description bereits beim `pkg create` gesetzt)
+- [ ] Timeshift-Snapshot `phase_3_done` angelegt — **User-Aufgabe**
+- [ ] Git-Commit + Tag `phase-3-done` — **User-Aufgabe** (oder mit Freigabe)
+- [x] `PHASE.md` auf Phase 4 aktualisiert (Phase 3 🟢, Phase 4 🟡; Defer-Hinweis als Übergabe-Block ergänzt)
+- [x] Workspace-`README.md` um Phase-3-Bericht ergänzt (was angelegt, Designentscheidungen, Verifikation, Defer-Block, RViz-Krücke, offene Punkte)
+- [x] Retro: Was lief gut / länger gedauert / offen — siehe unten
 
 ---
 
 ## Retro Phase 3
 
-_(wird beim Phasenabschluss befüllt)_
-
 **Was lief gut**
--
+- **Stufenplan A→D 1:1 umsetzbar**: Pakets-Skelett, Gazebo-Xacro, Bridge,
+  Launch — alles ohne nennenswertes Drehen-und-Wenden. Pre-built Snippets
+  aus `phase_3_gazebo.md` als Vorlage erfüllt.
+- **`ParameterValue(value_type=str)` proaktiv eingebaut**: hat den
+  klassischen rclpy-YAML-Reparse-Bug bei großen URDF-Strings vermieden,
+  bevor er aufgetreten ist.
+- **Doku-Disziplin**: Cheatsheets + Ablaufpläne für Stufen B/C/D
+  parallel zum Code geschrieben — nicht nachträglich. Tryout-Datei für
+  Stufe D als „Spielwiese" liefert sofortigen Wert.
+- **Headless-Workaround per `world:='-s empty.sdf'`** war der pragmatische
+  Weg, in der Claude-Shell trotz Snap-Library-Konflikt mit `gz sim gui`
+  zu testen.
+- **Topic-Verifikation programmatisch**: `/clock` mit ~935 Hz, `gz model
+  -p` mit `z=0.029 m`, `use_sim_time` über `ros2 param get` — objektive
+  Belege statt „sieht so aus".
 
 **Was hat länger gedauert**
--
+- **Konzeptionelles Loch bei Stufe E.1**: Die Phasen-Doku setzte stillschweigend
+  voraus, dass GUI-Slider in Gazebo Joints bewegen können — das stimmt nur
+  mit Server-Plugin. Der erste Lösungsansatz (GUI-Slider versuchen) war
+  vorhersehbar wirkungslos. Drei Optionen (A/B/C) wurden diskutiert und
+  Weg B (Defer) gewählt. Hat ~30 Min gekostet, weil ich erst beim direkten
+  Test gemerkt habe, dass das Konzept eine Lücke hat.
+- **RViz-Default Fixed Frame `map`** — kostete eine Iteration, weil RViz
+  ohne `map`-Frame stumm bleibt und nur foot/tibia-Frames im Dropdown
+  zeigt. Erst nach JSP-Krücke wurde die Lücke offensichtlich.
+- **Snap-Library-Konflikt mit `gz sim gui`** (`__libc_pthread_init`) — fiel
+  zunächst wie ein echter Bug, war aber ein Shell-Env-Issue (Snap-Pfad in
+  `LD_LIBRARY_PATH`). Im User-Terminal kein Problem. Stahl Diagnose-Zeit.
 
 **Was bleibt offen**
--
+- **Done-Kriterium 4 (Stand-Test)** deferiert auf Phase 4 — Reibungswerte
+  `mu1=mu2=1.0`, `kp=1e6`, `kd=100` sind konservative Defaults, noch nicht
+  unter Last verifiziert. Erste Phase-4-Aufgabe.
+- **`/joint_states`-Brücke** zwischen Gazebo und ROS — bewusst Phase-4-
+  Scope (`gz_ros2_control`).
+- **KDL-Warning** für `base_link` mit Inertia bleibt bestehen — eventuell
+  mit Dummy-Root-Link in Phase 4 fixen.
+- **`hexapod_gazebo`-Launch hat keinen `headless`-LaunchArg** — der
+  `world:='-s empty.sdf'`-Trick funktioniert, ist aber semantisch unsauber.
+  Falls in Phase 4 oder später Headless-Tests in CI gewünscht: eigenes
+  Argument einbauen.
