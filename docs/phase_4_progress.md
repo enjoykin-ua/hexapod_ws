@@ -150,7 +150,7 @@ Querprüfung mitverifiziert.
 
 ---
 
-## Stufe C — `controllers.yaml` schreiben ⬜
+## Stufe C — `controllers.yaml` schreiben ✅
 
 **Ziel:** Die Konfiguration des `controller_manager` plus aller 7 Controller
 (1× JSB + 6× JTC). Diese YAML wird vom `gz_ros2_control`-Plugin geladen
@@ -179,13 +179,74 @@ Sim-Rate ist sauber (10× Oversampling der Sim).
 auf Wallclock während die Sim Sim-Zeit-Stempel publisht; Trajektorien-
 Timeouts greifen falsch.
 
-- [ ] `hexapod_control/config/controllers.yaml` angelegt
-- [ ] `controller_manager` Block: `update_rate: 100`, `use_sim_time: true`
-- [ ] Controller-Liste unter `controller_manager.ros__parameters`: `joint_state_broadcaster` + `leg_1_controller`..`leg_6_controller` mit Type `joint_trajectory_controller/JointTrajectoryController`
-- [ ] Pro Bein-Controller: `joints` (3 Joint-Namen), `command_interfaces: [position]`, `state_interfaces: [position, velocity]`, `state_publish_rate: 50.0`, `action_monitor_rate: 20.0`
-- [ ] YAML syntaktisch valide (`yaml.safe_load`)
-- [ ] Joint-Namen in `joints`-Listen exakt zu URDF-Namen passend (`grep` Cross-Check gegen generiertes URDF)
-- [ ] `colcon build --packages-select hexapod_control` grün; YAML wird nach `install/.../share/hexapod_control/config/` kopiert
+- [x] `hexapod_control/config/controllers.yaml` angelegt
+- [x] `controller_manager` Block: `update_rate: 100`, `use_sim_time: true`
+- [x] Controller-Liste unter `controller_manager.ros__parameters`: `joint_state_broadcaster` + `leg_1_controller`..`leg_6_controller` mit Type `joint_trajectory_controller/JointTrajectoryController`
+- [x] Pro Bein-Controller: `joints` (3 Joint-Namen), `command_interfaces: [position]`, `state_interfaces: [position, velocity]`, `state_publish_rate: 50.0`, `action_monitor_rate: 20.0`
+- [x] YAML syntaktisch valide (`yaml.safe_load`)
+- [x] Joint-Namen in `joints`-Listen exakt zu URDF-Namen passend (Set-Diff URDF↔YAML: 18=18, leere Differenz in beide Richtungen, exakter MATCH)
+- [x] `colcon build --packages-select hexapod_control` grün; YAML wird nach `install/.../share/hexapod_control/config/` kopiert
+
+### Umsetzungsnotizen Stufe C
+
+> **Konzept-Hintergrund** (was die Datei ist, wer sie liest, Lifecycle,
+> CLI-Befehle, Phasen-übergreifende Nutzung): siehe
+> [phase_4_controllers_explained.md](phase_4_controllers_explained.md).
+> Dort steht alles, was über die reine Implementierung hinausgeht und
+> auch in Phase 5-7 noch als Nachschlagewerk dient.
+
+**YAML-Aufbau — zwei Schichten:** Oben `controller_manager:` mit
+`update_rate`, `use_sim_time` und der **Typdeklarations-Liste** der 7
+Controller (JSB + 6× JTC). Unten 6× Top-Level-Block `leg_N_controller:`
+mit der eigentlichen Konfiguration (`joints`, `command_interfaces`,
+`state_interfaces`, Publish-Rates). Das ist die ROS2-Standardstruktur:
+ein Top-Level-Key pro Knoten mit `ros__parameters` darunter.
+
+**Stilentscheidung — explizit ausgeschriebene 6 Bein-Blöcke:** Bewusst
+keine YAML-Anchors (`&jtc_defaults` / `*jtc_defaults`). Gründe:
+- ROS2-Parameter-Loader haben mit Anchors gelegentlich Macken
+- Alle ros2_control-Tutorials/Beispiele schreiben es explizit aus
+- Auditierbarkeit: man sieht direkt, welche 3 Joint-Namen in welchem
+  Bein-Controller stehen, ohne Anchor-Auflösung im Kopf
+
+Resultat: ~95 Zeilen YAML, davon ~50 Zeilen reine Wiederholung. Akzeptabel.
+
+**`use_sim_time: true` als Phase-7-Schuld:** In Phase 4-6 (Sim-only)
+korrekt. Phase 7 (echte HW) braucht `false` — das wird dann entweder
+per Launch-Argument überschrieben oder eine separate `controllers.real.yaml`
+angelegt. Kommentar im YAML weist explizit darauf hin, damit das in
+Phase 7 nicht übersehen wird.
+
+**Was bewusst NICHT in der YAML steht:**
+- **Keine PID-/Position-Gains** für die JTC. Default-Mode des JTC ist
+  Open-Loop-Trajektorien-Interpolation (Joint-Position-Soll wird
+  direkt durchgereicht). Reicht für den manuellen Bewegungstest in
+  Stufe E. Wenn Stufe F (Stand-Test unter Last) Probleme zeigt,
+  Gains dort nachjustieren.
+- **Kein expliziter `joints`-Filter beim JSB.** Ohne Filter publisht
+  JSB alle Joints, die der `controller_manager` kennt — das sind
+  unsere 18 aus dem `<ros2_control>`-Block. Genau der gewünschte Effekt.
+- **Keine `interface_name`-Override beim JSB.** Default greift sich
+  `position`+`velocity` von allen verfügbaren `<state_interface>`s ab
+  (siehe Stufe B: 18 position + 18 velocity).
+
+**Cross-Check als Set-Diff:** Statt `grep` (textbasiert, fehleranfällig
+bei Whitespace/Anführungszeichen) ein Python-Snippet, das beide
+Joint-Listen in `set()` lädt und Differenzen in beide Richtungen
+ausgibt. Resultat: `MATCH=True`, `len=18=18`, beide Diffs leer.
+
+**`$(find hexapod_control)`-Ende-zu-Ende:** Die YAML ist jetzt unter
+`install/hexapod_control/share/hexapod_control/config/controllers.yaml`
+deployed. Damit löst der Plugin-Block aus Stufe B (`<parameters>$(find
+hexapod_control)/config/controllers.yaml</parameters>`) ab Stufe E
+korrekt auf — vorausgesetzt `install/setup.bash` ist beim Sim-Start
+gesourct.
+
+**Was Stufe C explizit NICHT macht:**
+- Kein Launch (Stufe D)
+- Kein Spawner-Aufruf (Stufe D)
+- Kein Sim-Test mit aktiver YAML (Stufe E)
+- Keine PID-Tuning-Iteration (ggf. Stufe F)
 
 ---
 

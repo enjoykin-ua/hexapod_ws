@@ -1,0 +1,118 @@
+# controllers.yaml - ros2_control-Konfiguration fuer den Hexapod
+#
+# Wird vom gz_ros2_control-Plugin (siehe hexapod.ros2_control.xacro)
+# beim Sim-Start in den controller_manager geladen. In Phase 7 laedt
+# auf dem Pi der echte controller_manager dieselbe Datei - die
+# Hardware-Abstraktion ueber das HardwareInterface haelt sie portabel.
+#
+# Architektur: 1x JointStateBroadcaster + 6x JointTrajectoryController
+# (einer pro Bein, parallel-faehig fuer Tripod-Gait).
+#
+# Phase-7-Hinweis: 'use_sim_time' muss auf der echten Hardware auf
+# 'false' (oder per Launch-Argument ueberschrieben) - aktuell true,
+# weil Phase 4-6 ausschliesslich in Gazebo laufen.
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+    use_sim_time: true
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    leg_1_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_2_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_3_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_4_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_5_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_6_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+leg_1_controller:
+  ros__parameters:
+    joints:
+      - leg_1_coxa_joint
+      - leg_1_femur_joint
+      - leg_1_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_2_controller:
+  ros__parameters:
+    joints:
+      - leg_2_coxa_joint
+      - leg_2_femur_joint
+      - leg_2_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_3_controller:
+  ros__parameters:
+    joints:
+      - leg_3_coxa_joint
+      - leg_3_femur_joint
+      - leg_3_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_4_controller:
+  ros__parameters:
+    joints:
+      - leg_4_coxa_joint
+      - leg_4_femur_joint
+      - leg_4_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_5_controller:
+  ros__parameters:
+    joints:
+      - leg_5_coxa_joint
+      - leg_5_femur_joint
+      - leg_5_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_6_controller:
+  ros__parameters:
+    joints:
+      - leg_6_coxa_joint
+      - leg_6_femur_joint
+      - leg_6_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
