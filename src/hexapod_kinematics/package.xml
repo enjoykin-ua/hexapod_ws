@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>hexapod_kinematics</name>
+  <version>0.0.0</version>
+  <description>
+    Pure-Python inverse kinematics library for the hexapod legs (Phase 5).
+    Closed-form analytic IK + FK per leg. No ROS dependency — testable
+    with plain pytest. Consumed by hexapod_gait at runtime.
+  </description>
+  <maintainer email="noreply@gmx.net">enjoykin-ua</maintainer>
+  <license>Apache-2.0</license>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
