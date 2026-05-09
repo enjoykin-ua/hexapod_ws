@@ -1,0 +1,49 @@
+# ros_gz_bridge config für Foot-Bodenkontakt-Sensoren (Phase 5 Stufe D).
+#
+# Conditional in sim.launch.py geladen wenn enable_foot_contact:=true.
+# Mappt die 6 Gazebo-Contact-Sensor-Outputs auf ROS-Topics, die der
+# foot_contact_publisher (hexapod_sensors) als Eingabe konsumiert.
+#
+# Pipeline:
+#   gz.msgs.Contacts (auf /foot_contact_leg_<n>) -> bridge ->
+#     ros_gz_interfaces/Contacts (auf /leg_<n>/foot_contact_raw) ->
+#       foot_contact_publisher -> std_msgs/Bool (auf /leg_<n>/foot_contact)
+#
+# Der gz_topic_name kommt aus dem <topic>-Element in
+# hexapod_description/urdf/hexapod.foot_contact.xacro.
+
+- ros_topic_name: /leg_1/foot_contact_raw
+  gz_topic_name: /foot_contact_leg_1
+  ros_type_name: ros_gz_interfaces/msg/Contacts
+  gz_type_name: gz.msgs.Contacts
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /leg_2/foot_contact_raw
+  gz_topic_name: /foot_contact_leg_2
+  ros_type_name: ros_gz_interfaces/msg/Contacts
+  gz_type_name: gz.msgs.Contacts
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /leg_3/foot_contact_raw
+  gz_topic_name: /foot_contact_leg_3
+  ros_type_name: ros_gz_interfaces/msg/Contacts
+  gz_type_name: gz.msgs.Contacts
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /leg_4/foot_contact_raw
+  gz_topic_name: /foot_contact_leg_4
+  ros_type_name: ros_gz_interfaces/msg/Contacts
+  gz_type_name: gz.msgs.Contacts
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /leg_5/foot_contact_raw
+  gz_topic_name: /foot_contact_leg_5
+  ros_type_name: ros_gz_interfaces/msg/Contacts
+  gz_type_name: gz.msgs.Contacts
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /leg_6/foot_contact_raw
+  gz_topic_name: /foot_contact_leg_6
+  ros_type_name: ros_gz_interfaces/msg/Contacts
+  gz_type_name: gz.msgs.Contacts
+  direction: GZ_TO_ROS

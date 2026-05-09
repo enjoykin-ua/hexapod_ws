@@ -638,16 +638,137 @@ Phase 5** — nur Publisher + Bridge.
 mit Schritt-für-Schritt-Befehlen pro Terminal, Toggle-ON- und Toggle-OFF-
 Pfad, erwartete Topic-Listen.
 
-- [ ] Konzept besprochen (Granularität, Toggle-Mechanik, Topic-Typ)
-- [ ] `hexapod_description/urdf/hexapod.foot_contact.xacro` angelegt (xacro-Macro für Kontakt-Sensor pro `foot_link`)
-- [ ] Top-Level-`hexapod.urdf.xacro`: xacro-Argument `enable_foot_contact` mit Default `true`, conditional Include der neuen Datei
-- [ ] `hexapod_bringup/sim.launch.py`: LaunchArg `enable_foot_contact` deklariert, an xacro-Command-Aufruf durchgereicht
-- [ ] Foot-Contact-Bridge-Mappings (6×) als separater `ros_gz_bridge`-Node mit `IfCondition(LaunchConfiguration('enable_foot_contact'))`
-- [ ] `colcon build --packages-select hexapod_description hexapod_bringup` grün
-- [ ] `xacro hexapod.urdf.xacro enable_foot_contact:=true` rendert sauber, `... :=false` rendert ohne Sensor-Blöcke
-- [ ] `phase_5_stage_D_test_commands.md` geschrieben
-- [ ] **Live-Verifikation Toggle ON:** Sim startet mit `enable_foot_contact:=true`, `ros2 topic list` zeigt 6× `/leg_<n>/foot_contact`, in Stand-Pose alle 6 = `True`
-- [ ] **Live-Funktional:** Bein 1 manuell anheben (per Trajectory-Goal aus dem Boden) → `/leg_1/foot_contact` wird `False`, andere bleiben `True`
+### Design-Entscheidungen Stufe D
+
+#### 1. Sensor-Granularität
+
+**Optionen:**
+- **A) 6 separate Topics** `/leg_<n>/foot_contact` pro Bein. Pro:
+  ROS2-konventionell, einzeln inspizierbar (`ros2 topic echo /leg_3/foot_contact`),
+  konsistent mit Phase-4-Pattern `/leg_<n>_*`. Contra: 6 Topics in `topic list`.
+- **B) 1 gesammeltes Topic** `/foot_contacts` als Bit-Maske oder
+  Custom-Message. Pro: 1 Topic, atomarer Snapshot. Contra: Sammler-Logik
+  führt Latenz ein; Bit-Maske obscure beim `echo`; Custom-Message
+  bräuchte ein neues `hexapod_msgs`-Paket.
+
+**Gewählt: A** — User-Entscheidung. ROS2-konventionell, keine
+Sammler-Logik nötig.
+
+**Falls später Re-Design nötig** (z. B. ein Konsument braucht atomaren
+Snapshot für Synchronisations-Logik): Sammler-Knoten als zusätzliche
+Schicht einführen, der die 6 Bools synchronisiert in 1 Custom-Topic
+publisht. Bestehende 6 Topics bleiben.
+
+#### 2. Topic-Typ und Konversion
+
+**Optionen:**
+- **A) `std_msgs/Bool` mit Konversionsknoten** in Sim. Pipeline:
+  Gazebo Contacts → bridge → `ros_gz_interfaces/Contacts` →
+  Konversionsknoten → `std_msgs/Bool` auf `/leg_<n>/foot_contact`.
+  Phase-7-HW: Treiber publisht direkt `Bool`. Pro: **Sim/HW-Abstraktion
+  über identischen Topic-Typ**, Konsumenten unverändert portierbar
+  (CLAUDE.md §1). `Bool` ist trivial zu konsumieren. Contra: zusätzlicher
+  Konversionsknoten in Sim-Launch (~30 Zeilen Python).
+- **B) `ros_gz_interfaces/Contacts` direkt** ohne Konversion. Pro: eine
+  Schicht weniger; mehr Detail-Info verfügbar (Kontakt-Punkte, -Normalen).
+  Contra: Sim und HW haben unterschiedliche Topic-Typen, Phase-7-HW
+  bräuchte Adapter — bricht die Sim/HW-Abstraktion.
+
+**Gewählt: A** — User-Entscheidung. Sim/HW-Abstraktion ist Phase-5-
+Hauptziel. Konversionsknoten ist klein, einmal geschrieben.
+
+**Falls später Re-Design nötig** (z. B. ein Konsument braucht echte
+Force-/Normal-Daten und nicht nur Binary): zusätzliches Topic
+`/leg_<n>/foot_contact_raw` (Contacts-Direkt) parallel zum Bool-Topic
+einführen. Konsumenten wählen je nach Bedarf.
+
+#### 3. Toggle-Architektur
+
+**Optionen:**
+- **A) Alle 3 Schichten conditional** auf `enable_foot_contact`-LaunchArg:
+  xacro-Sensor-Block (conditional include), Bridge (conditional Node),
+  Konversionsknoten (conditional Node). Pro: bei OFF wirklich aus —
+  keine Sensor-Computation in Gazebo, keine Topics, null Overhead.
+  Contra: 3-Stellen-Wiring im Launch (akzeptabel, ~5 Code-Zeilen).
+- **B) Nur Bridge conditional** — URDF hat Sensoren immer, Gazebo
+  computed immer Contacts, ROS-Bridge wird nur bei enabled gestartet.
+  Pro: einfacheres Launch. Contra: Sensor läuft im Hintergrund auch
+  wenn nicht genutzt; `gz topic list` und `ros2 topic list` divergieren
+  bei OFF — Verwirrung.
+
+**Gewählt: A** — User-Entscheidung. Sauberer Off-Zustand, User-Erwartung
+"ein/aus ohne Reste" erfüllt.
+
+**Falls später Re-Design nötig** (Performance-Probleme durch häufiges
+Toggeln, Sim-Restart-Pflicht störend): zu B umschwenken (URDF-Sensor
+immer aktiv, nur Bridge togglen). Macht das Toggling laufzeit-fähig
+ohne Sim-Restart, kostet aber kontinuierlichen Sensor-Compute-Overhead.
+
+#### 4. Topic-Namensschema
+
+**Optionen:**
+- **A) `/leg_<n>/foot_contact`** — `/leg_<n>` als Namespace mit
+  `foot_contact` als Topic-Name. Pro: konsistent mit Phase-4-Bein-
+  Namespacing-Pattern (`/leg_<n>_controller/...` ist zwar Suffix-
+  basiert, aber `/leg_<n>` ist die strukturelle Einheit). In Phase 7
+  identischer Topic-Name beim HW-Treiber → Drop-in-Replacement.
+- **B) `/foot_contact/leg_<n>`** — `/foot_contact` als Namespace mit
+  Bein-Index als Topic. Pro: alle Foot-Contact-Topics gruppiert in
+  `/foot_contact/`-Namespace. Contra: bricht das pro-Bein-Namespacing-
+  Pattern.
+- **C) `/leg_<n>_foot_contact`** — flach mit Underscore. Wie Phase-4-
+  Joint-Names (`leg_<n>_coxa_joint`), aber für Topic-Hierarchie weniger
+  geeignet.
+
+**Gewählt: A** — User-Entscheidung (per Notiz, nicht via AskUserQuestion).
+Folgt dem Phase-4-Bein-Namespacing-Pattern.
+
+**Falls später Re-Design nötig** (z. B. mehrere Sensor-Typen pro Bein):
+zu B umschwenken (Sensor-Type-Namespace). Dann wäre auch `/imu/...`
+oben und `/foot_contact/...` parallel logischer.
+
+#### 5. Wo lebt der Konversions-Knoten?
+
+**Optionen:**
+- **A) `hexapod_gait`** — Konsument-nahe Verortung. Pro: gait_node ist
+  späterer Konsument der Bool-Topics. Contra: gait-Paket bekommt
+  Sensor-Logik dazu, mischt Verantwortungen.
+- **B) `hexapod_bringup`** — Launch + adapter. Pro: zentraler
+  Orchestrierungs-Punkt. Contra: bringup ist sonst Launch-only,
+  bricht das Muster.
+- **C) Neues Paket `hexapod_sensors`** — eigene Sensor-Hoheit.
+  Pro: zukunftssicher für IMU (User-Plan), Foot-Contact-Switches und
+  weitere Sensoren in einem Paket; saubere Verantwortungs-Trennung
+  Sensoren ↔ Bewegung. Contra: minimal mehr Boilerplate (eigenes
+  package.xml + setup.py).
+
+**Gewählt: C** — User-Entscheidung. Begründung des Users:
+"Ich möchte später noch weitere Sensoren einbinden". `hexapod_sensors`
+wird der Sammelort. Stufe D legt das Paket-Skelett an + den
+Foot-Contact-Konversionsknoten; spätere Sensoren (IMU in Phase 6/7)
+landen ebenfalls hier.
+
+**Falls später Re-Design nötig** (z. B. wenn `hexapod_sensors` zu
+mächtig wird und einzelne Sensoren in eigene Pakete sollen):
+Aufspaltung in `hexapod_imu`, `hexapod_foot_contact` etc. ist möglich.
+Aktuell unwahrscheinlich.
+
+---
+
+- [x] Konzept besprochen (Granularität A: 6 separate Topics, Topic-Typ A: Bool mit Konversionsknoten, Toggle A: alle 3 Schichten conditional, Namensschema A: `/leg_<n>/foot_contact`, Knoten-Paket C: neues `hexapod_sensors`)
+- [x] **`hexapod_sensors` Paket-Skelett angelegt** (ament_python, exec_depends: `rclpy`, `std_msgs`, `ros_gz_interfaces`); entry_point `foot_contact_publisher`
+- [x] **[hexapod_description/urdf/hexapod.foot_contact.xacro](../src/hexapod_description/urdf/hexapod.foot_contact.xacro)** — xacro-Macro `leg_foot_contact(id)` 6× instanziiert, `<sensor type="contact">` mit `<topic>foot_contact_leg_<id></topic>`, `update_rate=50`, `<contact><collision>leg_<id>_foot_link_collision</collision></contact>`
+- [x] **Top-Level-[hexapod.urdf.xacro](../src/hexapod_description/urdf/hexapod.urdf.xacro)** erweitert: `<xacro:arg name="enable_foot_contact" default="true"/>`; conditional Include via `<xacro:if value="$(arg enable_foot_contact)">`
+- [x] **[hexapod_sensors/foot_contact_publisher.py](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)** — rclpy-Knoten, 6 Subs auf `/leg_<n>/foot_contact_raw` (`Contacts`) → 6 Pubs auf `/leg_<n>/foot_contact` (`Bool`); Closure-Factory pro Bein damit `leg_id` korrekt gebunden ist
+- [x] **[hexapod_bringup/config/bridge_foot_contact.yaml](../src/hexapod_bringup/config/bridge_foot_contact.yaml)** — 6 Bridge-Mappings (`gz.msgs.Contacts` → `ros_gz_interfaces/Contacts`, GZ_TO_ROS); `CMakeLists.txt` ergänzt für `install(DIRECTORY launch config ...)`
+- [x] **[hexapod_bringup/launch/sim.launch.py](../src/hexapod_bringup/launch/sim.launch.py)** erweitert: LaunchArg `enable_foot_contact` (Default `true`), an xacro-Command per `enable_foot_contact:=` durchgereicht; conditional `ros_gz_foot_contact_bridge`-Node (Bridge-YAML) und conditional `foot_contact_publisher`-Node, beide via `IfCondition(LaunchConfiguration('enable_foot_contact'))`
+- [x] `package.xml` von hexapod_bringup um `<exec_depend>hexapod_sensors</exec_depend>` ergänzt
+- [x] `colcon build --packages-select hexapod_description hexapod_sensors hexapod_bringup` grün — 3 packages finished, keine Fehler
+- [x] `xacro` mit `enable_foot_contact:=true` rendert mit 6 Sensor-Blöcken; `:=false` rendert mit 0 Sensor-Blöcken (verifiziert via `grep -c 'type="contact"'`)
+- [x] `colcon test --packages-select hexapod_sensors` grün (flake8 + pep257)
+- [x] [phase_5_stage_D_test_commands.md](phase_5_stage_D_test_commands.md) geschrieben — 3 Test-Pfade (Toggle-ON, Funktional, Toggle-OFF) mit insgesamt 14 Schritten + 2 optionale Diagnose-Variationen (Bridge-Direct + gz topic native)
+- [ ] **Live-Verifikation Toggle ON:** Sim startet mit `enable_foot_contact:=true`, `ros2 topic list` zeigt 6× `/leg_<n>/foot_contact`, in Stand-Pose alle 6 `data: true`
+- [ ] **Live-Funktional:** Bein 1 manuell anheben (Trajectory-Goal aus dem Boden) → `/leg_1/foot_contact` wird `data: false`, andere bleiben `true`
 - [ ] **Live-Verifikation Toggle OFF:** Sim startet mit `enable_foot_contact:=false`, **keine** `foot_contact`-Topics in `topic list`, kein Plugin-Lade-Fehler in Logs
 
 ---

@@ -1,6 +1,12 @@
 <?xml version="1.0"?>
 <robot name="hexapod" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!-- Phase 5 Stufe D: Toggle für Foot-Bodenkontakt-Sensoren.
+       Default true; bei false enthält das URDF keine Sensor-Blöcke,
+       Bridge und Konversionsknoten werden im Launch ebenfalls nicht
+       gestartet (siehe hexapod_bringup/launch/sim.launch.py). -->
+  <xacro:arg name="enable_foot_contact" default="true"/>
+
   <xacro:include filename="hexapod_physical_properties.xacro"/>
   <xacro:include filename="materials.xacro"/>
   <xacro:include filename="inertials.xacro"/>
@@ -48,5 +54,10 @@
 
   <!-- ===== ros2_control (Phase 4): Joint-Interfaces + gz_ros2_control-Plugin ===== -->
   <xacro:include filename="hexapod.ros2_control.xacro"/>
+
+  <!-- ===== Foot-Bodenkontakt-Sensoren (Phase 5 Stufe D, conditional) ===== -->
+  <xacro:if value="$(arg enable_foot_contact)">
+    <xacro:include filename="hexapod.foot_contact.xacro"/>
+  </xacro:if>
 
 </robot>

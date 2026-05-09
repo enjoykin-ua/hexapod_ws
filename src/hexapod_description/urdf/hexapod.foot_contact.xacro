@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    Foot-Bodenkontakt-Sensoren (Phase 5 Stufe D, toggle-bar via xacro-arg
+    enable_foot_contact). Ein <sensor type="contact"> pro foot_link, der
+    Gazebo-Kontakt-Events erkennt und auf einem dedizierten Gazebo-Topic
+    publisht.
+
+    Pipeline: Gazebo Contact-Sensor -> ros_gz_bridge ->
+    ros_gz_interfaces/Contacts -> foot_contact_publisher (hexapod_sensors)
+    -> std_msgs/Bool auf /leg_<n>/foot_contact.
+
+    Sim/HW-Abstraktion: in Phase 7 ersetzt der HW-Treiber die ersten
+    drei Schichten (Sensor + Bridge + Konversion). Konsumenten sehen
+    denselben Bool-Topic-Namen.
+
+    Update-Rate 50 Hz: passt zur Gait-Engine-Tick-Rate aus
+    docs/phase_5_kinematics_gait.md, vermeidet unnoetige Compute-Last.
+  -->
+  <xacro:macro name="leg_foot_contact" params="id">
+    <gazebo reference="leg_${id}_foot_link">
+      <sensor name="leg_${id}_foot_contact" type="contact">
+        <always_on>true</always_on>
+        <update_rate>50</update_rate>
+        <visualize>false</visualize>
+        <topic>foot_contact_leg_${id}</topic>
+        <contact>
+          <collision>leg_${id}_foot_link_collision</collision>
+        </contact>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:leg_foot_contact id="1"/>
+  <xacro:leg_foot_contact id="2"/>
+  <xacro:leg_foot_contact id="3"/>
+  <xacro:leg_foot_contact id="4"/>
+  <xacro:leg_foot_contact id="5"/>
+  <xacro:leg_foot_contact id="6"/>
+
+</robot>

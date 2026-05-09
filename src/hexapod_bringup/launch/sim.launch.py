@@ -22,6 +22,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     RegisterEventHandler,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -37,6 +38,7 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description() -> LaunchDescription:
     pkg_hexapod_description = FindPackageShare('hexapod_description')
     pkg_hexapod_gazebo = FindPackageShare('hexapod_gazebo')
+    pkg_hexapod_bringup = FindPackageShare('hexapod_bringup')
     pkg_ros_gz_sim = FindPackageShare('ros_gz_sim')
 
     default_urdf = PathJoinSubstitution([
@@ -44,6 +46,9 @@ def generate_launch_description() -> LaunchDescription:
     ])
     bridge_config = PathJoinSubstitution([
         pkg_hexapod_gazebo, 'config', 'bridge.yaml',
+    ])
+    bridge_foot_contact_config = PathJoinSubstitution([
+        pkg_hexapod_bringup, 'config', 'bridge_foot_contact.yaml',
     ])
 
     declare_urdf = DeclareLaunchArgument(
@@ -61,12 +66,27 @@ def generate_launch_description() -> LaunchDescription:
         default_value='0.20',
         description='Initial spawn height in meters; robot drops to ground.',
     )
+    declare_enable_foot_contact = DeclareLaunchArgument(
+        'enable_foot_contact',
+        default_value='true',
+        description=(
+            'Phase 5 Stufe D: Foot-Bodenkontakt-Sensoren aktivieren. '
+            'Bei true: xacro-Sensor-Block, Bridge und Konversionsknoten '
+            'starten. Bei false: keine Sensor-Computation in Gazebo, '
+            'keine /leg_<n>/foot_contact-Topics in ROS.'
+        ),
+    )
 
     # robot_description: xacro is evaluated at launch time.
     # ParameterValue with value_type=str prevents rclpy from trying to
     # YAML-parse the URDF string into a dict (a common gotcha).
+    # enable_foot_contact wird als xacro-Argument durchgereicht und steuert
+    # den conditional Include von hexapod.foot_contact.xacro.
     robot_description = ParameterValue(
-        Command(['xacro ', LaunchConfiguration('urdf')]),
+        Command([
+            'xacro ', LaunchConfiguration('urdf'),
+            ' enable_foot_contact:=', LaunchConfiguration('enable_foot_contact'),
+        ]),
         value_type=str,
     )
 
@@ -112,6 +132,36 @@ def generate_launch_description() -> LaunchDescription:
             'config_file': bridge_config,
             'use_sim_time': True,
         }],
+    )
+
+    # Foot-Kontakt-Bridge: separate Bridge-Instance, die nur dann
+    # gestartet wird wenn enable_foot_contact:=true. Das ist die
+    # mittlere Schicht der 3-Schicht-Toggle-Architektur (Stufe-D-
+    # Design-Entscheidung 3 A): xacro-Sensor + Bridge + Conv-Node.
+    foot_contact_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='ros_gz_foot_contact_bridge',
+        output='screen',
+        parameters=[{
+            'config_file': bridge_foot_contact_config,
+            'use_sim_time': True,
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_foot_contact')),
+    )
+
+    # Foot-Kontakt-Konversionsknoten aus hexapod_sensors. Subscribed
+    # auf 6 ros_gz_interfaces/Contacts und publisht 6 std_msgs/Bool
+    # auf /leg_<n>/foot_contact. Conditional auf enable_foot_contact.
+    foot_contact_publisher = Node(
+        package='hexapod_sensors',
+        executable='foot_contact_publisher',
+        name='foot_contact_publisher',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_foot_contact')),
     )
 
     # --- Controller spawners (each is a one-shot node) ---
@@ -168,10 +218,13 @@ def generate_launch_description() -> LaunchDescription:
         declare_urdf,
         declare_world,
         declare_spawn_z,
+        declare_enable_foot_contact,
         gz_sim,
         robot_state_publisher,
         spawn,
         bridge,
+        foot_contact_bridge,
+        foot_contact_publisher,
         after_spawn_start_jsb,
         after_jsb_start_leg_controllers,
     ])
