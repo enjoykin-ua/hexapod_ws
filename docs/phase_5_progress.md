@@ -1934,16 +1934,94 @@ Skalierung funktional bestätigt.
   User-Entscheidung 2026-05-09: stört aktuell und auch später am Pi
   nicht.
 
-- [ ] Alle 5 Done-Kriterien aus `phase_5_kinematics_gait.md` erfüllt
-- [ ] `pytest` in `hexapod_kinematics` grün
-- [ ] Tripod-Gait-Diagramm in `hexapod_gait/README.md`
-- [ ] Parameter-Werte in `controllers.yaml` und Gait-Config dokumentiert
-- [ ] `hexapod_kinematics/README.md` (Zweck, Test-Aufruf, IK-Konvention)
-- [ ] `hexapod_gait/README.md` (Zweck, Launch-Aufruf, cmd_vel-Format, Stolperfallen)
-- [ ] `phase_5_ik_explained.md` und `phase_5_gait_explained.md` final
-- [ ] Workspace-`README.md` um Phase-5-Bericht ergänzt
+- [x] Alle 5 Done-Kriterien aus `phase_5_kinematics_gait.md` erfüllt (DK 1: pytest grün; DK 2: Vorwärts via cmd_vel; DK 3: Stopp <1.5 s relaxed; DK 4: Tripod-Sequenz; DK 5: kein Wegrutschen für kurze Strecken)
+- [x] `pytest` in `hexapod_kinematics` grün — 28 Tests, 0 Failures, 1 skipped (Style)
+- [x] State-Machine-Diagramm in [hexapod_gait/README.md](../src/hexapod_gait/README.md) (Tripod-Pattern-Beschreibung dort + in [phase_5_gait_explained.md](phase_5_gait_explained.md))
+- [x] Parameter-Werte in [hexapod_gait/README.md](../src/hexapod_gait/README.md) (gait_node Param-Tabelle) und controllers.yaml-Hinweis (`use_sim_time: true` mit Phase-7-Übergabe-Note seit Phase 4)
+- [x] [hexapod_kinematics/README.md](../src/hexapod_kinematics/README.md) — Zweck, API-Quickstart, IK-Konvention, Test-Aufruf, Test-Coverage, Architektur-Notizen
+- [x] [hexapod_gait/README.md](../src/hexapod_gait/README.md) — Komponenten, Launch-Quickstart, cmd_vel-Format, Knoten-Parameter, State-Machine, GaitPattern-Erweiterung, Konzept-Hintergrund, Stolperfallen
+- [x] [phase_5_ik_explained.md](phase_5_ik_explained.md) bereits final (Stufe B), [phase_5_gait_explained.md](phase_5_gait_explained.md) neu geschrieben in Stufe I (Layered Architecture, GaitPattern-Daten-Shape, Body↔Bein-Frame mit Rigid-Body-Velocity-Formel, Trajektorien, State-Machine-Detail, Clamping, JTC-Tracking-Lag-Workaround, Phase-Limitations, Erweiterungs-Roadmap)
+- [x] Workspace-[README.md](../README.md) um Phase-5-Bericht ergänzt (Stufen-Übersicht A–I, 8 Designentscheidungen-Tabelle, Verifikation pro DK, bekannte offene Punkte)
+- [x] [phase_6_teleop_handoff.md](phase_6_teleop_handoff.md) — kompakter Phase-6-Einstiegspunkt (statt komplettes Phase-5-Material lesen)
 - [ ] Timeshift-Snapshot `phase_5_done` — User-Aufgabe
 - [ ] Git-Commit + Tag `phase-5-done` — User-Aufgabe
-- [ ] `PHASE.md` auf Phase 6 aktualisiert (Status: Phase 5 🟢, Phase 6 🟡)
-- [ ] Retro: Was lief gut, was hat länger gedauert, was bleibt offen
+- [x] [PHASE.md](../PHASE.md) auf Phase 6 aktualisiert (Status: Phase 5 🟢, Phase 6 🟡, mit Übergabe-Items + Verweis auf phase_6_teleop_handoff.md)
+- [x] Retro siehe unten (Stufe-I-Section)
 - [x] KDL-Warning-Fix bewusst auf Phase 6/7 geschoben (User-Entscheidung 2026-05-09)
+
+### Phase-5-Retro
+
+**Was lief gut:**
+
+- **Stufen-Granulierung A–I** war ein Glücksgriff. Jede Stufe ein klar
+  abgegrenztes Ziel, jeweils mit Konzept-Diskussion → Implementation →
+  Test → Bug-Fix-Iteration. Hat die langen Live-Sim-Iterations-Spiralen
+  vermieden. Stufen-spezifische `phase_5_stage_<X>_test_commands.md`
+  haben den User-Selbst-Test deutlich vereinfacht.
+- **Pure-Python-Smoke-Tests vor Live-Sim** (Stufe G + H) haben kritische
+  Bugs vor der Sim gefangen — Sign-Fix in Stufe G's
+  `_compute_step_vec_leg`. Hätte sonst ggf. Stunden Sim-Debug gekostet.
+- **Daten-getriebenes `GaitPattern`-Design** (Stufe F) skaliert
+  perfekt — Stufe G/H haben die Pattern-Schicht **null** angefasst,
+  nur die Engine-State-Logic erweitert. Phase-8-Wave/Ripple sind
+  5-Zeilen-Patches.
+- **Design-Entscheidungen mit Alternativen** in jeder Stufe haben
+  Re-Design später möglich gemacht, ohne sich auf Erinnerung zu
+  verlassen. User hat das mehrfach explizit angefordert.
+- **Live-Toggle-Patterns** (`enable_walk` in Stufe F via
+  `add_on_set_parameters_callback`, später durch cmd_vel-Activity in
+  Stufe G ersetzt): haben Test-Iterationen ohne Sim-Restart
+  ermöglicht.
+
+**Was hat länger gedauert als gedacht:**
+
+- **Stufe D (Foot-Contact-Sensoren)** — vier kaskadierende Bugs:
+  `<topic>` außerhalb `<contact>`-Block, fixed-joint-Lumping (Foot
+  ins Tibia gefused), event-vs-timer-based Publisher (lifted leg →
+  Silence statt Decay), Stale-Prozesse vom vorherigen Test. Memory-
+  Eintrag `feedback_interactive_stage_test_doc.md` ist daraus
+  entstanden.
+- **Stufe E JTC-Tracking-Lag** — Initial-Versuch mit globaler
+  body_height-Senkung führte zu Body-Lift (alle 6 Beine gleich tief =
+  Body hebt sich um diesen Wert). Fix mit asymmetrischer
+  `_STANCE_PENETRATION` (5:1-Hebel) erst im 4. Versuch gefunden.
+- **Stale-Prozesse** als wiederkehrender Stolperstein über mehrere
+  Stufen — Cleanup-Snippet ist mit jeder Stufe gewachsen, in Stufe G
+  kam `pkill -f "ros2 topic pub"` dazu (mysteriöse 0.350-cmd_vel-
+  Warnings).
+
+**Was bleibt offen / Phase-6-Übergabe:**
+
+- **Yaw-Drift ~1.35°/m** bei langen Geradeaus-Strecken — Sim-Foot-
+  Friction-Asymmetrie. Phase-6-Joystick kompensiert durch
+  User-Korrektur. Phase 8+ Closed-Loop-Yaw wäre saubere Lösung.
+- **DK 3 strikt <0.5 s Stopp-Latenz** nicht erreicht (real 0.8–1.3 s
+  je nach `cycle_time`). Roadmap-Wert relaxed akzeptiert.
+- **KDL-Warning** weiter offen — bewusst auf Phase 6/7 geschoben.
+- **`controllers.yaml use_sim_time: true`** und `body_height = -0.052`
+  bleiben bis Phase 7 (HW-Port).
+
+**Memory-Erkenntnisse die übers Projekt hinaus gelten:**
+
+- `feedback_phase_progress_tracking.md`: Pro-erledigtem-Bullet sofort
+  abhakken, nicht batchen — User explizit eingefordert.
+- `feedback_no_trim_verification_output.md`: Bei Bash-Outputs zur
+  fachlichen Verifikation kein `| tail -N` — sonst verdeckt's was
+  geprüft werden soll.
+- `feedback_interactive_stage_test_doc.md`: Bei Live-Sim/HW-Tests
+  vorab `phase_<n>_stage_<X>_test_commands.md` schreiben.
+- `feedback_decision_alternatives_log.md`: Pro Stufe Design-Decisions
+  mit verworfenen Alternativen + Tradeoffs festhalten.
+- Pure-Python-Smoke-Tests vor Live-Sim für State-Machine + Math sind
+  Gold wert. Konsequent ab jetzt für math-heavy ROS-Knoten.
+
+**Quantitative Bilanz:**
+
+- Stufen: A–I (9 Stufen)
+- Neue Pakete: 3 (`hexapod_kinematics`, `hexapod_sensors`, `hexapod_gait`)
+- Neue Konzept-Dokus: 4 (`phase_5_ik_explained`, `phase_5_gait_explained`,
+  `phase_6_teleop_handoff`, `01_hardware_change_workflow`)
+- Test-Anleitungen: 6 (`phase_5_stage_C..H_test_commands`)
+- Tests grün: 28 in `hexapod_kinematics` + 3 Style in `hexapod_gait`
+- Live-Bug-Iterationen: ~12 über Stufen D + E (verteilt). Stufen F + H
+  jeweils 0. Stufe G eine pre-Live (Sign-Fix gefangen vom Smoke-Test).

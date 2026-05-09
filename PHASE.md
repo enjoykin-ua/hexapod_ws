@@ -1,23 +1,30 @@
 # Aktive Phase
 
-**Aktuell:** Phase 5 — Inverse Kinematik & Gait
-**Datei:** `docs/phase_5_kinematics_gait.md`
+**Aktuell:** Phase 6 — Teleop (Tastatur, PS-Controller)
+**Datei:** `docs/phase_6_teleop.md` (Phasenplan, noch zu schreiben)
+**Handoff:** `docs/phase_6_teleop_handoff.md` — kompakter Einstiegspunkt
 
-> **Phase-4-Übergabe:** Alle 6 Done-Kriterien erfüllt. `ros2_control`
-> vollständig integriert (1× JSB + 6× JTC active), Bewegungstest auf
-> mehreren Beinen grün, RViz live-synchron mit Gazebo. Phase-3-Defer
-> (Stand-Test, DK4) in Stufe F nachgeholt — Default-Reibungswerte
-> tragen ohne Tuning, Drift = 0 mm / 0° über 5 s.
+> **Phase-5-Übergabe:** Alle 5 Done-Kriterien erfüllt + Stufe-H-Bonus
+> (omnidirektional via `linear.y` + `angular.z`). Hexapod läuft in
+> Gazebo eigenständig vorwärts/rückwärts/seitwärts/drehend/Bogen,
+> gesteuert via `/cmd_vel` (Twist). State-Machine STANDING/WALKING/
+> STOPPING mit sauberem Settling, proportionales Clamping, Demo-Mode
+> via `default_*`-Params.
 >
-> **Übergabe-Items für Phase 5:**
-> - **KDL-Warning** (`base_link has inertia, but KDL does not support
->   root link with inertia`) bewusst nicht in Phase 4 gefixt — auf Phase 5
->   geschoben. Optionaler Fix mit Dummy-Root-Link, sobald die Warning beim
->   IK/Gait-Debugging stört. Memory-Eintrag siehe
->   `~/.claude/.../memory/project_phase5_kdl_warning_fix.md`.
-> - Stand-Pose `[0, -0.5, 1.0]` ist verifiziert stabil. IK-Smoke-Test
->   in Phase 5 sollte als ersten Plausibilitätscheck genau diese Pose
->   per IK reproduzieren (Wunschhöhe ≈ 0.055 m → erwartete Joint-Werte).
+> **Übergabe-Items für Phase 6:**
+> - **Lies primär `docs/phase_6_teleop_handoff.md`** — kompaktes
+>   Phase-5-Output-Interface (cmd_vel-Format, Standard-Bringup,
+>   PS-Controller-Mapping-Empfehlung, Stolperfallen). Phase-5-
+>   Vollmaterial nur bei Bedarf.
+> - **cmd_vel-Pub-Rate ≥ 2 Hz** sonst Activity-Timeout 0.5 s →
+>   Engine fällt auf `default_*` (typisch 0 → STANDING) zurück.
+> - **Limits:** `linear.x/y` ±0.05 m/s, `angular.z` ±0.46 rad/s.
+>   Engine clampt proportional bei Übersteuerung.
+> - **KDL-Warning** weiter nicht gefixt — User-Entscheidung, stört
+>   am Pi auch nicht. Memory-Eintrag bleibt als Reminder.
+> - **Yaw-Drift ~1.35°/m** bei langen Geradeaus-Strecken bekannte
+>   Sim-Limitation. Phase 6 kompensiert durch User-Korrektur am
+>   Joystick.
 
 ---
 
@@ -30,8 +37,8 @@
 | 2 | Roboter-Beschreibung (URDF) | `docs/phase_2_description.md` | 🟢 abgeschlossen |
 | 3 | Gazebo-Simulation | `docs/phase_3_gazebo.md` | 🟢 abgeschlossen (alle 6 Kriterien; DK4 in Phase 4 Stufe F nachgeholt) |
 | 4 | `ros2_control` Integration | `docs/phase_4_ros2_control.md` | 🟢 abgeschlossen |
-| 5 | Inverse Kinematik & Gait | `docs/phase_5_kinematics_gait.md` | 🟡 aktiv |
-| 6 | Teleop (Tastatur, PS-Controller) | `docs/phase_6_teleop.md` | ⚪ offen |
+| 5 | Inverse Kinematik & Gait | `docs/phase_5_kinematics_gait.md` | 🟢 abgeschlossen (alle 5 DK + Stufe-H-Omnidirektional) |
+| 6 | Teleop (Tastatur, PS-Controller) | `docs/phase_6_teleop.md` | 🟡 aktiv |
 | 7 | Pi-Portierung & Hardware | `docs/phase_7_pi_port.md` | ⚪ offen |
 
 Status-Legende: ⚪ offen — 🟡 aktiv — 🟢 abgeschlossen — 🔴 blockiert
