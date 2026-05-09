@@ -102,9 +102,30 @@ def generate_launch_description() -> LaunchDescription:
         'default_linear_x',
         default_value='0.0',
         description=(
-            'Fallback-Geschwindigkeit (m/s) wenn keine cmd_vel innerhalb '
-            'cmd_vel_timeout ankommt. Default 0.0 → STANDING. Beispiel: '
-            '0.05 → Roboter läuft direkt nach Launch in Demo-Mode.'
+            'Fallback-Vorwärtsgeschwindigkeit (m/s) wenn keine cmd_vel '
+            'innerhalb cmd_vel_timeout ankommt. Default 0.0 → STANDING. '
+            'Beispiel: 0.05 → Roboter läuft sofort vorwärts in Demo-Mode.'
+        ),
+    )
+
+    default_linear_y_arg = DeclareLaunchArgument(
+        'default_linear_y',
+        default_value='0.0',
+        description=(
+            'Fallback-Seitwärtsgeschwindigkeit (m/s) wenn keine cmd_vel '
+            'innerhalb cmd_vel_timeout ankommt. Default 0.0. Beispiel: '
+            '0.04 → Roboter läuft seitwärts in Demo-Mode.'
+        ),
+    )
+
+    default_angular_z_arg = DeclareLaunchArgument(
+        'default_angular_z',
+        default_value='0.0',
+        description=(
+            'Fallback-Drehgeschwindigkeit (rad/s) wenn keine cmd_vel '
+            'innerhalb cmd_vel_timeout ankommt. Default 0.0. Positiv = '
+            'gegen Uhrzeigersinn (Standard ROS-Konvention für '
+            'Z-Rotation um base_link).'
         ),
     )
 
@@ -142,6 +163,8 @@ def generate_launch_description() -> LaunchDescription:
             ),
             'step_length_max': LaunchConfiguration('step_length_max'),
             'default_linear_x': LaunchConfiguration('default_linear_x'),
+            'default_linear_y': LaunchConfiguration('default_linear_y'),
+            'default_angular_z': LaunchConfiguration('default_angular_z'),
             'cmd_vel_timeout': LaunchConfiguration('cmd_vel_timeout'),
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
@@ -157,6 +180,8 @@ def generate_launch_description() -> LaunchDescription:
         tfs_factor_arg,
         step_length_max_arg,
         default_linear_x_arg,
+        default_linear_y_arg,
+        default_angular_z_arg,
         cmd_vel_timeout_arg,
         use_sim_time_arg,
         gait_node,

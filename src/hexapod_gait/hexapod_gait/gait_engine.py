@@ -1,36 +1,39 @@
 """
 Gait-Engine — pro Tick Foot-Targets je Bein.
 
-Stufe G: cmd_vel-getriebene State-Machine mit STANDING/WALKING/STOPPING.
+Stufe H: omnidirektionaler Walk. ``cmd_vel`` mit drei Komponenten
+(linear.x, linear.y, angular.z) wird gleichzeitig verarbeitet. Body-
+Velocity am Bein-Mount-Punkt wird per Rigid-Body-Formel
+``v(P) = v_center + ω × P`` berechnet, dann pro Bein in dessen Frame
+rotiert.
 
-- ``set_command(v_body_x, v_body_y, t)`` aktualisiert Soll-Geschwindigkeit
-  und triggert ggf. State-Übergänge:
-  - STANDING + |v_body| > eps → WALKING
-  - WALKING + v_body ≈ 0       → STOPPING (sauberer Stopp, Frage 4 C)
-  - STOPPING + |v_body| > eps  → WALKING (sofortiges Resume)
+State-Machine (unverändert ggü. Stufe G):
+- ``set_command(vx, vy, omega_z, t)`` aktualisiert Soll-Geschwindigkeit
+  und triggert State-Übergänge:
+  - STANDING + |v_total| > eps → WALKING
+  - WALKING + |v_total| ≈ 0    → STOPPING (sauberer Stopp)
+  - STOPPING + |v_total| > eps → WALKING (sofortiges Resume)
 - ``compute_foot_targets(t)`` liefert Foot-Targets je nach State.
   STOPPING auto-transitioniert zu STANDING wenn alle Beine settled.
 
-Body↔Bein-Frame: ``cmd_vel.linear.x`` ist im base_link-Frame, jedes
-Bein hat eigenen ``mount_yaw``. Engine rotiert Body-Geschwindigkeit
-pro Bein in dessen Frame via ``rotate_z(-mount_yaw, ...)``.
+Clamping (Stufe-H-Design-Entscheidung 1, proportional):
+Wenn die maximale Bein-Geschwindigkeit über alle 6 Beine
+``|v_at_leg_mount|`` das Limit ``linear_max = step_length_max /
+stance_duration`` überschreitet, werden alle drei Inputs (vx, vy,
+omega_z) gleichzeitig mit dem Faktor ``linear_max / max_speed``
+runterskaliert. Bewegungs-Richtung bleibt erhalten.
 
-Stützphase-Vortrieb: in WALKING wird die Stance-Trajektorie aus
-``trajectory_gen.stance_traj`` benutzt — Foot bewegt sich rückwärts
-relativ zum Body, sodass der Body sich vorwärts bewegt.
-
-Sauberer Stopp (Frage 4 C):
-- Bein in Swing bei Stop-Trigger → fertig schwingen mit eingefrorener
-  step_vec (Touchdown an alter Position), dann Neutral.
-- Bein in Stance bei Stop-Trigger → Position bei Stop einfrieren und
-  linear über ``_STANCE_SETTLING_TIME`` zu Neutral interpolieren.
-- Wenn alle 6 Beine bei Neutral angekommen → State STANDING.
+Stopp-Verhalten (Stufe-H-Design-Entscheidung 2, wie Stufe G):
+Beine in Swing schwingen mit eingefrorener step_vec fertig (inkl.
+omega-Beitrag), Stance-Beine interpolieren in 0.3 s zu Neutral.
 
 Pure-Python (math + hexapod_kinematics + gait_patterns + trajectory_gen),
 kein rclpy. Einzeln testbar.
 """
 
 from __future__ import annotations
+
+import math
 
 from hexapod_gait.gait_patterns import GaitPattern
 from hexapod_gait.trajectory_gen import stance_traj, stand_pose, swing_traj
@@ -43,7 +46,8 @@ Vec2 = tuple[float, float]
 
 # Geschwindigkeits-Schwellwert: cmd_vel-Werte unterhalb gelten als 0.
 # Klein genug dass Float-Noise kein WALKING triggert, groß genug dass
-# user-eingegebene 0.001 nicht als Stopp interpretiert wird.
+# user-eingegebene 0.001 nicht als Stopp interpretiert wird. Wird auf
+# die maximale Bein-Geschwindigkeit angewandt (linear + omega·mount).
 _V_BODY_EPSILON = 1e-4
 
 # Settling-Zeit für Stütz-Beine in STOPPING: linear-Interpolation von
@@ -51,12 +55,9 @@ _V_BODY_EPSILON = 1e-4
 # zwischen "schnell genug" und "JTC-konvergierbar".
 _STANCE_SETTLING_TIME = 0.3
 
-# Toleranz für "Bein bei Neutral angekommen" — Settling-Check.
-_NEUTRAL_TOLERANCE = 1e-4
-
 
 class GaitEngine:
-    """cmd_vel-getriebene Gait-Engine mit State-Machine (Stufe G)."""
+    """Omnidirektionale Gait-Engine mit State-Machine (Stufe H)."""
 
     STATE_STANDING = 'STANDING'
     STATE_WALKING = 'WALKING'
@@ -92,11 +93,11 @@ class GaitEngine:
 
         self._state = self.STATE_STANDING
         self._v_body: Vec2 = (0.0, 0.0)
+        self._omega: float = 0.0
         self._v_body_at_stop: Vec2 = (0.0, 0.0)
+        self._omega_at_stop: float = 0.0
         self._t_stop_start: float = 0.0
-        # Pro-Bein-Cycle-Phase eingefroren beim Stop-Trigger.
         self._cycle_phase_at_stop: dict[int, float] = {}
-        # Pro-Bein-Stance-Position eingefroren beim Stop-Trigger.
         self._stance_pos_at_stop: dict[int, Point3] = {}
 
     @property
@@ -105,41 +106,65 @@ class GaitEngine:
 
     @property
     def linear_max(self) -> float:
-        """Max erlaubte Body-Geschwindigkeit (m/s) durch step_length_max."""
+        """
+        Max erlaubte Bein-Geschwindigkeit (m/s) durch step_length_max.
+
+        Pro Bein-Mount: ``|v_at_leg_mount| ≤ linear_max``. Bei pure
+        Translation entspricht das ``|cmd_vel.linear| ≤ linear_max``.
+        Bei Rotation gilt zusätzlich
+        ``|omega·mount_xy_radius| ≤ linear_max``.
+        """
         return self._linear_max
+
+    def _max_leg_speed(
+        self,
+        v_body_x: float,
+        v_body_y: float,
+        omega_z: float,
+    ) -> float:
+        """Max ``|v_at_leg_mount|`` über alle 6 Beine."""
+        max_speed = 0.0
+        for leg in HEXAPOD.legs:
+            mx, my, _ = leg.mount_xyz
+            vx_at_mount = v_body_x - omega_z * my
+            vy_at_mount = v_body_y + omega_z * mx
+            speed = math.hypot(vx_at_mount, vy_at_mount)
+            if speed > max_speed:
+                max_speed = speed
+        return max_speed
 
     def set_command(
         self,
         v_body_x: float,
         v_body_y: float,
+        omega_z: float,
         t: float,
     ) -> bool:
         """
-        Setze Soll-Body-Geschwindigkeit und trigger State-Übergänge.
+        Setze Soll-Body-Geschwindigkeit und triggere State-Übergänge.
 
-        ``v_body_x``, ``v_body_y`` werden auf ``±linear_max`` geclamped.
-        Returns True wenn geclampt wurde (für Log-Warning im Node).
+        Proportionales Clamping (Design-Entscheidung 1): wenn die
+        maximale Bein-Geschwindigkeit über alle 6 Beine über
+        ``linear_max`` liegt, werden alle drei Inputs mit demselben
+        Faktor runterskaliert. Returns True wenn skaliert wurde.
 
         ``t`` ist die aktuelle Zeit (gleicher Reference-Frame wie für
-        ``compute_foot_targets``). Wird für State-Übergangs-Zeitstempel
-        gebraucht.
+        ``compute_foot_targets``).
         """
+        max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
         clamped = False
-        if abs(v_body_x) > self._linear_max:
-            v_body_x = (
-                self._linear_max if v_body_x > 0 else -self._linear_max
-            )
-            clamped = True
-        if abs(v_body_y) > self._linear_max:
-            v_body_y = (
-                self._linear_max if v_body_y > 0 else -self._linear_max
-            )
+        if max_speed > self._linear_max:
+            scale = self._linear_max / max_speed
+            v_body_x *= scale
+            v_body_y *= scale
+            omega_z *= scale
             clamped = True
 
-        is_zero = (
-            abs(v_body_x) < _V_BODY_EPSILON
-            and abs(v_body_y) < _V_BODY_EPSILON
+        # is_zero check auf gemeinsame Skala — max_leg_speed nach Clamp.
+        max_speed_after = self._max_leg_speed(
+            v_body_x, v_body_y, omega_z
         )
+        is_zero = max_speed_after < _V_BODY_EPSILON
 
         if is_zero:
             if self._state == self.STATE_WALKING:
@@ -147,6 +172,7 @@ class GaitEngine:
             # In STANDING oder STOPPING: kein State-Change bei v=0.
         else:
             self._v_body = (v_body_x, v_body_y)
+            self._omega = omega_z
             if self._state != self.STATE_WALKING:
                 self._state = self.STATE_WALKING
 
@@ -156,6 +182,7 @@ class GaitEngine:
         """State-Übergang WALKING → STOPPING. Friert pro Bein ein."""
         self._state = self.STATE_STOPPING
         self._v_body_at_stop = self._v_body
+        self._omega_at_stop = self._omega
         self._t_stop_start = t
         self._cycle_phase_at_stop = {}
         self._stance_pos_at_stop = {}
@@ -169,7 +196,9 @@ class GaitEngine:
             self._cycle_phase_at_stop[leg_id] = cycle_phase
             if cycle_phase >= self.pattern.swing_duty:
                 # War in Stance — Position einfrieren für Settling.
-                step_vec_leg = self._compute_step_vec_leg(leg, self._v_body)
+                step_vec_leg = self._compute_step_vec_leg(
+                    leg, self._v_body, self._omega
+                )
                 stance_phase = (
                     (cycle_phase - self.pattern.swing_duty)
                     / (1.0 - self.pattern.swing_duty)
@@ -182,26 +211,33 @@ class GaitEngine:
                 )
 
         self._v_body = (0.0, 0.0)
+        self._omega = 0.0
 
-    def _compute_step_vec_leg(self, leg, v_body: Vec2) -> Vec2:
+    def _compute_step_vec_leg(
+        self,
+        leg,
+        v_body: Vec2,
+        omega: float,
+    ) -> Vec2:
         """
-        Body-Geschwindigkeit → Bein-Frame-Schritt-Vektor pro Cycle.
+        Body-Velocity → Bein-Frame-Schritt-Vektor pro Cycle.
 
-        ``step_vec_leg`` ist der **Body-Schritt im Bein-Frame** —
-        also wie weit sich der Body während der Stance-Dauer in
-        den lokalen Bein-Koordinaten bewegt. Die Foot-Bewegung ist
-        die Inverse (wird in ``stance_traj`` und ``swing_traj``
-        durch Plus/Minus-Symmetrie erzeugt).
+        Standard-Rigid-Body-Velocity-Formel an Bein-Mount-Punkt:
+        ``v_at_mount = v_body_center + omega × mount_xy``.
+        In 2D: ``v_at_mount = (vx - omega·my, vy + omega·mx)``.
 
-        Vorzeichen: positiv — entspricht direkt der Body-
-        Geschwindigkeit in Bein-Frame-Koordinaten. ``stance_traj``
-        geht intern von +step/2 nach -step/2 (Foot relativ zum
-        Body rückwärts), also ergibt sich für positive step_vec
-        ein Vortrieb in positive Body-Richtung.
+        Dann Rotation in Bein-Frame via ``rotate_z(-mount_yaw)``.
+
+        Skalierung mit ``stance_duration`` ergibt den Body-Schritt im
+        Bein-Frame (Foot-Bewegung ist die Inverse, durch
+        Plus/Minus-Symmetrie in stance_traj/swing_traj erzeugt).
         """
         v_body_x, v_body_y = v_body
+        mx, my, _ = leg.mount_xyz
+        vx_at_mount = v_body_x - omega * my
+        vy_at_mount = v_body_y + omega * mx
         v_leg_3 = rotate_z(
-            (v_body_x, v_body_y, 0.0),
+            (vx_at_mount, vy_at_mount, 0.0),
             -leg.mount_yaw,
         )
         return (
@@ -237,7 +273,9 @@ class GaitEngine:
                 continue
 
             cycle_phase = ((t / self.cycle_time) + offset) % 1.0
-            step_vec_leg = self._compute_step_vec_leg(leg, self._v_body)
+            step_vec_leg = self._compute_step_vec_leg(
+                leg, self._v_body, self._omega
+            )
 
             if cycle_phase < self.pattern.swing_duty:
                 swing_phase = cycle_phase / self.pattern.swing_duty
@@ -284,22 +322,18 @@ class GaitEngine:
 
             cycle_phase_at_stop = self._cycle_phase_at_stop.get(leg_id)
             if cycle_phase_at_stop is None:
-                # Bein hatte beim Stopp keine aktive Phase — direkt Neutral.
                 targets[leg.name] = neutral
                 continue
 
             if cycle_phase_at_stop < self.pattern.swing_duty:
-                # War in Swing: weiter schwingen mit eingefrorener step_vec.
                 step_vec_leg = self._compute_step_vec_leg(
-                    leg, self._v_body_at_stop
+                    leg, self._v_body_at_stop, self._omega_at_stop
                 )
                 swing_remaining_time = (
                     (self.pattern.swing_duty - cycle_phase_at_stop)
                     * self.cycle_time
                 )
                 if tau < swing_remaining_time:
-                    # Swing-Phase im "Resttück":
-                    # phase=cycle_phase_at_stop, ..., bis swing_duty.
                     cycle_phase_now = (
                         cycle_phase_at_stop + tau / self.cycle_time
                     )
@@ -315,7 +349,6 @@ class GaitEngine:
                     )
                     all_settled = False
                 else:
-                    # Swing zu Ende — Bein landet, dann Neutral interpolieren.
                     landed_pos = swing_traj(
                         phase=1.0,
                         radial_neutral=self.radial_distance,
@@ -331,8 +364,6 @@ class GaitEngine:
                     if progress < 1.0:
                         all_settled = False
             else:
-                # War in Stance: linear interpolieren von Pos-bei-Stop
-                # zu Neutral.
                 stance_pos = self._stance_pos_at_stop[leg_id]
                 progress = min(1.0, tau / _STANCE_SETTLING_TIME)
                 targets[leg.name] = _lerp(stance_pos, neutral, progress)

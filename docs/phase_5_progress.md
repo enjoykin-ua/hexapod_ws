@@ -1742,16 +1742,197 @@ stop, bleibt 1.5 s stationär, kein progressives Weiterlaufen → ✓
 
 ---
 
-## Stufe H — Phasenabschluss + optional Schritt 6/7
+## Stufe H — Omnidirektional: `linear.y` + `angular.z`
 
-**Ziel:** Phase 5 formell schließen.
+> **Hinweis Phase-5-Stufen-Umbenennung (2026-05-09):** ursprünglich war
+> Stufe H der formelle Phasenabschluss inkl. optional Schritte 6/7.
+> User-Entscheidung: Schritt 6 (Drehen) und Schritt 7 (Seitwärts) als
+> **eigenständige Stufe H** implementieren (gemeinsam, weil mathematisch
+> derselbe Code-Pfad), und den Phasen-Abschluss in eine **neue Stufe I**
+> verschieben. Damit ist Phase 5 vollständig omnidirektional.
 
-**Optional in dieser Phase:**
-- **Schritt 6:** `cmd_vel.angular.z` → Drehen um Z-Achse. Beine bewegen sich
-  tangential zu Body-Center.
-- **Schritt 7:** `cmd_vel.linear.y` → Seitwärtslaufen.
-- **KDL-Warning-Fix:** mit Dummy-Root-Link, falls in Phase 5 störend.
-  Sonst auf Phase 6/7 schieben.
+**Ziel:** Roboter folgt allen drei Komponenten von `cmd_vel` (linear.x,
+linear.y, angular.z) gleichzeitig. Kombi-Motion ist eine Kurve;
+pure rotation dreht um Body-Center; pure sideways läuft seitlich.
+
+**Was wir machen:** `gait_engine` so erweitern, dass die Body-
+Geschwindigkeit pro Bein-Mount-Punkt berechnet wird:
+
+```
+v_at_leg_mount = (linear.x - ω·mount_y, linear.y + ω·mount_x)
+step_vec_leg = rotate_z(v_at_leg_mount, -mount_yaw) · stance_duration
+```
+
+Das ist die Standard-Rigid-Body-Velocity-Formel `v(P) = v_center + ω × P`
+in 2D. Linear.x/y addieren sich an allen Beinen gleich, omega·mount
+unterscheidet sich pro Bein (Außen-Beine schneller bei Rotation).
+
+### Design-Entscheidungen Stufe H
+
+#### 1. Clamping-Strategie bei Kombi-Motion
+
+**Hintergrund:** bei pure linear.x ist `|step_vec_leg| = |v_body| ·
+stance_duration` für alle Beine gleich, einfacher Skalar-Clamp gegen
+`step_length_max` reicht. Bei Rotation ist `|v_at_leg_mount|` aber
+bein-spezifisch (`|ω|·|mount_xy|`), und bei Kombi-Motion sogar Vektor-
+Summe. Wenn ein einzelnes Bein das Limit überschreitet, muss skaliert
+werden — aber wie?
+
+**Optionen:**
+- **A) Proportional skalieren** — Wenn max_speed über alle 6 Beine
+  > linear_max: Faktor `scale = linear_max / max_speed` anwenden auf
+  alle drei Inputs `(vx, vy, omega)` gleichzeitig. Pro: Bewegungs-
+  Richtung bleibt erhalten (Kurve bleibt Kurve, nur langsamer),
+  physikalisch konsistent. Contra: einzelne Warning per 2 s wenn
+  häufig getriggert.
+- **B) Pro-Achse clampen** — Jeden Wert (vx, vy, omega) gegen seinen
+  eigenen Max-Wert. Pro: einfacher Code. Contra: bei Kombi distorts
+  die Bewegungs-Richtung — User commandiert "Kurve mit großem Radius",
+  bekommt bei Clamp "Kreis mit kleinem Radius" oder "Geradeaus ohne
+  Drehen". Auch: `linear_max` für vx/vy passt nicht direkt für omega,
+  müsste eigener `omega_max` ableiten.
+
+**Gewählt: A — proportional skalieren** — User-Entscheidung.
+
+#### 2. Stopp-Verhalten bei Drehbewegung
+
+**Hintergrund:** Stufe G hatte sauberen Stopp (Frage-4-C: Schwung-
+fertig, Stance-Settling 0.3 s). Wenn jetzt drei Komponenten gleichzeitig
+auf 0 gehen können, muss das Stopp-Verhalten einheitlich oder pro-Achse
+spezifisch sein.
+
+**Optionen:**
+- **A) Wie Stufe G — Schwung-fertig + Stance-Settling 0.3 s** —
+  einheitliche Behandlung: alle drei Komponenten als "Body-Velocity
+  bei Stop einfrieren" (vx, vy, omega), Beine schwingen mit dieser
+  eingefrorenen step_vec fertig, Stance-Beine settlen zu Neutral.
+  Pro: Konsistenz mit Stufe G, minimaler neuer Code. Contra: wenn
+  User nur omega→0 setzt aber linear weiter publisht, geht die Engine
+  in STOPPING (alle Komponenten<eps schwellen) statt nur zu drehen
+  aufzuhören.
+- **B) Drehung pro Achse separat handhaben** — wenn nur omega auf 0
+  geht: Roboter hört auf zu drehen, läuft aber weiter geradeaus. Pro:
+  feiner steuerbar. Contra: mehr Code, mehr Edge-Cases, komplexere
+  Stopp-Logic.
+
+**Gewählt: A — wie Stufe G** — User-Entscheidung. STOPPING wird nur
+getriggert wenn alle drei Komponenten unter Epsilon sind. Wenn nur
+omega→0 aber linear≠0: Engine bleibt WALKING mit den neuen Werten
+(linear.x weiter, omega=0). Das ergibt sich automatisch aus dem
+"is_zero" Check in set_command.
+
+#### 3. Knoten-Parameter (Δ ggü. Stufe G)
+
+| Parameter | Default | Bedeutung | Δ Stufe G |
+|---|---|---|---|
+| `default_linear_y` | `0.0` | Fallback Seitwärts-Geschwindigkeit (m/s) | NEU |
+| `default_angular_z` | `0.0` | Fallback Drehgeschwindigkeit (rad/s) | NEU |
+| `default_linear_x` | `0.0` | unverändert | — |
+| `step_length_max` | `0.05` | unverändert (gilt jetzt pro-Bein-magnitude) | — |
+| (alles andere) | wie Stufe G | — | — |
+
+#### 4. Backward-Compat
+
+Stufe-G-Tests bleiben funktional gültig: `cmd_vel` mit nur `linear.x`
+gesetzt entspricht `(linear.x, 0, 0)` — angular.z und linear.y default
+0 → identisches Verhalten wie Stufe G. Stufe-E-Backward-Compat über
+`gait_pattern:=single_leg_*` weiter da.
+
+---
+
+- [x] Konzept besprochen (Clamping A: proportional, Stopp A: wie Stufe G)
+- [x] [hexapod_gait/gait_engine.py](../src/hexapod_gait/hexapod_gait/gait_engine.py) erweitert: `set_command(vx, vy, omega_z, t)`, `_compute_step_vec_leg(leg, v_body, omega)` mit `mount_xyz`-Lever-Arm (Rigid-Body-Velocity `v(P) = v_center + ω × P`), proportionales Clamping über `_max_leg_speed` aller 6 Beine, `_omega_at_stop` für STOPPING-State eingefroren
+- [x] [hexapod_gait/gait_node.py](../src/hexapod_gait/hexapod_gait/gait_node.py) erweitert: cmd_vel-Subscriber liest jetzt zusätzlich `linear.y` + `angular.z`, `default_linear_y` + `default_angular_z` Params, `_resolve_command` returnt 3-Tuple
+- [x] [hexapod_gait/launch/gait.launch.py](../src/hexapod_gait/launch/gait.launch.py) — neue Args `default_linear_y` (Default 0.0), `default_angular_z` (Default 0.0)
+- [x] `colcon build --packages-select hexapod_gait` grün
+- [x] `colcon test --packages-select hexapod_gait` grün (1 Iteration: D400-Docstring in `set_command` korrigiert)
+- [x] Pure-Python-Smoke-Test: 7 Tests verifiziert — Backward-Compat Stufe-G identisch, pure linear.y mit korrekten step_vec-Vorzeichen pro mount_yaw (leg_1 (0.2523, +0.0177), leg_2 (0.295, 0)), pure rotation clamping (omega=0.3 ungeclamped, omega=1.0 geclamped bei R_max=0.109 m → omega_max≈0.46 rad/s), Kombi vx=0.03+omega=0.2 unter Limit, STOPPING→STANDING-Auto-Transition, mid-stance/mid-swing-Symmetrie aller Beine bei (0.27, 0)
+- [x] [phase_5_stage_H_test_commands.md](phase_5_stage_H_test_commands.md) geschrieben — 11 Test-Schritte (Sim + Stand + Gait + Drehen CCW/CW + Seitwärts +Y/-Y + Bogen vx+omega + Kombi-3-Achsen + Stufe-G-Backward-Compat + Demo-Mode + Aufräumen) + 3 optionale Variationen + 6 Stolpersteine
+- [x] **Live-Verifikation Drehen** (2026-05-09): `angular.z=+0.3` (CCW) und `angular.z=-0.3` (CW) für jeweils 6 s — Body dreht sichtbar in der entsprechenden Richtung, x/y stationär
+- [x] **Live-Verifikation Seitwärts** (2026-05-09): `linear.y=+0.05` (links) und `linear.y=-0.05` (rechts) für jeweils 6 s — Body wandert seitlich, x/Yaw stationär
+- [x] **Live-Verifikation Bogen** (2026-05-09): `linear.x=0.03 + angular.z=0.2` für 8 s — Roboter läuft sichtbar auf einem Bogen mit theoretischem Radius ~0.15 m
+- [x] **Live-Verifikation Kombi-3-Achsen** (2026-05-09): `linear.x=0.04 + linear.y=0.02 + angular.z=0.15` — Schraubenkurve, proportional clamping greift bei Bedarf, Bogen-Form bleibt erhalten
+- [x] **Live-Verifikation Rückwärts** (2026-05-09): `linear.x=-0.05` für 5 s — Body wandert in -X (Rückwärts). Symmetrie der Trajektorien-Mathematik verifiziert. **Schritt 8 im Test-Doc nachträglich umbenannt** von "Backward-Compat Stufe G" (Forward-Replay, war wenig informativ) auf "Rückwärts" (User-Feedback während Live-Test 2026-05-09)
+- [ ] **Demo-Mode Schritte 9 + 10** (default_angular_z, default Kombi): nicht durchgeführt, optional — Funktional implizit erfüllt durch Default-Param-Mechanismus aus Stufe G (default_linear_x verifiziert)
+
+### Umsetzungsnotizen Stufe H
+
+> **Test-Anleitung:** [phase_5_stage_H_test_commands.md](phase_5_stage_H_test_commands.md).
+
+Stufe H lief glatt durch — kein Pre-Live-Bug (anders als Stufe G mit dem
+Sign-Fix), keine Live-Iteration. Das ist plausibel weil:
+
+1. **Mathematik war konzeptuell vorbereitet.** Stufe G hatte bereits den
+   2D-step_vec eingeführt und Mount-Yaw-Rotation. Stufe H fügt nur den
+   Rigid-Body-Velocity-Term `ω × P` hinzu — ein 2D-Cross-Produkt, in 4
+   Zeilen.
+2. **Engine-Smoke-Test** verifizierte 7 Szenarien numerisch vor Live-
+   Test. Backward-Compat zu Stufe G war exakt identisch (gleiche Werte
+   bis auf Float-Rauschen).
+3. **Proportionales Clamping** wurde in Smoke-Test mit `omega=1.0`
+   (deutlich über `omega_max≈0.46`) getriggert — Skalierung verhält sich
+   wie erwartet, Bewegungs-Richtung bleibt erhalten.
+
+#### 1. Doc-Bug in Schritt 8 (Live korrigiert)
+
+Original-Schritt 8 hieß "Backward-Compat Stufe G" und wiederholte den
+Vorwärts-Test (`linear.x=+0.05`) — semantisch korrekt aber wenig wertvoll
+in Stufe H. User merkte beim Test "es läuft nicht rückwärts wie erwartet"
+an. Daraufhin Schritt 8 umbenannt zu "Rückwärts" (`linear.x=-0.05`).
+Inhaltlich-relevanter Test, weil:
+- Stufe G hat positive `linear.x` heavily getestet
+- Negative `linear.x` (= Rückwärts) in keinem Stufe-G/H-Test explizit drin
+- Vorzeichen-Symmetrie-Check für die step_vec-Trajektorien-Logik
+- Backward-Compat zu Stufe G ist implizit durch alle anderen Schritte
+  erfüllt
+
+#### 2. Pure-Rotation-Verhalten
+
+Smoke-Test bei `omega=0.5 rad/s` (geclamped auf ~0.46 rad/s) zeigte
+Mid-Stance/Mid-Swing-Symmetrie: alle 6 Beine bei `(0.27, 0)` —
+Trajektorien-Symmetrie funktioniert auch unter Rotation. Live-Test
+zeigte sichtbares Drehen, x/y stabil. Body-Wackel beim Tripod-Wechsel
+unter Rotation minimal stärker als bei pure Translation (asymmetrische
+step_vecs ergeben ungleichmäßige Lasten), aber nicht progressiv-
+divergierend.
+
+#### 3. Kombi-Motion-Clamping in Live
+
+Schritt 7 (`vx=0.04, vy=0.02, omega=0.15`) hat in der Live-Sim die
+Clamp-Warning getriggert (max-leg-speed ~0.06 > 0.05). Roboter zeigte
+visuell sichtbar **gleicher Bogen-Verlauf, nur langsamer** — proportionale
+Skalierung funktional bestätigt.
+
+#### 4. Was Stufe H NICHT macht
+
+- Keine **`linear.z`** (vertikale Body-Bewegung) — Stand-Höhe ist fix.
+  Wäre Phase-8+-Feature.
+- Keine **`angular.x` / `angular.y`** (Roll/Pitch) — Body bleibt
+  horizontal. Phase-8+.
+- Keine **dynamische Schritt-Höhe** abhängig von Geschwindigkeit —
+  step_height bleibt konstant. Macht Sinn als Optimierung später.
+- Keine **adaptive `cycle_time`** bei Clamping — bleibt fix, sonst
+  Phase-Sync-Sprünge.
+- Keine **Closed-Loop-Body-Yaw-Korrektur** — Stufe-G-Yaw-Drift
+  (~1.35°/m) bleibt eine Limitation. Manueller Cmd-Vel-Korrektur in
+  Phase 6 (Teleop) oder Closed-Loop in Phase 8+ kompensiert das.
+- Keine **`phase_5_gait_explained.md`** — Stufe-I-Aufgabe (Final-
+  Doku am Phasen-Ende, mit komplettem Walk-Konzept).
+
+---
+
+## Stufe I — Phasenabschluss
+
+**Ziel:** Phase 5 formell schließen, Doku finalisieren.
+
+**Was bleibt:**
+- Final-Dokumentation `phase_5_ik_explained.md` (war Stufe-B-Stub) und
+  `phase_5_gait_explained.md` (auf Stufe G/H verschoben).
+- Package-READMEs.
+- Phase-Bericht im Workspace-README.
+- KDL-Warning-Fix wurde **explizit auf später (Phase 6/7) verschoben** —
+  User-Entscheidung 2026-05-09: stört aktuell und auch später am Pi
+  nicht.
 
 - [ ] Alle 5 Done-Kriterien aus `phase_5_kinematics_gait.md` erfüllt
 - [ ] `pytest` in `hexapod_kinematics` grün
@@ -1760,11 +1941,9 @@ stop, bleibt 1.5 s stationär, kein progressives Weiterlaufen → ✓
 - [ ] `hexapod_kinematics/README.md` (Zweck, Test-Aufruf, IK-Konvention)
 - [ ] `hexapod_gait/README.md` (Zweck, Launch-Aufruf, cmd_vel-Format, Stolperfallen)
 - [ ] `phase_5_ik_explained.md` und `phase_5_gait_explained.md` final
-- [ ] (optional) Schritt 6 (`angular.z`) implementiert + verifiziert
-- [ ] (optional) Schritt 7 (`linear.y`) implementiert + verifiziert
-- [ ] (optional) KDL-Warning gefixt — sonst auf Phase 6/7 schieben (Memory bleibt)
 - [ ] Workspace-`README.md` um Phase-5-Bericht ergänzt
 - [ ] Timeshift-Snapshot `phase_5_done` — User-Aufgabe
 - [ ] Git-Commit + Tag `phase-5-done` — User-Aufgabe
 - [ ] `PHASE.md` auf Phase 6 aktualisiert (Status: Phase 5 🟢, Phase 6 🟡)
 - [ ] Retro: Was lief gut, was hat länger gedauert, was bleibt offen
+- [x] KDL-Warning-Fix bewusst auf Phase 6/7 geschoben (User-Entscheidung 2026-05-09)
