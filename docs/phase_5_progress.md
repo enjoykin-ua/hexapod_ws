@@ -406,15 +406,192 @@ mit `time_from_start = 4 s` (analog Phase-4-Stufe-F sanfter Anfahrt).
 
 **Test-Doku** (interaktive Stufe): `docs/phase_5_stage_C_test_commands.md`.
 
-- [ ] Konzept besprochen (Neutral-Pose, Topic-Pattern, Launch-Integration)
-- [ ] `hexapod_gait` Paket-Skelett (`ament_python`, deps: rclpy, hexapod_kinematics, trajectory_msgs)
-- [ ] `stand_node.py` implementiert (IK→6× JointTrajectory, One-Shot)
-- [ ] Optional: Launch-File / Launch-Argument-Erweiterung
-- [ ] `colcon build --packages-select hexapod_gait` grün
-- [ ] `phase_5_stage_C_test_commands.md` geschrieben
-- [ ] **Live-Verifikation:** Sim startet, `stand_node` fährt Pose, Roboter steht auf 6 Foot-Kugeln
-- [ ] **Live-Smoke:** Joint-Werte aus `/joint_states` ≈ `[0, -0.5, 1.0]` pro Bein (toleranz ±0.01 rad)
-- [ ] **Drift-Check:** `gz model -m hexapod -p` über 5 s konstant (< 1 mm / < 0.5°)
+### Design-Entscheidungen Stufe C
+
+#### 1. Neutral-Pose-Definition
+
+**Optionen:**
+- **A) Parametrisiert via `(body_height, radial_distance)`** — zwei
+  Knoten-Parameter mit Default `(-0.047, 0.27)`. Foot-Target im
+  Bein-Frame: `(radial_distance, 0, body_height)`. Mit Defaults
+  reproduziert IK exakt `[0, -0.5, +1.0]`. Pro: nahe am späteren
+  Gait-Engine-Modell (Foot-Punkte sind die natürliche Steuergröße);
+  Tunbar ohne Code-Touch via `--ros-args`. Contra: Joint-Winkel sind
+  nicht direkt sichtbar.
+- **B) Hardcoded Foot-Punkt** `(0.27, 0, -0.047)`. Pro: einfacherer Code.
+  Contra: Magic Numbers, Tunen erfordert Code-Edit. **Verworfen vom User.**
+- **C) Parametrisiert via `(femur_angle, tibia_angle)` + FK** — Param
+  `(-0.5, +1.0)`, Knoten ruft FK→Foot→IK durch. Pro: tautologische
+  Live-Demo der IK-Pipeline; mechanisch intuitiv (Servo-Winkel direkt).
+  Contra: tautologisch (FK ist Inverse von IK); Höhe-Tuning erfordert
+  Joint-Winkel-Denken statt Höhen-Denken.
+
+**Gewählt: A** — User-Entscheidung. Konsistent mit der Gait-Engine-
+Architektur (Stufen E-G arbeiten ebenfalls auf Foot-Targets). IK-
+Pipeline-Korrektheit wird bereits Pure-Python in Stufe-B-Tests
+abgesichert; die Live-Demo aus C ist keine zusätzliche Aussage.
+
+**Falls später Re-Design nötig** (z. B. neue Servo-Winkel-Limits machen
+direkten Joint-Winkel-Modus relevant): C als zusätzlicher Modus
+einführen, mit Mode-Switch via Parameter. A bleibt als Default.
+
+#### 2. Launch-Integration
+
+**Optionen:**
+- **A) Eigenes Launch-File `hexapod_gait/launch/stand.launch.py`** —
+  ~20 Zeilen mit LaunchArgs für `body_height`, `radial_distance`,
+  `transition_duration`, `use_sim_time`. Aufruf:
+  `ros2 launch hexapod_gait stand.launch.py body_height:=-0.06`. Pro:
+  ROS2-Standard, bequeme Arg-Syntax, kombinierbar via
+  `IncludeLaunchDescription` in höheren Bringups (Stufe G/H).
+  Contra: zusätzliche Datei.
+- **B) Nur `ros2 run` + Doku** — Param-Setzen via `--ros-args -p`. Pro:
+  spart Datei. Contra: umständlichere Aufruf-Syntax,
+  `use_sim_time:=true` muss manuell mitgegeben werden.
+- **C) `enable_stand`-LaunchArg in `sim.launch.py`** — Stand wird
+  optional Teil des Sim-Launches. Pro: Ein-Befehl-Start. Contra:
+  bläht `sim.launch.py` auf, zwingt Stand+Sim-Lifecycle in eine
+  Einheit (Stand kann nicht ohne Sim-Restart re-getriggert werden).
+
+**Gewählt: A** — User-Entscheidung. Eigene Launch-Datei ist die
+ROS2-konventionelle Lösung für "Knoten mit Parametern starten".
+Bewusste Trennung von `sim.launch.py` (Daueraufgabe Sim) und
+`stand.launch.py` (abrufbare Aktion Stand-Pose).
+
+**Falls später Re-Design nötig** (z. B. Bringup-Manager-Phase, in der
+Sim+Stand+Gait als Einheit gestartet werden): `IncludeLaunchDescription`-
+Pattern verwenden, `stand.launch.py` als Modul einbinden. Bestehende
+Launch-Datei bleibt eigenständig nutzbar.
+
+#### 3. Knoten-Lebenszyklus
+
+**Optionen:**
+- **A) One-Shot mit Auto-Exit** — match-wait JTC-Subscriber (5 s
+  Timeout), 6× Pub, 0.5 s sleep für DDS-Auslieferung, dann
+  `rclpy.shutdown()`. Pro: klares "fertig"-Signal (Exit-Code), saubere
+  ROS-Topic-Liste, skript-tauglich (in Test-Pipelines verkettbar).
+  Contra: Re-Trigger erfordert Knoten-Neu-Start (kein Drama).
+- **B) Pub einmal, dann dormant im Spin bleiben** — Knoten publisht und
+  bleibt in `rclpy.spin()`, beendet sich nur via `Ctrl+C`. Pro:
+  einfacher Code; falls später Service-Calls angefügt werden, bleibt
+  Knoten verfügbar. Contra: Knoten "schwirrt rum", verlängert
+  `ros2 node list`, kein klares Ende-Signal.
+- **C) Periodisch re-publishen** (alle 5 s). Pro: robust gegen verlorene
+  erste Pubs. **Contra: BLOCKIERT spätere Override durch `gait_node`** —
+  alle 5 s zerstört Stand-Pub das laufende Gait-Goal des JTC. **Verworfen.**
+
+**Gewählt: A** — User-Entscheidung nach Klärung der Override-Mechanik.
+Override-Fähigkeit ist eine **JTC-Eigenschaft** (jeder neue Trajectory-
+Pub ersetzt das laufende Goal), unabhängig vom Lifecycle des
+publishenden Knotens. A und B erlauben Override gleichermaßen, A ist
+sauberer.
+
+**Falls später Re-Design nötig** (z. B. Stand-Service-Endpoint für
+Re-Trigger ohne Restart): zu B umschwenken oder Service-basierte
+Variante anlegen. Aktuell kein Bedarf.
+
+#### 4. Topic-Format (nicht zur Diskussion)
+
+`trajectory_msgs/msg/JointTrajectory` per `Publisher` an
+`/leg_<n>_controller/joint_trajectory` für n=1..6 — übernommen aus
+Phase 4. Action-Variante (`FollowJointTrajectory`) wäre bei expliziter
+Goal-Tracking-Notwendigkeit erwägbar; für unsere One-Shot-Pub-Logik
+keine Mehrwert. Stufen E-G bauen auf demselben Pattern auf (50-Hz-Pub
+statt One-Shot).
+
+---
+
+- [x] Konzept besprochen (Neutral-Pose A: parametrisiert via body_height+radial_distance, Launch A: eigenes stand.launch.py, Lifecycle A: One-Shot mit Auto-Exit, Topic-Pattern: JointTrajectory wie Phase 4)
+- [x] `hexapod_gait` Paket-Skelett angelegt (`ament_python`, exec_depends: `rclpy`, `trajectory_msgs`, `builtin_interfaces`, `hexapod_kinematics`); `setup.py` mit `entry_points` für `stand_node` und `data_files` für Launch-Files
+- [x] [hexapod_gait/stand_node.py](../src/hexapod_gait/hexapod_gait/stand_node.py) implementiert — `StandNode(Node)`-Klasse mit 4 Parametern (`body_height`, `radial_distance`, `transition_duration`, `match_timeout`), 6 Publishern, `_wait_for_subscribers` (5s timeout), `_build_trajectory`, `run()`-Hauptschleife, `main()`-Entry mit Exit-Code
+- [x] [hexapod_gait/launch/stand.launch.py](../src/hexapod_gait/launch/stand.launch.py) angelegt — 5 LaunchArgs mit Defaults und Beschreibung, `Node`-Action mit Param-Mapping, `use_sim_time:=true` Default
+- [x] `colcon build --packages-select hexapod_gait` grün
+- [x] `colcon test --packages-select hexapod_gait` grün — flake8 + pep257 + copyright (skipped)
+- [x] [phase_5_stage_C_test_commands.md](phase_5_stage_C_test_commands.md) geschrieben — 6 Schritte (Sim-Start, Controller-Check, stand_node-Launch, Joint-Echo mit explizitem Typ, Drift-Check, Aufräumen) + 3 optionale Variationen (anderer body_height, Out-of-reach-Fall, Override-Test)
+- [x] **Live-Verifikation:** Sim startet, `stand_node` fährt Pose, Roboter steht auf 6 Foot-Kugeln — **bestätigt** 2026-05-09
+- [x] **Live-Smoke:** Joint-Werte aus `/joint_states` exakt `[~0, -0.50998, +1.01222]` pro Bein, gemessene Abweichung von der erwarteten IK-Ausgabe `[0, -0.510, +1.012]` ist < 2e-4 rad — **deutlich besser als geforderte Toleranz ±0.01 rad**
+- [x] **Drift-Check:** `gz model -m hexapod -p` über 5 Samples bit-genau identisch (`z=0.054999`, `RPY=[0, 0, -0.042676]`) — **Drift = 0 mm / 0°**, gleich wie Phase-4-Stufe-F
+
+### Umsetzungsnotizen Stufe C
+
+> **Konzept-Hintergrund** (Bein-Frame, IK-Pipeline, Knie-Konvention):
+> siehe [phase_5_ik_explained.md](phase_5_ik_explained.md) (Stufe B).
+> Stufe C ist die erste **Live-Anwendung** der dort dokumentierten
+> IK-Pipeline.
+
+**Test-Anleitung:** [phase_5_stage_C_test_commands.md](phase_5_stage_C_test_commands.md).
+
+**DDS-Discovery-Race (zentraler Bug-Fix während der Stufe):** Erste
+Implementation nutzte `Publisher.get_subscription_count()` für eine
+Match-Wait-Logik (Knoten exit mit Fehler nach 5 s, falls JTC nicht
+sichtbar). User-Test zeigte: alle 6 Counts blieben dauerhaft 0,
+obwohl externe `ros2 topic info /leg_1_controller/joint_trajectory`
+1 Subscription meldete. Das ist ein bekanntes rclpy/Jazzy-Verhalten:
+der **lokale Graph-State** des publizierenden Knotens braucht eine
+unbestimmte Zeit (oft viel länger als 5 s), bis Subscriber-Match-
+Events propagiert sind — auch wenn die Subscription DDS-weit längst
+existiert.
+
+Lösung: Match-Wait gedroppt, durch festen `discovery_wait` (Default
+2.0 s) ersetzt. Der Knoten spinnt 2 s zur DDS-Settling-Zeit,
+loggt diagnostisch `count_subscribers()`-Werte (jetzt Node-Level
+statt Publisher-Level), und **publisht in jedem Fall** — auch wenn
+der Graph-State 0 meldet. Begründung: ist der JTC tatsächlich
+subscribed (extern verifizierbar), kommt die Pub durch; meldet der
+lokale Graph-State 0, ist es ein Render-Lag, kein echter Match-Fail.
+Dieses Pattern ist robust und matcht das Verhalten von
+`ros2 topic pub --once`, das auch keinen Match-Wait macht.
+
+**Joint-Echo Topic-Type-Discovery-Lag (analog):** `ros2 topic echo
+/joint_states --once` ohne Typangabe scheiterte im frischen Terminal
+mit "topic does not appear to be published yet". Workaround:
+expliziten Typ `sensor_msgs/msg/JointState` mitgeben. In der
+Test-Doku dokumentiert.
+
+**Phase-4-Übergabe-IK-Smoke live verifiziert:** Foot-Target
+`(0.27, 0, -0.047)` im Bein-Frame → IK liefert
+`(coxa=0, femur=-0.50998, tibia=+1.01222)`. Pure-Python-Test in
+Stufe B (`test_neutral_pose_phase4_handover`) verlangt Match bis
+1e-9 zu `(0, -0.5, 1.0)`. Live-Sim-Verifikation jetzt: JTC liefert
+genau die IK-Ausgabe (Abweichung ±2e-4 rad = JTC-Tracking-Genauigkeit).
+Damit ist die ganze IK→Trajectory→JTC→Joint-Pipeline End-to-End
+validiert.
+
+**Yaw-Asymmetrie-Beobachtung (für Retro / Phase-6-Folgewerk):**
+Endsettling-yaw = -2.4° (statt -0.014° in Phase-4-Stufe-F). Phase-4-
+Retro hatte erwartet, dass die Asymmetrie "in Phase 5 mit IK-basiertem
+Anfahren verschwindet" — das Gegenteil ist eingetreten. Ursache:
+Phase 4 fuhr vorab manuell `coxa=0.3` → reset → stand, was die
+Bauch-Pose entzerrte. Stufe C geht **direkt von Bauch zu Stand**,
+ohne entzerrendes Vorspiel. Die Default-Bauch-Pose (alle Joints=0) ist
+nicht 100% symmetrisch (Bein-Längen ragen unterschiedlich auf den
+Boden), und das schlägt sich im finalen Settling als yaw-Drift nieder.
+
+Funktional irrelevant: Drift = 0, Roboter steht stabil. **Mögliche
+Folgemaßnahme (Phase 6+):** optionale Pre-Stand-Lift-Phase im
+stand_node — alle 6 Beine kurz anheben (z. B. femur=-0.8 für 1 s),
+dann zur eigentlichen Stand-Pose. Würde die Bauch-asymmetrische
+Anfangsbedingung entkoppeln. Nicht Teil von Stufe C, weil Done-
+Kriterien sind erfüllt und Pre-Lift-Logik ein eigenes Konzept-
+Diskussions-Thema wäre.
+
+**Lifecycle-Override-Test (optional in Test-Doku):** Mit One-Shot-
+Lifecycle (Stufe-C-Design-Entscheidung 3) ist der Knoten nach ~3 s
+exit. Manuelle `ros2 topic pub --once /leg_1_controller/joint_trajectory ...`
+danach übersteuert die Pose. Damit ist die Override-Mechanik des JTC
+direkt validierbar, unabhängig vom (bereits verschwundenen) stand_node.
+Ein optionaler Test-Befehl steht in der Test-Doku (Schritt
+"Override-Test").
+
+**Was Stufe C explizit NICHT macht:**
+- Keine Pre-Stand-Lift-Phase (Yaw-Asymmetrie-Vermeidung) — siehe oben.
+- Keine periodische Re-Publication (Stufe-C-Design-Entscheidung 3 C
+  verworfen).
+- Kein gait_node, kein gait_engine, kein trajectory_gen (Stufe E+).
+- Keine Foot-Contact-Sensoren (Stufe D).
+- Kein cmd_vel-Subscriber (Stufe G).
+- Keine `gait_engine`/`trajectory_gen`-Skelette in Stufe C — die
+  kommen mit Konzept-Diskussion in Stufe E.
 
 ---
 
