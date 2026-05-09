@@ -19,10 +19,13 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     body_height_arg = DeclareLaunchArgument(
         'body_height',
-        default_value='-0.047',
+        default_value='-0.052',
         description=(
-            'Foot-Z im Bein-Frame (m). Default -0.047 reproduziert '
-            'die Phase-4-Stand-Pose [0, -0.5, +1.0].'
+            'Foot-Z im Bein-Frame (m). Default -0.052 = Phase-4-Stand '
+            '-0.047 minus 5 mm globale Penetration (Stufe-F-Design-'
+            'Entscheidung 1: löst JTC-Tracking-Lag bei Tripod 3:3 ohne '
+            'Hebel-Trick). Konsistent mit gait.launch.py — sonst Body-'
+            'Sprung beim ersten gait-Tick.'
         ),
     )
 
@@ -31,8 +34,7 @@ def generate_launch_description() -> LaunchDescription:
         default_value='0.27',
         description=(
             'Foot-X im Bein-Frame (m). Radiale Distanz vom coxa_joint '
-            'zur Foot-Position. Default 0.27 ergibt mit body_height=-0.047 '
-            'die Phase-4-Stand-Pose.'
+            'zur Foot-Position. Default 0.27.'
         ),
     )
 

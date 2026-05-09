@@ -1113,32 +1113,303 @@ einen Tiefpass / Debounce-Filter einbauen.
 ## Stufe F — Statisches Tripod-Pattern in der Luft
 
 **Ziel:** Beide Tripod-Gruppen schwingen abwechselnd, **ohne Vortrieb**.
-Roboter aufgebockt oder Stand-only-Modus (Schwung-Hub klein genug, dass
-er nicht fällt). Validiert State-Machine + Phasen-Sync.
+Roboter steht am Boden, kleiner `step_height` so dass die Stützgruppe
+ihn trägt. Validiert State-Machine + Phasen-Sync + 3:3-Stützen-Stabilität.
 
-**Was wir machen:** Erweitert `gait_engine`: Gruppe A {1, 3, 5} und
-B {2, 4, 6}, Phasen-Offset 0.5. Stützphase = Stand (kein Vortrieb,
-nur Halten). Schwungphase = Sinus-Bogen wie Stufe E, aber alle drei
-Beine der schwingenden Gruppe synchron.
+**Was wir machen:** Refactor `gait_engine` mit daten-getriebenen Gangart-
+Patterns: Gruppe A {1, 3, 5} und B {2, 4, 6}, Phasen-Offset 0.5. Stütz-
+phase = Stand (kein Vortrieb, nur Halten). Schwungphase = Halbsinus wie
+Stufe E, aber drei Beine pro Gruppe synchron. Globale `body_height`-
+Senkung um 5 mm löst JTC-Tracking-Lag bei 3:3-Stützen ohne Hebel-Problem.
+Live-Toggle STANDING↔WALKING via `enable_walk`-rclpy-Param.
 
-**Konzept-Diskussionspunkte:**
-- **Stützphase ohne Vortrieb:** Foot bleibt am Neutral-Punkt (kein
-  rückwärtiges Schieben). Erst in Stufe G kommt Body-Vortrieb dazu.
-- **Aufbock-Modus vs. Stand-on-Ground:** Soll Stufe F den Roboter
-  aufgebockt testen (Beine in der Luft, nichts trägt), oder mit kleinem
-  `step_height` so dass die Stützgruppe ihn trägt? **Empfehlung:**
-  Letzteres, weil Aufbocken in Sim umständlich und weil es G vorbereitet.
-- **State-Machine STANDING↔WALKING-Trigger:** zunächst über Parameter
-  `enable_walk` boolean — `cmd_vel`-Subscriber kommt erst in Stufe G.
+### Design-Entscheidungen Stufe F
 
-- [ ] Konzept besprochen (Aufbock vs. Stand-on-Ground, State-Machine-Trigger)
-- [ ] `gait_engine` erweitert: Tripod-Gruppen + Phasen-Offset
-- [ ] STANDING- und WALKING-State implementiert (mit `enable_walk`-Param-Trigger)
-- [ ] `phase_5_stage_F_test_commands.md` geschrieben
-- [ ] **Live-Verifikation:** Drei Beine heben sich, drei stehen — alternierend
-- [ ] **Phasen-Sync:** Gruppe A oben → Gruppe B unten, exakte Phasen-Differenz 0.5
-- [ ] **Roboter steht stabil** (kippt nicht, rutscht nicht)
-- [ ] `phase_5_gait_explained.md` zweite Hälfte (Phasen-Sync, Tripod-Mathematik)
+#### 1. Stance-Penetration-Strategie bei Tripod 3:3
+
+**Problem:** In Stufe E hat `_STANCE_PENETRATION = 0.005` für das
+einzelne Swing-Bein in seiner Stance-Phase funktioniert (5:1 Hebel —
+1 Bein 5 mm tiefer kommandiert, 5 Stütz-Beine halten den Body). Bei
+Tripod 3:3 wäre das Hebel-Verhältnis 1:1: 3 Beine "tief", 3 normal →
+Body würde sich auf das tiefere Niveau heben, Stand-Höhe-Drift.
+
+**Optionen:**
+- **A) Globale `body_height` -5 mm** — alle 6 Beine bekommen
+  `body_height = -0.052` statt `-0.047`. JTC trackt einen Punkt 5 mm
+  unterhalb des Bodens kontinuierlich, Boden gibt nicht nach → konstante
+  Foot-Boden-Penetration für Stütz-Beine, kein Hebel-Problem (alle 6
+  symmetrisch behandelt). Engine-Logik wird sogar **einfacher** —
+  `_STANCE_PENETRATION` aus `gait_engine.py` fällt weg. Pro: einfach,
+  symmetrisch, keine Engine-Sonderlogik, Stufe-D-Sensor funktioniert
+  weiter. Contra: hartcoded 5-mm-Verschiebung an drei Stellen
+  (`gait.launch.py`, `stand.launch.py`, `gait_node.py`-Default).
+- **B) Verzicht auf Penetration** — kein Trick. `body_height = -0.047`,
+  JTC-Lag akzeptieren, Foot pendelt knapp über Boden, Foot-Contact-
+  Sensor zeigt durchgängig `false`. Verifikation Stufe F nur visuell.
+  Pro: sauberster Code. Contra: Stufe-D-Sensor in Stufe F+G unbrauchbar,
+  schlechte Diagnose-Basis für G's Walk-Verifikation.
+- **C) Globale Penetration -2 mm + Sensor-Hysterese 200 ms** — Hybrid:
+  weniger tief + längeres Decay-Window in `foot_contact_publisher`.
+  Pro: weniger Penetration. Contra: Stufe-D-Publisher muss modifiziert
+  werden, mehr verteilte Komplexität.
+
+**Gewählt: A** — User-Entscheidung. Symmetrisch (kein Hebel-Problem),
+einfacher Migrate-Pfad (drei Konstanten ändern), Stufe-D-Sensor bleibt
+nutzbar für Stufe G's Walk-Verifikation. Engine-Code wird **kürzer**
+(kein Sonderfall-Block für Swing-Bein-in-Stance-Phase mehr).
+
+**Falls später Re-Design nötig** (z. B. echte HW-Servos in Phase 7
+ohne Tracking-Lag): `body_height` zurück auf `-0.047`, sonst keine
+Code-Änderung. Hartcoded-Wert dokumentiert in `phase_5_progress.md`.
+
+#### 2. STANDING ↔ WALKING-Trigger
+
+**Optionen:**
+- **A) `ros2 param set` zur Laufzeit** — `enable_walk: bool` als rclpy-
+  Parameter (Default `false`). Param-Callback registrieren via
+  `add_on_set_parameters_callback` (kein Polling). Live-Toggle:
+  `ros2 param set /gait_node enable_walk true`. Pro: ROS-idiomatisch
+  für Mode-Flags, Live-Toggle ohne Restart, einfacher Test. Contra:
+  Param-Callback-Boilerplate (~10 Zeilen).
+- **B) Launch-Param fix** — `enable_walk` nur beim Launch, kein Live-
+  Toggle. Pro: minimaler Code. Contra: Restart pro Toggle nötig,
+  schlechte Test-UX.
+- **C) Topic-Subscriber `std_msgs/Bool`** — dediziertes Topic
+  `/gait/enable_walk`. Pro: angeblich Vorbereitung auf Stufe-G's
+  cmd_vel-Pattern. Contra: Stufe G nutzt eh `cmd_vel`-Topic statt
+  `enable_walk` — keine echte Vorbereitung. Mehr Boilerplate als
+  Param-Set.
+
+**Gewählt: A** — User-Entscheidung. Topics für Datenströme, Params für
+Mode-Flags ist ROS-Konvention. Live-Toggle wertvoll für iterative Sim-
+Verifikation. In Stufe G fällt `enable_walk` weg (durch `cmd_vel`-
+Activity-Detection ersetzt) — also keine echte Stufe-G-Vorbereitung
+durch Topic-Variante.
+
+#### 3. Test-Setup — Aufgebockt vs. am Boden
+
+**Optionen:**
+- **A) Am Boden mit `step_height = 0.03`** — wie Stufe E: erst Stand-
+  Pose, dann Tripod startet. Stützgruppe trägt Roboter. Pro: realistisch,
+  bereitet Stufe G vor, Body-Stabilitäts-Verifikation gleich miterledigt.
+  Contra: Body-Stabilität abhängig von Penetrations-Frage (durch Frage 1
+  gelöst).
+- **B) Aufgebockt in Sim** — Roboter um `z = 0.15 m` angehoben (Static-
+  Anchor-Plugin), Beine schweben frei. Pro: reine Phasen-Sync-
+  Verifikation, keine Stabilitäts-Vermischung. Contra: Gazebo-Anchor-
+  Setup nötig (extra xacro/world-Mods), nicht repräsentativ für Stufe G.
+- **C) Beides nacheinander** — erst aufgebockt, dann am Boden. Pro:
+  vollständig diagnostiziert. Contra: doppelter Test-Aufwand,
+  doppelte Test-Doc, kaum echter Mehrwert.
+
+**Gewählt: A** — User-Entscheidung. Realistisch, vorbereitend für
+Stufe G, Penetrations-Frage 1 löst Body-Stabilität.
+
+#### 4. Code-Struktur — Daten-getriebenes `GaitPattern`
+
+**Schlüssel-Beobachtung:** Alle realistischen statischen Gangarten
+unterscheiden sich **nur in zwei Werten** — Phasen-Offset pro Bein und
+Swing-Duty (Anteil des Cycles im Swing). Die Berechnungs-Logik ist
+identisch:
+
+```
+phase = ((t / cycle_time) + offset[leg]) % 1.0
+if phase < swing_duty: target = swing_traj(...)
+else:                  target = stand_pose(...)
+```
+
+| Gangart | Phasen-Offsets | Swing-Duty |
+|---|---|---|
+| Single-Leg | `{1: 0}` | 0.5 |
+| Tripod | `{1: 0, 3: 0, 5: 0, 2: 0.5, 4: 0.5, 6: 0.5}` | 0.5 |
+| Ripple | `{1: 0, 4: 1/3, 5: 2/3, 2: 0, 3: 1/3, 6: 2/3}` | 1/3 |
+| Wave | `{1: 0, 2: 1/6, 3: 2/6, 4: 3/6, 5: 4/6, 6: 5/6}` | 1/6 |
+
+**Optionen:**
+- **A) `GaitEngine` simpel erweitern** — `which_leg` durch
+  `phase_offset_per_leg: dict` ersetzen, `enable_walk: bool` dazu.
+  Eine Klasse, alles drin. Pro: minimaler Diff. Contra: pro neue
+  Gangart Engine-Code anpassen oder dict extern generieren — ohne
+  klares Schema.
+- **A+) Daten-getrieben mit `GaitPattern`-Dataclass** — kleine 
+  `@dataclass(frozen=True) GaitPattern` mit `name`,
+  `phase_offset_per_leg: dict[int, float | None]`, `swing_duty: float`.
+  Modul-Level-Presets `SINGLE_LEG_1..6`, `TRIPOD`. Param
+  `gait_pattern: str` selektiert Preset aus `GAIT_PRESETS`-Dict. Pro:
+  Phase-8-Erweiterungen (Wave, Ripple, ...) kosten 5 Zeilen Pattern-
+  Konstante, null Engine-Code-Änderung. Mentales Modell klar:
+  "neue Gangart = neue Daten-Konstante". Contra: ~30 Zeilen mehr als A.
+- **B) Strategy-Pattern (`StandStrategy`/`TripodStrategy`)** — polymorphe
+  Klassen mit `compute_foot_targets`. Pro: erweiterbar. Contra: Klassen-
+  Overhead für identischen Algorithmus, nur Daten unterscheiden sich →
+  Over-Engineering.
+- **C) Zwei parallele Engines (alte + `TripodEngine`)** — Stufe-E-
+  Engine bleibt, neue `TripodEngine` daneben. Pro: Stufe-E-Code
+  unverändert. Contra: doppelte Logik, Bugfixes zweimal nötig.
+
+**Gewählt: A+** — User-Entscheidung. YAGNI-konform für Strategy-Pattern
+(alle Phase-relevanten Gangarten haben identischen Algorithmus, nur
+Daten unterscheiden sich), aber **Daten-Shape vorbereitet** für
+Phase-8-Erweiterungen. Stufe-E-Backward-Compat via `SINGLE_LEG_1..6`-
+Presets (Stufe-E-Test-Commands funktionieren weiter über
+`gait_pattern:=single_leg_1`).
+
+**Falls später Re-Design nötig** (z. B. dynamische Gangarten mit
+ballistischen Bahnen, asymmetrischen Trajektorien, oder unterschiedliche
+Stance-Trajektorien-Verläufe pro Gangart): zu Strategy-Pattern (B)
+refaktorieren — dann sinnvoll, weil Algorithmen sich tatsächlich
+unterscheiden.
+
+#### 5. Knoten-Parameter (Δ ggü. Stufe E)
+
+| Parameter | Default | Bedeutung | Δ Stufe E |
+|---|---|---|---|
+| `gait_pattern` | `'tripod'` | Preset-Name aus `GAIT_PRESETS` | NEU |
+| `enable_walk` | `false` | Live-Toggle STANDING↔WALKING | NEU |
+| `step_height` | `0.03` | Schwung-Höhe in m | Default ↓ (war 0.05) |
+| `cycle_time` | `2.0` | Periode in s | Default ↑ (war 1.0) |
+| `body_height` | `-0.052` | Stand-Pose Foot-Z im Bein-Frame | Wert ↓ (war -0.047, +5 mm Penetration aus Frage 1) |
+| `radial_distance` | `0.27` | unverändert | — |
+| `tick_rate` | `50.0` | unverändert | — |
+| `time_from_start_factor` | `2.0` | unverändert | — |
+
+`which_leg` weg — durch `gait_pattern: 'single_leg_1..6'` Backward-Compat
+ersetzt.
+
+`stand.launch.py` body_height-Default ebenfalls auf `-0.052` angepasst,
+damit Stand und Gait konsistent gleichen Body-Penetrations-Offset haben
+(sonst Body-Sprung beim ersten WALKING-Tick).
+
+---
+
+- [x] Konzept besprochen (Penetration A: globale -5 mm, Trigger A: ros2 param set, Test-Setup A: am Boden, Code A+: Daten-getrieben mit GaitPattern, neue Param-Defaults)
+- [x] [hexapod_gait/gait_patterns.py](../src/hexapod_gait/hexapod_gait/gait_patterns.py) — `GaitPattern` Dataclass mit Validierung + Presets `SINGLE_LEG_1..6`, `TRIPOD` + `GAIT_PRESETS`-Dict
+- [x] [hexapod_gait/gait_engine.py](../src/hexapod_gait/hexapod_gait/gait_engine.py) refaktoriert: `pattern: GaitPattern`, `enable_walk: bool`, `_STANCE_PENETRATION` entfernt (durch globalen `body_height`-Offset ersetzt)
+- [x] [hexapod_gait/gait_node.py](../src/hexapod_gait/hexapod_gait/gait_node.py) refaktoriert: neue Parameter (`gait_pattern`, `enable_walk`), `add_on_set_parameters_callback` für Live-Toggle (nur `enable_walk` mutable), `body_height` Default `-0.052`
+- [x] [hexapod_gait/launch/gait.launch.py](../src/hexapod_gait/launch/gait.launch.py) — neue Args (`gait_pattern`, `enable_walk`), `which_leg` raus, neue Defaults (`step_height=0.03`, `cycle_time=2.0`, `body_height=-0.052`)
+- [x] [hexapod_gait/launch/stand.launch.py](../src/hexapod_gait/launch/stand.launch.py) + [hexapod_gait/stand_node.py](../src/hexapod_gait/hexapod_gait/stand_node.py) body_height Default `-0.052` (konsistent mit Gait, sonst Body-Sprung beim ersten WALKING-Tick)
+- [x] `colcon build --packages-select hexapod_gait` grün
+- [x] `colcon test --packages-select hexapod_gait` grün (flake8 + pep257, 1 Iteration: I100-Import-Order in `gait_node.py` korrigiert)
+- [x] Pure-Python-Smoke-Test: STANDING (alle 6 stand_pose), WALKING t=0.5 (Gruppe A {1,3,5} im Apex z=-0.022, Gruppe B {2,4,6} stance z=-0.052), WALKING t=1.5 (umgekehrt), Single-Leg-Backward-Compat (nur Bein 1 lifted) — alle Werte korrekt
+- [x] [phase_5_stage_F_test_commands.md](phase_5_stage_F_test_commands.md) geschrieben — 10 Test-Schritte (Sim + Stand + Gait/STANDING + Live-Toggle WALKING + numerische Phasen-Sync + Foot-Contact-Diagnose pro Gruppe + Toggle-zurück + Stabilität-10s + Backward-Compat-Stufe-E + Aufräumen) + 3 optionale Variationen + Stolperfall-Liste
+- [x] **Live-Verifikation Phasen-Sync** (2026-05-09): in einem `/joint_states`-Sample mit Gruppe A im Stance: `leg_1_femur ≈ -0.4876`, `leg_3_femur ≈ -0.4876`, `leg_5_femur ≈ -0.4882` (alle drei in Sync, kein Offset zueinander). Gleichzeitig Gruppe B im Swing: `leg_2_femur ≈ -0.6125`, `leg_4_femur ≈ -0.6122`, `leg_6_femur ≈ -0.6122` (auch in Sync untereinander, aber 0.12 rad anders als Gruppe A). Phasen-Differenz 0.5 zwischen Gruppen, intra-Gruppen-Sync exakt
+- [x] **Live-Verifikation Foot-Contact** (2026-05-09): in 8 s sample alternierende Toggle: leg 1 (Gruppe A): 165 true / 174 false. leg 3 (Gruppe A): 182 true (sync mit leg 1). leg 2 (Gruppe B): 213 true / 138 false (invers zu leg 1). Alle 6 Beine `true count > 0` ✓
+- [x] **Live-Verifikation Stabilität** (2026-05-09): über 10 s Sampling während WALKING — x-Drift 0.001163 → 0.001147 m (< 0.02 mm), y-Drift -0.000678 → -0.000900 m (< 0.3 mm), Yaw-Drift -0.051030 → -0.051465 rad (< 0.03°). z oszilliert 0.054-0.060 m (Tripod-Cycle-Wackel, kein progressives Senken). Kein Wegrutschen, kein Kippen
+- [x] **Live-Verifikation State-Machine** (2026-05-09): `enable_walk:=false` Default → alle stehen still bestätigt. `ros2 param set /gait_node enable_walk true` → Tripod startet sofort, Log `enable_walk -> True (WALKING)`. Zurück auf `false` → Tripod stoppt, Roboter steht still
+- [ ] **Live-Verifikation Backward-Compat Stufe E:** optional, Schritt 9 (`gait_pattern:=single_leg_1 enable_walk:=true`) nicht durchgeführt — auf Stufe G verschoben falls relevant
+- [ ] `phase_5_gait_explained.md` geschrieben (State-Machine + Phasen-Sync + Tripod-Mathematik + GaitPattern-Daten-Shape) — auf Stufe G/H verschoben, dann mit komplettem Walk-Konzept inkl. Vortrieb
+
+### Umsetzungsnotizen Stufe F
+
+> **Test-Anleitung:** [phase_5_stage_F_test_commands.md](phase_5_stage_F_test_commands.md).
+
+**Stufe F lief deutlich glatter als die vorherigen — keine Live-Bug-
+Iterations, alles ging direkt durch.** Das liegt vermutlich daran:
+
+1. **Daten-getriebener Refactor war konservativ.** Engine-Logik blieb
+   strukturell ähnlich zu Stufe E, nur der Trigger (welches Bein im
+   Swing) wurde vom hartcoded `which_leg` auf eine Pattern-Lookup
+   verallgemeinert. Kein neuer Algorithmus, nur Daten-Generalisierung.
+
+2. **Stance-Penetrations-Frage hatten wir vorab konzeptuell durchdacht.**
+   Stufe-E-Erkenntnis "5:1-Hebel funktioniert" war direkt nutzbar — bei
+   Tripod 3:3 würde das Hebel-Verhältnis nicht reichen, also wurde
+   global verschoben (alle 6 Beine -5 mm). Das hätte ohne den Stufe-E-
+   Vorlauf einen Bug-Iterations-Zyklus gekostet.
+
+3. **Cleanup-Disziplin gehärtet.** Das Cleanup-Snippet aus Stufe E hatte
+   schon alle Patterns (`gait_node`, `stand_node`, `foot_contact_publisher`).
+
+#### 1. Globale Stance-Penetration als Refactor-Vereinfachung
+
+`_STANCE_PENETRATION = 0.005` aus
+[gait_engine.py](../src/hexapod_gait/hexapod_gait/gait_engine.py)
+ersatzlos entfernt — durch globale `body_height`-Senkung um 5 mm
+(`-0.052` statt `-0.047`) ersetzt. **Engine-Code wurde dadurch
+einfacher**, nicht komplizierter. Sonderfall-Block für "Swing-Bein in
+seiner Stance-Phase" entfällt komplett.
+
+Die 5-mm-Konstante ist jetzt an drei Stellen (`gait.launch.py`,
+`stand.launch.py`, `gait_node.py`-Default) — verdokumentiert in
+Design-Entscheidung 1 oben. Phase 7 mit echten HW-Servos: alle drei
+auf `-0.047` zurücksetzen.
+
+#### 2. rclpy-Param-Callback-Boilerplate
+
+Live-Toggle für `enable_walk` über
+`add_on_set_parameters_callback`. Wichtige Stolperstein-Vermeidung:
+
+- Callback **muss** `SetParametersResult` zurückgeben (nicht `bool`),
+  sonst rclpy-Exception.
+- `successful=True` für valide Param-Änderungen, `successful=False` +
+  `reason=...` für abgelehnte. Andere Params (gait_pattern, body_height
+  etc.) werden bei Runtime-Versuch abgelehnt mit Log-Warning — sonst
+  inkonsistente Engine-States möglich (z. B. mitten im Cycle Pattern
+  wechseln → Phasen-Sprünge in JTC-Goals).
+- Engine-Member-Zustand (`self._engine.enable_walk`) muss **zusätzlich**
+  zu rclpy-Param-Storage aktualisiert werden — Engine liest nicht aus
+  Node-Params, sondern aus eigenen Members.
+
+Die Live-Toggle hat sich in der Verifikation bewährt: keine Restart-
+Iterationen nötig, einfach `ros2 param set` aus Terminal 3.
+
+#### 3. Body-Stabilität bei Tripod 3:3 — empirische Werte
+
+Live-Sampling über 10 s mit aktivem Tripod (cycle_time=2 s, also 5
+Cycles):
+
+| Achse | Sample 1 | Sample 10 | Drift | Bewertung |
+|---|---|---|---|---|
+| x | -0.001163 m | -0.001147 m | < 0.02 mm | Stationär ✓ |
+| y | -0.000678 m | -0.000900 m | < 0.3 mm | Stationär ✓ |
+| z | 0.059638 m | 0.053668 m | 6 mm Cycle-Schwankung, kein Trend | Erwartete Cycle-Wackel ✓ |
+| Yaw | -0.051030 rad | -0.051465 rad | < 0.03° | Stationär ✓ |
+
+Der **konstante Yaw-Offset von -2.92°** ist nicht durch Stufe F
+verursacht — der Roboter steht von Beginn an leicht schräg im
+Sim-Frame (vermutlich Spawn-Mechanik / Reibungs-Asymmetrie). Wichtig
+ist die **Drift** (< 0.03° in 10 s = stationär), nicht der Absolutwert.
+
+z-Schwankung 6 mm ist erwartbar: bei jedem Tripod-Wechsel federt der
+Body kurz, JTC interpoliert. Wichtig: kein progressives Sinken (Body
+landet nicht auf dem Bauch).
+
+#### 4. Phasen-Sync ist mathematisch trivial — visuell und numerisch klar
+
+`/joint_states`-Sample bei Gruppe A im Stance, Gruppe B im Swing:
+
+| Bein | femur_joint | Gruppe |
+|---|---|---|
+| 1 | -0.4876 | A (Stance) |
+| 3 | -0.4876 | A (Stance) |
+| 5 | -0.4882 | A (Stance) |
+| 2 | -0.6125 | B (Swing) |
+| 4 | -0.6122 | B (Swing) |
+| 6 | -0.6122 | B (Swing) |
+
+Intra-Gruppe Differenz < 0.001 rad (numerische Rundung). Inter-Gruppe
+Differenz exakt 0.124 rad — entspricht der Höhen-Differenz zwischen
+Stand-Pose (z=-0.052) und Mitten-Swing (z=-0.022) in Bein-Frame durch
+IK gerechnet.
+
+> Daten-Shape vom `GaitPattern` ist also gerechtfertigt — der gleiche
+> Algorithmus aus Stufe E erzeugt korrekt Tripod-Verhalten, nur durch
+> Tabellen-Lookup. Phase-8-Erweiterungen (Wave, Ripple) sind 5-Zeilen-
+> Patches.
+
+#### 5. Was Stufe F NICHT macht
+
+- Kein **Vortrieb** — Stützphasen-Foot bleibt am Neutral-Punkt
+  (`step_length=0`). Stufe G fügt `cmd_vel.linear.x` → Stütz-Foot
+  bewegt sich rückwärts entgegen Fahrtrichtung dazu.
+- Kein **cmd_vel-Subscriber** — `enable_walk` ist temporäre State-
+  Machine. In Stufe G ersetzt durch cmd_vel-Activity-Detection +
+  Timeout-Rückfall.
+- Kein **Body-Frame-zu-Bein-Frame-Vortrieb-Mapping** — kommt mit
+  Stufe G's geradeaus-Walk.
+- Kein **`phase_5_gait_explained.md`** — auf Stufe G/H verschoben.
+- Kein **Walk-on-uneven-ground** — Stufe-D-Sensoren erstmal nur
+  Diagnose, nicht Closed-Loop. Nicht Phase-5-Scope.
 
 ---
 
