@@ -916,16 +916,197 @@ Bogen (start → top → end, in Bein-Frame x-Richtung).
 **Konzept-Doku:** `docs/phase_5_gait_explained.md` (State-Machine,
 Stütz/Schwung-Trajektorien, Phasen-Sync, 50-Hz-Hack).
 
-- [ ] Konzept besprochen (Sinus-Bahn-Parameter, Tick-Rate, welches Bein)
-- [ ] `gait_node.py` Skelett (rclpy, 50-Hz-Timer, Parameter-Declaration)
-- [ ] `trajectory_gen.py` mit `swing_traj(t, params)` — Sinus-Halbbogen
-- [ ] `gait_engine.py` Skelett (für jetzt: nur Single-Leg-Modus)
-- [ ] Launch-Integration oder CLI-Run-Anleitung
-- [ ] `phase_5_stage_E_test_commands.md` geschrieben
-- [ ] **Live-Verifikation:** Bein 1 schwingt sichtbar in der Luft, andere 5 stehen still
-- [ ] **Numerisch:** `/joint_states` zeigt periodische Bewegung nur für `leg_1_*`
-- [ ] **Kein Bein knickt ein:** Stützbeine halten Stand-Pose stabil
+### Design-Entscheidungen Stufe E
+
+#### 1. Swing-Trajektorien-Form
+
+**Optionen:**
+- **A) Halbsinus** — `z(t) = z_stand + step_height·sin(π·t)`, t ∈ [0, 1].
+  2 Parameter (step_height, cycle_time). `sin'(0) = sin'(π) = 0` →
+  Touchdown ohne vertikale Geschwindigkeit, kein Bounce. Standard-
+  Hexapod-Pattern. Pro: einfach, smooth, ausreichend.
+- **B) Quadratischer Bezier** mit 3 Kontrollpunkten (start/peak/end).
+  Pro: mehr Flexibilität (asymmetrische Bögen). Contra: mehr Parameter,
+  bei symmetrischer Schwung-Bahn keine echte Verbesserung.
+
+**Gewählt: A** — User-Entscheidung. Symmetrische Sinus-Bahn passt zu
+unserem Use-Case. Falls später asymmetrische Trajektorien nötig
+(z. B. langsame Touchdowns für Closed-Loop-Foot-Contact-Adaption),
+einfacher Refactor.
+
+#### 2. State-Machine vs. Simple Mode
+
+**Optionen:**
+- **A) Simple Mode** — gait_node startet, Bein N schwingt dauerhaft,
+  Rest steht. Kein Service, kein Toggle-Mechanismus. Pro: kompakt
+  (~30 Zeilen weniger), passt zur Stufe-E-Verifikation (Knoten
+  startet → schwingt → User beobachtet → User killt). Contra: kein
+  Live-Toggle ohne Restart.
+- **B) STANDING/WALKING-State-Machine** mit `enable_walk`-Parameter.
+  Pro: Toggle-bar ohne Restart. Contra: in Stufe F wird die State-
+  Machine ohnehin von Grund auf neu gebaut (Tripod-Phasen-Logik mit
+  Gruppen-Offsets) — Stufe-E-State-Code wäre Wegwerf.
+
+**Gewählt: A** — User-Entscheidung. Stufe F erweitert dann mit der
+"echten" State-Machine.
+
+**Falls später Re-Design nötig** (z. B. interaktiver Demo-Modus mit
+Pause-Funktion): zu B umschwenken. Aktuell kein Bedarf.
+
+#### 3. Stand-Pose-Quelle in `gait_engine`
+
+**Optionen:**
+- **A) `gait_engine` eigene Konstanten** — `(radial=0.27, 0, body_height=-0.047)`
+  als Default in `gait_engine.py`. `stand_node` aus Stufe C bleibt
+  unberührt und eigenständig nutzbar. Pro: minimale Kopplung,
+  Stufe-C-Code unverändert. Contra: Stand-Pose-Werte an zwei Stellen.
+- **B) Refactor: shared Pose-Modul** in `hexapod_kinematics.config` oder
+  `hexapod_gait.poses`. Beide Knoten importieren. Pro: Single Source
+  of Truth. Contra: zusätzlicher Refactor an Stufe-C-Code.
+
+**Gewählt: A** — User-Entscheidung. Stufe E erste Iteration; B als
+Nachwerkzeit später (oder am Phasen-Ende), wenn beide Stand-Pose-
+Konsumenten stabil sind.
+
+#### 4. Pub-Rate-Hack (`time_from_start`)
+
+Keine echte Entscheidung — übernehmen aus Phase-Plan. Tick-Rate 50 Hz,
+`time_from_start = 2 × (1/tick_rate) = 0.04 s`. JTC interpoliert linear
+zwischen aufeinanderfolgenden Goals → smooth Bewegung.
+
+Designwarnung: technisch ein Hack. Sauber wäre ein
+`forward_position_controller` (kontinuierlicher Position-Stream ohne
+Trajectory-Wrapping), nicht in Phase-4-Setup konfiguriert. **Refactor-
+Schuld dokumentiert: Phase 7 prüfen.**
+
+#### 5. Welches Bein für Single-Leg-Test
+
+`which_leg = 1` (vorne rechts, mount_yaw=-π/4) als Default. Vorne in der
+Default-Gazebo-Kamera-Position gut sichtbar. Parametrisierbar via
+`--ros-args -p which_leg:=N` für N ∈ {1..6}.
+
+#### 6. Knoten-Parameter
+
+`gait_node` mit folgenden `declare_parameter`s (alle mit Default):
+
+| Parameter | Default | Bedeutung |
+|---|---|---|
+| `which_leg` | `1` | Bein-ID 1..6, das schwingt |
+| `step_height` | `0.02` | Schwung-Höhe in m über Stand-Pose |
+| `cycle_time` | `1.0` | Periode in s pro Schwung |
+| `tick_rate` | `50.0` | Knoten-Loop-Rate in Hz |
+| `body_height` | `-0.047` | Stand-Pose Foot-Z im Bein-Frame |
+| `radial_distance` | `0.27` | Stand-Pose Foot-X im Bein-Frame |
+| `time_from_start_factor` | `2.0` | `time_from_start = factor × (1/tick_rate)` |
+
+---
+
+- [x] Konzept besprochen (Trajektorie A: Halbsinus, State-Machine A: Simple Mode, Stand-Pose A: gait_engine-Konstanten, Pub-Rate-Hack übernommen, which_leg=1 default, 7 Parameter)
+- [x] [hexapod_gait/trajectory_gen.py](../src/hexapod_gait/hexapod_gait/trajectory_gen.py) — pure-Python `swing_traj(phase, ...)` (Halbsinus über Z + linear in X) und `stand_pose(...)`. Phase 0..1 mit Apex bei 0.5; `step_length`-Parameter Default 0 (Stufe E ohne Vortrieb), in Stufe G für horizontalen Vortrieb genutzt
+- [x] [hexapod_gait/gait_engine.py](../src/hexapod_gait/hexapod_gait/gait_engine.py) — `GaitEngine` mit `compute_foot_targets(t)` und `compute_joint_angles(t)`. Single-Leg-Modus: `which_leg` schwingt mit Phase=`(t/cycle_time) mod 1`, andere halten Stand-Pose
+- [x] [hexapod_gait/gait_node.py](../src/hexapod_gait/hexapod_gait/gait_node.py) — rclpy-Node, 7 Knoten-Parameter, 50 Hz-Timer-Tick, `time.monotonic()`-basierter t (Stufe-D-Erkenntnis), 6 JointTrajectory-Pubs pro Tick mit `time_from_start = 0.04 s`. `setup.py` entry_point `gait_node` ergänzt
+- [x] [hexapod_gait/launch/gait.launch.py](../src/hexapod_gait/launch/gait.launch.py) — 8 LaunchArgs (which_leg, step_height, cycle_time, tick_rate, body_height, radial_distance, time_from_start_factor, use_sim_time)
+- [x] `colcon build --packages-select hexapod_gait` grün
+- [x] `colcon test --packages-select hexapod_gait` grün (flake8 + pep257)
+- [x] [phase_5_stage_E_test_commands.md](phase_5_stage_E_test_commands.md) geschrieben — 7 Test-Schritte (Sim + Stand + Gait + numerische Joint-Prüfung + Foot-Contact-Live-Diagnose + Stand-Stabilität + Aufräumen) + 4 optionale Variationen
+- [x] **Live-Verifikation:** Bein 1 schwingt sichtbar in der Luft, 0.5 s Schwung + 0.5 s Pause am Boden bei cycle_time=1, andere 5 stehen still — **bestätigt 2026-05-09**
+- [x] **Numerisch:** `/joint_states` zeigt periodische Bewegung für `leg_1_*` (femur ~ -0.59 / -0.51 oszillierend, tibia ~ 1.05 / 1.01), Stütz-Beine konstant bei `(0, -0.510, 1.012)` — bestätigt 2026-05-09
+- [x] **Foot-Contact-Diagnose:** Bei cycle_time=2 (1 s Stance), leg 1: **121 true, 210 false** in 8 s (36% true), togglet sauber. leg 2 (Stütz): **121 true, 25 false** (83% true) — die wenigen false-Momente von Body-Wackel beim Bein-1-Schwung. Pipeline End-to-End grün
+- [x] **Kein Bein knickt ein:** Stützbeine halten Stand-Pose stabil, Body z=0.054999 m (gleicher Wert wie in Stand-only-Mode), keine progressive Drift
 - [ ] `phase_5_gait_explained.md` (erste Hälfte: State-Machine + Trajektorien)
+
+### Umsetzungsnotizen Stufe E
+
+> **Test-Anleitung:** [phase_5_stage_E_test_commands.md](phase_5_stage_E_test_commands.md).
+
+**Stufe-E-Live-Bringup hatte vier Iterations-Bugs zu durchdringen:**
+
+#### 1. JTC-Lookup-Race in stand_node (übernommen aus Stufe C)
+
+`use_sim_time=true` + `self.get_clock().now()` für Timer hatte den
+DDS-`/clock`-Discovery-Race aus Stufe C. **Fix:** `time.monotonic()`
+für alle Timer-Logik in gait_node + foot_contact_publisher (Stufe-D-
+Konsistenz). Im Code dokumentiert.
+
+#### 2. Stale-Prozesse durch unvollständigen pkill (auch aus Stufe D bekannt)
+
+`pkill -f "gait_node"` wurde nicht im Cleanup-Snippet von Stufe D
+mitgenommen — bei wiederholten Sim-Restarts liefen mehrere gait_nodes
+parallel auf den gleichen Topics. **Fix:** Cleanup-Snippet in
+[phase_5_stage_E_test_commands.md](phase_5_stage_E_test_commands.md)
+um `pkill -9 -f "gait_node"` ergänzt.
+
+#### 3. JTC-Tracking-Lag im kontinuierlichen Pub-Modus
+
+Erste Implementation: gait_node publisht 50 Hz JointTrajectory mit
+`time_from_start = 0.04 s`. Bei jedem Tick re-startet JTC die
+Interpolation von `current_pos` nach `target` — exponentielle
+Konvergenz. Theoretisch perfekt, in der Praxis ~0.1-0.5 mm
+Tracking-Lag.
+
+Folge: in der Stance-Phase erreicht der Foot zwar visuell den Boden,
+ist aber 0.5 mm darüber. Phase-4-Stand-Mode mit body_height=-0.047
+hatte 1 µm Penetration durch statische Schwerkraft-Federung — gerade
+genug für Sensor-Fire. Im Gait-Mode reicht das nicht.
+
+**Erste Fix-Versuche (verworfen):**
+- `body_height=-0.05` (alle 6 Beine 3 mm tiefer kommandieren) — Body
+  liftete um 3 mm hoch, weil Stütz-Beine ihn pushen, neue
+  Penetration wieder ~0. **Funktionierte nicht.**
+- `body_height=-0.08` (alle 6 Beine 33 mm tiefer) — Body liftete
+  entsprechend hoch, gleiches Problem. **Funktionierte nicht.**
+
+Erkenntnis: solange ALLE Beine gleich tief kommandiert werden, lifted
+sich der Body genau passend, keine Penetration entsteht.
+
+**Endgültiger Fix:** Nur das **Swing-Bein in Stance-Phase** wird 5 mm
+tiefer kommandiert (`_STANCE_PENETRATION = 0.005` in
+[gait_engine.py](../src/hexapod_gait/hexapod_gait/gait_engine.py)).
+Die anderen 5 Stütz-Beine bleiben bei `body_height` → halten Body-Z
+konstant. Das eine Bein hat damit garantiert 5 mm Penetration → Sensor
+feuert.
+
+Hebel-Verhältnis 5:1 reicht aus, dass das einzelne tiefer-kommandierte
+Bein nicht den Body hebt.
+
+**Resultat:** leg 1 togglet sauber `true`/`false` synchron zum Schwung
+(36% true bei cycle_time=2, ~50% erwartet — Differenz durch JTC-Anfangs-
+konvergenz pro Stance).
+
+#### 4. Body-Wackel-Effekte auf Stütz-Beine
+
+Beobachtung: leg 2 (Stütz-Bein, immer am Boden) zeigt **83% true** statt
+100%. In den 17% false-Momenten wackelt der Body kurz hoch (durch
+asymmetrischen Lift-Force des Swing-Beins) — Stütz-Foot hängt
+mikroskopisch über Boden, Sensor pausiert kurz.
+
+Funktional irrelevant für Stufe E. Phase-7-HW-Treiber wird hier auch
+ein periodisches `false`-Pattern haben (mechanisches
+Switch-Ausdruck/Lösen), und Konsumenten in Phase 6+ müssen ohnehin
+einen Tiefpass / Debounce-Filter einbauen.
+
+#### Performance-Reflektion
+
+- Stufe E löste 4 Bugs in einer Session (siehe Stufe-D-Pattern).
+  Memory-Eintrag dafür existiert bereits.
+- Bug 3 (Tracking-Lag) ist **nicht trivial** und nicht aus
+  Standard-ROS2-Tutorials erwartbar — er entsteht aus dem
+  spezifischen Continuous-Pub-Pattern. Die Stance-Penetration-Lösung
+  ist eine pragmatische Sim-Workaround und sauber als solche
+  kommentiert. **Phase 7 mit echter HW** umgeht das Problem komplett
+  (Microschalter feuern bei mechanischem Druck unabhängig von
+  Tracking-Genauigkeit).
+
+#### Was Stufe E NICHT macht
+
+- Keine State-Machine (Stufe-E-Design-Entscheidung 2 A: Simple Mode).
+- Kein cmd_vel-Subscriber (Stufe G).
+- Kein Tripod-Pattern (Stufe F).
+- Kein Vortrieb / step_length > 0 (Stufe G).
+- Kein `phase_5_gait_explained.md` final geschrieben — auf Stufe F
+  verschoben, dann mit komplettem State-Machine-Konzept.
+
+---
 
 ---
 

@@ -31,6 +31,7 @@ setup(
     entry_points={
         'console_scripts': [
             'stand_node = hexapod_gait.stand_node:main',
+            'gait_node = hexapod_gait.gait_node:main',
         ],
     },
 )
