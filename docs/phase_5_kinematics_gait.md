@@ -194,19 +194,58 @@ In jedem Tick:
 
 ---
 
+## Foot-Bodenkontakt-Sensoren (toggle-bar)
+
+In Phase 5 (nach Stand-Pose, vor Single-Leg-Schwung) wird pro Foot ein
+binäres Bodenkontakt-Signal als ROS-Topic verfügbar gemacht. Dient als
+**passives Diagnose-Werkzeug** für die Live-Stufen Single-Leg, Tripod,
+Vollgait — der Tripod-Pattern-Check (DK5) wird dadurch direkt
+beobachtbar (`ros2 topic echo /leg_<n>/foot_contact`).
+
+**Toggle:** LaunchArg `enable_foot_contact:=true|false`. Aus zwei Gründen
+ein-/abschaltbar:
+1. **Reine Open-Loop-Tests** (Vergleich gegen die Sensor-frei-Variante,
+   Fokus auf reines IK/Gait-Verhalten ohne Sensor-Lärm im Topic-Listing).
+2. **Zukunfts-Phase, in der Closed-Loop-Konsumenten kommen** — dort
+   bleibt der Toggle als Schnellschalter, falls Sensor-Defekt oder
+   Closed-Loop-Bug vorliegt.
+
+**Nicht in Phase 5 enthalten:** Konsumieren des Signals durch die
+Gait-Engine (Closed-Loop-Adaption Schwung↔Stütze). Das ist Phase 6+
+oder dedizierte Folge-Phase. In Phase 5 nur **Publisher + Bridge**,
+keine Konsumenten.
+
+**Architektur-Skizze:**
+- Sim: `<sensor type="contact">`-Plugin pro `foot_link` in einer neuen
+  `hexapod.foot_contact.xacro`, conditional-included via
+  `<xacro:if value="${enable_foot_contact}">`.
+- Bridge: `ros_gz_bridge` mit zusätzlichen 6 Mappings für
+  `/leg_<n>/foot_contact` (`std_msgs/Bool` empfohlen) — conditional
+  in `hexapod_bringup/sim.launch.py` per `IfCondition`.
+- HW (Phase 7): physische Microschalter pro Foot, ROS-Treiber publisht
+  auf gleichen Topic-Namen — Sim/HW-Abstraktion über Topic-Pattern wie
+  bei Joints.
+
+---
+
 ## Roadmap innerhalb Phase 5
 
 1. **Schritt 1 — IK isoliert:** `hexapod_kinematics` mit Tests, ohne ROS.
 2. **Schritt 2 — Standpose:** Neuer Knoten `stand_node`, der die
    Neutral-IK berechnet und einmal eine Trajectory pro Bein publisht.
    Roboter steht in Wunschpose. (≠ Phase 3, weil dort manuell.)
-3. **Schritt 3 — Bein einzeln Schwung:** Eines Beines in der Luft eine
+3. **Schritt 2.5 — Foot-Bodenkontakt-Sensoren (toggle-bar):**
+   `<sensor type="contact">` pro Foot in der Sim, gebrückt nach ROS als
+   `/leg_<n>/foot_contact`. Ein-/abschaltbar via `enable_foot_contact`-
+   LaunchArg. Verifikation gegen Stand-Pose-Baseline (alle 6 = `True`),
+   gegen manuell angehobenes Bein (das eine = `False`).
+4. **Schritt 3 — Bein einzeln Schwung:** Eines Beines in der Luft eine
    Sinusbahn fahren, Rest steht. Validiert IK + Trajectory-Pipeline.
-4. **Schritt 4 — Statisches Tripod-Pattern:** Beine bewegen sich abwechselnd
+5. **Schritt 4 — Statisches Tripod-Pattern:** Beine bewegen sich abwechselnd
    in der Luft (Roboter aufgebockt oder im Stand-only-Modus).
-5. **Schritt 5 — Vollständiger Tripod-Gait, geradeaus.** Ende-Kriterium.
-6. **Schritt 6 (optional):** Drehen um Z (`cmd_vel.angular.z`).
-7. **Schritt 7 (optional):** Seitwärts laufen (`cmd_vel.linear.y`).
+6. **Schritt 5 — Vollständiger Tripod-Gait, geradeaus.** Ende-Kriterium.
+7. **Schritt 6 (optional):** Drehen um Z (`cmd_vel.angular.z`).
+8. **Schritt 7 (optional):** Seitwärts laufen (`cmd_vel.linear.y`).
 
 ---
 

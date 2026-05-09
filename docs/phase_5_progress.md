@@ -28,10 +28,11 @@ Stufenplan A–G abgeleitet aus den 7 Roadmap-Schritten in `docs/phase_5_kinemat
 | A | Paket-Skelett `hexapod_kinematics` (config.py, Module-Stubs, leerer pytest grün) | (Vorbereitung) | DK1 vorbereitet |
 | B | IK + FK + Pure-Python-Tests | Schritt 1 | DK1 ✅ |
 | C | Paket-Skelett `hexapod_gait` + `stand_node` (One-Shot Neutral-IK) | Schritt 2 | DK2 vorbereitet, IK-Smoke live |
-| D | Single-Leg-Schwung in der Luft (validiert IK→Trajectory-Pipeline) | Schritt 3 | Gait-Engine-Skelett |
-| E | Statisches Tripod-Pattern in der Luft (alternierende Beine, kein Vortrieb) | Schritt 4 | DK5 vorbereitet |
-| F | Vollständiger Tripod-Gait geradeaus per `/cmd_vel` | Schritt 5 | DK2, DK3, DK4, DK5 ✅ |
-| G | Phasenabschluss + optional Schritt 6 (`angular.z`) / 7 (`linear.y`) | Schritt 6/7 | Phase 5 🟢 |
+| D | Foot-Bodenkontakt-Sensoren (toggle-bar) als Live-Diagnose-Werkzeug | Schritt 2.5 (neu) | 6 Foot-Contact-Topics, ein/abschaltbar |
+| E | Single-Leg-Schwung in der Luft (validiert IK→Trajectory-Pipeline) | Schritt 3 | Gait-Engine-Skelett |
+| F | Statisches Tripod-Pattern in der Luft (alternierende Beine, kein Vortrieb) | Schritt 4 | DK5 vorbereitet |
+| G | Vollständiger Tripod-Gait geradeaus per `/cmd_vel` | Schritt 5 | DK2, DK3, DK4, DK5 ✅ |
+| H | Phasenabschluss + optional Schritt 6 (`angular.z`) / 7 (`linear.y`) | Schritt 6/7 | Phase 5 🟢 |
 
 ---
 
@@ -188,7 +189,7 @@ Diese Konventionen gelten für alle künftigen Python-Pakete in der
 Phase (Stufen B-G), insbesondere `hexapod_gait`. Der erste Build kostete
 zwei flake8/pep257-Iterationen, weil ich PEP-8-default-Quoting/Spacing
 gewohnt war — Memory-Hinweis dazu nicht nötig, der Style ist im Code
-jetzt fixiert und in Stufe B-G einfach übernehmbar.
+jetzt fixiert und in Stufe B-H einfach übernehmbar.
 
 **Was Stufe A explizit NICHT macht:**
 - Keine IK-Math in `leg_ik.py` (Stufe B)
@@ -281,7 +282,64 @@ mit `time_from_start = 4 s` (analog Phase-4-Stufe-F sanfter Anfahrt).
 
 ---
 
-## Stufe D — Single-Leg-Schwung in der Luft
+## Stufe D — Foot-Bodenkontakt-Sensoren (toggle-bar)
+
+**Ziel:** Pro Foot ein binäres Bodenkontakt-Signal als ROS-Topic
+(`/leg_<n>/foot_contact`), ein-/abschaltbar via Launch-Argument
+`enable_foot_contact:=true|false`. Diagnose-Werkzeug für die
+Live-Stufen E-G (Schwung, Tripod, Gait). **Kein Konsumenten-Knoten in
+Phase 5** — nur Publisher + Bridge.
+
+**Was wir machen:**
+- Neue xacro-Datei `hexapod.foot_contact.xacro` mit
+  `<sensor type="contact">`-Block pro `foot_link` (6×) und Gazebo-Plugin,
+  das die Kontakt-Events publisht.
+- Top-Level `hexapod.urdf.xacro` per `<xacro:if value="${enable_foot_contact}">`
+  conditional including; xacro-Argument `enable_foot_contact` definiert.
+- `hexapod_bringup/sim.launch.py`: LaunchArg `enable_foot_contact` gesetzt
+  und an xacro-Aufruf durchgereicht; ein zweiter `ros_gz_bridge`-Node
+  (Foot-Contact-Mappings) per `IfCondition` conditional gestartet.
+
+**Konzept-Diskussionspunkte (vor Implementation):**
+- **Sensor-Granularität:** 6 separate Topics (`/leg_<n>/foot_contact`) als
+  `std_msgs/Bool` vs. ein gesammeltes Topic (`/foot_contacts` als
+  `std_msgs/UInt8` mit Bit-Maske oder als Custom-Array)? Trade-off
+  Lesbarkeit (`echo` pro Bein direkt) vs. Konsumenten-Bequemlichkeit
+  (alle 6 in einer Message).
+- **Toggle-Architektur:** xacro-Argument-Inclusion (sensor-Block fehlt
+  bei OFF — saubere Trennung, sim-restart-pflichtig) vs. always-on-URDF
+  + nur Bridge togglen (einfacher, kontinuierlicher Sim-Overhead).
+- **Topic-Typ:** `std_msgs/Bool` (binär, simpel) vs.
+  `gazebo_msgs/ContactsState` (mit Force-Vektoren — overkill für
+  Schalter-Emulation) vs. `geometry_msgs/Wrench`. Empfehlung: `Bool`
+  (passt zum HW-Switch-Modell in Phase 7).
+- **Hysterese / Filterung:** Direkter Sensor-Output kann bouncen bei
+  knappen Kontakten. Sim: vermutlich glatt; HW (Phase 7): Switch-Bouncing
+  möglich. Erstmal kein Filter, in Phase 7 ggf. Debounce-Zeit
+  (z. B. 20 ms) im HW-Treiber.
+- **Topic-Namensschema** als Pattern für Phase 7: `/leg_<n>/foot_contact`
+  (per-leg) oder `/foot_contact/leg_<n>`? Empfehlung: ersteres, weil
+  konsistent zu `/leg_<n>_controller/...` aus Phase 4.
+
+**Test-Doku** (interaktive Stufe): `docs/phase_5_stage_D_test_commands.md`
+mit Schritt-für-Schritt-Befehlen pro Terminal, Toggle-ON- und Toggle-OFF-
+Pfad, erwartete Topic-Listen.
+
+- [ ] Konzept besprochen (Granularität, Toggle-Mechanik, Topic-Typ)
+- [ ] `hexapod_description/urdf/hexapod.foot_contact.xacro` angelegt (xacro-Macro für Kontakt-Sensor pro `foot_link`)
+- [ ] Top-Level-`hexapod.urdf.xacro`: xacro-Argument `enable_foot_contact` mit Default `true`, conditional Include der neuen Datei
+- [ ] `hexapod_bringup/sim.launch.py`: LaunchArg `enable_foot_contact` deklariert, an xacro-Command-Aufruf durchgereicht
+- [ ] Foot-Contact-Bridge-Mappings (6×) als separater `ros_gz_bridge`-Node mit `IfCondition(LaunchConfiguration('enable_foot_contact'))`
+- [ ] `colcon build --packages-select hexapod_description hexapod_bringup` grün
+- [ ] `xacro hexapod.urdf.xacro enable_foot_contact:=true` rendert sauber, `... :=false` rendert ohne Sensor-Blöcke
+- [ ] `phase_5_stage_D_test_commands.md` geschrieben
+- [ ] **Live-Verifikation Toggle ON:** Sim startet mit `enable_foot_contact:=true`, `ros2 topic list` zeigt 6× `/leg_<n>/foot_contact`, in Stand-Pose alle 6 = `True`
+- [ ] **Live-Funktional:** Bein 1 manuell anheben (per Trajectory-Goal aus dem Boden) → `/leg_1/foot_contact` wird `False`, andere bleiben `True`
+- [ ] **Live-Verifikation Toggle OFF:** Sim startet mit `enable_foot_contact:=false`, **keine** `foot_contact`-Topics in `topic list`, kein Plugin-Lade-Fehler in Logs
+
+---
+
+## Stufe E — Single-Leg-Schwung in der Luft
 
 **Ziel:** Ein Bein fährt periodisch eine Sinus-Bahn in der Luft, andere 5
 bleiben in Stand-Pose. Validiert die volle IK→Trajectory-Pipeline unter
@@ -311,7 +369,7 @@ Stütz/Schwung-Trajektorien, Phasen-Sync, 50-Hz-Hack).
 - [ ] `trajectory_gen.py` mit `swing_traj(t, params)` — Sinus-Halbbogen
 - [ ] `gait_engine.py` Skelett (für jetzt: nur Single-Leg-Modus)
 - [ ] Launch-Integration oder CLI-Run-Anleitung
-- [ ] `phase_5_stage_D_test_commands.md` geschrieben
+- [ ] `phase_5_stage_E_test_commands.md` geschrieben
 - [ ] **Live-Verifikation:** Bein 1 schwingt sichtbar in der Luft, andere 5 stehen still
 - [ ] **Numerisch:** `/joint_states` zeigt periodische Bewegung nur für `leg_1_*`
 - [ ] **Kein Bein knickt ein:** Stützbeine halten Stand-Pose stabil
@@ -319,7 +377,7 @@ Stütz/Schwung-Trajektorien, Phasen-Sync, 50-Hz-Hack).
 
 ---
 
-## Stufe E — Statisches Tripod-Pattern in der Luft
+## Stufe F — Statisches Tripod-Pattern in der Luft
 
 **Ziel:** Beide Tripod-Gruppen schwingen abwechselnd, **ohne Vortrieb**.
 Roboter aufgebockt oder Stand-only-Modus (Schwung-Hub klein genug, dass
@@ -327,23 +385,23 @@ er nicht fällt). Validiert State-Machine + Phasen-Sync.
 
 **Was wir machen:** Erweitert `gait_engine`: Gruppe A {1, 3, 5} und
 B {2, 4, 6}, Phasen-Offset 0.5. Stützphase = Stand (kein Vortrieb,
-nur Halten). Schwungphase = Sinus-Bogen wie Stufe D, aber alle drei
+nur Halten). Schwungphase = Sinus-Bogen wie Stufe E, aber alle drei
 Beine der schwingenden Gruppe synchron.
 
 **Konzept-Diskussionspunkte:**
 - **Stützphase ohne Vortrieb:** Foot bleibt am Neutral-Punkt (kein
-  rückwärtiges Schieben). Erst in Stufe F kommt Body-Vortrieb dazu.
-- **Aufbock-Modus vs. Stand-on-Ground:** Soll Stufe E den Roboter
+  rückwärtiges Schieben). Erst in Stufe G kommt Body-Vortrieb dazu.
+- **Aufbock-Modus vs. Stand-on-Ground:** Soll Stufe F den Roboter
   aufgebockt testen (Beine in der Luft, nichts trägt), oder mit kleinem
   `step_height` so dass die Stützgruppe ihn trägt? **Empfehlung:**
-  Letzteres, weil Aufbocken in Sim umständlich und weil es F vorbereitet.
+  Letzteres, weil Aufbocken in Sim umständlich und weil es G vorbereitet.
 - **State-Machine STANDING↔WALKING-Trigger:** zunächst über Parameter
-  `enable_walk` boolean — `cmd_vel`-Subscriber kommt erst in Stufe F.
+  `enable_walk` boolean — `cmd_vel`-Subscriber kommt erst in Stufe G.
 
 - [ ] Konzept besprochen (Aufbock vs. Stand-on-Ground, State-Machine-Trigger)
 - [ ] `gait_engine` erweitert: Tripod-Gruppen + Phasen-Offset
 - [ ] STANDING- und WALKING-State implementiert (mit `enable_walk`-Param-Trigger)
-- [ ] `phase_5_stage_E_test_commands.md` geschrieben
+- [ ] `phase_5_stage_F_test_commands.md` geschrieben
 - [ ] **Live-Verifikation:** Drei Beine heben sich, drei stehen — alternierend
 - [ ] **Phasen-Sync:** Gruppe A oben → Gruppe B unten, exakte Phasen-Differenz 0.5
 - [ ] **Roboter steht stabil** (kippt nicht, rutscht nicht)
@@ -351,7 +409,7 @@ Beine der schwingenden Gruppe synchron.
 
 ---
 
-## Stufe F — Vollständiger Tripod-Gait geradeaus per `/cmd_vel`
+## Stufe G — Vollständiger Tripod-Gait geradeaus per `/cmd_vel`
 
 **Ziel:** **Phase-5-Done-Kriterien 2, 3, 4, 5 erfüllt.** `/cmd_vel.linear.x = 0.05`
 bewirkt sichtbares Vorwärtslaufen, `cmd_vel = 0` → STANDING-Rückfall mit
@@ -377,7 +435,7 @@ STANDING-Rückfall (>0.5 s ohne `cmd_vel` → in Neutral-Pose stoppen).
 - [ ] `cmd_vel`-Subscriber + Body-Frame-Mapping in `gait_engine`
 - [ ] STANDING-Timeout-Rückfall (> 0.5 s ohne cmd_vel)
 - [ ] Stützphase mit Vortrieb (Foot rückwärts entgegen Fahrtrichtung)
-- [ ] `phase_5_stage_F_test_commands.md` geschrieben
+- [ ] `phase_5_stage_G_test_commands.md` geschrieben
 - [ ] **Live-Verifikation DK3:** `cmd_vel.linear.x = 0.05` → Roboter läuft sichtbar vorwärts
 - [ ] **Live-Verifikation DK4:** `cmd_vel = 0` → Roboter bleibt nach <0.5 s in Stand-Pose stehen
 - [ ] **Live-Verifikation DK5:** Tripod-Sequenz erkennbar (3 schwingen, 3 stützen, alternierend)
@@ -386,7 +444,7 @@ STANDING-Rückfall (>0.5 s ohne `cmd_vel` → in Neutral-Pose stoppen).
 
 ---
 
-## Stufe G — Phasenabschluss + optional Schritt 6/7
+## Stufe H — Phasenabschluss + optional Schritt 6/7
 
 **Ziel:** Phase 5 formell schließen.
 
