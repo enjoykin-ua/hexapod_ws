@@ -1,18 +1,19 @@
 """
-Launch-File für gait_node — daten-getriebene Gangart-Engine (Stufe F).
+Launch-File für gait_node — cmd_vel-getriebener Walk (Stufe G).
 
 Aufruf:
 - ``ros2 launch hexapod_gait gait.launch.py``
-  (Defaults: pattern=tripod, enable_walk=false → STANDING)
-- ``ros2 launch hexapod_gait gait.launch.py enable_walk:=true``
-  (Tripod startet sofort)
-- ``ros2 launch hexapod_gait gait.launch.py gait_pattern:=single_leg_1
-  enable_walk:=true``
-  (Stufe-E-Backward-Compat: Bein 1 schwingt einzeln)
+  (Defaults: pattern=tripod, default_linear_x=0 → STANDING bis cmd_vel)
+- ``ros2 launch hexapod_gait gait.launch.py default_linear_x:=0.05``
+  (Demo-Mode: Roboter läuft sofort vorwärts ohne externe cmd_vel)
+- ``ros2 launch hexapod_gait gait.launch.py cycle_time:=1.0``
+  (DK-3-Test mit schnellerem Cycle für <0.5 s Stopp-Latenz)
 
-Live-Toggle ohne Restart:
-- ``ros2 param set /gait_node enable_walk true``  (STANDING → WALKING)
-- ``ros2 param set /gait_node enable_walk false`` (WALKING → STANDING)
+Walk via cmd_vel:
+- ``ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist
+  '{linear: {x: 0.05}}'``  (vorwärts mit 5 cm/s)
+- ``ros2 topic pub --once /cmd_vel geometry_msgs/Twist '{}'``
+  (linear.x = 0 → STANDING-Trigger)
 
 Voraussetzung: Sim läuft mit aktiven JTCs (Phase-4-Bringup), Roboter
 sollte vorab in Stand-Pose stehen (z. B. via stand.launch.py mit
@@ -36,21 +37,11 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
-    enable_walk_arg = DeclareLaunchArgument(
-        'enable_walk',
-        default_value='false',
-        description=(
-            'STANDING (false) ↔ WALKING (true). Live-toggelbar via '
-            '`ros2 param set /gait_node enable_walk <bool>`.'
-        ),
-    )
-
     step_height_arg = DeclareLaunchArgument(
         'step_height',
         default_value='0.03',
         description=(
-            'Schwung-Höhe in m über Stand-Pose. Default 0.03 (3 cm, '
-            'klein genug dass Stütz-Tripod den Roboter trägt).'
+            'Schwung-Höhe in m über Stand-Pose. Default 0.03 (3 cm).'
         ),
     )
 
@@ -59,7 +50,8 @@ def generate_launch_description() -> LaunchDescription:
         default_value='2.0',
         description=(
             'Periode in s pro Cycle. Default 2.0 (1 s Swing + 1 s '
-            'Stance bei Tripod) — gut sichtbar, JTC-konvergiert.'
+            'Stance bei Tripod). Für DK-3-Test (Stopp-Latenz <0.5 s) '
+            'auf 1.0 setzen.'
         ),
     )
 
@@ -75,8 +67,7 @@ def generate_launch_description() -> LaunchDescription:
         description=(
             'Stand-Pose Foot-Z im Bein-Frame (m). Default -0.052 = '
             'Phase-4-Stand -0.047 minus 5 mm globale Penetration '
-            '(Stufe-F-Design-Entscheidung 1: löst JTC-Tracking-Lag '
-            'bei Tripod 3:3 ohne Hebel-Trick).'
+            '(Stufe-F-Design-Entscheidung 1).'
         ),
     )
 
@@ -95,6 +86,38 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    step_length_max_arg = DeclareLaunchArgument(
+        'step_length_max',
+        default_value='0.05',
+        description=(
+            'Obere Schranke für Schritt-Länge in m. Aus '
+            'step_length_max + cycle_time leitet Engine den maximalen '
+            'cmd_vel.linear.x ab: linear_max = step_length_max / '
+            'stance_duration. Default 0.05 m → linear_max = 0.05 m/s '
+            'bei cycle_time=2 (DK-2-tauglich).'
+        ),
+    )
+
+    default_linear_x_arg = DeclareLaunchArgument(
+        'default_linear_x',
+        default_value='0.0',
+        description=(
+            'Fallback-Geschwindigkeit (m/s) wenn keine cmd_vel innerhalb '
+            'cmd_vel_timeout ankommt. Default 0.0 → STANDING. Beispiel: '
+            '0.05 → Roboter läuft direkt nach Launch in Demo-Mode.'
+        ),
+    )
+
+    cmd_vel_timeout_arg = DeclareLaunchArgument(
+        'cmd_vel_timeout',
+        default_value='0.5',
+        description=(
+            'Activity-Timeout in s. Wenn länger als das keine cmd_vel '
+            'ankommt, fällt Engine auf default_linear_x zurück. '
+            'Default 0.5 s aus Phase-5-Roadmap.'
+        ),
+    )
+
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
         default_value='true',
@@ -109,7 +132,6 @@ def generate_launch_description() -> LaunchDescription:
         emulate_tty=True,
         parameters=[{
             'gait_pattern': LaunchConfiguration('gait_pattern'),
-            'enable_walk': LaunchConfiguration('enable_walk'),
             'step_height': LaunchConfiguration('step_height'),
             'cycle_time': LaunchConfiguration('cycle_time'),
             'tick_rate': LaunchConfiguration('tick_rate'),
@@ -118,19 +140,24 @@ def generate_launch_description() -> LaunchDescription:
             'time_from_start_factor': LaunchConfiguration(
                 'time_from_start_factor'
             ),
+            'step_length_max': LaunchConfiguration('step_length_max'),
+            'default_linear_x': LaunchConfiguration('default_linear_x'),
+            'cmd_vel_timeout': LaunchConfiguration('cmd_vel_timeout'),
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
     )
 
     return LaunchDescription([
         gait_pattern_arg,
-        enable_walk_arg,
         step_height_arg,
         cycle_time_arg,
         tick_rate_arg,
         body_height_arg,
         radial_distance_arg,
         tfs_factor_arg,
+        step_length_max_arg,
+        default_linear_x_arg,
+        cmd_vel_timeout_arg,
         use_sim_time_arg,
         gait_node,
     ])
