@@ -767,9 +767,127 @@ Aktuell unwahrscheinlich.
 - [x] `xacro` mit `enable_foot_contact:=true` rendert mit 6 Sensor-Blöcken; `:=false` rendert mit 0 Sensor-Blöcken (verifiziert via `grep -c 'type="contact"'`)
 - [x] `colcon test --packages-select hexapod_sensors` grün (flake8 + pep257)
 - [x] [phase_5_stage_D_test_commands.md](phase_5_stage_D_test_commands.md) geschrieben — 3 Test-Pfade (Toggle-ON, Funktional, Toggle-OFF) mit insgesamt 14 Schritten + 2 optionale Diagnose-Variationen (Bridge-Direct + gz topic native)
-- [ ] **Live-Verifikation Toggle ON:** Sim startet mit `enable_foot_contact:=true`, `ros2 topic list` zeigt 6× `/leg_<n>/foot_contact`, in Stand-Pose alle 6 `data: true`
-- [ ] **Live-Funktional:** Bein 1 manuell anheben (Trajectory-Goal aus dem Boden) → `/leg_1/foot_contact` wird `data: false`, andere bleiben `true`
-- [ ] **Live-Verifikation Toggle OFF:** Sim startet mit `enable_foot_contact:=false`, **keine** `foot_contact`-Topics in `topic list`, kein Plugin-Lade-Fehler in Logs
+- [x] **Live-Verifikation Toggle ON:** Sim startet mit `enable_foot_contact:=true`, in Stand-Pose Bein 1 + Bein 2 = `data: true` — bestätigt 2026-05-09
+- [x] **Live-Funktional:** Bein 1 manuell angehoben → `/leg_1/foot_contact` = `data: false`, `/leg_2/foot_contact` bleibt `data: true` — bestätigt 2026-05-09
+- [x] **Live-Verifikation Toggle OFF:** Sim startet mit `enable_foot_contact:=false`, `ros2 topic list | grep foot_contact` leer, `ros2 node list | grep foot` leer — bestätigt 2026-05-09
+
+### Umsetzungsnotizen Stufe D
+
+> **Test-Anleitung** mit allen Befehlen pro Terminal:
+> [phase_5_stage_D_test_commands.md](phase_5_stage_D_test_commands.md).
+
+**Stufe-D-Live-Bringup hatte vier Bugs zu durchdringen, alle in der
+Bridge-Pipeline:**
+
+#### 1. `<topic>`-Override-Bug in der xacro (Schicht 1)
+
+Erste Implementation hatte `<topic>foot_contact_leg_<id></topic>` als
+**Sibling von `<contact>`** in der Sensor-Definition. Topic wurde damit
+zwar registriert (sichtbar in `gz topic -l`), aber Gazebo Harmonic's
+`Contact`-System bindet das Override nur korrekt wenn `<topic>` ein
+**Kind von `<contact>`** ist. Resultat: Gazebo-Sensor produzierte zwar
+Events intern, leitete sie aber nicht an den Override-Topic weiter →
+keine Daten in der Bridge.
+
+Fix: `<topic>` in den `<contact>`-Block verschoben. Vorbild:
+[/opt/ros/jazzy/opt/gz_sim_vendor/share/gz/gz-sim8/worlds/contact_sensor.sdf](contact_sensor.sdf)
+des gz-sim-vendor-Pakets.
+
+```xml
+<sensor name="..." type="contact">
+  <update_rate>50</update_rate>
+  <always_on>1</always_on>
+  <contact>
+    <collision>...</collision>
+    <topic>foot_contact_leg_X</topic>   <!-- HIER drin -->
+  </contact>
+</sensor>
+```
+
+#### 2. Fixed-Joint-Lumping (Schicht 1)
+
+Standard-Verhalten von libsdformat in Harmonic: Links die per
+`fixed`-Joint verbunden sind, werden zu einem einzigen Link fusioniert.
+Da `leg_<n>_foot_link` per `fixed`-Joint an `leg_<n>_tibia_link` hängt,
+landete der Sensor **am tibia_link** statt am foot_link, und der
+Collision-Name wurde unter Umständen umgeschrieben. Resultat:
+`<contact><collision>leg_<n>_foot_link_collision</collision>`-Verweis
+greift ins Leere.
+
+Fix: per-foot_joint die `<preserveFixedJoint>true</preserveFixedJoint>`
+und `<disableFixedJointLumping>true</disableFixedJointLumping>` Pragmas
+in der xacro setzen. libsdformat respektiert diese, foot_link bleibt
+separat. Verifiziert via `gz sdf -p`-Konversion offline.
+
+#### 3. Sim-Time-Race in Konversionsknoten (Schicht 3)
+
+Erste Konversionsknoten-Implementation publishte Bool-Topics nur **bei
+Empfang** einer Contacts-Message (event-basiert). Problem: bei
+angehobenem Foot publisht Gazebo nichts → Konversionsknoten publisht
+nichts → Konsumenten sehen `silence` statt `false`. Sim-Verhalten
+divergiert von Phase-7-HW-Verhalten (microswitch publisht **periodisch**,
+nicht event-basiert).
+
+Fix: Timer-basierte Publication mit Decay. Pro Bein
+`_last_contact_time`. Subscriber-Callback aktualisiert Timestamp.
+Timer bei 50 Hz publisht
+`Bool(now - last_contact_time < contact_timeout)`. Dadurch fließt
+**immer** ein aktuelles Bool-Signal — `true` wenn kürzlich Contact,
+sonst `false`.
+
+Zweiter Issue dabei: `self.get_clock().now()` mit `use_sim_time=True`
+braucht den `/clock`-Topic (über bridge.yaml). DDS-Discovery-Race
+verzögert das gelegentlich, Timer-Callbacks wurden dann nicht oder
+nicht zuverlässig getriggert. Fix: `time.monotonic()` (wall-clock)
+statt sim-clock für die Timeout-Logik. Sim-RTF=1 in Phase 5, also
+keine praktische Drift-Gefahr.
+
+#### 4. Stale-Prozesse durch unvollständigen pkill (Diagnose-Stufe)
+
+`pkill -f "ros2 launch"` und `pkill -f "ruby.*gz"` fängt **nicht** alle
+Sim-relevanten Prozesse. Insbesondere bleiben übrig:
+- `foot_contact_publisher` (kein "ros2"/"gz"/"ruby" im Pfad)
+- `stand_node` (auch nicht gefangen)
+- `parameter_bridge` (zu spezifisch um pauschal zu killen)
+
+Folge: bei wiederholten Sim-Restarts liefen mehrere
+`foot_contact_publisher`-Instanzen gleichzeitig, alle publishten auf
+denselben Bool-Topics, Subscribers wurden verwirrt
+(Multi-Publisher-Konstellation, Volatile-QoS-Race). Bestätigt durch
+`ps aux`: 2 stale Prozesse, einer mit 67% CPU.
+
+Fix: Test-Doku-Cleanup-Template um `pkill -9 -f "foot_contact_publisher"`
+und `pkill -9 -f "stand_node"` ergänzt, plus weitere ROS-Prozess-Patterns.
+Memory-Eintrag potenziell sinnvoll, weil das Pattern in Phase 7-HW-Tests
+analog auftauchen wird.
+
+#### Kontakt-Sensor-Output-Plausibilität
+
+Gazebo Contact-Sensor liefert pro Kontakt sehr detaillierte Daten:
+- `collision1`/`collision2` (Foot ↔ Ground-Plane)
+- `position` (3D-Kontakt-Punkt im Welt-Koordinatensystem)
+- `normal` (z=1, also nach oben — saubere Boden-Normale)
+- `depth` ~2.4e-7 m (Penetration auf FP-Rauschen-Level — saubere
+  Auflage, nicht "drückend")
+- `wrench.body_1.force.z` ≈ 4.3 N pro Foot in Stand-Pose
+
+Pro Foot 4.3 N × 6 Beine = ~25.8 N Auflagekraft. Roboter-Gesamtgewicht
+laut hexapod_physical_properties: `0.5 + 6×3×0.1167 + 6×0.005 ≈ 2.6 kg`
+× 9.81 m/s² ≈ 25.5 N — passt sauber. Force-Reading bestätigt physikalisch
+korrekte Sim-Physik.
+
+#### Was Stufe D explizit NICHT macht
+
+- **Kein Konsumieren der Bool-Topics** — gait-engine in Phase 6+/7+
+  liest sie ggf. für Closed-Loop-Adaption, nicht in Phase 5.
+- **Kein Re-Publishen mit Force-Daten** — Bool reicht für Switch-Modell
+  (Phase 7 HW-Microswitch-Realität).
+- **Keine Hysterese / Debounce** — könnte in Phase 7 HW-Treiber relevant
+  werden (mechanische Switch-Bouncing), aktuell nicht nötig.
+- **Kein Multi-Sensor-Sammler** — Single-Topic-pro-Bein bleibt
+  (Stufe-D-Design-Entscheidung 1).
+
+---
 
 ---
 

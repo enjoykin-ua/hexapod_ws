@@ -28,6 +28,31 @@ colcon build --packages-select hexapod_description hexapod_sensors hexapod_bring
 source install/setup.bash
 ```
 
+### Komplettes Sim-Cleanup-Snippet
+
+`pkill -f "ros2 launch"` fängt nicht alle Sim-Reste. Insbesondere bleiben
+sonst `foot_contact_publisher` und `stand_node`-Prozesse hängen, die bei
+einem Restart als parallele Publisher die Topics verwirren. Bei
+Sim-Reset oder Toggle-Wechsel **dieses Snippet** verwenden:
+
+```bash
+pkill -9 -f "ros2" 2>/dev/null
+pkill -9 -f "gz" 2>/dev/null
+pkill -9 -f "ruby" 2>/dev/null
+pkill -9 -f "parameter_bridge" 2>/dev/null
+pkill -9 -f "robot_state_publisher" 2>/dev/null
+pkill -9 -f "controller_manager" 2>/dev/null
+pkill -9 -f "foot_contact_publisher" 2>/dev/null
+pkill -9 -f "stand_node" 2>/dev/null
+sleep 4
+
+# Verify nichts läuft mehr:
+ps aux | grep -E "(foot_contact|stand_node|ros2|gz|hexapod)" | grep -v grep
+```
+
+Output sollte leer sein (oder nur unzusammenhängende System-Prozesse
+zeigen wie `psimon`, `ibus-engine`).
+
 ---
 
 ## Pfad 1 — Toggle ON: Sensoren aktiv

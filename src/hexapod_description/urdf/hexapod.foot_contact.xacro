@@ -18,15 +18,31 @@
     Update-Rate 50 Hz: passt zur Gait-Engine-Tick-Rate aus
     docs/phase_5_kinematics_gait.md, vermeidet unnoetige Compute-Last.
   -->
+  <!--
+    libsdformat fusioniert standardmäßig Links die per fixed-Joint
+    verbunden sind (gz-sim Harmonic Verhalten). Ohne Eingriff landet
+    foot_link als "lump" in leg_<id>_tibia_link, und die Collision
+    bekommt einen abgeleiteten Namen — der Sensor findet dann
+    `leg_<id>_foot_link_collision` nicht mehr und feuert nicht.
+
+    Mit <preserveFixedJoint>true</preserveFixedJoint> bleibt der Joint
+    als fixed bestehen, foot_link wird NICHT lumped, und der Sensor-
+    Verweis bleibt valide.
+  -->
   <xacro:macro name="leg_foot_contact" params="id">
+    <gazebo reference="leg_${id}_foot_joint">
+      <preserveFixedJoint>true</preserveFixedJoint>
+      <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
+
     <gazebo reference="leg_${id}_foot_link">
       <sensor name="leg_${id}_foot_contact" type="contact">
-        <always_on>true</always_on>
+        <always_on>1</always_on>
         <update_rate>50</update_rate>
         <visualize>false</visualize>
-        <topic>foot_contact_leg_${id}</topic>
         <contact>
           <collision>leg_${id}_foot_link_collision</collision>
+          <topic>/foot_contact_leg_${id}</topic>
         </contact>
       </sensor>
     </gazebo>
