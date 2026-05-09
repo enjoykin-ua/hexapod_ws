@@ -1415,36 +1415,225 @@ IK gerechnet.
 
 ## Stufe G — Vollständiger Tripod-Gait geradeaus per `/cmd_vel`
 
-**Ziel:** **Phase-5-Done-Kriterien 2, 3, 4, 5 erfüllt.** `/cmd_vel.linear.x = 0.05`
-bewirkt sichtbares Vorwärtslaufen, `cmd_vel = 0` → STANDING-Rückfall mit
-Timeout, Tripod-Sequenz erkennbar.
+**Ziel:** **Phase-5-Done-Kriterien 2, 3, 4, 5 erfüllt.**
+`/cmd_vel.linear.x = 0.05` bewirkt sichtbares Vorwärtslaufen,
+`cmd_vel = 0` → STANDING, Tripod-Sequenz erkennbar, kein Wegrutschen.
 
-**Was wir machen:** `cmd_vel`-Subscriber, body-frame-Mapping (linear.x
-schiebt Stützbeine entgegen Fahrtrichtung im Bein-Frame), Timeout-basierter
-STANDING-Rückfall (>0.5 s ohne `cmd_vel` → in Neutral-Pose stoppen).
+**Was wir machen:** `cmd_vel`-Subscriber, Body↔Bein-Frame-Mapping
+(mount-yaw-Rotation pro Bein), Stützphase mit Vortrieb (Foot bewegt
+sich rückwärts entgegen Fahrtrichtung in Bein-Frame-Koordinaten),
+STANDING-Trigger via `linear.x = 0` (statt `enable_walk`-Param wie
+in Stufe F), Activity-Timeout (>0.5 s ohne cmd_vel → STANDING als
+Sicherheitsnetz). Sauberer Stopp: Beine in der Luft fertig schwingen,
+Stütz-Beine sofort auf Neutral interpolieren.
 
-**Konzept-Diskussionspunkte:**
-- **cmd_vel → step_length-Mapping:** `step_length ∝ linear.x * cycle_time`?
-  Konstantes T und linear.x skaliert Schrittweite — am einfachsten.
-  Alternative: T anpassen. Empfehlung: konstantes T, Schrittweite skaliert.
-- **Body-Frame ↔ Bein-Frame:** Ein Geradeaus-Schritt `linear.x` in
-  base_link wird in jedem Bein-Frame zu einem Schritt in dessen lokaler
-  X-Richtung — Mount-Yaw-Rotation berücksichtigen!
-- **Timeout-Logik:** `last_cmd_time`-Stempel pro Tick prüfen, > 0.5 s
-  ohne → STANDING. Phase-5-Stolperfalle "Roboter zittert weiter" damit
-  vermieden.
-- **Limits:** `step_length_max = 0.04 m` (aus Roadmap), darüber clamping.
+### Design-Entscheidungen Stufe G
 
-- [ ] Konzept besprochen (cmd_vel-Mapping, Body↔Bein-Frame-Rotation, Timeout)
-- [ ] `cmd_vel`-Subscriber + Body-Frame-Mapping in `gait_engine`
-- [ ] STANDING-Timeout-Rückfall (> 0.5 s ohne cmd_vel)
-- [ ] Stützphase mit Vortrieb (Foot rückwärts entgegen Fahrtrichtung)
+#### Physikalischer Hintergrund (für alle Fragen relevant)
+
+Drei Größen, **zwei davon unabhängig** (no-foot-slip-Constraint):
+
+```
+v_body · stance_duration = step_length
+```
+
+| Größe | Bedeutung | Wo gesetzt |
+|---|---|---|
+| `v_body` | Body-Bewegungsgeschwindigkeit (m/s) | runtime via `cmd_vel.linear.x` (mit clamping) |
+| `cycle_time` | Cycle-Dauer (s) | rclpy-Param (Default 2.0 s) |
+| `step_length` | Foot-Bewegung pro Cycle (m) | **derived** = v_body · stance_duration |
+| `step_length_max` | Obere Schranke für `step_length` | rclpy-Param (Default 0.04 m) |
+
+User-Vorgabe (2026-05-09): "speed UND step_length konfigurierbar". Mit
+Frage-1-Option-C ist beides gegeben: `step_length_max` als rclpy-Param,
+`linear.x` via Topic. Optional `default_linear_x`-Param für Launch-Only-
+Walk-Test ohne extra Topic-Pub.
+
+#### 1. cmd_vel → step_length-Mapping
+
+**Optionen:**
+- **A) Konstantes `cycle_time`, `step_length` aus `linear.x` skaliert
+  + clamp am step_length:**
+  `step_length = clamp(linear.x · stance_duration, max=step_length_max)`.
+  Pro: einfach. Contra: bei zu großem `linear.x` rutscht der Foot
+  über Boden (step_length geclamped, aber Body-Geschwindigkeit nicht
+  → Mismatch).
+- **B) `step_length` fix, `cycle_time` skaliert mit `linear.x`:**
+  `cycle_time = step_length_const / (v_body · (1-swing_duty))`.
+  Pro: Foot rutscht nie. Contra: cycle_time ändert sich live, JTC-
+  Goals werden phase-jumpy. `linear.x → 0` divergiert cycle_time → ∞,
+  Edge-Case-Handling nötig.
+- **C) `linear.x` clampen, dann `step_length` daraus berechnen:**
+  ```
+  linear_x_max = step_length_max / stance_duration
+  v_body = clamp(input_linear_x, ±linear_x_max)
+  step_length = v_body · stance_duration   # automatisch ≤ step_length_max
+  ```
+  Pro: physikalisch konsistent (kein Foot-Rutschen im erlaubten Range),
+  beide User-Knöpfe verfügbar (`step_length_max` Param + `linear.x`
+  Topic), `cycle_time` bleibt konstant. Contra: User-Eingabe `linear.x`
+  über `linear_x_max` wird stillschweigend geclamped → ein Log-Warning
+  bei Clamping nötig.
+
+**Gewählt: C** — User-Entscheidung. Erfüllt User-Vorgabe (beide Knöpfe),
+physikalisch sauber, einfach zu implementieren.
+
+**Verfeinerung aus User-Vorgabe ("eine Geschwindigkeit reicht für
+Anfang"):** `default_linear_x: float` rclpy-Param (Default 0.0)
+zusätzlich. Wenn keine cmd_vel innerhalb Activity-Window → Engine
+nutzt `default_linear_x` als Fallback. Wenn `default_linear_x = 0`:
+Engine geht nach Timeout in STANDING. Wenn z.B. `default_linear_x =
+0.05`: Roboter läuft vom Launch weg konstant 5 cm/s — Demo-Modus
+ohne Topic-Setup.
+
+**Falls später Re-Design nötig** (z. B. asymmetrische Vor/Rückwärts-
+Schritte oder dynamische Schrittweiten-Anpassung): zu B umschwenken,
+dann kann `cycle_time` adaptiv werden.
+
+#### 2. State-Trigger (cmd_vel-Activity-Detection vs. `enable_walk`)
+
+**Optionen:**
+- **A) `cmd_vel`-Activity allein, `enable_walk` raus:**
+  `last_cmd_time = time.monotonic()` bei jedem cmd_vel-Empfang.
+  Pro Tick: `now - last_cmd_time > timeout` → STANDING. Sonst
+  WALKING mit cached `linear.x`. Pro: einkanalig. Contra: kein
+  manuelles Sofort-Stopp (außer `cmd_vel.linear.x = 0` publishen).
+- **B) `cmd_vel` UND `enable_walk` als AND-Bedingung:**
+  WALKING nur wenn `enable_walk=true` UND cmd_vel-Activity in Window.
+  Pro: kann manuell per Param stoppen. Contra: zwei Trigger-Kanäle,
+  mehr State-Logik.
+- **C) `linear.x = 0` als expliziter Stopp + Timeout als Sicherheitsnetz:**
+  WALKING wenn `|linear.x| > epsilon` UND cmd_vel-Activity in Window.
+  `linear.x = 0` → STANDING (sofort). Activity-Timeout (>0.5 s ohne
+  Pub) → STANDING als Fallback gegen tote Publisher. Pro: ROS-Standard
+  (cmd_vel=0 ist Stopp-Signal), minimal. Contra: epsilon-Wahl muss
+  klein genug sein dass User-Wert 0.001 nicht als 0 interpretiert wird,
+  aber groß genug dass Float-Noise nicht trigget — z. B. 1e-4.
+
+**Gewählt: C** — User-Entscheidung. ROS-konform, `enable_walk`-Param
+ersatzlos gestrichen (Stufe-F-Live-Toggle war nur Bringup-Convenience).
+Activity-Timeout 0.5 s aus Roadmap.
+
+**Falls später Re-Design nötig** (z. B. Emergency-Stop-Service): zu B
+ergänzen mit `enable_walk=false` als Hard-Override.
+
+#### 3. Body↔Bein-Frame-Mapping (Mount-Yaw)
+
+**Hintergrund:** `cmd_vel.linear.x = 0.05 m/s` ist im base_link-Frame
+(vorne = +X). Jedes Bein hat eigenen `mount_yaw` (z.B. `leg_1 =
+-π/4`, `leg_4 = +3π/4`). Im Bein-Frame ist die "rückwärtige Stütz-
+Bewegung" daher **nicht parallel zur Bein-X-Achse**.
+
+**Mathematisch:** Body bewegt sich `(v_x, v_y, 0)` im base_link.
+Im Bein-Frame ist das `R_z(-mount_yaw) · (v_x, v_y, 0)`. Foot bewegt
+sich relativ zum Body um `-v_leg · dt`.
+
+**Optionen:**
+- **A) Mount-Yaw-Rotation pro Bein in `gait_engine`:**
+  ```python
+  # rotate_z aus hexapod_kinematics.geometry verwenden:
+  v_leg = rotate_z(-mount_yaw, (v_body_x, v_body_y, 0))
+  # Stance-Trajektorie: Foot bewegt sich (-v_leg · dt) pro Tick
+  ```
+  Pro: physikalisch korrekt, geradeaus-Walk in Body-Frame. Helper
+  existiert bereits. Contra: minimal mehr Code (1 Rotation/Bein/Tick).
+- **B) Vereinfachung: Schritt nur in Bein-X (alle Beine identisch):**
+  Pro: einfacher. Contra: **falsch** — Beine "rudern" radial nach
+  innen/außen statt parallel zur Body-Richtung. Roboter dreht sich
+  oder läuft seitlich, nicht geradeaus. **Fail für DK 5.**
+- **C) Hybrid: Bein-Frame + Yaw-Korrektur via swing_traj-Endpoint:**
+  Komplexere Mapping-Funktion außerhalb der Engine. Pro: keine echten
+  Vorteile. Contra: split logic, schwerer zu lesen.
+
+**Gewählt: A** — User-Entscheidung. Einzig physikalisch korrekt,
+`rotate_z` aus
+[hexapod_kinematics/geometry.py](../src/hexapod_kinematics/hexapod_kinematics/geometry.py)
+nutzt vorhandenen Helper.
+
+**Falls später Re-Design nötig** (z. B. dynamische Body-Pose mit Roll/
+Pitch): vollständige 3×3-Rotation statt nur Yaw.
+
+#### 4. Timeout-Verhalten — sauberer Stopp
+
+**Problem:** Wenn `cmd_vel.linear.x = 0` oder Timeout: Engine ist
+mitten im Cycle (z.B. Gruppe A halb im Swing). Beine in der Luft
+müssen sicher landen.
+
+**Optionen:**
+- **A) Sofortiger Sprung in Stand-Pose:**
+  Engine setzt sofort alle 6 Beine auf Stand-Pose. JTC interpoliert.
+  Pro: einfach. Contra: Bein in der Luft fällt schnell auf Stand-Pose-
+  Z runter (von z. B. -0.022 nach -0.052 in 0.04 s) — Body-Schock,
+  nicht elegant.
+- **B) Cycle ausfahren, dann STANDING:**
+  Bei Stopp wird Engine-State `STOPPING`, Cycle läuft bis Phase=1 zu
+  Ende. Pro: physikalisch sauber. Contra: bis zu 1 Cycle (2 s)
+  Latenz. DK 3 fordert "<0.5 s" — wäre formal nicht erfüllt.
+- **C) Beine-in-der-Luft fertig schwingen, Stütz-Beine sofort auf
+  Neutral:**
+  Pro Bein: wenn aktuell im Swing → Cycle bis Phase=swing_duty
+  fertig (max 1 s bei cycle_time=2). Wenn aktuell im Stance → sofort
+  Foot-X auf Stand-Neutral interpolieren. Pro: schnellster sicherer
+  Stopp (max swing_duration). Contra: per-Bein-Tracking nötig.
+
+**Gewählt: C** — User-Entscheidung.
+
+**Anmerkung zu DK 3 ("<0.5 s"):** mit cycle_time=2.0 s und Tripod
+50/50 ist swing_duration=1.0 s — Worst-Case-Latenz also 1 s, nicht
+<0.5 s. Lösungsoptionen:
+1. Für DK-3-Verifikation `cycle_time:=1.0` nehmen → swing=0.5 s →
+   Worst-Case 0.5 s. **Empfohlen** — DK formal erfüllt.
+2. Roadmap-DK relaxieren auf "<1 s" — User-Entscheidung-Sache.
+
+Standard-Default in Stufe G bleibt `cycle_time=2.0` (für JTC-Konvergenz),
+DK-3-Test mit `cycle_time:=1.0` ausführen.
+
+**Falls später Re-Design nötig** (z. B. Emergency-Stop mit hartem
+Override): A als zusätzlicher Modus parallel zu C.
+
+#### 5. Knoten-Parameter (Δ ggü. Stufe F)
+
+| Parameter | Default | Bedeutung | Δ Stufe F |
+|---|---|---|---|
+| `gait_pattern` | `'tripod'` | unverändert | — |
+| `step_length_max` | `0.05` | Obere Schranke für Schritt-Länge (m), DK-2-tauglich | NEU (Roadmap-Wert 0.04 hochgesetzt für DK 2) |
+| `default_linear_x` | `0.0` | Fallback-Geschwindigkeit wenn keine cmd_vel ankommt (m/s) | NEU |
+| `cmd_vel_timeout` | `0.5` | Activity-Timeout in Sekunden | NEU |
+| `cycle_time` | `2.0` | unverändert (für DK-3-Test auf 1.0 setzen) | — |
+| `step_height` | `0.03` | unverändert | — |
+| `body_height` | `-0.052` | unverändert | — |
+| `radial_distance` | `0.27` | unverändert | — |
+| `tick_rate` | `50.0` | unverändert | — |
+| `time_from_start_factor` | `2.0` | unverändert | — |
+
+`enable_walk` weg — durch cmd_vel-Activity-Detection ersetzt
+(Frage-2-C). State `STOPPING` neu in Engine für sauberen Stopp
+(Frage-4-C).
+
+#### 6. Backward-Compat & Stufe-E/F-Tests
+
+`gait_pattern: single_leg_*` Presets bleiben verfügbar (Stufe-E-
+Backward-Compat). Stufe-F-Test (`enable_walk:=true`) wird
+funktional ersetzt durch `default_linear_x:=0.0` (STANDING) +
+cmd_vel-Pub für Walk-Test. Test-Doc von Stufe E + F bleibt für
+Bringup gültig (Stand-Pose-Setup), Walk-Test-Sequenz ist neu in
+`phase_5_stage_G_test_commands.md`.
+
+---
+
+- [x] Konzept besprochen (Mapping C: clamp linear.x → step_length, Trigger C: linear.x=0 als Stopp + Timeout-Sicherheitsnetz, Body-Mapping A: mount_yaw-Rotation, Stopp C: Schwung-fertig + Stütz-sofort, neue Param-Defaults inkl. default_linear_x)
+- [ ] `hexapod_gait/gait_engine.py` erweitert: `set_command(v_body_x, v_body_y)`, `STOPPING`-State, mount-yaw-Rotation pro Bein, Stützphase-Vortrieb
+- [ ] `hexapod_gait/gait_node.py` refaktoriert: `cmd_vel`-Subscriber (geometry_msgs/Twist), Activity-Timestamp-Tracking, `default_linear_x`-Fallback, `enable_walk` raus
+- [ ] `hexapod_gait/launch/gait.launch.py` — neue Args (`step_length_max`, `default_linear_x`, `cmd_vel_timeout`), `enable_walk` raus
+- [ ] `colcon build --packages-select hexapod_gait` grün
+- [ ] `colcon test --packages-select hexapod_gait` grün (flake8 + pep257)
 - [ ] `phase_5_stage_G_test_commands.md` geschrieben
-- [ ] **Live-Verifikation DK3:** `cmd_vel.linear.x = 0.05` → Roboter läuft sichtbar vorwärts
-- [ ] **Live-Verifikation DK4:** `cmd_vel = 0` → Roboter bleibt nach <0.5 s in Stand-Pose stehen
-- [ ] **Live-Verifikation DK5:** Tripod-Sequenz erkennbar (3 schwingen, 3 stützen, alternierend)
-- [ ] **Numerisch:** Body-X bewegt sich vorwärts (gz model -m hexapod -p), Drift in y/yaw klein
-- [ ] **Kein Wegrutschen, keine Kollisionen mit Chassis** (Stolperfallen-Check)
+- [ ] **Live-Verifikation DK 2:** `cmd_vel.linear.x = 0.05` → Roboter läuft sichtbar vorwärts (Body-X-Drift > 0.05 m in 5 s)
+- [ ] **Live-Verifikation DK 3:** `cmd_vel.linear.x = 0` (oder Topic-Stopp) → Roboter steht nach <1 s (cycle_time=2) bzw. <0.5 s (cycle_time=1) in Stand-Pose
+- [ ] **Live-Verifikation DK 4:** Tripod-Sequenz erkennbar — 3 schwingen, 3 stützen, alternierend, in Phasen-Sync 0.5
+- [ ] **Live-Verifikation DK 5:** Kein Wegrutschen (y-Drift < 5 mm pro 1 m Vortrieb), keine Chassis-Kollision, Body-Yaw-Drift < 5°
+- [ ] **default_linear_x-Demo:** Launch mit `default_linear_x:=0.05` → Roboter läuft sofort, ohne extra cmd_vel-Pub
+- [ ] **Backward-Compat Stufe E:** `gait_pattern:=single_leg_1 default_linear_x:=0.0` + cmd_vel `linear.x>0`-Pub → Bein 1 schwingt einzeln (nicht Walking, weil nur 1 Bein im Pattern)
 
 ---
 
