@@ -230,16 +230,152 @@ durchverifiziert. `numpy` für Trigonometrie.
 **Konzept-Doku:** `docs/phase_5_ik_explained.md` (geschlossene Form,
 Knie-Konvention, Bein-Frame, FK-Verifikation).
 
-- [ ] Konzept besprochen (Knie-Konvention, Frame-Konvention, Spiegelung)
-- [ ] `leg_ik` implementiert nach Roadmap-Schema (atan2/Cosinussatz)
-- [ ] `leg_fk` implementiert (3D-Vorwärtskinematik)
-- [ ] `IKError`-Exception bei out-of-reach
-- [ ] `test_ik_neutral_pose`: FK(IK(p)) ≈ p für mehrere Punkte (atol=1e-6)
-- [ ] `test_ik_out_of_reach`: `IKError` wird geworfen
-- [ ] `test_ik_phase4_handover_smoke`: IK(neutral-foot bei body_height=-0.055) ≈ `[0, -0.5, 1.0]` pro Bein
-- [ ] `test_ik_left_right_symmetry`: spiegelbild-symmetrische Punkte → spiegelbild-symmetrische Winkel
-- [ ] `colcon test --packages-select hexapod_kinematics` grün, alle Tests grün
-- [ ] `phase_5_ik_explained.md` geschrieben
+### Design-Entscheidungen Stufe B
+
+#### 1. numpy-Dependency oder Pure-Python?
+
+**Optionen:**
+- **A) Pure-Python `math`** — `math.atan2`, `math.acos`, `math.sqrt`,
+  `pytest.approx` für Asserts. Pro: Library bleibt minimal, kein
+  heavyweight dep für triviale Skalar-Math. Contra: spätere
+  Vektorisierung über alle 6 Beine bräuchte Refactor.
+- **B) numpy** — `np.arctan2`, `np.arccos`, `np.sqrt`, `np.allclose`.
+  Pro: erlaubt sofort vektorisierte Ops. Contra: heavyweight für 1-D-Math,
+  bricht die "echt minimal"-Eigenschaft der Library.
+
+**Gewählt: A** — IK macht 6 atan2/acos/sqrt-Aufrufe pro 50-Hz-Tick =
+300 trivial-Math/s, pure Python ist mit Reserve schnell genug auf dem
+Pi 4. Vektorisierung wäre Vorzeitige Optimierung.
+
+**Falls später Re-Design nötig** (Performance-Probleme, oder echte
+Batch-Berechnung über alle 6 Beine gleichzeitig): Wechsel zu numpy ist
+~30 Code-Zeilen, lokal in `leg_ik.py` und `geometry.py`. Die Tests
+bleiben unverändert (`pytest.approx` arbeitet auch mit numpy-Arrays).
+
+#### 2. IK-Fehlerbehandlung: Lenient oder Strict?
+
+**Optionen:**
+- **A) Lenient** — `IKError` nur bei Cosinus-Argument außerhalb `[-1, 1]`
+  (geometrisch out-of-reach). Joint-Limit-Check ist Sache der Gait-Engine
+  (Stufe G clamping) und des JTC (Phase-4-Doppel-Limit). Pro: IK ist
+  saubere Math-Funktion, klare Verantwortung. Contra: Limit-verletzende
+  Antworten müssen Konsumenten selbst checken.
+- **B) Strict** — IK prüft auch `coxa_limits`, `femur_limits`, `tibia_limits`
+  aus `LegConfig` und wirft IKError bei Verletzung. Pro: Konsumenten
+  brauchen keinen separaten Check. Contra: koppelt Math-Library an
+  Robot-Controller-Logik, „geometrisch erreichbar aber mechanisch nicht"
+  als Diagnose verschwindet.
+
+**Gewählt: A** — IK liefert geometrische Antwort. Limit-Check macht der
+Konsument (Gait-Engine in Stufe G; JTC clampt zusätzlich).
+
+**Falls später Re-Design nötig** (z. B. Konsumenten verlassen sich auf
+strict-Verhalten, Limit-Checks redundant verteilt): zusätzliche Variante
+`leg_ik_checked(...)` als Wrapper hinzufügen, die Lenient-IK aufruft und
+gegen Limits prüft. Bestehende `leg_ik` bleibt lenient.
+
+#### 3. Knie-Konvention: hardcoded oder schaltbar?
+
+**Optionen:**
+- **A) Hardcoded "Knie oben"** — einzig sinnvolle Konvention für unseren
+  Hexapod (Foot unter Body, klassische Stance). Keine Konfiguration in
+  `LegConfig`. Pro: cleaner Code, klare API. Contra: keine Schalter-
+  Vorbereitung für hypothetisch andere Konfigurationen.
+- **B) Schalter `knee_up: bool` in `LegConfig`** — Knie-oben/-unten
+  konfigurierbar. Pro: theoretisch flexibel (z. B. inverser Roboter).
+  Contra: 0 Anwendungs-Fälle, mehr Code, mehr Test-Pfade.
+
+**Gewählt: A** — „Knie unten" wäre nur für Decken-hängende Roboter
+sinnvoll (Foot über coxa_joint), hier nie. Erweiterung später ist 5
+Code-Zeilen — `knee_up: bool = True`-Parameter in `leg_ik` ergänzen.
+
+#### 4. Test-Set für `leg_ik.py`
+
+**Optionen:**
+- **A) Vorschlag wie gelistet** — 6 spezifische Punkte (Neutral,
+  voll gestreckt, 2× out-of-reach, seitlich, tief gehoben) +
+  systematischer FK(IK(p))-Round-Trip über zufälliges Raster +
+  Links-Rechts-Symmetrie-Test (Bein 1 vs. Bein 4). Pro: deckt
+  Standard- und Edge-Cases ab, Round-Trip-Raster fängt
+  Vorzeichen-Bugs zuverlässig. Contra: keine.
+- **B) Anders** — User möchte andere/zusätzliche Punkte.
+
+**Gewählt: A** — User-Bestätigung. Die Round-Trip-Garantie
+`FK(IK(p)) ≈ p` ist die mathematisch stärkste Aussage; einzelne
+Stützpunkte sind Sanity-Checks darüber hinaus.
+
+---
+
+- [x] Konzept besprochen (Knie-Konvention hardcoded "Knie oben", Bein-Frame-Konvention bestätigt aus Stufe A, Spiegelung links/rechts gehört rein zum `mount_yaw` — keine IK-Math-Spiegelung; Pure-Python ohne numpy, Lenient-Errors, Test-Set wie vorgeschlagen)
+- [x] `leg_ik` implementiert in [leg_ik.py](../src/hexapod_kinematics/hexapod_kinematics/leg_ik.py) — 6 Schritte (atan2/Cosinussatz), Vorzeichen für URDF-Konvention angepasst (`θ_femur = α - β` mit `α = atan2(-z, r)`)
+- [x] `leg_fk` implementiert (3D-Forward-Kinematics über coxa-rotierte Ebene + parallele Y-Achsen-Addition für Tibia-Richtung)
+- [x] `IKError`(`ValueError`)-Exception bei out-of-reach (Cosinus-Arg außerhalb `[-1, 1]` mit `_COS_EPS = 1e-9` Toleranz, dann clamping auf `[-1, 1]` vor `acos`)
+- [x] [geometry.py](../src/hexapod_kinematics/hexapod_kinematics/geometry.py): `rotate_z`, `base_to_leg_frame`, `leg_to_base_frame` (Pure-Python, kein numpy)
+- [x] `__init__.py` re-exported alle Public-Symbols (`leg_ik`, `leg_fk`, `IKError`, Geometry-Helper)
+- [x] [test_leg_ik.py](../src/hexapod_kinematics/test/test_leg_ik.py): 10 Tests — Phase-4-Handover-Smoke, voll gestreckt (FP-Toleranz `1e-6`), seitlich, tief gehoben, 3× out-of-reach, deterministisches Round-Trip-Raster (50 Punkte, Seed 42), Symmetrie über alle 6 Beine
+- [x] [test_geometry.py](../src/hexapod_kinematics/test/test_geometry.py): 8 Tests — `rotate_z` 0°/90°/180°/inverse, `mount_xyz`-Origin-Identität pro Bein, base↔leg-Round-Trip pro Bein × 5 Punkte, Bein-1 +X-Direction-Vorzeichen-Sanity
+- [x] `colcon test --packages-select hexapod_kinematics` grün: **27 passed, 1 skipped** (7× config + 8× geometry + 10× leg_ik + flake8 + pep257; copyright skipped)
+- [x] [phase_5_ik_explained.md](phase_5_ik_explained.md) geschrieben (Konzept-Hintergrund: Bein-Frame, URDF-Drehrichtungen, Knie-Konvention, 6-Schritt-IK, FK-Inversen-Verifikation, Edge-Cases, Tests-Übersicht, Vorschau auf Gait-Engine-Flow)
+
+### Umsetzungsnotizen Stufe B
+
+> **Konzept-Hintergrund** (Bein-Frame-Konvention, URDF-Drehrichtungen,
+> Knie-oben-Begründung, geschlossene-Form-Herleitung, FK-Inversen-Logik,
+> Edge-Cases, Gait-Engine-Vorschau): siehe
+> [phase_5_ik_explained.md](phase_5_ik_explained.md). Das Dokument bleibt
+> in Stufen C-H und Phase 6/7 als Nachschlagewerk verfügbar.
+
+**Math-Herleitung der Vorzeichen:** Die zentrale subtile Stelle ist
+`θ_femur = α - β` mit `α = atan2(-z, r)`. Das `-z` macht α positiv für
+unter dem Femur-Joint hängende Foots (z < 0). Die `α - β`-Form (statt
+`α + β` aus der Roadmap) kompensiert die URDF-Konvention, in der
+positive Femur-Rotation **nach unten** zeigt (entgegen der mathematischen
+Standard-Konvention "positiv = CCW = nach oben"). Bestätigt am Stand-
+Pose-Beispiel: `α = +0.205`, `β = +0.714` → `θ_femur = -0.509` ≈ -0.5 ✓.
+
+**FP-Drift bei voll gestreckter Pose:** `acos(1.0)` ist mathematisch 0,
+aber das Cosinus-Argument unterliegt FP-Drift. Bei `(L_c+L_f+L_t, 0, 0)`
+ist der berechnete `cos_β_arg` typischerweise `1 - 4e-16`, und
+`acos(1 - 4e-16) ≈ sqrt(8e-16) ≈ 2e-8`. Resultat: θ_femur drift in
+~1e-8 statt exakt 0. Test-Toleranz für **diesen einen** Test auf `1e-6`
+gelockert; alle anderen Tests verwenden `1e-9` und bleiben dort.
+`_COS_EPS = 1e-9` im Code toleriert ähnliches Überschießen vor IKError-
+Auslösung.
+
+**Round-Trip-Raster mit deterministischem RNG:** `random.Random(42)`
+statt `numpy.random` — Pure-Python-Konformität. Seed = 42 garantiert
+reproduzierbare Punkt-Auswahl, sodass ein "fragiler Test"-Bug
+nicht zufällig nur bei bestimmten Runs sichtbar wird. 50 Punkte,
+50/50-Mischung aus radialer Position und Coxa-Schwenk. Mindestens 30 davon
+müssen reachable sein (sonst war das Raster zu eng) — der Bullet-Check
+verifiziert das.
+
+**Mechanische Symmetrie als Test:**
+[test_all_legs_identical_ik](../src/hexapod_kinematics/test/test_leg_ik.py)
+ruft `leg_ik(0.20, 0.03, -0.05, leg)` für alle 6 Beine auf und vergleiche
+den Output. Erwartung: identisch bis 1e-12. Funktion: dokumentiert die
+Stufe-A-Designentscheidung "kein is_left-Flag" als Test, sodass eine
+spätere Asymmetrie-Einführung diesen Test brechen müsste (Wächter
+gegen schleichende Differenzierung).
+
+**Style-Konventionen weiter ausgebaut (über Stufe-A-Erkenntnisse hinaus):**
+- `D200` (pep257): Einzeiliger Docstring darf nicht über 3 Zeilen
+  verteilt sein. Wenn das Modul nur einen Satz Doku hat, alles in eine
+  Zeile, sonst echte Leerzeile + Body verwenden.
+- `I101` (flake8-import-order): Innerhalb eines `from X import a, b, c`-
+  Statements sind die Namen **case-insensitive** alphabetisch zu sortieren
+  (so dass `base_to_leg_frame, HEXAPOD, leg_to_base_frame, rotate_z`
+  korrekt ist — `base` < `hexapod` < `leg_to_base` < `rotate`, auch
+  wenn `b < H` in ASCII-Sortierung).
+
+**Was Stufe B explizit NICHT macht:**
+- Keine Joint-Limit-Prüfung in `leg_ik` (Lenient-Design, Stufe-G-Job).
+- Keine `numpy`-Dependency (Pure-Python-Math reicht).
+- Keine vektorisierte Multi-Bein-IK (Single-Bein-Aufruf, Multi-Bein
+  ist Iteration im Konsumenten — Gait-Engine in Stufe E-G).
+- Kein "Knie unten"-Schalter (hardcoded Knie oben, YAGNI).
+- Kein ROS-Knoten (Stufe C).
+- Keine Live-Sim-Verifikation (Stufe C als Live-Smoke).
 
 ---
 
