@@ -139,6 +139,26 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    body_height_min_arg = DeclareLaunchArgument(
+        'body_height_min',
+        default_value='-0.080',
+        description=(
+            'Untere Schranke für body_height (m, Bein-Frame Z). '
+            'Für /cmd_body_height-Subscriber (Phase 6). Default -0.080 '
+            'm = 28 mm tiefer als Default Stand-Pose.'
+        ),
+    )
+
+    body_height_max_arg = DeclareLaunchArgument(
+        'body_height_max',
+        default_value='-0.030',
+        description=(
+            'Obere Schranke für body_height (m, Bein-Frame Z). '
+            'Für /cmd_body_height-Subscriber (Phase 6). Default -0.030 '
+            'm = 22 mm höher als Default Stand-Pose.'
+        ),
+    )
+
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
         default_value='true',
@@ -166,6 +186,8 @@ def generate_launch_description() -> LaunchDescription:
             'default_linear_y': LaunchConfiguration('default_linear_y'),
             'default_angular_z': LaunchConfiguration('default_angular_z'),
             'cmd_vel_timeout': LaunchConfiguration('cmd_vel_timeout'),
+            'body_height_min': LaunchConfiguration('body_height_min'),
+            'body_height_max': LaunchConfiguration('body_height_max'),
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
     )
@@ -183,6 +205,8 @@ def generate_launch_description() -> LaunchDescription:
         default_linear_y_arg,
         default_angular_z_arg,
         cmd_vel_timeout_arg,
+        body_height_min_arg,
+        body_height_max_arg,
         use_sim_time_arg,
         gait_node,
     ])

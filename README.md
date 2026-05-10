@@ -16,8 +16,8 @@ aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/`.
 | 3 | Gazebo-Simulation | ✅ (alle 6 Kriterien; Kriterium 4 nachträglich in Phase 4 Stufe F verifiziert) | 1 Tag |
 | 4 | `ros2_control` | ✅ | 1 Tag |
 | 5 | Inverse Kinematik & Gait | ✅ (alle 5 Done-Kriterien + omnidirektional via Stufen H/I) | 2 Tage |
-| 6 | Teleop | 🟡 aktiv | — |
-| 7 | Pi-Portierung & Hardware | offen | — |
+| 6 | Teleop | ✅ (PS4 via USB; Tastatur verworfen, Bluetooth deferred) | 0,2 Tage |
+| 7 | Pi-Portierung & Hardware | 🟡 aktiv | — |
 
 ## Pakete
 
@@ -30,7 +30,7 @@ aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/`.
 | `hexapod_kinematics` | ✅ Phase 5 | Pure-Python IK/FK-Library (kein rclpy), Single-Source-of-Truth `LegConfig` |
 | `hexapod_sensors` | ✅ Phase 5 Stufe D | Gazebo→ROS Foot-Contact-Adapter (Bool/Bein, 100 ms Decay-Decay) |
 | `hexapod_gait` | ✅ Phase 5 | `stand_node` (Stufe C), `gait_node` mit cmd_vel-Subscriber + State-Machine + GaitPattern (Tripod-Default) |
-| `hexapod_teleop` | offen | Joystick/Tastatur (Phase 6) |
+| `hexapod_teleop` | ✅ Phase 6 | PS4-Controller via USB (D-Pad + L2/R2 + R1-Dead-Man) → cmd_vel + cmd_body_height |
 | `hexapod_hardware` | offen | C++ HardwareInterface (Pi, Phase 7) |
 
 ## Quickstart
@@ -54,6 +54,10 @@ ros2 launch hexapod_bringup sim.launch.py enable_foot_contact:=true   # T1
 ros2 launch hexapod_gait stand.launch.py                              # T2 (one-shot)
 ros2 launch hexapod_gait gait.launch.py                               # T3
 ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.05}}'  # T4
+
+# Phase 6: PS4-Controller via USB (statt cmd_vel-Pub in T4)
+ros2 launch hexapod_teleop joy_teleop.launch.py                       # T4
+# R1 halten + D-Pad ↑ → Roboter läuft. L2/R2 → Body senken/anheben (nur im Stand).
 ```
 
 ---
@@ -434,3 +438,101 @@ Entscheidung 1 dokumentiert. Phase-7-HW setzt zurück auf -0.047.
 - **`controllers.yaml` `use_sim_time: true`** und `body_height = -0.052`
   bleiben bis Phase 7. Dort Switch auf `false` und `-0.047` (echte
   Servos haben keinen JTC-Lag).
+
+---
+
+## Phase 6 — Bericht (2026-05-10)
+
+**Ergebnis:** Hexapod wird per **PS4-Controller via USB** gesteuert.
+D-Pad fährt + dreht, L2/R2 senken/anheben den Body (nur im Stand),
+R1 ist Dead-Man-Switch. Plus Engine-Erweiterung in `gait_node`:
+runtime-mutable `body_height` über `/cmd_body_height` mit
+STANDING-only-Constraint. **DK 2-5 erfüllt** (DK 1 Tastatur formal
+verworfen — direkter Sprung zu PS4 sparte 1+ Tag und ein Wayland-
+Risiko).
+
+### Was angelegt wurde
+
+Ein neues Paket:
+
+```
+hexapod_teleop/
+├── hexapod_teleop/
+│   └── joy_to_twist.py            # /joy → /cmd_vel + /cmd_body_height
+├── config/
+│   └── ps4_usb.yaml               # Achsen-/Button-Mapping PS4 USB
+├── launch/
+│   └── joy_teleop.launch.py       # joy_node + joy_to_twist
+├── README.md                      # Mapping-Tabelle + Stolperfallen
+└── package.xml + setup.py
+```
+
+Erweiterung in `hexapod_gait`:
+- `gait_node.py` neue Subscription `/cmd_body_height` (Float64) mit
+  STANDING-State-Check + Clamp auf `[body_height_min, body_height_max]`.
+- `gait.launch.py` neue Args `body_height_min=-0.080`, `body_height_max=-0.030`.
+- Engine selbst unverändert — `body_height` wurde schon seit Phase 5
+  per Tick fresh gelesen, Mutation von außen wirkt sofort.
+
+Neue Dokus in `docs/`:
+- `phase_6_progress.md` — Stufen-Tracker A (Stufe B Bluetooth deferred)
+- `phase_6_stage_A_test_commands.md` — 13 Test-Schritte mit klaren
+  T1/T2/T3/T4-Indikatoren
+
+### PS4-Mapping (Stufe A, USB)
+
+| PS4-Input | Effekt |
+|---|---|
+| **R1** halten | Dead-Man (Bewegung erlaubt) |
+| **D-Pad ↑/↓** | Vorwärts / Rückwärts |
+| **D-Pad ←/→** | Drehen am Stand |
+| **L2** Trigger | Body senken (-5 mm pro Press) |
+| **R2** Trigger | Body anheben (+5 mm pro Press) |
+
+Body-Lift gilt nur wenn Engine im STANDING-State — während Walk
+ignoriert mit Warning-Log.
+
+### Wichtige Designentscheidungen
+
+| Entscheidung | Begründung |
+|---|---|
+| Tastatur-Stufe verworfen | Custom-kbd_to_twist wäre Wegwerfcode (joy_to_twist deckt dasselbe ab). pynput-Wayland-Risiko entfiel. Phase-Dauer von 2-4 Tage auf 0,5 Tag reduziert. |
+| **R1** als Dead-Man | Standard-PS-Konvention. Sicherheits-Reflex schon in Sim üben (Phase 7 mit echten Servos braucht das zwingend). |
+| **D-Pad** statt Sticks | User-Mental-Modell "Tank-Steuerung" — links/rechts dreht statt seitwärts. Sticks frei für künftige Erweiterung (linear.y, Speed-Scale). |
+| **L2/R2 Edge-Detection** statt kontinuierlich | "Ein Druck = ein Schritt". Hold-Repeat würde ein anderes Mental-Modell brauchen. |
+| **Body-Height nur im STANDING** mutable | Body-Pose-Wechsel mitten im Walk-Cycle würde den Roboter zum Kippen bringen. Engine-State-Check als Sicherheits-Constraint. |
+| **YAML-getriebenes Mapping** | Achsen-Indizes/Vorzeichen/Schwellen pro Controller (PS4 USB, später BT, PS5) als YAML, kein Code-Change nötig. |
+
+### Verifikation
+
+- `colcon build --packages-select hexapod_gait hexapod_teleop` grün
+- `colcon test` grün (flake8 + pep257; 1 Iteration für I100-Import-Order)
+- Pure-Python Engine-Body-Height-Mutation-Smoke-Test grün
+- **Live (2026-05-10):** alle 11 Verifikations-Bullets aus
+  `phase_6_stage_A_test_commands.md` durchgelaufen — D-Pad-Bewegung,
+  Drehen am Stand, R1-Dead-Man-Stopp, L2/R2-Body-Lift,
+  STANDING-only-Constraint, Multi-Direction-Bogen.
+
+### Konventions-Änderungen während Phase 6
+
+Keine. Cmd_vel-Interface aus Phase 5 unverändert. Neuer Topic
+`/cmd_body_height` ist additiv.
+
+### Phase-6-Live-Bug
+
+`joy_node`-Parameter-Bug: initial `device_name: /dev/input/js0` —
+falsch, weil `device_name` ein SDL-Joystick-Name-String-Match ist
+(z.B. "Sony Computer Entertainment Wireless Controller"), nicht ein
+Linux-Device-Pfad. Fix: auf `device_id: 0` (int, SDL-Joystick-Index)
+gewechselt. Dokumentiert in
+[phase_6_progress.md](docs/phase_6_progress.md) Stufe-A-Notiz 1.
+
+### Bekannte offene Punkte
+
+- **Bluetooth-Pairing** (Stufe B) deferred — bei Bedarf später, kein
+  technisches Risiko (selbe Code-Basis, neues YAML).
+- **Sticks-Mapping** nicht implementiert (LS/RS für linear.y oder
+  Speed-Modulation). User hat das nicht gewollt in Stufe A.
+- **`controllers.yaml use_sim_time: true`** und `body_height=-0.052`
+  bleiben bis Phase 7.
+- **KDL-Warning** weiter offen.

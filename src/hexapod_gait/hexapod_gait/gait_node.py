@@ -13,6 +13,10 @@ neue cmd_vel ankommt, fällt Engine zurück auf ``default_linear_x`` /
 0). Wenn alle drei Defaults 0 → STANDING. Andernfalls Demo-Mode ohne
 externen cmd_vel-Pub.
 
+Phase 6: zusätzlich ``/cmd_body_height``-Subscription. Erlaubt
+Runtime-Mutation der ``GaitEngine.body_height`` — nur wenn Engine im
+STANDING-State (Sicherheit gegen Kippen mitten im Walk-Cycle).
+
 Pub-Pattern: 50 Hz Timer-Tick, pro Tick eine 1-Punkt-JointTrajectory
 mit ``time_from_start = 2 × (1/tick_rate) = 0.04 s``. JTC interpoliert
 linear zwischen Goals → smooth Bewegung.
@@ -27,6 +31,7 @@ from hexapod_gait.gait_patterns import GAIT_PRESETS
 from hexapod_kinematics import HEXAPOD, IKError
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import Float64
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 
@@ -48,6 +53,8 @@ class GaitNode(Node):
         self.declare_parameter('default_linear_y', 0.0)
         self.declare_parameter('default_angular_z', 0.0)
         self.declare_parameter('cmd_vel_timeout', 0.5)
+        self.declare_parameter('body_height_min', -0.080)
+        self.declare_parameter('body_height_max', -0.030)
 
         pattern_name = str(self.get_parameter('gait_pattern').value)
         if pattern_name not in GAIT_PRESETS:
@@ -82,6 +89,12 @@ class GaitNode(Node):
         self._cmd_vel_timeout = float(
             self.get_parameter('cmd_vel_timeout').value
         )
+        self._body_height_min = float(
+            self.get_parameter('body_height_min').value
+        )
+        self._body_height_max = float(
+            self.get_parameter('body_height_max').value
+        )
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
@@ -107,6 +120,10 @@ class GaitNode(Node):
             Twist, '/cmd_vel', self._on_cmd_vel, 10
         )
 
+        self._cmd_body_height_sub = self.create_subscription(
+            Float64, '/cmd_body_height', self._on_cmd_body_height, 10
+        )
+
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
         self._t_start = time.monotonic()
@@ -120,7 +137,9 @@ class GaitNode(Node):
             f'gait_node init: pattern={self._pattern.name}, '
             f'step_height={self._step_height:.3f} m, '
             f'cycle_time={self._cycle_time:.2f} s, '
-            f'body_height={self._body_height:.3f} m, '
+            f'body_height={self._body_height:.3f} m '
+            f'(range [{self._body_height_min:.3f}, '
+            f'{self._body_height_max:.3f}]), '
             f'step_length_max={self._step_length_max:.3f} m '
             f'(linear_max={self._engine.linear_max:.3f} m/s), '
             f'defaults=(linear_x={self._default_linear_x:.3f}, '
@@ -136,6 +155,40 @@ class GaitNode(Node):
         self._last_cmd_v_x = float(msg.linear.x)
         self._last_cmd_v_y = float(msg.linear.y)
         self._last_cmd_omega_z = float(msg.angular.z)
+
+    def _on_cmd_body_height(self, msg: Float64) -> None:
+        """
+        body_height-Update: nur wenn Engine im STANDING-State.
+
+        Phase-6-Sicherheits-Constraint: Body-Pose-Wechsel mitten im
+        Walk-Cycle würde den Roboter zum Kippen bringen. Daher
+        ignorieren wir Updates während WALKING/STOPPING mit
+        Warning-Log.
+        """
+        if self._engine.state != GaitEngine.STATE_STANDING:
+            self.get_logger().warn(
+                f'cmd_body_height ignored: state={self._engine.state}, '
+                'must be STANDING.',
+                throttle_duration_sec=1.0,
+            )
+            return
+
+        target = float(msg.data)
+        clamped = max(
+            self._body_height_min,
+            min(self._body_height_max, target),
+        )
+        if clamped != target:
+            self.get_logger().warn(
+                f'cmd_body_height clamped: {target:.4f} -> {clamped:.4f} '
+                f'(range [{self._body_height_min:.3f}, '
+                f'{self._body_height_max:.3f}])'
+            )
+
+        self._engine.body_height = clamped
+        self.get_logger().info(
+            f'body_height -> {clamped:.4f} m'
+        )
 
     def _resolve_command(
         self, now: float
