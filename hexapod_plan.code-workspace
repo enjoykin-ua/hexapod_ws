@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../hexapod_servo_driver"
 		}
 	],
 	"settings": {}

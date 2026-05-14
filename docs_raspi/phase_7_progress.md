@@ -12,21 +12,78 @@
 
 ## Stufe A — Repo-Aufsetzung & SDK-Review
 
-- [ ] A.1 Bestehenden User-Code-Stand geklont nach `~/hexapod_servo2040_fw_old/`
-- [ ] A.1 Notizen zum bestehenden Code: was funktioniert hat, was nicht
-- [ ] A.2 Neues Repo angelegt (Name + Ort siehe Design-Entscheidungen unten)
-- [ ] A.2 `CLAUDE.md` im Firmware-Repo geschrieben
-- [ ] A.2 `README.md` mit Quickstart
-- [ ] A.2 `.gitignore` (build-Artefakte, IDE-Configs)
-- [ ] A.3 Pico-SDK als Submodul/Pfad eingebunden
-- [ ] A.3 Pimoroni `pimoroni-pico` als Submodul/Pfad eingebunden
-- [ ] A.3 CMakeLists baut leeres `main.cpp` grün
-- [ ] A.3 Hello-World-Flash erfolgreich (LED blinkt o. ä.)
-- [ ] A.4 Servo2040-Schaltplan-PDF nach `docs_raspi/refs_phase_7/` (lokal, nicht committet)
-- [ ] A.4 Pinout-Übersicht lokal
-- [ ] A.4 RP2040-Datasheet lokal
+- [x] A.1 Bestehenden User-Code-Stand geklont nach `/home/enjoykin/hexapod_servo_driver/` (User-Entscheidung: nicht in `_old`-Referenz, sondern direkt als Arbeits-Repo weiternutzen — siehe Design-Entscheidungen)
+- [x] A.1 Notizen zum bestehenden Code: was funktioniert hat, was nicht (siehe Abschnitt "Sichtung bestehender Code" unten)
+- [x] A.2 Repo-Entscheidung: bestehendes Repo `hexapod_servo_driver` wird Arbeits-Repo (kein neues angelegt)
+- [ ] A.2 `CLAUDE.md` im Firmware-Repo geschrieben — **offen** (bestehendes Repo hat keine)
+- [ ] A.2 `README.md` mit Quickstart — **erweitern** (bestehende ist minimal, ohne Sicherheits-Hinweise)
+- [x] A.2 `.gitignore` (build-Artefakte, IDE-Configs) — vorhanden, kurz aber funktional
+- [x] A.3 Pico-SDK als Pfad eingebunden (`/home/enjoykin/pico-sdk`, `PICO_SDK_PATH` in `~/.bashrc`)
+- [x] A.3 Pimoroni `pimoroni-pico` als Pfad eingebunden (`/home/enjoykin/pimoroni-pico`, auto-detected als Geschwister)
+- [x] A.3 CMakeLists baut grün (bestehender Code, nicht leeres `main.cpp` — produziert `Hexapod_servo_driver.uf2`, 131 KB)
+- [ ] A.3 Hello-World-Flash erfolgreich (User-Aktion mit Board) — **offen**
+- [ ] A.4 Servo2040-Schaltplan-PDF nach `docs_raspi/refs_phase_7/` (lokal, nicht committet) — **offen**
+- [ ] A.4 Pinout-Übersicht lokal — **offen**
+- [ ] A.4 RP2040-Datasheet lokal — **offen**
 
-**Done-Kriterium A erreicht:** ⬜
+### Zusätzlich erledigt (nicht im ursprünglichen Bullet-Plan):
+
+- [x] ARM-Cross-Toolchain via apt: `gcc-arm-none-eabi 13.2.1`, `libnewlib-arm-none-eabi 4.4.0`, `libstdc++-arm-none-eabi-newlib`, `libusb-1.0-0-dev`
+- [x] `picotool v2.2.0-a4` aus Source gebaut (Ubuntu 24.04 hat kein Paket), Symlink unter `~/.local/bin/picotool`
+
+**Done-Kriterium A erreicht:** ⬜ (offen: CLAUDE.md im fw-Repo, README erweitern, Hello-World-Flash, A.4 Hersteller-Doku)
+
+---
+
+## Sichtung bestehender Code (A.1)
+
+Klon: `/home/enjoykin/hexapod_servo_driver/` — 14 Commits, letzter Stand „pushups running".
+
+### Was funktioniert (laut Commit-Historie und Code-Lesung):
+
+- **USB-CDC-Loop** in `main.cpp`: `stdio_usb_connected()` Wait → `getchar_timeout_us(1000000)` Byte-Parser
+- **Sentinel-Framing**: Start `0x55`, End `0xAA`, dazwischen `[opcode][args...]`
+- **Command-Pattern**: `CommandHandler` mit `std::map<uint8_t, unique_ptr<Command>>`, dynamische Registrierung in `main`. Pro Command eigene Header-Datei unter `src/commands/`.
+- **`ServoCluster`** (Pimoroni) für alle 18 Pins (`SERVO_1..SERVO_18`), `pio0` SM 0.
+- **Voltage/Current-Read** über `AnalogReader` (Pimoroni `analogmux` / `analog`).
+- **WS2812-LED-Bus** aktiv (`pio1` SM 0).
+- **7 implementierte Kommandos**: `GET_VOLTAGE` (0x01), `GET_CURRENT` (0x02), `READ_SWITCH` (0x03), `SET_LED` (0x04), `SET_LEDS` (0x05), `SET_SERVO_PULSE` (0x06), `SET_SERVO_PULSES` (0x07).
+- **Wire-Format Pulse**: 4-Byte **float** (little-endian) µs. Beispiel-Frame als Doku im Command-Header.
+
+### Was gegenüber Phase-7-Plan **komplett fehlt**:
+
+| Plan-Stufe | Feature | Status im bestehenden Code |
+|---|---|---|
+| C.1 | Hard-Clamp pro Servo | ❌ — `servos.pulse(pin, pulse_width)` geht direkt durch |
+| C.2 | Watchdog (USB-Disconnect → disable_all) | ❌ — kein Timeout, kein `disable()` |
+| C.3 | Soft-Ramp (max ΔPulse/Tick) | ❌ — Sollwert wird sofort gesetzt |
+| D | Per-Servo-Enable, Boot-Stagger | ❌ — `ServoCluster` wird nur einmal `init()` aufgerufen, alle 18 Pins gleichzeitig |
+| E.1 | Per-Servo Strom-Limit (Trip) | ❌ — Strom wird gelesen, aber keine Trip-Logik |
+| E.2 | Total-Strom-Limit | ❌ — gleiches Bild |
+| E.3 | Low-Voltage-Cutoff | ❌ — Voltage wird gelesen, aber kein Trip |
+| B | CRC im Frame | ❌ — Sentinel-Framing ohne Schutz |
+| B | Unsolicited Error-Frames | ❌ — Antworten nur auf Anfrage |
+
+### Konflikte / Klärungsbedarf gegenüber Plan:
+
+- **Wire-Format**: Plan empfiehlt `int16 Pulse-µs` (2 Byte), bestehender Code nutzt `float` (4 Byte). Bandbreitenseitig irrelevant (USB-CDC), aber Plan-Konformität fordert int16. → Entscheidung in Stufe B.
+- **Framing**: Plan fordert COBS+CRC16, bestehend ist `0x55`/`0xAA` Sentinel ohne CRC. USB-CDC hat eigene CRC auf Transport-Ebene — Risiko begrenzt, aber bei späterem UART-Wechsel nötig. → Entscheidung in Stufe B.
+- **Update-Rate**: bestehender Loop blockiert mit `getchar_timeout_us(1_000_000)` — 1 s Timeout pro Byte. Mit Watchdog (200 ms) inkompatibel → Loop muss umgebaut werden zu non-blocking `tud_cdc_available()` / kürzerer Timeout in Stufe C.
+
+### Was wir aus dem bestehenden Code **behalten**:
+
+- Command-Pattern + `CommandHandler` als Architektur-Basis
+- `src/commands/`-Verzeichnis-Layout
+- USB-CDC-Anbindung (`stdio_init_all`, `stdio_usb_connected`)
+- `ServoCluster` (mit Vorbehalt — Stufe D klärt ob Einzel-`Servo`-Klasse für Per-Servo-Enable nötig wird)
+- `AnalogReader` für Voltage/Current
+
+### Was wir **umbauen / ersetzen**:
+
+- Frame-Format: COBS+CRC, evtl. neue Opcodes
+- Main-Loop: non-blocking, fester Tick (z.B. 100 Hz)
+- Wire-Format Pulse: `int16` statt `float`
+- Sicherheits-Ebenen 1–5 von Grund auf neu
 
 ---
 
@@ -138,16 +195,17 @@
 
 ### Repo-Name + Ort
 
-- **Vorschlag:** `~/hexapod_servo2040_fw/`
-- **Final:** ____
+- **Vorschlag (Plan):** neues Repo `~/hexapod_servo2040_fw/`
+- **Final:** `/home/enjoykin/hexapod_servo_driver/` (bestehendes Repo, am 2026-05-14 entschieden)
 - **Verworfen:**
-  - ____ (Grund: ____)
+  - Neues leeres Repo (Grund: User-Entscheidung — vorhandener Code-Stand ist die solide Architektur-Basis, nur Sicherheits-Schicht muss neu)
+  - Klon-als-Referenz nach `~/hexapod_servo2040_fw_old/` (Grund: redundant, wenn wir direkt am bestehenden weiterarbeiten)
 
 ### GitHub-Remote
 
-- **Final:** ____
+- **Final:** `https://github.com/enjoykin-ua/hexapod_servo_driver.git` (bestehend, beibehalten)
 - **Verworfen:**
-  - ____
+  - Neues Repo unter neuem Namen (Grund: siehe oben — wir bauen auf dem bestehenden auf)
 
 ### Wire-Format
 
