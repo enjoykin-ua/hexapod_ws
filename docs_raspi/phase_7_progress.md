@@ -246,15 +246,47 @@ Byte-Mangling.
 
 ## Stufe E — Strom-Limits & Low-Voltage-Cutoff
 
-- [ ] E.1 Per-Servo-Strom-Limit implementiert
-- [ ] E.1 Stall-Test bestanden (Servo manuell blockiert → disabled + Error-Frame)
-- [ ] E.2 Total-Strom-Limit implementiert
-- [ ] E.2 Total-Trip-Test bestanden (PSU-CC-Limit simuliert)
-- [ ] E.3 Low-Voltage-Cutoff implementiert (`UNDERVOLTAGE_WARN_MV`, `_CRIT_MV`)
-- [ ] E.3 Trip-Test mit PSU-Stellrad bestanden
-- [ ] E.3 Reset-Frame nach Trip funktioniert
+> **Hardware-Limitation (aus API-Review B.1 + Stage-E-Analyse bestätigt):**
+> Der Servo2040-ADC-Mux hat nur 8 Adressen (0b000–0b111). Davon sind
+> 0b110 = VOLTAGE_SENSE und 0b111 = CURRENT_SENSE — jeweils **eine Messung
+> für den gesamten Rail**, kein per-Servo-Kanal. Per-Servo-Strom-Sensing
+> wäre externe Hardware nötig; deferred bis Phase 10 falls überhaupt nötig.
 
-**Done-Kriterium E erreicht:** ⬜
+### E.1 — Total-Strom-Überwachung (implementiert)
+
+- [x] E.1 Rail-Strom-Sensing via `CURRENT_SENSE_ADDR = 0b111`, IIR-Glättung (α = 1/8, τ ≈ 400 ms)
+- [x] E.1 `TOTAL_CURRENT_MAX_MA = 3500` mA als Trip-Schwelle (2× MG996R: ~1 A normal, ~5 A Dual-Stall)
+- [x] E.1 Trip-Logik: alle Servos disabled + `ERROR_REPORT/TOTAL_OVERCURRENT` (seq=0) + Status-Flag
+- [x] E.1 Schlot 0 in `last_current_ma[]` = Gesamt-Rail-Strom in GET_STATE (Slots 1–17 bleiben 0)
+- [x] E.1 Stall-Test am Board bestanden (2026-05-14, Trip bei ~625 mA mit Test-Schwelle 600 mA, Recovery via RESET grün)
+- [x] E.1 Runtime-konfigurierbare Schwelle via `SET_CURRENT_LIMIT` (Opcode 0x11) — Test setzt 600 mA für Hand-erreichbaren Stall, restored 3500 mA im `finally`-Block. Power-Cycle bringt Default zurück.
+- [x] E.1 `handle_reset` setzt IIR-State + Warmup-Counter zurück, damit kein Post-Trip-Re-Fire
+
+### E.2 — Low-Voltage-Cutoff (implementiert)
+
+- [x] E.2 Rail-Spannung via `VOLTAGE_SENSE_ADDR = 0b110`, konvertiert zu mV
+- [x] E.2 Warning-Schwelle `UNDERVOLTAGE_WARN_MV = 5500` (auto-setzt / auto-löscht, kein Servo-Disable)
+- [x] E.2 Kritisch-Schwelle `UNDERVOLTAGE_CRIT_MV = 5000` (latch, alle Servos disabled, RESET zum Löschen)
+- [x] E.2 servo_idx-Feld im ERROR_REPORT: `0xFF` = Warnung, `0x00` = kritischer Trip
+- [x] E.2 Rail < 1 V → keine False-Trip (Board unpowered)
+- [x] E.2 Warmup-Gate: 4 Samples (~200 ms) vor Aktivierung der Trip-Logik
+- [x] E.2 Undervoltage-Test am Board bestanden (2026-05-14, WARN bei 5475 mV, CRIT bei 4993 mV, Recovery via PSU↑ + RESET grün)
+
+### E.0 — Sensing Sanity (automatisch, kein Stall)
+
+- [x] E.0 Sanity-Test bestanden (2026-05-14: Spannung ≈ 5,94 V bei 6,0 V PSU, Strom = 0 mA idle, keine Spurious-Trips)
+
+**Done-Kriterium E erreicht:** ✅ (am 2026-05-14: alle E.0/E.1/E.2-Tests grün in 94 s)
+
+### Beobachtung: „Ghost-Current" beim Hand-Stall-Test
+
+Beim Stage-E-Test bewegt der User den Servo per Hand (man kann ihn nicht statisch fest-stallen, nur die Achse drehen). Nach dem Trip + RESET, während der User noch am Servo-Horn ruckelt, meldet die Firmware konsistent **800-1100 mA** obwohl die Servos disabled sind und kein PWM-Signal mehr generiert wird.
+
+**Erklärung:** Der MG996R-Motor wirkt bei Zwangsbewegung als Generator (Back-EMF). Der Strom fließt über die H-Bridge-Body-Dioden zurück in die Rail und wird vom Shunt + Op-Amp gemessen. Die hohe Reading ist also **kein Mess-Bug**, sondern realer Strom durch externe mechanische Energie.
+
+**In Produktion irrelevant:** Im echten Hexapod-Betrieb wird niemand die Servos zwangsbewegen, also tritt das Phänomen nicht auf. Die Default-Schwelle 3500 mA toleriert solche Werte ohnehin.
+
+**Workaround für den Test:** Während der Post-RESET-Diagnostik setzt das Skript die Schwelle temporär auf 5000 mA (Trip nicht möglich), beobachtet die Strom-Trajektorie, restored danach 3500 mA.
 
 ---
 
