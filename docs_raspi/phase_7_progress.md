@@ -124,15 +124,106 @@ Klon: `/home/enjoykin/hexapod_servo_driver/` — 14 Commits, letzter Stand „pu
 
 ## Stufe C — Sicherheits-Ebenen 1, 2, 5
 
-- [ ] C.1 Hard-Clamp pro Servo implementiert (`pulse_min`/`pulse_max` aus Konstanten)
-- [ ] C.1 Out-of-Range-Test bestanden (Oszi/Logic-Analyzer)
-- [ ] C.2 Watchdog implementiert (`WATCHDOG_TIMEOUT_MS = 200`)
-- [ ] C.2 USB-Disconnect-Test bestanden (Servo wird stromlos)
-- [ ] C.3 Soft-Ramp implementiert (`MAX_DELTA_PER_TICK`)
-- [ ] C.3 Sprung-Sollwert-Test bestanden (kein Sprung kommt physisch an)
-- [ ] C.4 Python-Test-Skript am Host kann diese drei Tests automatisiert fahren
+### C.0 — Vor-Arbeit (proto layer + main-loop umbau)
 
-**Done-Kriterium C erreicht:** ⬜
+War nicht im ursprünglichen Plan, ist aber Voraussetzung für C.1–C.3.
+
+- [x] C.0 `src/proto/{crc,cobs,frame}.{hpp,cpp}` neu geschrieben (CRC-16/CCITT-FALSE, COBS encode/decode, FrameAssembler streaming decoder, encode_frame)
+- [x] C.0 `main.cpp` komplett neu: 100 Hz Tick, non-blocking USB-Read, GET_STATE/RESET/NACK-Handler. Banner kommt nach `stdio_usb_connected()` (kein Timeout-Race mehr).
+- [x] C.0 `src/config.hpp` neu (Opcodes, Error-Codes, Status-Flags, Timing-Konstanten)
+- [x] C.0 alte Files raus: `includes.hpp`, `command.hpp`, `CommandHandler.hpp`, `commands/`, `utils/conversion.hpp`
+- [x] C.0 `CMakeLists.txt`: proto/.cpp Files + Include-Pfade
+- [x] C.0 `tools/flash_and_verify.py`: Retry-Pfad nutzt jetzt `picotool reboot -f -a`
+- [x] C.0 Build grün (51 KB .uf2, ~80 KB kleiner als legacy)
+- [x] C.0 Smoke-Test: `flash_and_verify.py` läuft in 3.5 s grün durch (verifiziert: USB-CDC, Boot-Banner-Sync, Loop läuft)
+
+### C.1 — Hard-Clamp + SET_TARGETS + ServoCluster init
+
+- [x] C.1 ServoCluster init (pio0 SM 0, SERVO_1..SERVO_18) in `main()`
+- [x] C.1 Hard-Clamp-Logik direkt in `main.cpp` (`clamp_pulse(idx, val, clamped_out)` mit `pulse_min_us[]/pulse_max_us[]`-Arrays — keine eigene `safety/`-Datei nötig)
+- [x] C.1 SET_TARGETS-Handler: 36 Byte Payload validieren, 18× int16 LE entpacken, Clamp anwenden, in `target_pulse_us[]` speichern
+- [x] C.1 on_tick(): target → current (in C.3 ratenlimitiert) → `cluster.pulse(i, val, false)` + `cluster.load()`
+- [x] C.1 ENABLE_SERVO-Handler: per-servo enable/disable, status-flag bookkeeping
+- [x] C.1 ERR_PULSE_OUT_OF_RANGE wenn Wert geclamped wurde (erster geclamped Servo im Frame als servo_idx + raw value als aux)
+- [x] C.1 Build grün, Boot grün (User verifiziert)
+
+### C.2 — Watchdog
+
+- [x] C.2 Watchdog implementiert (`cfg::WATCHDOG_TIMEOUT_MS = 200`)
+- [x] C.2 `watchdog_armed`-Flag — armiert beim ersten validen Frame, damit Boot-Up nicht sofort trippt
+- [x] C.2 Trip-Logik in `on_tick()`: disable_all + status-flag setzen + unsolicited ERROR_REPORT (seq=0)
+- [x] C.2 RESET clears `WATCHDOG_TRIPPED` + disarmiert Watchdog (Recovery-Pfad)
+- [x] C.2 ENABLE_SERVO im TRIPPED-State → NACK mit reason=WATCHDOG_TRIPPED (laut PROTOCOL.md §6)
+- [x] C.2 Build grün, Boot grün (User verifiziert)
+
+### C.3 — Soft-Ramp
+
+- [x] C.3 Soft-Ramp implementiert (`cfg::MAX_DELTA_PULSE_PER_TICK_US = 20`, = 2000 µs/s @ 100 Hz)
+- [x] C.3 Pro Servo: `delta = target - current`, capped auf ±20 µs/Tick
+- [x] C.3 Build grün
+
+### C.4 — Python-Test-Skript
+
+- [x] C.4 `tools/test_servo2040.py` geschrieben (~330 Zeilen, Stdlib-only — kein pyserial)
+- [x] C.4 Eigene CRC-16/CCITT-FALSE-Implementation + Self-Test (`crc16("123456789") == 0x29B1`)
+- [x] C.4 Eigener COBS-Encoder/Decoder + Frame-Helpers
+- [x] C.4 `test_hard_clamp` — out-of-range below min und above max, verifiziert ERROR_REPORT + STATE-Echo
+- [x] C.4 `test_watchdog` — stallt 350 ms, prüft unsolicited ERROR + status flag + ENABLE_SERVO-NACK + RESET-Recovery
+- [x] C.4 `test_soft_ramp` — Sprung-Test (1500 → 2500), prüft dass nach 100 ms current ~ 1700 (nicht 2500), nach voller Rampe = 2500
+- [x] C.4 Frame-Round-Trip-Test (encode/decode) bestanden vor Hardware-Lauf
+- [x] C.4 End-to-End am Board verifiziert (2026-05-14, alle 3 Tests grün in 3.4 s)
+- [ ] CSV-Logging für Strom/Pulse pro Servo (kommt später in Stufe E)
+
+**Done-Kriterium C erreicht:** ✅ (am 2026-05-14: alle Board-Tests grün)
+
+### Bugs beim Board-Test (C.4 Postmortem)
+
+Zwei Bugs haben sich gegenseitig versteckt — beide gleichzeitig aufgetreten,
+keiner allein hätte das vollständige Bild erzeugt.
+
+#### Bug 1: Fehlendes `stdio_flush()` in `send_frame()` (Hauptproblem)
+
+**Ursache:** Der RP2040 kommuniziert über USB-CDC-ACM (`/dev/ttyACM0`). TinyUSB
+puffert Bytes intern in einem 64-Byte-Ring-Buffer; ein USB-Paket geht erst raus
+wenn der Buffer voll läuft oder explizit geflusht wird.
+
+`send_frame()` rief `putchar_raw()` in einer Schleife auf → Bytes landen im
+TinyUSB-Buffer. Kleine Frames (ACK = 7 Byte, ERROR_REPORT = 12 Byte) füllten
+den Buffer nicht → blieben dauerhaft stecken. Große Frames (STATE_RESPONSE =
+82 Byte) liefen über → Paket ging raus und riss dabei gepufferte ACKs mit.
+
+Symptom: In `probe.py` kamen STATE-Frames an, kleine Frames (ACK, NACK,
+ERROR_REPORT) nicht.
+
+**Fix:** `stdio_flush()` am Ende jedes `send_frame()`-Aufrufs → ruft intern
+`tud_cdc_write_flush()` auf → erzwingt sofortigen USB-Paket-Versand unabhängig
+von der Puffer-Füllmenge.
+
+#### Bug 2: TTY im "Cooked Mode" auf Python-Seite (verstecktes Problem)
+
+**Ursache:** Beim Öffnen von `/dev/ttyACM0` mit `os.open()` ist die
+Linux-Kernel-TTY-Line-Discipline aktiv — dieselbe wie für normale Terminals:
+
+- `ICRNL`: empfangenes `0x0D` (CR) → `0x0A` (LF) automatisch umgewandelt
+- `ONLCR`: gesendetes `0x0A` → `0x0D 0x0A` expandiert
+
+Das binäre COBS+CRC-Protokoll kann jeden Byte-Wert im Frame enthalten,
+insbesondere in CRC-Bytes. Wenn der CRC-Low-Byte des ERROR_REPORT zufällig
+`0x0D` war:
+
+```
+Firmware sendet:  [..., 0x0D, crc_hi, 0x00]
+Host empfängt:    [..., 0x0A, crc_hi, 0x00]   ← 0x0D→0x0A durch ICRNL
+→ CRC-Check schlägt fehl → decode_frame() → None → Frame wird still verworfen
+→ Test läuft in Timeout
+```
+
+Der STATE-Frame funktionierte in `probe.py` zufällig immer weil seine bekannten
+Nutzdaten (z.B. `0xDC05` für 1500 µs) kein `0x0D` enthielten.
+
+**Fix:** `tty.setraw(self.fd)` nach dem Öffnen in der `Link`-Klasse →
+deaktiviert die gesamte Line Discipline → Bytes kommen 1:1 durch, kein
+Byte-Mangling.
 
 ---
 
@@ -273,7 +364,9 @@ Klon: `/home/enjoykin/hexapod_servo_driver/` — 14 Commits, letzter Stand „pu
 ### Watchdog-Timeout
 
 - **Vorschlag:** 200 ms
-- **Final:** ____
+- **Final:** 200 ms (`cfg::WATCHDOG_TIMEOUT_MS = 200` in `config.hpp`)
+- **Begründung:** 10 verpasste Frames bei 50 Hz Host-Rate — genug Toleranz
+  für OS-Jitter auf dem Desktop, aber schnell genug für echte Disconnect-Erkennung.
 - **Verworfen:**
   - 50 ms (Grund: false-positives bei Pi-Timing-Jitter)
   - 500 ms (Grund: zu langsam bei echtem Crash)
