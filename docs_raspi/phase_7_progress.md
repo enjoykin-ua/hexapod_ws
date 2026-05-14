@@ -229,13 +229,18 @@ Byte-Mangling.
 
 ## Stufe D — Per-Servo-Enable verifizieren
 
-- [ ] D.1 Test mit 2 Servos, Einzelklasse `Servo`: Pfad funktioniert? → ____
-- [ ] D.2 Test mit 18 Servos gestaffelt: Pfad funktioniert? → ____
-- [ ] D.3 Fallback `ServoCluster` mit vorab gesetzten Targets getestet → ____
-- [ ] D.4 Falls D.4 (Worst-Case): Vor-Boot-Pose-Doku angelegt
-- [ ] D-Erkenntnis dokumentiert (welcher der drei Pfade gewinnt)
+> **Ansatz (aus API-Review B.1 festgelegt):** ServoCluster + ENABLE_SERVO per-servo,
+> 50 ms Stagger zwischen Servos (D.1-Pfad). `Servo`-Einzelklasse ist kein Option
+> weil RP2040 nur 8 PIO-State-Machines hat — zu wenig für 18 unabhängige Kanäle.
 
-**Done-Kriterium D erreicht:** ⬜
+- [x] D.1 Staged-Enable mit 2× MG996R am Board verifiziert (2026-05-14,
+      PSU 6,0 V / 3,0 A, `python3 tools/test_servo2040.py --servos 2 --manual`)
+- [x] D.1 Physische Beobachtung bestätigt: Servos engagen nacheinander, Bewegung passend
+- [x] D-Erkenntnis: ServoCluster ENABLE_SERVO per-servo funktioniert korrekt;
+      Snap-to-neutral beim Enable ist erwartetes Verhalten (Servo springt auf
+      current_pulse_us = 1500 µs, danach folgt soft-ramp für weitere Sollwert-Änderungen)
+
+**Done-Kriterium D erreicht:** ✅ (am 2026-05-14)
 
 ---
 
