@@ -1,14 +1,24 @@
 # Aktive Phase
 
-**Aktuell:** Phase 8 — Strom- & Elektronik-Bench
-**Datei:** `docs_raspi/phase_8_electronics_bench.md`
-**Progress-Tracker:** `docs_raspi/phase_8_progress.md` (legen wir zu Phase-8-Start an)
+**Aktuell:** Phase 9 — ROS2-Plugin `hexapod_hardware`
+**Datei:** `docs_raspi/phase_9_hexapod_hardware.md`
+**Progress-Tracker:** `docs_raspi/phase_9_progress.md` (legen wir zu Phase-9-Start an)
 
 > **Phase 7 (Servo2040 Firmware):** ✅ abgeschlossen am 2026-05-14.
 > Alle Stufen A–G grün am Board verifiziert, Doku in `docs_raspi/phase_7_progress.md`
 > (inkl. Pimoroni-API-Erkenntnis-Tabelle + Retrospektive). Stufe H Git-Aktionen
 > (`phase-7-done`-Tag in fw-Repo und hexapod_ws, Commit der phase_7-Docs)
 > macht der User beim Phasenwechsel.
+>
+> **Phase 8 (Bench-Elektronik) ⏸️ pausiert (2026-05-14):**
+> Inhalt (DCDC-Wandler für Pi, GND-Stern, Bulk-Caps) wird erst gebraucht wenn
+> der Pi ins Spiel kommt. Phase 9 + 10 laufen weiterhin am Desktop mit der
+> bestehenden Bench-PSU-Verkabelung aus Phase 7. **Harte Deadline: vor Beginn
+> Phase 11 (Pi-Plattform) muss Phase 8 durch sein.**
+>
+> **Phase 8b (Sim+HW-Mirror) ⚪ bleibt optional:** Architektur-Abgrenzung
+> macht den Mirror unabhängig — kann jederzeit ergänzend gebaut werden,
+> ist aber kein Done-Kriterium für 9/10/11/12.
 
 > **Wichtig:** Ab Phase 7 liegen alle Phasen-Detail-Docs unter `docs_raspi/`,
 > nicht mehr unter `docs/`. Phasen 0–6 bleiben in `docs/`.
@@ -40,9 +50,9 @@
 | # | Name | Datei | Status |
 |---|---|---|---|
 | 7 | Servo2040 Firmware | `docs_raspi/phase_7_servo2040_fw.md` | 🟢 abgeschlossen (2026-05-14) |
-| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | 🟡 aktiv |
+| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | ⏸️ pausiert (deadline: vor Phase 11) |
 | 8b | Sim+HW Visual-Mirror (optional) | `docs_raspi/phase_8b_sim_hw_mirror.md` | ⚪ optional |
-| 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | ⚪ offen |
+| 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | 🟡 aktiv |
 | 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | ⚪ offen |
 | 11 | Pi-Plattform & Portierung | `docs_raspi/phase_11_pi_platform.md` | ⚪ offen |
 | 12 | Voll-Bringup mit echtem Roboter | `docs_raspi/phase_12_full_bringup.md` | ⚪ offen |
@@ -53,7 +63,7 @@
 |---|---|---|
 | Deployment Desktop ↔ Pi | `docs_raspi/dev_workflow_desktop_to_pi.md` | Git + VSCode Remote-SSH-Workflow für Code-Transfer |
 
-Status-Legende: ⚪ offen — 🟡 aktiv — 🟢 abgeschlossen — 🔴 blockiert
+Status-Legende: ⚪ offen/optional — 🟡 aktiv — 🟢 abgeschlossen — 🔴 blockiert — ⏸️ pausiert (verschoben, kein Blocker)
 
 ---
 
