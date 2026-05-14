@@ -21,17 +21,18 @@
 - [x] A.3 Pico-SDK als Pfad eingebunden (`/home/enjoykin/pico-sdk`, `PICO_SDK_PATH` in `~/.bashrc`)
 - [x] A.3 Pimoroni `pimoroni-pico` als Pfad eingebunden (`/home/enjoykin/pimoroni-pico`, auto-detected als Geschwister)
 - [x] A.3 CMakeLists baut grün (bestehender Code, nicht leeres `main.cpp` — produziert `Hexapod_servo_driver.uf2`, 131 KB)
-- [ ] A.3 Hello-World-Flash erfolgreich (User-Aktion mit Board) — **offen**
-- [ ] A.4 Servo2040-Schaltplan-PDF nach `docs_raspi/refs_phase_7/` (lokal, nicht committet) — **offen**
-- [ ] A.4 Pinout-Übersicht lokal — **offen**
-- [ ] A.4 RP2040-Datasheet lokal — **offen**
+- [x] A.3 Hello-World-Flash erfolgreich (User am 2026-05-14 mit Servo2040 verifiziert: `/dev/ttyACM0` erscheint nach Flash, USB-CDC läuft. Anleitung: `phase_7_stage_a_test_commands.md`)
+- [x] A.5 (zusätzlich) `tools/flash_and_verify.py` im fw-Repo angelegt — Stdlib-only Python, ein Aufruf macht Pre-Check + BOOTSEL-Force + Flash + Boot-Message-Verify mit klarem ✓/✗-Output. Spart Tipparbeit für die mehrfachen Flash-Zyklen in Stufe B–G.
+- [x] A.4 Servo2040-Schaltplan-PDF nach `docs_raspi/refs_phase_7/` (`servo2040_schematic.pdf`, 95 KB, von shop.pimoroni.com)
+- [x] A.4 Pinout-Übersicht lokal (`servo2040_mechanical_drawing.png`, 99 KB; vollständige Pin-Zuordnung in `/home/enjoykin/pimoroni-pico/libraries/servo2040/servo2040.hpp` — alle 18 Servo-Pins, ADC-Mux, LED, Sense-Konstanten)
+- [x] A.4 RP2040-Datasheet lokal (`rp2040-datasheet.pdf`, 5.3 MB, von datasheets.raspberrypi.com)
 
 ### Zusätzlich erledigt (nicht im ursprünglichen Bullet-Plan):
 
 - [x] ARM-Cross-Toolchain via apt: `gcc-arm-none-eabi 13.2.1`, `libnewlib-arm-none-eabi 4.4.0`, `libstdc++-arm-none-eabi-newlib`, `libusb-1.0-0-dev`
 - [x] `picotool v2.2.0-a4` aus Source gebaut (Ubuntu 24.04 hat kein Paket), Symlink unter `~/.local/bin/picotool`
 
-**Done-Kriterium A erreicht:** ⬜ (offen: CLAUDE.md im fw-Repo, README erweitern, Hello-World-Flash, A.4 Hersteller-Doku)
+**Done-Kriterium A erreicht:** ✅ (am 2026-05-14: alle Bullets erledigt, Hello-World-Flash verifiziert, Flash-Helper-Skript als Bonus angelegt)
 
 ---
 
@@ -91,24 +92,33 @@ Klon: `/home/enjoykin/hexapod_servo_driver/` — 14 Commits, letzter Stand „pu
 
 ### API-Review-Erkenntnisse
 
-- [ ] B.1 PWM-Frequenz pro Kanal: unterstützte Werte ermittelt → ____
-- [ ] B.1 Per-Servo `enable()`/`disable()`-API: existiert auf `Servo`-Klasse? → ____
-- [ ] B.1 Per-Servo enable auf `ServoCluster`? → ____
-- [ ] B.1 Current-Sense-API: Mux-Verhalten, ADC-Range, Konversionsfaktor → ____
-- [ ] B.1 Servo-Rail-Spannungsmessung: Pin, Spannungsteiler → ____
-- [ ] B.1 USB-CDC: Standard-CDC-ACM oder Custom? → ____
+- [x] B.1 PWM-Frequenz pro Kanal → `Servo`: pro Instanz frei (Konstruktor `freq` / Setter `frequency(float)`). **`ServoCluster`: nur globale Frequenz** für alle Cluster-Servos (eine PIO-State-Machine). Default = `ServoState::DEFAULT_FREQUENCY` (50 Hz typ.).
+- [x] B.1 Per-Servo `enable()`/`disable()`-API auf `Servo`-Klasse → **Ja** (`drivers/servo/servo.hpp:38-40`).
+- [x] B.1 Per-Servo enable auf `ServoCluster` → **Ja** + `bool load`-Parameter erlaubt staged Enable: alle einzeln vorbereiten (`load=false`), dann `load()` für gleichzeitige Anwendung im nächsten DMA-Tick. Oder einzeln mit `load=true` für Stagger.
+- [x] B.1 Current-Sense-API → `AnalogMux` (3 Adress-Pins) + `Analog::read_current()`. Konstanten in `servo2040.hpp`: `SHUNT_RESISTOR=0.003 Ω`, `CURRENT_GAIN=69`, `CURRENT_OFFSET=-0.02`. Mux-Adresse **0b111 = CURRENT_SENSE**, geteilt über `SHARED_ADC` (GPIO 29). Mux-Settling-Zeit noch in `analogmux.cpp` zu verifizieren bei Stufe E.
+- [x] B.1 Servo-Rail-Spannungsmessung → Mux-Adresse **0b110 = VOLTAGE_SENSE**, gleicher `SHARED_ADC`. Spannungsteiler `VOLTAGE_GAIN = 3.9/13.9 ≈ 0.281` → `V_rail = V_adc / 0.281`. Bei 6.0 V Rail → V_adc ≈ 1.68 V (im 3.3 V ADC-Range). Bei 8.4 V (LiPo voll) → V_adc ≈ 2.36 V.
+- [x] B.1 USB-CDC → **Standard CDC-ACM** (über `pico_enable_stdio_usb 1` in CMakeLists). Host sieht `/dev/ttyACM*`. Im Hello-World-Flash bereits verifiziert.
+
+### Konsequenzen für Plan-Stufen
+
+- **Hardware-Wahl**: Single `Servo`-Klasse nutzt Hardware-PWM-Slices (8 × 2 = 16 Kanäle), reicht **nicht für 18 Servos**. → `ServoCluster` (PIO+DMA) ist Pflicht. Per-Servo-Enable funktioniert dort über `bool load`-Mechanismus.
+- **Stufe D (Per-Servo-Enable) gelöst**: Der alte „alle laufen gleichzeitig los"-Effekt kam vom alten Code, der `cluster.init()` ohne vorab gesetzte Pulse aufgerufen hat. Zwei Pfade verfügbar:
+  - **D.1** (gestaffelt nacheinander): `for i: enable(i, true); sleep_ms(50)` → 18 × 50 ms = 900 ms Boot, klar getrennte Inrush-Peaks
+  - **D.3** (alle gleichzeitig auf vorab gesetzte Pose): `pulse(i, stand_pose_us, false)` für alle, dann `enable_all()` — kein Sprung, weil schon auf Stand-Pose
+  - **D.4** (mechanische Vorpositionierung) als Worst-Case-Fallback voraussichtlich nicht nötig.
+- **Stufe C/E** (Sicherheit): Pimoroni-API liefert keine Watchdog-Logik — selbst Tick-basiert bauen. Hard-Clamp/Soft-Ramp im PWM-Output-Pfad vor `cluster.pulse(...)`. Strom-Sense per Mux-Switch + ADC-Read pro Servo.
 
 ### Protokoll
 
-- [ ] B.2 Frame-Format final festgelegt
-- [ ] B.2 Kommando-Tabelle final
-- [ ] B.2 CRC-Spezifikation (Polynom, Init, Reflect)
-- [ ] B.2 Wire-Format-Entscheidung: Pulse-µs vs. Joint-rad → ____
-- [ ] B.2 Update-Rate-Entscheidung Host → Servo2040 → ____ Hz
-- [ ] B.3 `PROTOCOL.md` im Firmware-Repo geschrieben
-- [ ] B.3 Beispiel-Frames als Hex-Dump in `PROTOCOL.md`
+- [x] B.2 Frame-Format final: COBS + CRC-16/CCITT-FALSE über `SEQ ‖ CMD ‖ LEN ‖ PAYLOAD`
+- [x] B.2 Kommando-Tabelle final (9 Opcodes, siehe `PROTOCOL.md` §3)
+- [x] B.2 CRC-Spezifikation: CRC-16/CCITT-FALSE (Polynom 0x1021, Init 0xFFFF, no reflect, XorOut 0x0000)
+- [x] B.2 Wire-Format Pulse: int16 LE µs (umgestellt von altem float)
+- [x] B.2 Update-Rate Host → Firmware: 50 Hz Default, bis 100 Hz erlaubt
+- [x] B.3 `PROTOCOL.md` im fw-Repo geschrieben (8 Abschnitte: Transport, Frame-Encoding, Kommandos, Beispiele, Boot, Watchdog, Impl-Hinweise, Versionierung)
+- [x] B.3 Beispiel-Frames als Hex-Dump in `PROTOCOL.md` §4 (SET_TARGETS, GET_STATE, ENABLE_SERVO, RESET)
 
-**Done-Kriterium B erreicht:** ⬜
+**Done-Kriterium B erreicht:** ✅ (am 2026-05-14)
 
 ---
 
@@ -207,34 +217,58 @@ Klon: `/home/enjoykin/hexapod_servo_driver/` — 14 Commits, letzter Stand „pu
 - **Verworfen:**
   - Neues Repo unter neuem Namen (Grund: siehe oben — wir bauen auf dem bestehenden auf)
 
-### Wire-Format
+### Wire-Format Pulse
 
-- **Vorschlag:** Pulse-µs auf der Wire (Host konvertiert rad ↔ pulse)
-- **Final:** ____
-- **Verworfen:**
-  - Joint-rad auf der Wire (Grund: Firmware bliebe von URDF-Werten abhängig)
+- **Final:** `int16` LE µs (Host und Firmware verwenden ganzzahlige Mikrosekunden).
+  Umgestellt von altem `float`-Format des `legacy-pushups`-Stands. Begründung:
+  PWM ist intern ohnehin ganzzahlig, 1 µs Auflösung ist 50× feiner als jeder
+  Servo schafft, und int16 spart 50 % Bandbreite. Wertebereich ±32 768 µs deckt
+  Standard-Servo-Range (500–2500 µs) locker ab.
+
+### Frame-Format
+
+- **Final:** COBS-Encoding + CRC-16/CCITT-FALSE über `SEQ ‖ CMD ‖ LEN ‖ PAYLOAD`,
+  Frame-Trenner ein einzelnes `0x00`-Byte am Frame-Ende.
+- **Was COBS ist:** Consistent Overhead Byte Stuffing — ersetzt jedes `0x00`
+  im Payload durch einen Zähler, sodass `0x00` nur als Frame-Trenner vorkommen
+  kann. Empfänger kann jederzeit auf den nächsten Frame resync'en, indem er
+  bis zum nächsten `0x00` liest. Overhead: maximal 1 Byte pro 254 Payload-Byte.
+- **Wozu CRC zusätzlich**: USB-CDC hat Transport-CRC, aber sobald wir später
+  auf UART portieren oder Frames über andere Wege (z.B. SPI) gehen, fängt
+  CRC-16 alle 1- und 2-Bit-Fehler und alle Burst-Fehler ≤ 16 Bit ab. Schutz
+  davor, dass ein Bit-Flip einen Servo auf eine völlig falsche Position
+  schickt.
 
 ### CRC-Polynom
 
-- **Vorschlag:** CRC16-CCITT (0x1021)
-- **Final:** ____
-- **Verworfen:**
-  - CRC8 (Grund: zu schwach für 18×int16-Payload)
+- **Final:** CRC-16/CCITT-FALSE (Polynom `0x1021`, Init `0xFFFF`, no reflect,
+  XorOut `0x0000`).
+- **Was das ist:** Standard-CRC-16-Variante im Embedded-Bereich. Selbsttest
+  über den String `"123456789"` ergibt `0x29B1` — bekannt-konstanter Wert,
+  damit man die Implementation gegen ihn verifizieren kann. Lookup-Table:
+  256 Einträge × 2 Byte = 512 Byte Flash. Berechnung pro Byte: ein XOR + ein
+  Shift + ein Tabellen-Lookup.
 
-### Update-Rate Host → Servo2040
+### Update-Rate Host → Firmware
 
-- **Vorschlag:** 50 Hz
-- **Final:** ____
-- **Verworfen:**
-  - 100 Hz als Default (Grund: Headroom OK aber CPU/USB-Lärm)
+- **Final:** 50 Hz Default, bis 100 Hz erlaubt.
+- 50 Hz ist die `gait_node`-Rate aus Phase 5/6 — passt nahtlos. 100 Hz als
+  Headroom für Phase 9, falls der Host nervöser pingen will. Watchdog-Timeout
+  200 ms = 10 Frames Toleranz bei 50 Hz, 20 Frames bei 100 Hz.
 
 ### Per-Servo-Enable-Pfad
 
-- **Vorschlag:** D.1 (Einzelklasse `Servo`)
-- **Final:** ____
+- **Final:** D.1 — gestaffelt nacheinander, 50 ms Pause zwischen Servos.
+  Boot dauert 18 × 50 ms = 900 ms, dafür separate Inrush-Strom-Peaks pro
+  Servo (PSU- und Akku-freundlich).
 - **Verworfen:**
-  - D.3 (Cluster mit pre-set targets) — Grund: ____
-  - D.4 (Manuelle Vorpositionierung) — Grund: Worst-Case-Fallback
+  - D.3 (alle gleichzeitig auf vorab gesetzte Stand-Pose) — Grund:
+    gemeinsamer Inrush-Peak. Bei 18 Servos × ~1 A Hold-Strom = ≥18 A Spitze
+    beim Anlauf, knapp am 10-A-PSU-Limit der RND-Bench-PSU. Bei späterem
+    Akku-Betrieb noch enger. Bleibt als Notfall-Option dokumentiert.
+  - D.4 (manuelle Vorpositionierung) — Grund: Worst-Case-Fallback, wird
+    voraussichtlich nicht gebraucht weil D.1 funktional verifiziert ist
+    (Pimoroni-API-Review B.1).
 
 ### Watchdog-Timeout
 
