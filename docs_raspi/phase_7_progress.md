@@ -292,37 +292,55 @@ Beim Stage-E-Test bewegt der User den Servo per Hand (man kann ihn nicht statisc
 
 ## Stufe F — Servo-Mapping vorbereiten
 
-- [ ] F.1 Mapping-Tabelle in Firmware-Konstanten (Output 0–17 ↔ Joint)
-- [ ] F.2 YAML-Skelett unter `~/hexapod_servo2040_fw/contrib/servo_mapping.yaml`
-      (wird in Phase 9 in `hexapod_hardware/config/` verschoben)
-- [ ] F.3 `direction`-Konvention dokumentiert
+> **Pin-Konvention (mit User 2026-05-14 festgelegt):** 3 Pins pro Bein, sequenziell.
+> Pin 0..2 = Bein 1 (vorne rechts), Pin 3..5 = Bein 2 (mitte rechts), …, Pin 15..17 = Bein 6 (vorne links).
+> Innerhalb eines Beins: coxa → femur → tibia.
 
-**Done-Kriterium F erreicht:** ⬜
+- [x] F.1 Mapping-Konvention als Kommentar in `src/config.hpp` festgehalten —
+      Firmware-Code bleibt joint-name-frei (CLAUDE.md), aber die Pin-Belegung ist im Code dokumentiert
+- [x] F.2 YAML-Skelett `contrib/servo_mapping.yaml` im fw-Repo angelegt — 18 Einträge mit Joint-Namen,
+      `defaults`-Block für Pulse-Min/Max/Zero/Direction, Header dokumentiert Konvention + Phase-Transitionen.
+      Wird in Phase 9 nach `hexapod_hardware/config/` kopiert (nicht verschoben — der fw-Repo behält die
+      kanonische Quelle bis Phase 10 Kalibrierung erfolgt)
+- [x] F.2 `contrib/README.md` erklärt was in dem Verzeichnis liegt und wie es phasenweise weiterwandert
+- [x] F.3 `direction`-Konvention im YAML-Header dokumentiert
+      (`+1` = Pulse-Delta gleichsinnig zu URDF-Joint-Winkel, `-1` = entgegengesetzt;
+      relevant für gespiegelte links/rechts-Beine; Phase 10 setzt die echten Vorzeichen)
+
+**Done-Kriterium F erreicht:** ✅ (am 2026-05-14: Mapping-Skelett komplett, Werte sind Phase-7-Platzhalter — echte Kalibrierung in Phase 10)
 
 ---
 
 ## Stufe G — Standalone-Host-Test-Skript
 
-- [ ] G `tools/test_servo2040.py` geschrieben
-- [ ] G Frame-Encoder/Decoder Python ↔ Firmware kompatibel
-- [ ] G Bewegungs-Test mit 2–3 Test-Servos läuft
-- [ ] G Sicherheits-Test-Suite (C, D, E) automatisiert ausführbar
-- [ ] G CSV-Logging für Strom/Pulse pro Servo
+> Die meisten G-Bullets wurden bereits implizit durch C/D/E-Tests erledigt.
+> Hier nur die explizite Konsolidierung.
 
-**Done-Kriterium G erreicht:** ⬜
+- [x] G `tools/test_servo2040.py` (Stage C/D) + `tools/test_stage_e.py` — beide stdlib-only Python
+- [x] G Frame-Encoder/Decoder Python ↔ Firmware kompatibel (CRC self-test `0x29B1` + Round-Trip in den Tests)
+- [x] G Bewegungs-Test mit 2× MG996R am Board läuft (Stage D `--servos 2`, am 2026-05-14 grün)
+- [x] G Sicherheits-Test-Suite C+D+E komplett automatisiert (1 Befehl je Stufe, manuelle Schritte mit Enter-Pause + Watchdog-Keep-Alive)
+- [x] G CSV-Logging via `tools/log_state.py` — pollt GET_STATE bei 20 Hz und schreibt
+      Zeilen `t_s, voltage_mv, current_ma, flags, p0..p17` in CSV. Standalone (sendet
+      keine Commands), läuft parallel zu einem zweiten Terminal das die Bewegung treibt.
+      **Verwendet wird das Tool in Phase 9 (Stufe H: alternative Verifikation ohne Oszi)
+      und Phase 10 (Stufe B.3: Strom-Profil-Aufzeichnung für Kalibrierungs-Analyse)** —
+      in Phase 7 selbst nur als Tool-Bereitstellung implementiert, ohne aktiven Einsatz.
+
+**Done-Kriterium G erreicht:** ✅ (am 2026-05-14)
 
 ---
 
 ## Stufe H — Phase-7-Abschluss
 
-- [ ] H Erkenntnis-Tabelle pro Pimoroni-API-Frage in Doku
-- [ ] H Firmware-Repo Tag `phase-7-done`
-- [ ] H hexapod_ws Git-Commit (nur `docs_raspi/phase_7_*` betroffen)
-- [ ] H hexapod_ws Tag `phase-7-done`
-- [ ] H `PHASE.md` auf Phase 8 aktualisiert
-- [ ] H Retrospektive (siehe unten)
+- [x] H.1 Erkenntnis-Tabelle pro Pimoroni-API-Frage in Doku (siehe unten, vor der Retrospektive)
+- [x] H.6 Retrospektive (siehe unten) — Was lief gut, was hat länger gedauert, was offen für später
+- [x] H.5 `PHASE.md`-Update vorbereitet (Phase 7 → 🟢 abgeschlossen, Phase 8 → 🟡 aktiv)
+- [ ] H.2 **(User)** Firmware-Repo Tag `phase-7-done` setzen
+- [ ] H.3 **(User)** hexapod_ws Git-Commit (nur `docs_raspi/phase_7_*` + `PHASE.md` betroffen)
+- [ ] H.4 **(User)** hexapod_ws Tag `phase-7-done` setzen
 
-**Done-Kriterium H erreicht:** ⬜
+**Done-Kriterium H erreicht:** 🟡 (Doku komplett — offen: 3 Git-Aktionen vom User)
 
 ---
 
@@ -410,18 +428,49 @@ Beim Stage-E-Test bewegt der User den Servo per Hand (man kann ihn nicht statisc
 
 ---
 
-## Retrospektive (Stufe H)
+## Pimoroni-API-Erkenntnis-Tabelle (Stufe H.1)
 
-> Bei Phasen-Abschluss füllen.
+> Konsolidiert aus B.1, C, D, E. Pro API-Frage Antwort + Beleg im Code.
+
+| API-Frage | Antwort | Wo verifiziert |
+|---|---|---|
+| PWM-Frequenz pro Kanal | `ServoCluster`: **eine globale Frequenz** für alle 18 Servos (eine PIO-State-Machine). `Servo`-Einzelklasse: pro Instanz frei. | `servo_cluster.cpp` PIO-State-Machine Setup; B.1 |
+| Per-Servo Enable/Disable | `ServoCluster::enable(idx, load)` und `disable(idx, load)` funktionieren pro Servo. `load=true` = sofort anwenden, `load=false` = batched mit nachfolgendem `load()`-Aufruf. | Stage D Hardware-Test 2026-05-14 mit 2× MG996R, 50 ms Stagger sichtbar |
+| Wirkt `disable()` als Power-Off? | PWM-Signal geht auf 0 (PIO setzt Pin LOW). Servo-MCU bleibt vom Rail bestromt — interne Standby-Stromaufnahme bleibt (~5-10 mA pro Servo). | Stage E Diagnose: Idle nach `disable_all` zeigt 0 mA, also ist Standby unter ADC-Auflösung |
+| Single-`Servo`-Klasse für 18 Kanäle? | **Nein.** Hardware-PWM-Slices = 8 × 2 = 16 Kanäle, reicht nicht. `ServoCluster` (PIO+DMA) ist Pflicht. | B.1 |
+| Current-Sense-Pfad | `AnalogMux` (3 Adress-Pins) → `CURRENT_SENSE_ADDR = 0b111` → `SHARED_ADC` (GPIO29). `Analog::read_current()` mit `SHUNT_RESISTOR=0.003Ω`, `CURRENT_GAIN=69`, `CURRENT_OFFSET=-0.02V`. **Nur Total-Rail**, kein per-Servo. | Stage E.1 Trip-Test |
+| Voltage-Sense-Pfad | Selber `SHARED_ADC`, aber `VOLTAGE_SENSE_ADDR = 0b110`. `Analog::read_voltage()` mit `VOLTAGE_GAIN = 3.9/13.9 ≈ 0.281`. Ergibt V im Volt-Bereich. | Stage E.2 UV-Test; bei 6 V PSU liest Firmware ~5.94 V (3% Abweichung) |
+| Mux-Settling-Zeit | Keine explizite Wartezeit nötig — `mux.select()` direkt gefolgt von `read_xxx()` liefert plausible Werte. (Schalt-Latenz <<1µs, ADC-S&H ist klein.) | Stage E.0 Sanity, in Tests stabil über 100ms-Polling |
+| `Analog::read_voltage()` Clamping | Eingebauter `MAX(voltage, 0.0f)` clampt negative Werte (Offset-Über-Kompensation) auf 0. | `pimoroni-pico/drivers/analog/analog.cpp` |
+| `read_current()` Vorzeichen | Liefert immer ≥0 Ampere (über `read_voltage` der Clamping macht). Bei Back-EMF-Strom (zwangsbewegter Motor) zeigt der ADC einen positiven Wert. | Stage E "Ghost Current" Beobachtung (siehe oben) |
+| USB-CDC | Standard CDC-ACM via `pico_enable_stdio_usb 1`. Host sieht `/dev/ttyACM*`. | Stage A Hello-World 2026-05-14, alle Tests seitdem |
+| TinyUSB-Flush | `putchar_raw()` puffert in 64-Byte-Ring. Ohne `stdio_flush()` werden kleine Frames nie gesendet bis Puffer voll. **Pflicht-Aufruf** am Ende jedes `send_frame()`. | Stage C.4 Bug-Postmortem |
+| TTY-Mode auf Host | `os.open()` öffnet im Cooked-Mode (ICRNL/ONLCR). Binäre Protokolle brauchen `tty.setraw()` damit `0x0D` nicht zu `0x0A` wird. | Stage C.4 Bug-Postmortem |
+| Boot-Banner-Timing | `printf` vor `stdio_usb_connected()` wird verschluckt. Banner erst NACH dem Wait drucken. | `main.cpp` Boot-Sequenz |
+
+---
+
+## Retrospektive (Stufe H)
 
 **Was lief gut:**
 
--
+- ServoCluster-Per-Servo-Enable (Stage D) funktionierte beim ersten Versuch wie aus API-Review vorhergesagt — kein Worst-Case-Fallback (D.4) gebraucht.
+- COBS+CRC-Frame-Layer (Stage C.0) war robust und fehlerfrei einmal die zwei initialen USB-/TTY-Bugs gefunden waren.
+- Watchdog + Hard-Clamp + Soft-Ramp greifen sauber ineinander — keine unerwarteten Wechselwirkungen bei Sicherheits-Trips.
+- Runtime-konfigurierbare Trip-Schwelle (`SET_CURRENT_LIMIT`) hat sich nachträglich als richtiger Design-Move erwiesen — ohne sie hätten wir die Stall-Tests entweder gar nicht hand-fahrbar gehabt oder mehrere Re-Flash-Zyklen gebraucht.
+- Stage F Mapping-Skelett liess sich ohne neuen Code anlegen — reine Doku + YAML, kein Firmware-Eingriff (passt zu CLAUDE.md "Firmware ist dumm").
 
 **Was hat länger gedauert als gedacht:**
 
--
+- Stage C.4 Bug-Hunt: TinyUSB-Flush UND TTY-Cooked-Mode versteckten sich gegenseitig — STATE-Frames kamen, ACKs nicht, das Muster machte erst Sinn als wir beide Bugs einzeln fanden.
+- Stage E Trip-Recovery: drei aufeinanderfolgende Fixes nötig (IIR auf 0 in RESET, dann auch Warmup-Counter, dann erst Diagnose dass ADC bei Hand-Bewegung Back-EMF-Strom misst).
+- Stage E.1 Test: erforderte API-Erweiterung (`SET_CURRENT_LIMIT`), weil die Default-Schwelle 3500 mA hand-unerreichbar ist mit Test-Servos. Hätten wir früher antizipieren können.
 
 **Was bleibt offen für spätere Phasen:**
 
--
+- **Phase 10:** echte Pulse-Min/Max/Zero-Kalibrierung pro Servo (aktuell Defaults 500/1500/2500); echte `direction`-Vorzeichen pro Servo (aktuell alle +1).
+- **Phase 10:** "Ghost-Current"-Analyse bei back-getriebenen Servos auf echtem Test-Rig — herausfinden ob es regenerative Stromrückführung ist oder MG996R-MCU-Verhalten. Aktuell unkritisch für Produktion.
+- **Phase 10+:** SET_CALIBRATION-Opcode (`0x10`) implementieren wenn die `defaults` aus `config.hpp` nicht reichen — d.h. wenn pro Servo unterschiedliche Limits gesetzt werden müssen ohne Re-Flash.
+- **Phase 13+ (Akku):** UV-Schwellen `UNDERVOLTAGE_WARN_MV=5500` / `CRIT_MV=5000` neu kalibrieren für 2S-LiPo (~7,4 V nominal). Vermutlich `WARN=6800`, `CRIT=6400`.
+- **Spätere Stufe:** LED-Opcodes `SET_LED` (0x30), `SET_LEDS_ALL` (0x31), `GET_INPUTS` (0x40) implementieren — aktuell als `UNKNOWN_OPCODE`-NACK abgewiesen. Kein Blocker für Phase 9 ROS-Anbindung.
+- **Spätere Stufe:** Per-Servo-Strom-Schätzung host-seitig (E.1 ursprünglicher Plan, verworfen wegen HW-Limit) — entweder via Servo-Modell oder Phase-10-Strommess-Adapter pro Kanal.

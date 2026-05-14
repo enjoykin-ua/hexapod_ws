@@ -1,8 +1,14 @@
 # Aktive Phase
 
-**Aktuell:** Phase 7 — Servo2040 Firmware
-**Datei:** `docs_raspi/phase_7_servo2040_fw.md`
-**Progress-Tracker:** `docs_raspi/phase_7_progress.md`
+**Aktuell:** Phase 8 — Strom- & Elektronik-Bench
+**Datei:** `docs_raspi/phase_8_electronics_bench.md`
+**Progress-Tracker:** `docs_raspi/phase_8_progress.md` (legen wir zu Phase-8-Start an)
+
+> **Phase 7 (Servo2040 Firmware):** ✅ abgeschlossen am 2026-05-14.
+> Alle Stufen A–G grün am Board verifiziert, Doku in `docs_raspi/phase_7_progress.md`
+> (inkl. Pimoroni-API-Erkenntnis-Tabelle + Retrospektive). Stufe H Git-Aktionen
+> (`phase-7-done`-Tag in fw-Repo und hexapod_ws, Commit der phase_7-Docs)
+> macht der User beim Phasenwechsel.
 
 > **Wichtig:** Ab Phase 7 liegen alle Phasen-Detail-Docs unter `docs_raspi/`,
 > nicht mehr unter `docs/`. Phasen 0–6 bleiben in `docs/`.
@@ -33,8 +39,8 @@
 
 | # | Name | Datei | Status |
 |---|---|---|---|
-| 7 | Servo2040 Firmware | `docs_raspi/phase_7_servo2040_fw.md` | 🟡 aktiv |
-| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | ⚪ offen |
+| 7 | Servo2040 Firmware | `docs_raspi/phase_7_servo2040_fw.md` | 🟢 abgeschlossen (2026-05-14) |
+| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | 🟡 aktiv |
 | 8b | Sim+HW Visual-Mirror (optional) | `docs_raspi/phase_8b_sim_hw_mirror.md` | ⚪ optional |
 | 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | ⚪ offen |
 | 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | ⚪ offen |

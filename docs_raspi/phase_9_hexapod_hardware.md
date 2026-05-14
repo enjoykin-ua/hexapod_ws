@@ -340,6 +340,25 @@ Verifikation mit Logic-Analyzer/Oszi an einem Servo2040-Output-Pin:
 - Watchdog feuert wenn ros2_control gestoppt wird (Servo2040 disabled
   alles)
 
+**Alternative ohne Oszi:** das `tools/log_state.py`-Skript aus dem Phase-7-fw-Repo
+(`hexapod_servo_driver/tools/log_state.py`) liefert die gleichen Pulse-Werte aus
+der Sicht der Firmware. Es pollt das Servo2040 mit 20 Hz via GET_STATE und schreibt
+eine CSV-Zeile pro Sample (`t_s, voltage_mv, current_ma, flags, p0..p17`). Damit
+sieht man Pulse-Werte und Watchdog-Trip-Zeitpunkt rein softwareseitig — nützlich
+wenn kein Oszi greifbar ist oder man später plotten will.
+
+```bash
+# in einem Terminal:
+python3 ~/hexapod_servo_driver/tools/log_state.py --duration 10 --out leg1_cal.csv
+
+# in einem zweiten Terminal die Bewegung treiben:
+ros2 launch hexapod_bringup real.launch.py loopback:=false
+```
+
+Verglichen mit Oszi: Logic-Analyzer zeigt das echte PWM-Signal am Pin (Ground Truth);
+log_state.py zeigt was die Firmware *intern* glaubt zu senden. Bei Mismatch beider
+weiß man dass der Servo2040 selbst ein Problem hat (sollte nicht passieren).
+
 **Done-Kriterium H:**
 1. PWM-Signal am Servo2040-Output messbar
 2. Pulse-Wert entspricht dem erwarteten Wert aus Kalibrierungs-YAML

@@ -171,6 +171,32 @@ Check:
 - Während Bewegung: Spitzen bis ~1 A bei kleinen Servos
 - **Kein Servo erreicht > 80 % Datenblatt-Stallstrom**
 
+**CSV-Logging für spätere Analyse:** der `effort`-Topic-Echo zeigt aktuelle Werte
+flüchtig. Für Plot/Analyse später nutzt man `~/hexapod_servo_driver/tools/log_state.py`
+(aus Phase 7). Das Skript pollt das Servo2040 direkt mit 20 Hz via USB-CDC und
+schreibt eine CSV: pro Sample 1 Zeile mit `t_s, voltage_mv, current_ma (Rail-Total),
+flags, p0..p17 (alle 18 Pulse-Werte)`. Wichtig zu wissen: die `current_ma`-Spalte ist
+**Gesamt-Rail-Strom**, kein per-Servo-Wert (Servo2040-HW hat nur einen Shunt).
+
+```bash
+# Terminal A — Logger startet vor der Kalibrierung, läuft parallel:
+python3 ~/hexapod_servo_driver/tools/log_state.py --out leg1_cal_$(date +%Y%m%dT%H%M).csv
+
+# Terminal B — Kalibrierungs-Jog wie oben in B.2 beschrieben
+ros2 launch hexapod_bringup real.launch.py
+# ... Sollwerte ändern, Servo bewegt sich ...
+
+# Wenn fertig: Ctrl-C im Logger-Terminal → CSV liegt bereit
+# Auswertung z.B. in Python:
+#   import pandas as pd
+#   df = pd.read_csv("leg1_cal_...csv")
+#   df.plot(x="t_s", y=["p0", "p1", "p2", "current_ma"])
+```
+
+Nutzen: man sieht die zeitliche Korrelation Pulse-Sollwert ↔ Rail-Strom-Antwort
+und kann die Soft-Ramp-Rate empirisch verifizieren (sollte ≤ 2000 µs/s entsprechend
+`cfg::MAX_DELTA_PULSE_PER_TICK_US`).
+
 **Done-Kriterium B:**
 1. Bein 1 fährt Joint=0 → URDF-Null-Pose mit < 5° Abweichung
 2. Bein 1 fährt ±π/4 mit korrekter Drehrichtung und korrektem Winkel
