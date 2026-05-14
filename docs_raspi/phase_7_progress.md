@@ -111,7 +111,7 @@ Klon: `/home/enjoykin/hexapod_servo_driver/` — 14 Commits, letzter Stand „pu
 ### Protokoll
 
 - [x] B.2 Frame-Format final: COBS + CRC-16/CCITT-FALSE über `SEQ ‖ CMD ‖ LEN ‖ PAYLOAD`
-- [x] B.2 Kommando-Tabelle final (9 Opcodes, siehe `PROTOCOL.md` §3)
+- [x] B.2 Kommando-Tabelle final (13 Opcodes, siehe `PROTOCOL.md` §3 — inkl. LED-Steuerung 0x30/0x31 für die 6 onboard WS2812-LEDs und Switch-/Sensor-Read 0x40 für die 6 externen Sensor-Pins + USER_SW; nachgetragen am 2026-05-14)
 - [x] B.2 CRC-Spezifikation: CRC-16/CCITT-FALSE (Polynom 0x1021, Init 0xFFFF, no reflect, XorOut 0x0000)
 - [x] B.2 Wire-Format Pulse: int16 LE µs (umgestellt von altem float)
 - [x] B.2 Update-Rate Host → Firmware: 50 Hz Default, bis 100 Hz erlaubt
