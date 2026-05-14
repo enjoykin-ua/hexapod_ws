@@ -15,8 +15,8 @@
 - [x] A.1 Bestehenden User-Code-Stand geklont nach `/home/enjoykin/hexapod_servo_driver/` (User-Entscheidung: nicht in `_old`-Referenz, sondern direkt als Arbeits-Repo weiternutzen — siehe Design-Entscheidungen)
 - [x] A.1 Notizen zum bestehenden Code: was funktioniert hat, was nicht (siehe Abschnitt "Sichtung bestehender Code" unten)
 - [x] A.2 Repo-Entscheidung: bestehendes Repo `hexapod_servo_driver` wird Arbeits-Repo (kein neues angelegt)
-- [ ] A.2 `CLAUDE.md` im Firmware-Repo geschrieben — **offen** (bestehendes Repo hat keine)
-- [ ] A.2 `README.md` mit Quickstart — **erweitern** (bestehende ist minimal, ohne Sicherheits-Hinweise)
+- [x] A.2 `CLAUDE.md` im Firmware-Repo geschrieben (10 Abschnitte: Zweck, Beziehung zu hexapod_ws, Tech-Stack, Soll-Struktur, Arbeitsweise, Tag-Strategie, Strikte Grenzen, Konventionen, Build/Flash, Erst-Diagnose)
+- [x] A.2 `README.md` erweitert (Voraussetzungen, Build, Flash mit beiden Varianten, picotool-Source-Build, Test-Verweis Stufe G, Architektur-Diagramm)
 - [x] A.2 `.gitignore` (build-Artefakte, IDE-Configs) — vorhanden, kurz aber funktional
 - [x] A.3 Pico-SDK als Pfad eingebunden (`/home/enjoykin/pico-sdk`, `PICO_SDK_PATH` in `~/.bashrc`)
 - [x] A.3 Pimoroni `pimoroni-pico` als Pfad eingebunden (`/home/enjoykin/pimoroni-pico`, auto-detected als Geschwister)
