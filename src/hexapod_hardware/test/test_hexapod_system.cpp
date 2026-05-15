@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <fcntl.h>
+#include <poll.h>
 #include <pty.h>
 #include <termios.h>
 #include <unistd.h>
@@ -582,6 +583,329 @@ TEST(HexapodSystemConfigure, DestructorCleansUpAutomatically)
     std::chrono::duration_cast<std::chrono::milliseconds>(dt).count() << " ms";
 
   ::close(master_fd);
+}
+
+// ============================================================================
+// on_activate / on_deactivate (Sub-Stage D.5)
+//
+// Boot sequence under test (PROTOCOL.md §5 / §6, phase_9_stage_d_plan §D.5):
+//   1× RESET → 18× ENABLE_SERVO(pin, true) with 50 ms stagger →
+//   1× SET_TARGETS with all pulses at pulse_zero.
+//
+// Two test paths:
+//   - Loopback: only checks timing/SUCCESS — no wire I/O to inspect.
+//   - PTY: reads back the bytes the plugin wrote to the slave end of a
+//     pty pair and decodes them as Servo2040 wire frames.
+// ============================================================================
+
+namespace
+{
+
+// Read everything available on master_fd until no bytes arrive for
+// `idle_timeout`. Returns the concatenated bytes. Used to capture the
+// plugin's wire output after a write-heavy lifecycle step.
+std::vector<uint8_t> drain_master_until_idle(
+  int master_fd, std::chrono::milliseconds idle_timeout)
+{
+  std::vector<uint8_t> out;
+  out.reserve(1024);
+  uint8_t buf[256];
+  while (true) {
+    struct pollfd pfd {master_fd, POLLIN, 0};
+    const int pr = ::poll(&pfd, 1, static_cast<int>(idle_timeout.count()));
+    if (pr <= 0) {break;}
+    const ssize_t n = ::read(master_fd, buf, sizeof(buf));
+    if (n <= 0) {break;}
+    out.insert(out.end(), buf, buf + n);
+  }
+  return out;
+}
+
+// Split a 0x00-delimited byte stream into frames and decode each one.
+// Decode failures are silently dropped — callers assert on the frame count.
+std::vector<hexapod_hardware::DecodedFrame> split_and_decode_frames(
+  const std::vector<uint8_t> & bytes)
+{
+  std::vector<hexapod_hardware::DecodedFrame> frames;
+  std::vector<uint8_t> cobs_buf;
+  cobs_buf.reserve(64);
+  for (const uint8_t b : bytes) {
+    if (b == 0x00) {
+      if (!cobs_buf.empty()) {
+        auto f = hexapod_hardware::decode_frame(cobs_buf);
+        if (f) {frames.push_back(*f);}
+        cobs_buf.clear();
+      }
+    } else {
+      cobs_buf.push_back(b);
+    }
+  }
+  return frames;
+}
+
+}  // namespace
+
+TEST(HexapodSystemActivate, LoopbackActivateAndDeactivateAreFast)
+{
+  // Loopback mode skips the 50 ms per-servo stagger. Total time is bounded
+  // by the 10 ms RESET-breather + the encoding overhead — well under 100 ms.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();   // loopback_mode=true is the default here
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  const auto t0 = std::chrono::steady_clock::now();
+  EXPECT_EQ(
+    plugin.on_activate(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  const auto activate_dt = std::chrono::steady_clock::now() - t0;
+  EXPECT_LT(activate_dt, std::chrono::milliseconds(100))
+    << "Loopback on_activate took " <<
+    std::chrono::duration_cast<std::chrono::milliseconds>(activate_dt).count() << " ms";
+
+  // Deactivate is also fast in loopback (no wire I/O, no waits at all).
+  const auto t1 = std::chrono::steady_clock::now();
+  EXPECT_EQ(
+    plugin.on_deactivate(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  const auto deactivate_dt = std::chrono::steady_clock::now() - t1;
+  EXPECT_LT(deactivate_dt, std::chrono::milliseconds(50))
+    << "Loopback on_deactivate took " <<
+    std::chrono::duration_cast<std::chrono::milliseconds>(deactivate_dt).count() << " ms";
+}
+
+TEST(HexapodSystemActivate, PtyActivateSendsBootSequenceInOrder)
+{
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  ASSERT_EQ(
+    plugin.on_activate(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // Idle-timeout must be larger than the 50 ms stagger so we don't
+  // declare "idle" between two consecutive ENABLE_SERVO frames.
+  const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(200));
+  const auto frames = split_and_decode_frames(bytes);
+
+  ASSERT_EQ(frames.size(), 20u)
+    << "Expected 1 RESET + 18 ENABLE_SERVO + 1 SET_TARGETS (got " <<
+    frames.size() << ")";
+
+  // Frame 0: RESET (payload empty).
+  EXPECT_EQ(frames[0].cmd, hexapod_hardware::opcode::RESET);
+  EXPECT_EQ(frames[0].payload.size(), 0u);
+
+  // Frames 1..18: ENABLE_SERVO(pin, enable=0x01), pin = 0..17 in order.
+  for (uint8_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
+    const auto & f = frames[1 + pin];
+    EXPECT_EQ(f.cmd, hexapod_hardware::opcode::ENABLE_SERVO)
+      << "at wire index " << static_cast<int>(1 + pin);
+    ASSERT_EQ(f.payload.size(), 2u);
+    EXPECT_EQ(f.payload[0], pin) << "servo_idx mismatch at pin " << static_cast<int>(pin);
+    EXPECT_EQ(f.payload[1], 0x01) << "expected enable=true at pin " << static_cast<int>(pin);
+  }
+
+  // Frame 19: SET_TARGETS with all 18 pulses at pulse_zero (1500 µs per
+  // the in-tree servo_mapping.yaml — int16-LE: 0xDC 0x05).
+  EXPECT_EQ(frames[19].cmd, hexapod_hardware::opcode::SET_TARGETS);
+  ASSERT_EQ(frames[19].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
+  for (std::size_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
+    const uint8_t lo = frames[19].payload[2 * pin];
+    const uint8_t hi = frames[19].payload[2 * pin + 1];
+    const int16_t pulse = static_cast<int16_t>(
+      static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
+    EXPECT_EQ(pulse, 1500) << "neutral pulse_zero mismatch at servo pin " << pin;
+  }
+
+  // SEQ starts at 0; fetch_add returns pre-increment value. So the wire
+  // sequence is 0, 1, 2, …, 19 in order.
+  for (std::size_t i = 0; i < frames.size(); ++i) {
+    EXPECT_EQ(static_cast<int>(frames[i].seq), static_cast<int>(i))
+      << "SEQ mismatch at frame " << i;
+  }
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemActivate, PtyActivateRespectsStaggerTiming)
+{
+  // Without the 50 ms stagger, the boot sequence would finish in single
+  // digits of milliseconds — verify the wall-clock duration matches the
+  // designed cadence. Budget: 10 ms (RESET breather) + 18 × 50 ms = 910 ms.
+  // Allow ±200 ms band for scheduler jitter on busy CI machines.
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  const auto t0 = std::chrono::steady_clock::now();
+  ASSERT_EQ(
+    plugin.on_activate(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  const auto dt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - t0).count();
+  EXPECT_GT(dt_ms, 800) << "Activate completed in " << dt_ms << " ms — no stagger?";
+  EXPECT_LT(dt_ms, 1200) << "Activate took " << dt_ms << " ms — too slow?";
+
+  drain_master_until_idle(master_fd, std::chrono::milliseconds(50));
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemActivate, PtyDeactivateSendsDisableForAllServos)
+{
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_activate(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // Drop the 20 boot-sequence frames — we only care about what deactivate writes.
+  drain_master_until_idle(master_fd, std::chrono::milliseconds(200));
+
+  // Deactivate must NOT stagger (we want torque off as fast as possible).
+  const auto t0 = std::chrono::steady_clock::now();
+  ASSERT_EQ(
+    plugin.on_deactivate(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  const auto dt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - t0).count();
+  EXPECT_LT(dt_ms, 200) << "Deactivate should be stagger-free (took " <<
+    dt_ms << " ms)";
+
+  const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(100));
+  const auto frames = split_and_decode_frames(bytes);
+  ASSERT_EQ(frames.size(), hexapod_hardware::NUM_SERVOS);
+  for (uint8_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
+    const auto & f = frames[pin];
+    EXPECT_EQ(f.cmd, hexapod_hardware::opcode::ENABLE_SERVO);
+    ASSERT_EQ(f.payload.size(), 2u);
+    EXPECT_EQ(f.payload[0], pin);
+    EXPECT_EQ(f.payload[1], 0x00) << "expected enable=false at pin " <<
+      static_cast<int>(pin);
+  }
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemActivate, PtyActivateDeactivateCycleCanRepeat)
+{
+  // ros2_control may run activate → deactivate → activate cycles (e.g.
+  // controller swaps, recovery). Two cycles back-to-back must work, with
+  // SEQ continuing across cycles (no wraparound observable here either —
+  // 2 cycles = 76 frames < 256).
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    ASSERT_EQ(
+      plugin.on_activate(rclcpp_lifecycle::State{}),
+      hardware_interface::CallbackReturn::SUCCESS) << "cycle " << cycle;
+    drain_master_until_idle(master_fd, std::chrono::milliseconds(200));
+    ASSERT_EQ(
+      plugin.on_deactivate(rclcpp_lifecycle::State{}),
+      hardware_interface::CallbackReturn::SUCCESS) << "cycle " << cycle;
+    drain_master_until_idle(master_fd, std::chrono::milliseconds(100));
+  }
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemActivate, ActivateFailsCleanlyIfPortIsBroken)
+{
+  // Failure scenario: USB disconnect lands between configure and activate.
+  // We simulate this by closing the pty's master end — subsequent writes
+  // on the slave (the plugin's FD) return EIO, and the reader thread
+  // will eventually flag died_. on_activate's send_frame helper must
+  // return ERROR cleanly (not throw out a std::system_error chain).
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // Yank the master end. Give the reader a moment to react.
+  ::close(master_fd);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  EXPECT_EQ(
+    plugin.on_activate(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::ERROR);
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
 }
 
 int main(int argc, char ** argv)

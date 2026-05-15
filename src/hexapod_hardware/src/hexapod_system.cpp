@@ -363,14 +363,146 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_cleanup(
 hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Stage D.5 fills this in (RESET + 18× ENABLE_SERVO stagger + neutral SET_TARGETS).
+  RCLCPP_INFO(plugin_logger(), "on_activate starting (loopback_mode=%s)",
+    loopback_mode_ ? "true" : "false");
+
+  // In loopback mode we still walk the boot sequence to keep code paths
+  // identical (seq_ increments, last_command_pulse_us_ is set to pulse_zero)
+  // but skip wire I/O and the 50 ms stagger. CI stays fast (< 100 ms) and
+  // a test can assert seq_ increments by 20 (1 RESET + 18 ENABLE + 1 SET_TARGETS).
+  const auto stagger = loopback_mode_ ?
+    std::chrono::milliseconds(0) :
+    std::chrono::milliseconds(50);
+
+  // Defensive helper: any write_all() call goes through this. If the reader
+  // thread died (USB just got unplugged), bail out before throwing on the
+  // closed FD — the resulting error log is much clearer than a system_error
+  // chain. Returns false to signal the caller to abort the boot sequence.
+  auto send_frame =
+    [this](const std::vector<uint8_t> & frame, const char * what) -> bool {
+      if (loopback_mode_) {return true;}
+      if (reader_.died()) {
+        RCLCPP_FATAL(plugin_logger(),
+          "Reader thread died before/while sending %s — likely USB disconnect. "
+          "Aborting on_activate; controller will stay inactive.", what);
+        return false;
+      }
+      try {
+        serial_port_.write_all(frame.data(), frame.size());
+      } catch (const std::exception & e) {
+        RCLCPP_FATAL(plugin_logger(),
+          "Failed to send %s frame: %s", what, e.what());
+        return false;
+      }
+      return true;
+    };
+
+  // ─── 1) RESET: clear any latched WATCHDOG_TRIPPED from a prior run ────
+  // If the plugin previously died without a clean on_deactivate (SIGKILL,
+  // crash, USB yanked), the firmware may still have its watchdog flag set.
+  // ENABLE_SERVO frames are NACK'd in that state; sending RESET first makes
+  // the boot sequence idempotent regardless of how the last run ended.
+  // Spec ref: PROTOCOL.md §6 "Recovery".
+  {
+    auto frame = encode_reset(seq_.fetch_add(1));
+    if (!send_frame(frame, "RESET")) {
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+    // Small breather so the firmware can process RESET before the ENABLE
+    // barrage arrives. 10 ms is well above the firmware's frame-dispatch
+    // cost (~ µs) but invisible to the 50 ms per-servo cadence below.
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // ─── 2) 18× ENABLE_SERVO with 50 ms host-side stagger ──────────────────
+  // Phase-7 design decision D.1: the host paces the per-servo enables to
+  // spread inrush current across ~900 ms. Each frame also resets the
+  // firmware's 200 ms watchdog (PROTOCOL.md §6), so the watchdog stays warm
+  // throughout the boot.
+  for (uint8_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    auto frame = encode_enable_servo(seq_.fetch_add(1), pin, /*enable=*/true);
+    if (!send_frame(frame, "ENABLE_SERVO")) {
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+    std::this_thread::sleep_for(stagger);
+  }
+
+  // ─── 3) SET_TARGETS with neutral pulses ────────────────────────────────
+  // Two purposes:
+  //  - keep the watchdog warm during the gap between on_activate's exit and
+  //    the first controller_manager write() tick (could be > 200 ms in
+  //    pathological launch timings)
+  //  - put the robot in a defined neutral pose (all joints at pulse_zero,
+  //    ≈ 1500 µs ≡ 0 rad) so the first JTC trajectory has a known start
+  //
+  // last_command_pulse_us_ is already pulse_zero from on_init, but we
+  // re-assert it here so a re-activate after a disconnect-recovery cycle
+  // also lands in the neutral pose regardless of what the last write() set.
+  std::array<int16_t, NUM_SERVOS> neutral_pulses{};
+  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    neutral_pulses[pin] = calibration_.at(static_cast<int>(pin)).pulse_zero;
+    last_command_pulse_us_[pin] = neutral_pulses[pin];
+  }
+  auto neutral_frame = encode_set_targets(seq_.fetch_add(1), neutral_pulses);
+  if (!send_frame(neutral_frame, "SET_TARGETS (neutral)")) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  RCLCPP_INFO(plugin_logger(),
+    "on_activate complete — %s (seq counter advanced by 20)",
+    loopback_mode_ ?
+    "loopback path traced, no wire frames sent" :
+    "18 servos enabled, neutral pose commanded");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn HexapodSystemHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Stage D.5 fills this in (DISABLE_SERVO for all).
+  RCLCPP_INFO(plugin_logger(), "on_deactivate starting");
+
+  // Unlike on_activate, on_deactivate runs WITHOUT stagger. Disable does
+  // not draw inrush current (servos just go limp), and we want the robot
+  // to lose torque as fast as possible — e.g. when a safety condition
+  // triggers the user to switch the controller back to inactive.
+  //
+  // Best-effort semantics: if a frame fails to send (port already gone,
+  // reader thread died), we log and continue with the remaining servos.
+  // Returning ERROR would make ros2_control fault, but at deactivate-time
+  // there's no recovery path anyway and the firmware's watchdog will
+  // disable everything within 200 ms regardless.
+  if (loopback_mode_) {
+    RCLCPP_INFO(plugin_logger(),
+      "Loopback mode: skipping disable frames");
+    return hardware_interface::CallbackReturn::SUCCESS;
+  }
+
+  std::size_t failures = 0;
+  for (uint8_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    if (reader_.died()) {
+      RCLCPP_WARN(plugin_logger(),
+        "Reader thread died during on_deactivate; skipping remaining "
+        "ENABLE_SERVO(false) frames (firmware watchdog will disable "
+        "everything within 200 ms anyway).");
+      break;
+    }
+    auto frame = encode_enable_servo(seq_.fetch_add(1), pin, /*enable=*/false);
+    try {
+      serial_port_.write_all(frame.data(), frame.size());
+    } catch (const std::exception & e) {
+      ++failures;
+      RCLCPP_WARN(plugin_logger(),
+        "Failed to send ENABLE_SERVO(%u, false): %s", pin, e.what());
+    }
+  }
+
+  if (failures > 0) {
+    RCLCPP_WARN(plugin_logger(),
+      "on_deactivate completed with %zu/%zu disable frames lost — relying "
+      "on firmware watchdog for fallback", failures, NUM_SERVOS);
+  } else {
+    RCLCPP_INFO(plugin_logger(), "on_deactivate complete — 18 servos disabled");
+  }
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 

@@ -58,7 +58,20 @@ Versions-Konflikte, die wir vermeiden wollen.
   übersprungen, auch wenn der User „mal eben weitergehen" will.
   Wenn der User springen will: höflich blocken und Done-Kriterium der
   aktuellen Phase abfragen.
-- **Pro Schritt:** erst Konzept besprechen → dann Implementierung → dann Test.
+- **Pro Schritt:** erst Konzept besprechen → dann Implementierung → dann Test
+  → **dann kritischer Self-Review BEVOR die Stufe als „fertig" gemeldet wird**.
+- **Kritischer Self-Review** ist Pflicht-Schritt, nicht optional. Auch wenn
+  Code baut und Tests grün sind: nochmal selber durchgehen mit Fokus auf
+  *was könnte schiefgehen, was wurde vergessen, wo sind Edge-Cases offen*.
+  Erwartete Output-Form: Tabelle mit Punkten + Status (`OK` / `🔴 fixen` /
+  `🟡 vormerken` / `🟢 später`) — dieselbe Form wie in den
+  `Stufe-<X>-Post-Review`-Abschnitten in `phase_<n>_progress.md`. Wenn
+  Fixe nötig sind: erst Fix + Tests + Doku, dann Fertig-Meldung. Wenn
+  später-Punkte: ins Progress-File schreiben, damit nichts verloren geht.
+  Hintergrund: diese Reviews haben in den Stufen B, C, D.1–D.4 mehrfach
+  echte Bugs aufgedeckt (Payload-Overflow ohne Range-Check, fehlender
+  Strong-Exception-Guarantee, falscher URDF-Limit-Validation usw.) — die
+  wären sonst erst in der Inbetriebnahme rausgekommen.
 - **Tests grün vor Commit.** Keine Commits mit roten Tests.
 - **Commits referenzieren Phase + Teilziel:** z. B. `phase2: add coxa joint xacro macro`.
 - **Bei Unsicherheit nachfragen statt raten.** „Ich weiß es nicht" oder

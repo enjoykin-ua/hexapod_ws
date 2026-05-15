@@ -4,6 +4,8 @@
 #define HEXAPOD_HARDWARE__HEXAPOD_SYSTEM_HPP_
 
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -87,6 +89,13 @@ private:
   // Sized to NUM_SERVOS at construction, not on_init — fixed by hardware.
   // Initialised to pulse_zero per servo at end of on_init.
   std::array<int16_t, NUM_SERVOS> last_command_pulse_us_{};
+
+  // Frame sequence counter — incremented per outgoing frame. Atomic because
+  // on_activate's RESET/ENABLE sequence and the controller_manager's write()
+  // tick may race in pathological orderings (e.g. lifecycle race during
+  // shutdown). uint8_t wraps at 256; firmware is stateless w.r.t. SEQ
+  // (echoes it in replies) so wraparound is harmless.
+  std::atomic<uint8_t> seq_{0};
 
   // ─── Hardware (opened/started in on_configure, closed in on_cleanup) ─────
   // Declaration order is INTENTIONAL: serial_port_ is constructed first

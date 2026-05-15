@@ -7,17 +7,20 @@ State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
 Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
-(Sub-Stage D.4/8 fertig)**. Aktuell:
+(Sub-Stage D.5/8 fertig)**. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
 - Reader-Thread (17 Tests inkl. RAII-Lifecycle + Stress-Test 5× start/stop)
 - `on_init` (17 Tests inkl. permutierte Joint-Reihenfolge, Bool-Parser-Robustheit,
   Lower-<-Upper-Limit-Validation, Strong-EH-Guarantee bei Re-Init)
-- **`on_configure` / `on_cleanup` (6 Tests: Loopback-Skip, pty-Open + Reader-Start,
-  Bad-Path-Reject, Configure/Cleanup-Cycle 3×, RAII-Destructor)**
+- `on_configure` / `on_cleanup` (6 Tests: Loopback-Skip, pty-Open + Reader-Start,
+  Bad-Path-Reject, Configure/Cleanup-Cycle 3×, RAII-Destructor)
+- **`on_activate` / `on_deactivate` (6 Tests: Loopback-Fast, Pty-Boot-Sequence-Order
+  verifiziert byteweise, Stagger-Timing 900 ms ± 100 ms, Deactivate-Disable-All,
+  Activate/Deactivate-Cycle 2×, Activate-Fails-Clean bei Port-Broken)**
 
-Total: **120 gtest-Cases** über sechs Sub-Layers.
+Total: **126 gtest-Cases** über sieben Sub-Layers.
 
 ---
 
@@ -268,14 +271,15 @@ Subklasse von `hardware_interface::SystemInterface`. Wird zur Laufzeit
 über `pluginlib` geladen und vom `controller_manager` durch eine feste
 **Lifecycle**-Reihenfolge gefahren:
 
-| Lifecycle-Hook | Aufgabe (Soll, kommt in Stufe D) |
+| Lifecycle-Hook | Aufgabe (Stand D.5/8) |
 |---|---|
-| `on_init`        | URDF-Joint-Liste auswerten, Vektoren allokieren, Kalibrierungs-YAML laden |
-| `on_configure`   | Serial-Port öffnen (`/dev/ttyACM0`), termios setzen, Reader-Thread starten |
-| `on_activate`    | 18× `ENABLE_SERVO`-Frames mit 50 ms Stagger schicken (Host-Stagger, V1) |
-| `on_deactivate`  | `DISABLE`-Frames, Reader-Thread stoppen, Port schließen |
-| `read`           | Letztes STATE-Frame in `hw_state_positions_` schreiben (Echo) |
-| `write`          | Command-Vektor → Pulse-µs → `SET_TARGETS`-Frame senden |
+| `on_init`        | ✅ URDF-Joint-Liste validieren, Joint→Pin-Tabelle bauen, Kalibrierung laden, Limits injizieren, last_command_pulse_us_ auf pulse_zero |
+| `on_configure`   | ✅ Serial-Port öffnen, Reader-Thread starten (in Loopback: skipt beides) |
+| `on_activate`    | ✅ RESET → 18× ENABLE_SERVO mit 50 ms Stagger → SET_TARGETS neutral (Watchdog warmhalten + definierte Initial-Pose) |
+| `on_deactivate`  | ✅ 18× DISABLE_SERVO ohne Stagger (Best-Effort — Torque-off so schnell wie möglich) |
+| `on_cleanup`     | ✅ Reader-Thread stoppen, Serial-Port schließen (in dieser Reihenfolge) |
+| `read`           | 🟡 Stub (D.6: STATE-Cache → hw_state_positions_, Echo via Calibration::pulse_us_to_radians) |
+| `write`          | 🟡 Stub (D.6: hw_command_positions_ → Pulse-µs → SET_TARGETS-Frame) |
 
 Plus die `export_*_interfaces`-Methoden, die dem `controller_manager`
 sagen, welche Joints welche Position-Interfaces haben.
@@ -579,6 +583,127 @@ wirft — lokale Strukturen + `std::move`-Commit am Ende).
 
 ---
 
+## Boot-Sequenz (Stufe D.5) — was passiert beim Activate?
+
+`on_activate` ist der Lifecycle-Hook, den `controller_manager` aufruft, wenn
+ein User (oder ein Launch-File) den Plugin aus dem `inactive`-State in
+`active` schaltet — also genau dann, wenn die Servos „echt loslegen sollen".
+
+Die Implementation folgt einer 3-Phasen-Boot-Sequenz, die in
+[`~/hexapod_servo_driver/PROTOCOL.md §5–§6`](file:///home/enjoykin/hexapod_servo_driver/PROTOCOL.md)
+spezifiziert ist und in Phase 7 (Firmware) Design-Entscheidung D.1 fixiert
+wurde:
+
+```
+on_activate:
+  ┌──────────────────────────────────────────────────────────────┐
+  │ 1. RESET (1 Frame)                                           │
+  │    Clears WATCHDOG_TRIPPED falls Plugin vorher unsauber weg  │
+  │    Sleep 10 ms (Firmware-Atempause)                          │
+  └──────────────────────────────────────────────────────────────┘
+            │
+            ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │ 2. ENABLE_SERVO × 18 (mit 50 ms Stagger zwischen Frames)     │
+  │    pin 0 → enable=true → sleep 50 ms                         │
+  │    pin 1 → enable=true → sleep 50 ms                         │
+  │    ...                                                       │
+  │    pin 17 → enable=true → sleep 50 ms                        │
+  │    ───────────────────────                                   │
+  │    Total: ~900 ms (18 × 50 ms)                               │
+  └──────────────────────────────────────────────────────────────┘
+            │
+            ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │ 3. SET_TARGETS [alle 18 pulse_zero]                          │
+  │    Definierte Neutralpose (≈ 1500 µs ≡ 0 rad)                │
+  │    Watchdog warmhalten bis erster write()-Tick               │
+  └──────────────────────────────────────────────────────────────┘
+
+Total Activate-Dauer: ~910 ms in non-loopback, < 100 ms in loopback (skip stagger)
+```
+
+### Warum diese drei Phasen?
+
+**RESET-voran (Punkt 1):** Wenn das Plugin in einem vorherigen Run unsauber
+weggebrochen ist (SIGKILL, Crash, USB gezogen), kann die Firmware noch im
+`WATCHDOG_TRIPPED`-Zustand stecken — in dem Zustand werden alle nachfolgenden
+`ENABLE_SERVO`-Frames mit `NACK` beantwortet (PROTOCOL.md §6). RESET macht
+die Boot-Sequenz **idempotent** unabhängig davon, wie der letzte Run endete.
+
+**Stagger 50 ms (Punkt 2):** Wenn alle 18 Servos gleichzeitig spannungsfrei
+→ spannungs-versorgt werden, sehen wir bis zu **18 × Inrush-Strom-Peak**
+auf dem Servo-Rail. Das kann die Bench-PSU (oder später den Akku) in den
+Overcurrent-Cut-Off treiben. Mit 50 ms Pause zwischen den Servos sind die
+Peaks zeitlich entkoppelt (~900 ms Gesamtdauer ist aufs Boot-Erlebnis
+hinnehmbar). Phase-7-Design-Entscheidung D.1: **Host macht den Stagger**,
+Firmware bleibt dumm.
+
+**Neutralpose-Frame (Punkt 3):** Zwei Funktionen gleichzeitig:
+1. **Definierter Initial-State.** Vor der ersten JTC-Trajectory steht
+   der Roboter in einer bekannten Pose (alle Joints auf 0 rad,
+   ≈ 1500 µs pulse_zero pro Servo). Sonst würde das Robot je nach
+   letztem Servo-Befehl irgendwo stehen.
+2. **Watchdog-Bridge.** Die Firmware-seitige Watchdog wirft `WATCHDOG_TRIPPED`
+   wenn 200 ms lang **kein valides Frame** ankommt (PROTOCOL.md §6).
+   Zwischen Activate-Ende und dem ersten `controller_manager`-Tick könnten
+   in pathologischen Launch-Timings > 200 ms vergehen. Das SET_TARGETS-Frame
+   am Activate-Ende setzt den Timer auf 0 und überbrückt die Lücke.
+
+### Defensives `send_frame`-Pattern
+
+Alle Wire-Writes in `on_activate` gehen durch eine lokale Lambda
+`send_frame(frame, what)`, die zwei Sicherheitsmaßnahmen bündelt:
+
+1. **`reader_.died()`-Check vor jedem Write.** Wenn der USB-Stecker zwischen
+   `on_configure` und `on_activate` gezogen wurde, hat der Reader-Thread
+   bereits `POLLHUP` gesehen und sein `died_`-Flag gesetzt. Statt jetzt
+   blind ins offene Messer zu rennen (`write_all` → EIO → exception chain),
+   bricht die Lambda mit einem klaren FATAL-Log ab und kehrt false zurück.
+   `on_activate` returns `ERROR`, der `controller_manager` hält den
+   Plugin in `inactive`.
+
+2. **Exception-Catch um `write_all`.** Falls der Disconnect erst während
+   Activate landet (z.B. mitten in den 18 ENABLE-Frames), wirft `write_all`
+   ein `std::system_error`. Die Lambda catcht es, loggt FATAL mit Kontext
+   („Failed to send ENABLE_SERVO frame: …") und bricht ab.
+
+In **Loopback-Mode** (`loopback_mode=true` im URDF-`<param>`) ist die
+Lambda ein No-Op und der Stagger ist 0 ms — die Boot-Sequenz wird komplett
+in unter 100 ms durchlaufen für schnelle CI-Tests. Die Encoder-Aufrufe
+und `seq_`-Increments werden trotzdem durchgeführt, sodass Tests indirekt
+verifizieren können, dass die Sequenz „in trockener Form" funktioniert.
+
+### `on_deactivate` — Spiegelbild ohne Stagger
+
+`on_deactivate` schickt `ENABLE_SERVO(pin, false)` für alle 18 Servos
+**ohne Stagger**. Disable hat keinen Inrush, und wir wollen Torque-off
+so schnell wie möglich (z.B. wenn der User ein Sicherheits-Problem
+erkennt und den Controller deaktiviert).
+
+Failures beim Senden werden als WARN geloggt, die Schleife bricht aber
+nicht ab (Best-Effort). Hintergrund: selbst wenn die Disable-Frames
+verloren gehen (z.B. USB-Disconnect), springt nach 200 ms die
+Firmware-Watchdog ein und disabled die Servos sowieso. Hard-Fail wäre
+hier kontraproduktiv.
+
+### Was passiert NICHT in D.5
+
+- **Kein automatisches RESET** wenn Watchdog mid-run tripped. User
+  entscheidet manuell (Phase-10-Tool oder Stack-Restart). Plugin loggt
+  den Trip, `read()` (kommt in D.6) returnt `ERROR`, `controller_manager`
+  fährt Plugin in `inactive`.
+- **Kein read/write mit echter Pulse-Konversion** — D.6.
+- **Kein Reconnect-Versuch im Activate-Pfad** — D.7. Mid-Activate-Disconnect
+  führt zu sauberem Abort mit `ERROR`.
+
+Tests in [`test/test_hexapod_system.cpp`](test/test_hexapod_system.cpp)
+(6 Test-Cases in der Suite `HexapodSystemActivate`): byteweise Verifikation
+der Wire-Frames auf einer PTY-Master-Seite, Stagger-Timing-Bounds,
+Cycle-Repeatability, USB-Disconnect-Robustness.
+
+---
+
 ## Die `on_init`-Signatur — was bedeutet das?
 
 Beim Bauen in Stufe A kam initial folgende Warnung:
@@ -686,7 +811,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | └ D.2 | Reader-Thread mit Frame-Stream-Parser + RAII-Lifecycle, 17 Tests | ✅ |
 | └ D.3 | on_init mit URDF-Joints + Calibration-Lookup-Tabelle, 17 Tests | ✅ |
 | └ D.4 | on_configure / on_cleanup (Port öffnen/schließen, Reader-Lifecycle), 6 Tests | ✅ |
-| └ D.5 | on_activate Boot-Sequenz (RESET + 18×ENABLE + SET_TARGETS) | offen |
+| └ D.5 | on_activate Boot-Sequenz (RESET + 18×ENABLE 50 ms stagger + SET_TARGETS neutral) + on_deactivate Disable-All, 6 Tests | ✅ |
 | └ D.6 | read/write mit Echo-State + Pulse-Konversion | offen |
 | └ D.7 | USB-Reconnect-Logik mit Backoff | offen |
 | └ D.8 | ERROR_REPORT-Logging-Detail | offen |

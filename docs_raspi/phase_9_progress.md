@@ -434,9 +434,61 @@
 - Kein SET_TARGETS oder ergebnis-relevantes write/read — **D.6**
 - Kein Reconnect-Retry bei verlorenem Port — **D.7** (D.4-Verhalten bei mid-run-Disconnect: Reader-Thread stirbt mit `died_=true`)
 
-### Sub-Stage D.5 — `on_activate` mit Boot-Sequenz
+### Sub-Stage D.5 — `on_activate` / `on_deactivate` mit Boot-Sequenz
 
-(folgt nach D.4)
+> **Konzept-Erklärung:** [`phase_9_stage_d_plan.md §D.5`](phase_9_stage_d_plan.md) — RESET → 18×ENABLE 50 ms stagger → SET_TARGETS neutral.
+>
+> Done-Kriterium D.5 (aus Plan): Loopback `on_activate` < 100 ms; PTY: Boot-Sequenz in Order auf der Wire, Stagger ~ 900 ms gesamt, last_command_pulse_us_ landet auf pulse_zero.
+
+- [x] D.5.1 Header `hexapod_system.hpp`: `std::atomic<uint8_t> seq_{0}` als Member ergänzt, `<atomic>` + `<cstdint>` Includes
+- [x] D.5.2 `on_activate` implementiert (3 Phasen, ~95 Zeilen):
+  1. RESET-Frame schicken (PROTOCOL.md §6 — clears WATCHDOG_TRIPPED falls vom letzten Run hängengeblieben), 10 ms Breather
+  2. 18× ENABLE_SERVO(pin, true) mit 50 ms Stagger (in Loopback: 0 ms, schnelle CI). Setzt Watchdog warm bei jedem Frame.
+  3. SET_TARGETS mit allen pulse_zero (= 1500 µs aus YAML-defaults). Re-asserts `last_command_pulse_us_` auf Neutral, hält Watchdog während Gap bis erster write()-Tick warm.
+  - Defensive `send_frame`-Lambda: prüft `reader_.died()` vor jedem `write_all`; catched exceptions → FATAL-Log + return ERROR. Loopback skipt Wire-I/O komplett.
+- [x] D.5.3 `on_deactivate` implementiert: 18× ENABLE_SERVO(pin, false) ohne Stagger (Torque-off so schnell wie möglich, Disable hat keinen Inrush). Best-Effort-Semantik (Failures → WARN, weiter, weil Watchdog 200 ms später eh disabled).
+- [x] D.5.4 Tests `test_hexapod_system.cpp` neue Suite `HexapodSystemActivate` (6 Tests):
+  - `LoopbackActivateAndDeactivateAreFast` — Loopback Activate < 100 ms, Deactivate < 50 ms
+  - `PtyActivateSendsBootSequenceInOrder` — auf master-end exakt 20 Frames: 1× RESET (cmd=0x50) + 18× ENABLE_SERVO mit pin=0..17, enable=0x01 + 1× SET_TARGETS mit allen 18 Pulses = 1500 µs. SEQ wraparound-frei 0..19.
+  - `PtyActivateRespectsStaggerTiming` — Wallclock 800..1200 ms (Soll 910 ms ± Scheduler-Jitter)
+  - `PtyDeactivateSendsDisableForAllServos` — nach Activate: 18× ENABLE_SERVO mit pin=0..17, enable=0x00; gesamte Deactivate < 200 ms (kein Stagger)
+  - `PtyActivateDeactivateCycleCanRepeat` — 2 × Activate/Deactivate-Zyklus, SEQ läuft über Cycles weiter (76 Frames < 256, kein wraparound observable)
+  - `ActivateFailsCleanlyIfPortIsBroken` — Master closen → Reader detektiert POLLHUP → `died_=true` → on_activate bricht beim ersten send_frame mit FATAL+ERROR ab; cleanup nachgelagert ok
+- [x] D.5.5 Test-Helper `drain_master_until_idle` + `split_and_decode_frames` (parsen Wire-Bytes als COBS-Frames). `<poll.h>`-Include ergänzt.
+- [x] D.5.6 `colcon build`: grün, keine Warnings
+- [x] D.5.7 `colcon test`: 9/9 grün; `test_hexapod_system` jetzt **29 Tests**; total **168 tests, 0 errors, 0 failures**
+- [x] D.5.8 **Post-Review:** Logging-Differenzierung Loopback vs. Hardware in `on_activate`-INFO-Log am Ende (`"loopback path traced, no wire frames sent"` vs. `"18 servos enabled, neutral pose commanded"`) — verhindert irreführende „neutral pose commanded"-Meldung in CI-Runs wo gar nichts auf die Wire ging.
+
+**Done-Kriterium D.5 erreicht:** ✅ (am 2026-05-15; 6 gtest-Cases in 1 Test-Suite grün)
+
+### Stufe-D.5-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| SEQ-Race zwischen Activate-Sequence und späteren write()-Ticks | ✅ defensiv gelöst | `std::atomic<uint8_t>` mit `fetch_add` — auch wenn ros2_control sequentiell aufruft, ist atomic Defense-in-Depth |
+| SEQ-Wraparound bei 256 Frames | ✅ harmless | Firmware ist stateless wrt SEQ (echoiert nur), Header-Kommentar dokumentiert |
+| Encoder-Exception-Pfade (`encode_set_targets` etc.) | ✅ verifiziert | Werfen nur bei Payload > 253 B; unsere Payloads sind 0/2/36 B, immer unter Limit |
+| Reader-died-Check vor jedem write_all | ✅ verifiziert | Test `ActivateFailsCleanlyIfPortIsBroken` fängt USB-Disconnect zwischen configure und activate sauber ab |
+| Loopback skipt 50 ms Stagger | ✅ verifiziert | Test `LoopbackActivateAndDeactivateAreFast` deckelt auf 100 ms |
+| Neutral-Pulses in SET_TARGETS-Frame | ✅ verifiziert | Test parst Wire-Payload byteweise, alle 18 × 1500 µs (= 0xDC 0x05 LE) |
+| Loopback-Logging-Klarheit | 🟡 → ✅ gefixt | INFO-Log diferenziert „loopback path traced" vs. „neutral pose commanded" |
+| Member-Lifetime (atomic seq_) | ✅ trivial | std::atomic<uint8_t> ist POD-ähnlich, lebt im Plugin-Lifetime |
+| on_deactivate Best-Effort vs. Hard-Fail | ✅ bewusst Best-Effort | Firmware-Watchdog (200 ms) ist Fallback bei Verlust von Disable-Frames |
+| Test verankert pulse_zero=1500 gegen YAML | ✅ bewusst | Phase-10-Calibration mit Custom-Werten würde Test brechen — gewünschte Regression-Detection |
+
+### Stufe-D.5-Notizen
+
+- **`send_frame`-Lambda als „defensiver Funnel":** Alle Wire-Writes in `on_activate` gehen durch die gleiche Lambda. Sie prüft `reader_.died()` (USB grad weg?), catched `std::exception` aus `write_all`, loggt FATAL mit Kontext (was sollte das werden?). Damit ist on_activate auch bei mid-sequence disconnect robust: bricht beim nächsten Frame ab statt Exception aus dem Lifecycle-Hook fliegen zu lassen. Loopback skipt den Funnel komplett (return true ohne write).
+- **Stagger 50 ms ist HOST-seitig:** Firmware bleibt dumm (siehe Phase-7 D.1-Design + V1-Decision oben). Insgesamt 18 × 50 ms + 10 ms RESET-Breather = ~910 ms Activate-Zeit auf echter HW; in Loopback komplett gemoddelt-fast (~12 ms inkl. RESET-Breather).
+- **Watchdog warmhalten:** Das initiale `SET_TARGETS` mit Neutralpose dient zwei Zwecken — definierter Initial-State UND Bridge zwischen on_activate-Ende und erstem 50-Hz-write()-Tick. Ohne den könnte der Watchdog (200 ms) tripen wenn der erste Controller-Tick mal länger braucht (z.B. launch-Timing).
+- **last_command_pulse_us_ Re-Assertion in on_activate:** Bereits in on_init auf pulse_zero gesetzt. on_activate setzt sie nochmal — wichtig bei Re-Activate nach einem Disconnect-Recovery-Cycle, wo last_command_pulse_us_ zwischendurch durch write()-Ticks irgendwo anders hingewandert sein könnte.
+- **Test-Helper `drain_master_until_idle(idle_timeout)`:** Idle-Timeout muss > Stagger (50 ms) sein, sonst deklariert Test fälschlicherweise „idle" zwischen zwei Frames. 200 ms gewählt = 4× Sicherheits-Faktor.
+
+### Was Stufe D.5 explizit **nicht** macht
+
+- Kein write/read mit Pulse-Konversion — kommt in **D.6**. Aktuell sind die write/read-Hooks noch Stubs mit 1:1-Echo aus Stufe A.
+- Kein automatisches RESET nach Watchdog-Trip mid-run — User entscheidet manuell (siehe Plan-Doku §6 + Phase-10).
+- Keine Reconnect-Logik im Activate-Pfad — kommt in **D.7**. D.5-Verhalten bei mid-Activate-Disconnect: clean abort mit ERROR, Plugin geht in inactive.
 
 ### Sub-Stage D.6 — `read()` / `write()`
 
