@@ -84,6 +84,12 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_servo2040_reader test/test_servo2040_reader.cpp)
   target_link_libraries(test_servo2040_reader ${PROJECT_NAME} util)
+
+  ament_add_gtest(test_hexapod_system test/test_hexapod_system.cpp)
+  target_link_libraries(test_hexapod_system ${PROJECT_NAME})
+  # Source-tree YAML path for the on_init happy-path test.
+  target_compile_definitions(test_hexapod_system PRIVATE
+    SOURCE_DIR_FOR_TESTS="${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 ament_export_include_directories(include)

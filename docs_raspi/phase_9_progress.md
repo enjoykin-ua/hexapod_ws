@@ -313,11 +313,76 @@
 
 ### Sub-Stage D.3 — `on_init`
 
-> **Konzept-Erklärung:** [phase_9_stage_d_plan.md §D.3](phase_9_stage_d_plan.md) — inklusive Abschnitt **„Was passiert bei Geometrie-Änderungen?"** der erklärt warum URDF-Anpassungen keine YAML-Eingriffe nach sich ziehen (Direct-Drive-Eigenschaft).
+> **Konzept-Erklärung:** [phase_9_stage_d_plan.md §D.3](phase_9_stage_d_plan.md) — inklusive Abschnitt **„Was passiert bei Geometrie-Änderungen?"**.
 >
-> **Konfigurations-Quellen-Trennung:** [src/hexapod_hardware/README.md](../src/hexapod_hardware/README.md#konfigurations-quellen) — Tabelle „URDF vs YAML vs ros2_control-Param" plus Update-Workflow pro Änderungs-Typ.
+> **Konfigurations-Quellen-Trennung:** [docs/01_hardware_change_workflow.md](../docs/01_hardware_change_workflow.md) — Cross-Phasen-Workflow, 12 Szenarien.
+>
+> Done-Kriterium D.3 (aus Plan): on_init validiert HardwareInfo, lädt Calibration, baut joint→servo-pin-Tabelle, allokiert Vektoren — alles mit klaren Error-Pfaden.
 
-(Implementation folgt nach Review der Doku-Updates.)
+- [x] D.3.1 Header `hexapod_system.hpp` angepasst: neue Member `joint_to_output_idx_` (URDF→servo-pin), `last_command_pulse_us_` umgestellt von `std::vector<int16_t>` auf `std::array<int16_t, NUM_SERVOS>` (servo-pin-indiziert, fixe Größe 18)
+- [x] D.3.2 `on_init` implementiert (170 Zeilen, in 7 nummerierten Schritten):
+  1. Joint-count-Validation (`== NUM_SERVOS`)
+  2. Hardware-Parameter parsen: `serial_port` (default `/dev/ttyACM0`), `calibration_file` (no default → error wenn fehlt), `loopback_mode` (case-insensitive bool-Parser, akzeptiert true/false/1/0/yes/no)
+  3. `Calibration::load_from_file` mit klarem Error-Pfad bei YAML-Fehler
+  4. URDF-`<limit lower upper>` aus `command_interfaces[].min/max` parsen + `Calibration::set_joint_limits` per Joint-Name
+  5. `joint_to_output_idx_`-Tabelle aufbauen via `Calibration::output_idx_for_joint` (wirft bei unbekanntem Joint → ERROR)
+  6. Duplicate-Detection: zwei URDF-Joints auf demselben Servo-Pin → ERROR
+  7. State-Vektoren allokieren + `last_command_pulse_us_` mit pulse_zero pro Servo-Pin initialisieren
+- [x] D.3.3 `RCLCPP_INFO`-Lifecycle-Logs am Anfang + Ende (Punkt aus Plan: Per-Lifecycle-INFO-Log)
+- [x] D.3.4 Unit-Tests `test/test_hexapod_system.cpp`: **14 Tests in 1 Suite `HexapodSystemInit`**:
+  - Happy-Path (`ValidHardwareInfoSucceeds`, `ExportedInterfaceNamesMatchUrdfOrder`)
+  - Joint-Count (`RejectsTooFewJoints`, `RejectsTooManyJoints`)
+  - Hardware-Parameter (`RejectsMissingCalibrationFile`, `RejectsEmptyCalibrationFile`, `RejectsNonExistentCalibrationFile`, **`AcceptsAllBoolStringsForLoopback`** — 11 Strings akzeptiert case-insensitive, `RejectsGarbageLoopbackString`, `LoopbackDefaultsToFalseIfOmitted`)
+  - Joint-Mapping (`AcceptsPermutedJointOrder` — reversed Joint-Liste, verifiziert dass `export_command_interfaces` URDF-Reihenfolge behält; `RejectsUnknownJointName`)
+  - Limit-Parsing (`ParsesJointLimitsFromUrdf` mit asymmetrischen Limits, `EmptyJointLimitsFallBackToDefaults` mit Warn-Log)
+- [x] D.3.5 `CMakeLists.txt`: `ament_add_gtest test_hexapod_system` + `SOURCE_DIR_FOR_TESTS`-Compile-Definition (gleiches Pattern wie `test_calibration` für Real-YAML-Pfad)
+- [x] D.3.6 `colcon build`: grün, keine Warnings
+- [x] D.3.7 `colcon test`: 9/9 grün — `test_calibration` (30), `test_serial_port` (14), `test_servo2040_protocol` (36), `test_servo2040_reader` (17), **`test_hexapod_system` (14)**, plus 4 Linter
+- [x] D.3.8 `colcon test-result`: **153 tests, 0 errors, 0 failures** (15 skipped sind ROS-Standard für nicht-aktivierte Linter-Sub-Suites)
+- [x] D.3.9 **Post-Review-Fix:** Lower-≥-Upper-Check für URDF-Limits. Bug ohne Fix: vertauschte `<limit>`-Werte (URDF-Macro-Refactor-Versehen) ergeben negative Slopes in `Calibration` → NaN/inf in Pulse-Konversion → Servos fahren in falsche Richtung gegen mechanischen Anschlag. Spiegelung links/rechts ist **kein** Use-Case (die lebt in `direction` in der YAML, nicht in URDF-Limits — Code-Kommentar erklärt das explizit). Test `RejectsSwappedJointLimits` + `RejectsEqualJointLimits` verifizieren.
+- [x] D.3.10 **Post-Review:** Strong-Exception-Guarantee für `joint_to_output_idx_`-Aufbau analog zu `Calibration::load_from_string` (Stufe C). Lokales `new_table`, am Ende `std::move` ins Member. Test `FailedReinitDoesNotMutateTable` verifiziert dass nach einem fehlgeschlagenen on_init der zweite (guter) on_init wieder das Original-Mapping liefert.
+- [x] D.3.11 **Post-Review-Kommentare:** drei Code-Kommentare zu nicht-offensichtlichen Invarianten:
+  1. „Mirrored-Leg-Hinweis" bei der Lower-<-Upper-Validation: erklärt warum URDF-Limits **immer** `lower < upper` sind und die physische Spiegelung in `direction` lebt
+  2. `vector::assign(n, v)` mit `n ≤ capacity()` reallocates nicht → ros2_control-captured Pointers bleiben bei Re-Init stabil
+  3. `hw_state_positions_=0.0` initial: ist konsistent mit `last_command_pulse_us_=pulse_zero` (in Stufe D.6, erstes read() gibt 0 rad zurück)
+- [x] D.3.12 `colcon test`: 9/9 grün; `test_hexapod_system` jetzt 17 Tests; total **156 tests, 0 errors, 0 failures**
+
+**Done-Kriterium D.3 erreicht:** ✅ (am 2026-05-15, inkl. Post-Review-Fixes; 17 gtest-Cases in 1 Test-Suite grün)
+
+### Stufe-D.3-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Lower-≥-Upper-Check fehlt für URDF-Limits | 🔴 → ✅ gefixt | Strict `lower < upper` + FATAL-Log mit „mirrored legs use direction"-Hinweis; 2 Tests verifizieren swap und equal |
+| Strong-Exception-Guarantee bei `joint_to_output_idx_` | 🟡 → ✅ gefixt | Lokales `new_table` + `std::move` commit am Ende; Test verifiziert dass failed re-init das vorige Mapping nicht beschädigt |
+| ros2-substitution-Erwartung bei Pfaden | 🟢 vormerk Stufe F | `<param name="calibration_file">` muss durch xacro `$(find ...)` aufgelöst sein — nicht Plugin-Aufgabe |
+| `~`/relative Pfade nicht expanded | 🟢 vormerk README | Plugin-spezifische Doku-Note in Stufe I |
+| Initial `hw_state_positions_=0.0` | ✅ konsistent | Mit `last_command_pulse_us_=pulse_zero` und D.6-Echo-Pfad ergibt das saubere 0-rad-Initial-State |
+| `vector::assign` bei Re-Init reallocates nicht | ✅ verifiziert | cppref-Garantie + Code-Kommentar als Defense-in-Depth |
+
+### Inbetriebnahme-Vormerks für D.4–D.7
+
+(Nicht jetzt fixen, aber im Hinterkopf für die spätere Sub-Stage-Implementation:)
+
+- **D.4 `on_configure`:** USB-Port-not-found mit klarem Hinweis auf `dialout`-Gruppe + Servo2040-Anschluss
+- **D.5 `on_activate`:** Boot-Sequenz RESET → 18× ENABLE → SET_TARGETS neutral (schon in Plan-Doku)
+- **D.6 `read/write`:** NaN-Check, Pulse-Overflow-Clamp, joint_to_output_idx_-Mapping in Aktion
+- **D.7 Reconnect:** User-Recovery-Workflow nach Disconnect dokumentieren
+
+### Stufe-D.3-Notizen
+
+- **Build-Bug-Fund:** `hardware_interface::HardwareInfo` hat **kein** `hardware_class_type`-Feld in Jazzy 4.44, obwohl der Plan-Doku-Hinweis das suggerierte. Test-Helper musste den Eintrag rausnehmen — wird in D.4/E ohnehin via pluginlib gesetzt, nicht als Direct-Member.
+- **Loop-Variable-Warning** wieder dasselbe `const std::string &` über `{"..."}`-initializer_list — Fix wie in Stufe C: `const char *` nehmen.
+- **Joint-Limit-Reading-Pfad:** Wir lesen aus `joint.command_interfaces[k].min/max` (Strings), parsen via `std::stod`. Wenn die URDF die `<limit>`-Werte nicht setzt, kommt min/max als leere Strings — Plugin gibt einen WARN aus aber returnt SUCCESS (Fallback auf Calibration-Defaults ±1.57).
+- **`joint_to_output_idx_` ist nicht extern sichtbar.** Tests verifizieren das Mapping indirekt über `export_command_interfaces`-Reihenfolge (muss URDF-Order entsprechen, NICHT pin-Order). Die direkte Anwendung der Tabelle (write/read) wird in **D.6** funktional getestet.
+- **Duplicate-Detection:** `std::adjacent_find` auf sortiertem `joint_to_output_idx_` fängt den Fall ab, dass zwei URDF-Joints denselben Pin haben (z.B. wenn jemand servo_mapping.yaml + URDF inkonsistent macht). Tritt in der Praxis nur bei manuellem YAML-Editing-Fehler auf, aber schwer zu debuggen wenn nicht früh-detected.
+
+### Was Stufe D.3 explizit **nicht** macht
+
+- Kein Serial-Port-Open — kommt in **D.4** (`on_configure`)
+- Kein Reader-Thread-Start — auch **D.4**
+- Kein ENABLE_SERVO oder SET_TARGETS — **D.5** (`on_activate`)
+- Kein write/read mit Pulse-Konversion — **D.6** (stubs aus Stufe A bleiben temporär)
 
 ### Sub-Stage D.4 — `on_configure` / `on_cleanup`
 

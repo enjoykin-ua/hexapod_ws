@@ -7,14 +7,15 @@ State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
 Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
-(Sub-Stage D.2/8 fertig)**. Aktuell:
+(Sub-Stage D.3/8 fertig)**. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
-- **Reader-Thread (17 Tests inkl. RAII-Lifecycle + Stress-Test 5× start/stop + dispatch
-  STATE/ERROR_REPORT/ACK/NACK + Garbage-Discard)**
+- Reader-Thread (17 Tests inkl. RAII-Lifecycle + Stress-Test 5× start/stop)
+- **`on_init` (17 Tests inkl. permutierte Joint-Reihenfolge, Bool-Parser-Robustheit,
+  Lower-<-Upper-Limit-Validation, Strong-EH-Guarantee bei Re-Init)**
 
-Total: **97 gtest-Cases** über vier Sub-Layers.
+Total: **114 gtest-Cases** über fünf Sub-Layers.
 
 ---
 
@@ -681,7 +682,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | **D** | Lifecycle voll, Reader-Thread, Loopback-Mode, USB-Reconnect | 🟡 in Arbeit (D.1/8) |
 | └ D.1 | SerialPort-Wrapper (cfmakeraw, O_NONBLOCK+poll, shared_mutex), 14 Tests | ✅ |
 | └ D.2 | Reader-Thread mit Frame-Stream-Parser + RAII-Lifecycle, 17 Tests | ✅ |
-| └ D.3 | on_init mit URDF-Joints + Calibration-Lookup-Tabelle | offen |
+| └ D.3 | on_init mit URDF-Joints + Calibration-Lookup-Tabelle, 17 Tests | ✅ |
 | └ D.4 | on_configure / on_cleanup (Port öffnen/schließen) | offen |
 | └ D.5 | on_activate Boot-Sequenz (RESET + 18×ENABLE + SET_TARGETS) | offen |
 | └ D.6 | read/write mit Echo-State + Pulse-Konversion | offen |
