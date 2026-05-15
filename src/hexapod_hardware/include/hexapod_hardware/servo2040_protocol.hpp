@@ -71,7 +71,17 @@ struct ErrorReport
   int16_t aux{0};
 };
 
-// Forward declarations — implementation lands in stage B.
+// Result of decode_frame: the inner frame after COBS-strip + CRC-check.
+struct DecodedFrame
+{
+  uint8_t seq{0};
+  uint8_t cmd{0};
+  std::vector<uint8_t> payload{};
+};
+
+// Specialised encoders — each returns the fully-wrapped wire bytes
+// (COBS-encoded with a trailing 0x00 delimiter, ready to write to the
+// serial port). See PROTOCOL.md §4 for example hex-dumps.
 std::vector<uint8_t> encode_set_targets(
   uint8_t seq,
   const std::array<int16_t, NUM_SERVOS> & pulse_us);
@@ -79,9 +89,24 @@ std::vector<uint8_t> encode_get_state(uint8_t seq);
 std::vector<uint8_t> encode_enable_servo(uint8_t seq, uint8_t servo_idx, bool enable);
 std::vector<uint8_t> encode_reset(uint8_t seq);
 
+// Generic frame encoder. Builds SEQ ‖ CMD ‖ LEN ‖ PAYLOAD ‖ CRC16-LE,
+// COBS-encodes the lot, appends one trailing 0x00 delimiter.
+std::vector<uint8_t> encode_frame(
+  uint8_t seq, uint8_t cmd,
+  const std::vector<uint8_t> & payload);
+
+// Generic frame decoder. Accepts the COBS-encoded bytes of one frame —
+// trailing 0x00 is tolerated (stripped if present) but not required.
+// Returns nullopt on COBS-decode failure, CRC mismatch, or malformed
+// length field.
+std::optional<DecodedFrame> decode_frame(const std::vector<uint8_t> & cobs_bytes);
+
+// Payload decoders. Caller has already pulled the payload out of a
+// DecodedFrame and verified the opcode.
 std::optional<StatePayload> decode_state(const std::vector<uint8_t> & payload);
 std::optional<ErrorReport> decode_error_report(const std::vector<uint8_t> & payload);
 
+// Lower-level primitives. Public for testing and reuse.
 uint16_t crc16_ccitt_false(const uint8_t * data, std::size_t len);
 std::vector<uint8_t> cobs_encode(const std::vector<uint8_t> & input);
 std::optional<std::vector<uint8_t>> cobs_decode(const std::vector<uint8_t> & input);

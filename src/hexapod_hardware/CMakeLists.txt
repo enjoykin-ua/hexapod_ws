@@ -67,6 +67,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_calibration test/test_calibration.cpp)
   target_link_libraries(test_calibration ${PROJECT_NAME})
+
+  ament_add_gtest(test_servo2040_protocol test/test_servo2040_protocol.cpp)
+  target_link_libraries(test_servo2040_protocol ${PROJECT_NAME})
 endif()
 
 ament_export_include_directories(include)

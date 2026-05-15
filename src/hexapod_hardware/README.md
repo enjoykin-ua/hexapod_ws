@@ -6,7 +6,8 @@ das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufe A abgeschlossen (Skelett + Build-Setup).
+Aktueller Stand: Stufen A + B abgeschlossen (Skelett, Build-Setup,
+Wire-Protokoll-Layer mit 29 Unit-Tests).
 
 ---
 
@@ -127,7 +128,7 @@ Die URDF-Joint-Limits (`joint_lower`, `joint_upper`) werden in
 **Aktuell (Stufe A):** Stub-Implementierungen — `radians_to_pulse_us`
 gibt fix `1500.0` zurück.
 
-### `servo2040_protocol.hpp`
+### `servo2040_protocol.hpp` / `.cpp`
 
 Konstanten und Frame-API gespiegelt aus dem Firmware-Repo
 (`~/hexapod_servo_driver/src/config.hpp` + `PROTOCOL.md`):
@@ -139,13 +140,128 @@ Konstanten und Frame-API gespiegelt aus dem Firmware-Repo
   `WATCHDOG_TRIPPED=0x40`, …
 - Status-Flag-Bits (für das `status_flags`-Byte im STATE-Frame)
 
-Frame-API (Forward-Decls; Implementierung in Stufe B):
-- `encode_set_targets(seq, pulse_us[18]) → bytes`
+Frame-API (voll implementiert in Stufe B):
+- `encode_set_targets(seq, pulse_us[18]) → bytes` (mit 0x00-Trenner am Ende)
 - `encode_get_state(seq)`, `encode_enable_servo(seq, idx, on/off)`,
   `encode_reset(seq)`
+- `encode_frame(seq, cmd, payload) → bytes` — der generische Helper
+- `decode_frame(cobs_bytes) → optional<DecodedFrame{seq, cmd, payload}>`
 - `decode_state(payload) → optional<StatePayload>`
 - `decode_error_report(payload) → optional<ErrorReport>`
 - `crc16_ccitt_false`, `cobs_encode`, `cobs_decode` — die unteren Bausteine
+
+---
+
+## Wire-Protokoll-Layer (Stufe B)
+
+Diese Schicht spricht binär mit der Servo2040-Firmware. Vollständige
+Spec: `~/hexapod_servo_driver/PROTOCOL.md`. Hier nur das Wesentliche
+für jemanden, der die `servo2040_protocol.*`-Dateien liest.
+
+### Frame-Aufbau
+
+```
+       Pre-COBS (5..258 Byte):
+       ┌─────┬─────┬─────┬─────────────────┬──────────────┐
+       │ SEQ │ CMD │ LEN │ PAYLOAD (LEN B) │ CRC16-LE (2) │
+       └─────┴─────┴─────┴─────────────────┴──────────────┘
+                CRC ist über SEQ ‖ CMD ‖ LEN ‖ PAYLOAD
+
+       Nach COBS-Encoding (max +1 Byte/254):
+       ┌──────────────────────────────────────────────────┐  ┌──────┐
+       │ COBS(SEQ ‖ CMD ‖ LEN ‖ PAYLOAD ‖ CRC16)          │  │ 0x00 │
+       └──────────────────────────────────────────────────┘  └──────┘
+       Enthält garantiert kein 0x00-Byte                     Trenner
+```
+
+### COBS — Consistent Overhead Byte Stuffing
+
+**Problem:** Wenn wir Frames in einem Byte-Stream voneinander trennen
+wollen, brauchen wir ein Trenner-Byte. Wenn der Trenner irgendwo
+**inside** des Payload auftauchen kann, geht das nicht — der Empfänger
+würde mitten im Frame einen falschen „Frame-Anfang" detektieren.
+
+**Lösung COBS** (Cheshire & Baker, 1999): Wir ersetzen jedes `0x00`
+im Payload durch einen Zähler, sodass `0x00` **garantiert nur als
+Frame-Trenner** vorkommen kann. Der Empfänger kann jederzeit auf den
+nächsten Frame resync'en, indem er bis zum nächsten `0x00` liest.
+
+**Wie das konkret aussieht:**
+
+| Input (vor COBS) | Output (nach COBS) | Erklärung |
+|---|---|---|
+| _leer_ | `01` | Ein Block mit Länge 1 (nur das Count-Byte selbst) |
+| `00` | `01 01` | Block-1 endet vor der Null, dann neuer Block mit nur Count |
+| `11 22 33` | `04 11 22 33` | Ein Block der Länge 4 (Count + 3 Daten-Bytes) |
+| `11 22 00 33` | `03 11 22 02 33` | Block(3): `11 22`, dann Block(2): `33` (implizite 0 zwischen Blöcken) |
+| `0xAB × 254` | `FF AB×254 01` | Chain-Extension-Block (0xFF) + Termination |
+
+**Overhead:** Maximal `⌈n/254⌉` Bytes für `n` Input-Bytes. Bei unserem
+größten Frame (258 Byte vor COBS) sind das maximal 2 zusätzliche Bytes.
+
+Implementierung: [`src/servo2040_protocol.cpp`](src/servo2040_protocol.cpp)
+`cobs_encode` / `cobs_decode`.
+
+### CRC-16/CCITT-FALSE
+
+**Problem:** USB-CDC hat zwar Transport-CRC, aber ein einzelnes
+gekippten Bit zwischen der USB-Schicht und unserem Frame-Parser würde
+einen Servo auf eine völlig falsche Pulsbreite schicken. Spätere
+Portierungs-Optionen (UART direkt auf den Pi, SPI, …) haben keine
+Transport-CRC mehr.
+
+**Lösung:** Eine 16-Bit-Prüfsumme über `SEQ ‖ CMD ‖ LEN ‖ PAYLOAD`,
+in **little endian** ans Frame-Ende geschrieben (vor COBS-Encoding).
+Der Empfänger berechnet dieselbe Prüfsumme über das empfangene Frame
+und vergleicht. Bei Mismatch → Frame verwerfen, `ERR_FRAME_CRC` an
+den Host melden.
+
+**Variante CCITT-FALSE** ist die in Embedded-Welten verbreitete:
+- Polynom `0x1021`
+- Init-Register `0xFFFF`
+- Keine Bit-Reflektion an Input oder Output
+- XorOut `0x0000`
+
+**Validitäts-Selbsttest:** `crc16("123456789") == 0x29B1`. Jede
+konforme Implementation liefert genau diesen Wert. Wenn deine
+Implementation einen anderen Wert liefert, hast du irgendwo einen
+Parameter falsch (häufiger Fehler: Polynom-Reflektion, oder Init `0x0000`
+statt `0xFFFF`).
+
+**Erkennungsfähigkeit:**
+- Alle 1- und 2-Bit-Fehler
+- Alle Burst-Fehler bis 16 Bit Länge
+- 99,997 % aller längeren Burst-Fehler
+
+Implementierung: [`src/servo2040_protocol.cpp`](src/servo2040_protocol.cpp)
+`crc16_ccitt_false`. Bit-by-bit Algorithmus (keine Lookup-Table) — am
+Host nicht throughput-relevant, dafür kompakt und gut lesbar.
+
+### Frame-Roundtrip in Code
+
+```cpp
+// Host sendet einen SET_TARGETS-Frame (alle Servos auf 1500 µs):
+std::array<int16_t, 18> pulses;
+pulses.fill(1500);
+auto wire = encode_set_targets(/*seq=*/0, pulses);
+
+// `wire` enthält jetzt die COBS-encodeten Bytes inklusive 0x00-Trenner —
+// kann direkt mit write(fd, wire.data(), wire.size()) raus.
+
+// Auf der Empfänger-Seite (z.B. unsere read()-Methode):
+auto frame = decode_frame(cobs_bytes_until_zero);
+if (frame) {
+    if (frame->cmd == opcode::STATE_RESPONSE) {
+        auto state = decode_state(frame->payload);
+        // state->voltage_mv, state->status_flags, state->last_pulse_us[i], ...
+    }
+}
+```
+
+Tests in [`test/test_servo2040_protocol.cpp`](test/test_servo2040_protocol.cpp)
+(29 Test-Cases): CRC-Self-Test, COBS-Edge-Cases inklusive 0xFF
+chain-extension, alle vier Encoder im Roundtrip, negative Pulse-Werte,
+CRC-Korruption, Truncation, STATE- und ERROR_REPORT-Payload-Decoder.
 
 ---
 
@@ -249,7 +365,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | Stufe | Inhalt | Status |
 |---|---|---|
 | **A** | Paket-Skelett, Build, pluginlib-Setup | ✅ |
-| **B** | COBS + CRC-16/CCITT-FALSE + alle Opcode-Encoder/Decoder mit Unit-Tests | offen |
+| **B** | COBS + CRC-16/CCITT-FALSE + alle Opcode-Encoder/Decoder mit 29 Unit-Tests | ✅ |
 | **C** | YAML-Loader (yaml-cpp), 3-Punkt-Konversion, Unit-Tests | offen |
 | **D** | Lifecycle voll, Reader-Thread, Loopback-Mode, USB-Reconnect | offen |
 | **E** | Plugin-Registrierung verifizieren | offen |
