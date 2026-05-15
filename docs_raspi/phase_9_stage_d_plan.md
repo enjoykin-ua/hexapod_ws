@@ -188,27 +188,62 @@ beim Lesen (ICRNL) bzw. expandiert `0x0A` zu `0x0D 0x0A` beim Schreiben
 einem `0x0D` im CRC-Feld. Das war einer der zwei Bugs in Phase 7 C.4
 (Postmortem ausführlich dokumentiert).
 
+**Concurrency-Schutz (Punkt 2 aus Review):** Im Reconnect-Pfad
+(siehe D.7) ruft der Reader-Thread `close()` und `open()` auf, während
+der Hauptthread möglicherweise mitten in `write_all()` ist. Ein
+`std::shared_mutex` in `SerialPort` schützt vor diesem Race:
+- `write_all()` und `read_some()` nehmen `shared_lock` (parallel OK,
+  wir haben nur je einen Schreiber/Leser, der Lock-Typ ist
+  Reconnect-vs-IO-Schutz, nicht IO-vs-IO)
+- `close()` + `open()` im Reconnect-Pfad nehmen `unique_lock` —
+  blockiert bis kein I/O läuft
+
+**Write-Timeout (Punkt 5):** `write()` auf TTY-FD blockiert per Default
+bis Buffer frei wird. Wenn die USB-CDC-FIFO voll ist (z.B. Firmware
+hängt), würde das den controller_manager-Tick einfrieren. Daher:
+FD mit `O_NONBLOCK` öffnen, in `write_all()` `poll(POLLOUT)` mit
+Timeout (z.B. 50 ms = ein voller Tick bei 50 Hz) verwenden. Bei
+Timeout → `throw std::system_error` mit klarer Message.
+
 **API-Skizze:**
 ```cpp
 class SerialPort {
 public:
-    void open(const std::string & path);              // wirft bei Fehler
+    void open(const std::string & path);              // wirft bei Fehler (klare Message für EACCES, ENOENT)
     void close() noexcept;
     bool is_open() const noexcept;
-    void write_all(const uint8_t * data, size_t len); // blockt bis alles raus
-    ssize_t read_some(uint8_t * buf, size_t max_len); // blockt mit VTIME-Timeout
+    void write_all(const uint8_t * data, size_t len); // poll+timeout, wirft bei Disconnect
+    ssize_t read_some(uint8_t * buf, size_t max_len); // poll+VTIME-Timeout
     ~SerialPort();                                    // schließt FD
+
+    // Für die Reconnect-Logik in D.7 (exklusiver Lock-Aufruf):
+    std::unique_lock<std::shared_mutex> exclusive_lock();
+
+private:
+    int fd_{-1};
+    mutable std::shared_mutex mtx_;
 };
 ```
 
 Termios-Setup: `cfmakeraw`, `VMIN=0`, `VTIME=10` (= 1 s Timeout pro
-read-Aufruf), Baudrate egal (USB-CDC ignoriert).
+read-Aufruf), Baudrate egal (USB-CDC ignoriert). FD geöffnet mit
+`O_RDWR | O_NOCTTY | O_NONBLOCK`.
 
 **Done-Kriterium D.1:**
 - `SerialPort` baut, leakt keinen FD bei Exception
 - Test mit Linux-PTY-Pair (`openpty(3)`): Schreiben in den Master, Lesen
   vom Slave funktioniert binär-sauber (alle 256 Byte-Werte überleben)
+- **`cfmakeraw`-spezifischer Test (Punkt 9):** Schicke `0x0D` und
+  `0x0A` einzeln und gemischt — beide müssen byte-exakt überleben,
+  KEIN automatisches CR/LF-Mapping. Ohne `cfmakeraw` würde der Test
+  failen weil ICRNL aktiv wäre.
 - `read_some` mit VTIME-Timeout liefert 0 zurück wenn nichts kommt
+- `write_all` mit blockiertem Reader auf der Gegenseite (Buffer voll)
+  wirft nach 50 ms Timeout — verifiziert per pty wo der Slave nichts
+  liest
+- Permissions-Test: `open()` auf einen Path ohne Rechte (`/dev/null` mit
+  chmod 000 — oder einfach nicht-existenter Path) wirft mit Message
+  die `EACCES`/`ENOENT` klar macht
 
 ### D.2 — Reader-Thread
 
@@ -241,19 +276,33 @@ public:
 **Reader-Loop in Pseudocode:**
 ```
 buffer = []
-while (!stop_requested_) {
-    bytes_read = port.read_some(tmp_buf, …);
-    if (bytes_read < 0 && errno indicates disconnect)
-        → trigger reconnect (siehe D.7), break Reader-Loop
-    for byte in tmp_buf[:bytes_read]:
-        if byte == 0x00:
-            frame = decode_frame(buffer);
-            if (frame) dispatch(frame);
-            buffer.clear();
-        else:
-            buffer.push_back(byte);
+try {
+    while (!stop_requested_) {
+        bytes_read = port.read_some(tmp_buf, …);
+        if (bytes_read < 0 && errno indicates disconnect)
+            → trigger reconnect (siehe D.7), continue (Reconnect-Loop läuft
+              im selben Thread; nach Erfolg geht's normal weiter)
+        for byte in tmp_buf[:bytes_read]:
+            if byte == 0x00:
+                frame = decode_frame(buffer);
+                if (frame) dispatch(frame);
+                buffer.clear();
+            else:
+                buffer.push_back(byte);
+    }
+} catch (const std::exception & e) {
+    RCLCPP_FATAL("Reader thread died with exception: %s", e.what());
+    // Setze einen Flag, der read() im Hauptthread veranlasst, return_type::ERROR
+    // zurückzugeben — Plugin geht in inactive, User muss restarten.
+    reader_died_ = true;
 }
 ```
+
+**Exception-Sicherheit (Punkt 4 aus Review):** Die ganze Main-Loop ist
+in `try/catch` eingebettet. Ohne das würde z.B. ein `std::bad_alloc`
+aus `buffer.push_back` den Thread mit `std::terminate` abbrechen — was
+nach C++-Spec den ganzen Prozess killt. Das `reader_died_`-Flag wird
+in `read()` geprüft und signalisiert den controller_manager.
 
 **Dispatch-Logik:**
 - `cmd == STATE_RESPONSE`: `decode_state()` → `state_cache_`
@@ -287,8 +336,36 @@ wird vom `controller_manager` beim Plugin-Laden aufgerufen. Hier:
    - `loopback_mode` (default `false`)
 5. `Calibration::load_from_file(calibration_file_)`
 6. Pro Joint: `Calibration::set_joint_limits(joint.name, lower, upper)`
-7. State-/Command-Vektoren auf `info_.joints.size()` allokieren
-8. `last_command_pulse_us_` auf `pulse_zero` initialisieren (neutral)
+7. **Joint→Output-Index-Tabelle aufbauen (Punkt 1 aus Review):**
+   ```cpp
+   joint_to_output_idx_.resize(info_.joints.size());
+   for (size_t i = 0; i < info_.joints.size(); ++i) {
+       joint_to_output_idx_[i] = calibration_.output_idx_for_joint(
+           info_.joints[i].name);  // wirft wenn Joint unbekannt
+   }
+   ```
+8. State-/Command-Vektoren auf `info_.joints.size()` allokieren —
+   indiziert nach URDF-Reihenfolge `i`
+9. `last_command_pulse_us_[18]` auf `pulse_zero` initialisieren —
+   indiziert nach **Servo-Pin-Index** `output_idx`, nicht nach `i`
+
+**Wichtig: zwei verschiedene Indizes (Punkt 1):** Die URDF kann die
+18 Joints in beliebiger Reihenfolge im `<ros2_control>`-Block listen.
+ros2_control nimmt diese Reihenfolge als Position-Interface-Reihenfolge,
+also ist `hw_command_positions_[i]` indiziert nach **URDF-Index** `i`.
+Aber `last_command_pulse_us_[output_idx]` und `encode_set_targets`
+arbeiten mit dem **Servo-Pin-Index** (= Position 0..17 im
+`servo2040_output_to_joint`-YAML). Die Übersetzung ist
+`joint_to_output_idx_[i] = output_idx` aus `Calibration::output_idx_for_joint`.
+
+Beispiel (denkbar wenn jemand die URDF kreativ sortiert):
+```
+info_.joints[0].name = "leg_3_femur_joint"    → output_idx = 7
+info_.joints[1].name = "leg_1_coxa_joint"     → output_idx = 0
+...
+```
+`hw_command_positions_[0]` ist dann der Sollwert für `leg_3_femur_joint`,
+und der gehört in `last_command_pulse_us_[7]` → entspricht `servo2040.pin 7`.
 
 **Done-Kriterium D.3:**
 - Test mit synthetischer `HardwareInfo` (18 Joints, alle 4 Parameter
@@ -296,6 +373,11 @@ wird vom `controller_manager` beim Plugin-Laden aufgerufen. Hier:
 - Test mit fehlenden Joints (17 oder 19) → ERROR
 - Test mit ungültigem `calibration_file`-Pfad → ERROR
 - Test mit ungültigem `loopback_mode`-String → ERROR
+- **Test mit permutierter Joint-Reihenfolge im HardwareInfo:**
+  `joint_to_output_idx_[i]` zeigt korrekt auf den jeweiligen Servo-Pin
+  (nicht einfach `[0,1,2,…,17]`)
+- Test mit URDF-Joint dessen Name nicht im YAML steht → ERROR aus
+  `output_idx_for_joint`
 
 ### D.4 — `on_configure` / `on_cleanup`: Port öffnen, Reader starten
 
@@ -319,82 +401,149 @@ wird vom `controller_manager` beim Plugin-Laden aufgerufen. Hier:
 
 ### D.5 — `on_activate` / `on_deactivate`: Host-Stagger
 
-**Was:** Im `on_activate`-Hook schickt der Host **18× `ENABLE_SERVO`**
-mit **50 ms Pause zwischen den Frames** (PROTOCOL.md §5, Phase-7
-Design-Entscheidung D.1). Total ~900 ms.
+**Was:** Im `on_activate`-Hook schickt der Host eine Boot-Sequenz mit
+drei Phasen:
+
+1. **`RESET` voran (Punkt 6 aus Review).** Setzt den Firmware-State
+   zurück falls vorher etwas im WATCHDOG_TRIPPED-Zustand stehen geblieben
+   ist (kann passieren wenn das Plugin ohne sauberen `on_deactivate`
+   weggebrochen ist, z.B. SIGKILL oder Crash). Ohne RESET würden alle
+   nachfolgenden `ENABLE_SERVO` mit NACK beantwortet.
+
+2. **18× `ENABLE_SERVO` mit 50 ms Host-Stagger** (PROTOCOL.md §5,
+   Phase-7 Design-Entscheidung D.1). Total ~900 ms. Das hält außerdem
+   den Watchdog warm (jeder Frame zählt als „valider Frame" und
+   resettet den 200 ms Timer firmware-seitig).
+
+3. **`SET_TARGETS` mit allen `pulse_zero`-Werten am Ende
+   (Punkt 3 aus Review).** Setzt den Roboter in eine definierte
+   Neutralpose UND hält den Watchdog warm für die Zeit zwischen
+   `on_activate`-Ende und dem ersten `controller_manager`-Tick. Ohne
+   diesen Frame könnte der Watchdog nach 200 ms tripen wenn der erste
+   `write()`-Aufruf zu spät kommt.
 
 ```cpp
 hardware_interface::CallbackReturn on_activate(...) {
+    if (!loopback_mode_) {
+        // 1) Reset firmware state (clears WATCHDOG_TRIPPED if needed).
+        auto reset_frame = encode_reset(seq_++);
+        serial_port_.write_all(reset_frame.data(), reset_frame.size());
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // 2) Per-servo enable with 50 ms host-side stagger.
+    const auto stagger = loopback_mode_
+        ? std::chrono::milliseconds(0)        // skip in loopback for fast tests
+        : std::chrono::milliseconds(50);
     for (uint8_t i = 0; i < NUM_SERVOS; ++i) {
         auto frame = encode_enable_servo(seq_++, i, /*enable=*/true);
         if (!loopback_mode_) serial_port_.write_all(frame.data(), frame.size());
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(stagger);
+    }
+
+    // 3) Send neutral SET_TARGETS to:
+    //    - keep the firmware watchdog warm until the first write() tick
+    //    - put the robot in a defined initial pose (all pulse_zero = ~1500 µs)
+    std::array<int16_t, NUM_SERVOS> neutral_pulses;
+    for (size_t k = 0; k < NUM_SERVOS; ++k) {
+        neutral_pulses[k] = calibration_.at(k).pulse_zero;
+        last_command_pulse_us_[k] = neutral_pulses[k];
+    }
+    if (!loopback_mode_) {
+        auto targets = encode_set_targets(seq_++, neutral_pulses);
+        serial_port_.write_all(targets.data(), targets.size());
     }
     return CallbackReturn::SUCCESS;
 }
 ```
 
 `on_deactivate` macht das Spiegelbild: 18× `ENABLE_SERVO(idx, false)`,
-ohne Stagger (Disable ist nicht Inrush-kritisch).
+ohne Stagger (Disable ist nicht Inrush-kritisch, alle Servos
+spannungsfrei zu schalten kann simultan).
+
+**Loopback-Stagger übersprungen:** Im Loopback macht der 50 ms-Schlaf
+keinen Sinn (keine echte Servo-Inrush-Mitigation nötig), und 900 ms
+Activate-Zeit machen CI-Tests langsam. In Loopback wird der Stagger zu
+0 — siehe Pseudocode.
 
 **Done-Kriterium D.5:**
-- Loopback-Test: `on_activate` → SUCCESS in ~900 ms, hat `seq_`
-  18× inkrementiert
-- Plus, weil der Stagger den Tick blockiert: Plugin-Lifecycle muss
-  damit klarkommen. ros2_control erlaubt Activate-Hooks die etwas
-  brauchen — wir sind im erlaubten Bereich.
-- PTY-Test: Reader auf der anderen Seite sieht 18 ENABLE_SERVO-Frames
-  in korrekter Reihenfolge mit ~50 ms Abstand
+- Loopback-Test: `on_activate` → SUCCESS in **< 100 ms** (kein Stagger),
+  `seq_` ist um 20 inkrementiert (1 RESET + 18 ENABLE + 1 SET_TARGETS)
+- PTY-Test mit Mock-Firmware: Reader auf der Master-Seite sieht
+  in Reihenfolge: 1× RESET, 18× ENABLE_SERVO mit ~50 ms Abstand,
+  1× SET_TARGETS mit allen Pulses auf pulse_zero
+- PTY-Test prüft auch Timing: 900 ms ± 100 ms gesamt mit echtem Stagger
+- `last_command_pulse_us_` ist nach `on_activate` auf alle `pulse_zero`
+  gesetzt (Initial-State definiert)
 
 ### D.6 — `read()` / `write()` mit Echo-State + Pulse-Konversion
 
 **Was:** Die zwei Methoden die ros2_control bei jedem Tick (50 Hz)
 aufruft.
 
-**`write()`:**
+**`write()`:** (mit Joint-Index-Mapping aus D.3 und Pulse-Overflow-Clamp)
 ```cpp
 return_type write(...) {
     std::array<int16_t, NUM_SERVOS> pulses;
-    for (size_t i = 0; i < NUM_SERVOS; ++i) {
-        double rad = hw_command_positions_[i];
+    pulses.fill(0);  // wird gleich überschrieben für alle 18 Slots
+
+    for (size_t i = 0; i < info_.joints.size(); ++i) {
+        const int output_idx = joint_to_output_idx_[i];   // urdf-i → servo-pin
+        const double rad = hw_command_positions_[i];
+
         if (std::isnan(rad)) {
-            RCLCPP_WARN_ONCE("NaN command for joint %s, using last good value",
-                             info_.joints[i].name.c_str());
-            // Behalten last_command_pulse_us_[i]
-            pulses[i] = last_command_pulse_us_[i];
-        } else {
-            double p = calibration_.radians_to_pulse_us(i, rad);
-            pulses[i] = static_cast<int16_t>(std::round(p));
-            last_command_pulse_us_[i] = pulses[i];
+            RCLCPP_WARN_THROTTLE(get_logger(), *clock_, 5000,
+                "NaN command for joint %s, using last good value",
+                info_.joints[i].name.c_str());
+            pulses[output_idx] = last_command_pulse_us_[output_idx];
+            continue;
         }
+
+        const double p = calibration_.radians_to_pulse_us(output_idx, rad);
+
+        // Pulse-Overflow-Schutz (Punkt 7 aus Review). Bei extremen
+        // rad-Werten könnte p außerhalb int16-Range liegen — vorher
+        // clampen, sonst ist der Cast UB. Die Firmware clampt nochmal
+        // gegen pulse_min/pulse_max, das ist Verteidigung in der Tiefe.
+        const double clamped = std::clamp(
+            p, static_cast<double>(INT16_MIN), static_cast<double>(INT16_MAX));
+        pulses[output_idx] = static_cast<int16_t>(std::round(clamped));
+        last_command_pulse_us_[output_idx] = pulses[output_idx];
     }
+
     if (!loopback_mode_) {
         auto frame = encode_set_targets(seq_++, pulses);
         try {
             serial_port_.write_all(frame.data(), frame.size());
-        } catch (...) {
-            // Disconnect → reconnect-state setzen, kommt in D.7
-            return return_type::ERROR;
+        } catch (const std::exception & e) {
+            RCLCPP_ERROR_THROTTLE(get_logger(), *clock_, 1000,
+                "SerialPort write failed (disconnect?): %s", e.what());
+            return return_type::ERROR;  // controller_manager bringt Plugin in inactive
         }
     }
     return return_type::OK;
 }
 ```
 
-**`read()`:**
+**`read()`:** (mit Joint-Index-Mapping)
 ```cpp
 return_type read(...) {
-    // Echo-State: spiegele last_command_pulse_us_ zurück
-    for (size_t i = 0; i < NUM_SERVOS; ++i) {
+    // Echo-State: spiegele last_command_pulse_us_ zurück, indiziert nach
+    // URDF-Joint-Reihenfolge.
+    for (size_t i = 0; i < info_.joints.size(); ++i) {
+        const int output_idx = joint_to_output_idx_[i];
         hw_state_positions_[i] = calibration_.pulse_us_to_radians(
-            i, last_command_pulse_us_[i]);
+            output_idx, last_command_pulse_us_[output_idx]);
     }
-    // Drain ERROR_REPORTs vom Reader-Thread
+
+    // Drain ERROR_REPORTs vom Reader-Thread (formatierte Logs in D.8).
     if (reader_) {
         for (auto & er : reader_->drain_error_queue()) {
-            RCLCPP_ERROR(get_logger(),
-                "Servo2040 reported error_code=0x%02X servo_idx=%u aux=%d",
-                er.error_code, er.servo_idx, er.aux);
+            log_error_report(er);  // Übersetzung pro Error-Code, siehe D.8
+        }
+        if (reader_->died()) {
+            RCLCPP_ERROR_ONCE(get_logger(), "Reader thread died — see earlier FATAL log");
+            return return_type::ERROR;
         }
     }
     return return_type::OK;
@@ -407,8 +556,14 @@ return_type read(...) {
   Pulse-Rundungs-Toleranz (~1.6e-3 rad bei 1-µs-Rundung)
 - NaN-Test: `hw_command_positions_[5] = NaN`, write() → warnt + behält
   letzten Wert, read() spiegelt den
+- Permutierter Joint-Test: URDF-Reihenfolge `[3,1,0,…]`, `hw_command_positions_[0] = +0.5`
+  geht an Servo-Pin 7 (= `output_idx_for_joint("leg_3_femur_joint")`),
+  nicht an Pin 0
+- Pulse-Overflow-Test: `hw_command_positions_[i] = 100.0` (extrem) →
+  `last_command_pulse_us_[output_idx]` ist auf `INT16_MAX` geclamped,
+  kein UB, kein Crash
 - ERROR_REPORT-Test (mit gemocktem Reader): drain liefert Reports →
-  `RCLCPP_ERROR` wird aufgerufen mit korrekten Feldern
+  formatierter Log-Output (Detail in D.8)
 
 ### D.7 — USB-Reconnect-Logik
 
@@ -420,21 +575,63 @@ wir das erkennen und versuchen wieder zu connecten.
 - `read_some()` im Reader-Thread failt analog
 
 **Reaktion (im Reader-Thread, weil der's zuerst sieht):**
-1. SerialPort schließen, `is_connected_` Atomic auf false
-2. Backoff-Schleife: alle 100, 200, 500, 1000, 2000, 5000, 5000, …
-   ms versuchen `serial_port_.open()`
-3. Bei Erfolg: `is_connected_` auf true, Reader-Loop wieder normal
-4. `write()` im Hauptthread prüft `is_connected_` vor jedem
-   `write_all()`. Wenn `false` → `return_type::ERROR` zurück, dann
-   gerät ros2_control der Controller in `inactive`-State.
+1. Reader nimmt **exclusive lock** auf `SerialPort` (siehe D.1
+   `shared_mutex`). Damit blockiert jeder gleichzeitige `write_all`-Aufruf
+   im Hauptthread.
+2. SerialPort `close()`, `is_connected_` Atomic auf false
+3. Backoff-Schleife: 100, 200, 500, 1 000, 2 000, 5 000, 5 000, … ms
+   versuchen `serial_port_.open()`
+4. Bei Erfolg: `is_connected_` auf true, exclusive lock freigeben,
+   Reader-Loop läuft wieder normal
+5. Hauptthread `write()` sieht `is_connected_ == false` (oder bekommt
+   eine Exception aus `write_all` weil Port während des Backoff
+   geschlossen war) → returnst `return_type::ERROR` → ros2_control bringt
+   Plugin in inactive-State.
+
+**Race-Schutz (Punkt 2 aus Review):** Der `shared_mutex` in `SerialPort`
+verhindert das TOCTOU-Pattern „Hauptthread checkt is_connected_, ist
+true, Reader schließt den FD, Hauptthread schreibt auf gerade
+geschlossenen FD". Reader nimmt den unique-Lock für die ganze
+`close+open`-Phase. Hauptthread, der gerade in `write_all` ist und den
+shared-lock hält, blockiert den Reader-Lock-Acquire bis er fertig ist —
+und danach blockiert er selber, weil der Reader jetzt den unique-Lock
+hat. Sauber serialisiert.
+
+**Recovery-Workflow für den User (Punkt 8 aus Review):**
+Nach erfolgreichem Reconnect ist das Plugin **immer noch in
+`inactive`-State** — der Reader läuft zwar wieder, aber ros2_control hat
+den Controller deaktiviert weil `write()` mal ERROR returned hat.
+Manueller User-Schritt nötig:
+
+```bash
+# Status prüfen:
+ros2 control list_controllers
+# alle Leg-Controller stehen jetzt als "inactive"
+
+# Re-aktivieren:
+ros2 control switch_controllers --activate \
+    joint_state_broadcaster leg_1_controller leg_2_controller \
+    leg_3_controller leg_4_controller leg_5_controller leg_6_controller
+```
+
+Das ist bewusst nicht automatisch, weil nach einem Disconnect der
+Roboter mechanisch in undefinierter Pose sein kann (Servos gehen
+spannungsfrei, Beine sacken durch). Der User soll explizit bestätigen
+„OK, ich habe geprüft, kann wieder fahren".
+
+Wird in der Plugin-README (Stufe I) als Recovery-Procedure dokumentiert.
 
 **Done-Kriterium D.7:**
 - Manueller Test mit echter HW (kommt erst in Stufe H): Kabel ziehen
   → `RCLCPP_ERROR`-Log + Controller-State wechselt zu inactive →
-  Kabel wieder rein → Reader connectet automatisch wieder
-- gtest mit PTY-close-Simulation: kann die Backoff-Logik testen, aber
-  das vollständige USB-Disconnect-Verhalten ist nur am echten Gerät
-  prüfbar
+  Kabel wieder rein → Reader connectet automatisch wieder →
+  manuelles `switch_controllers --activate` bringt das System zurück
+- gtest mit PTY-close-Simulation: kann die Backoff-Logik testen
+  (Reader sieht close, fängt an zu retryen, erste open() liefert
+  schon ein Reopen-Pty zurück → Reader läuft weiter)
+- gtest für shared_mutex-Verhalten: zwei Threads, einer schreibt
+  permanent, anderer ruft `reconnect()` auf — kein Crash, write
+  blockiert während Reconnect
 
 ### D.8 — ERROR_REPORT-Routing mit Logging-Detail
 
@@ -507,6 +704,58 @@ Bei jeder Sub-Stage:
 
 ---
 
+## Sicherheits-Hinweis (Punkt 10 aus Review)
+
+**Vor `switch_controllers --activate`: Roboter aufbocken.**
+
+Das ist in `~/hexapod_ws/CLAUDE.md §9` schon dokumentiert, aber Stufe D
+ist die erste Stufe wo Servos tatsächlich loslegen, sobald jemand den
+Activate-Befehl absetzt. Konkret:
+
+1. Das `on_activate` schickt eine `SET_TARGETS`-Sequenz mit Neutralpose
+   (alle Pulse = `pulse_zero`, ≈ 1500 µs). Die Servos snappen sofort
+   dorthin — d.h. wenn das Bein vorher in einer beliebigen Pose lag,
+   springt es in einem Schlag in die mechanische Mitte.
+2. Hexapod aufbocken (Beine in der Luft, kein Bodenkontakt) **bevor**
+   irgendwer `switch_controllers --activate` aufruft.
+3. Hardware-Kill-Switch (z.B. Power-Trennung am Bench-PSU) in
+   Reichweite.
+4. Erste Aktivierungen mit **reduzierter Geschwindigkeit** (Stufe F
+   `controllers.real.yaml` mit ~30 % vel/accel-Limits gegenüber Sim).
+
+Das gehört prominent in die Plugin-README — Anwender liest die zuerst.
+
+---
+
+## Implementation hints / minor Punkte aus dem Review
+
+Kleinere Verbesserungen die in der Implementation berücksichtigt werden,
+aber kein eigenes Sub-Stage rechtfertigen:
+
+- **`/dev/ttyACM0` vs `ttyACM1` known-issue:** Bei mehreren USB-CDC-Geräten
+  am Host kann sich der Path verschieben. Phase 9 nimmt das hin, der User
+  setzt den `serial_port`-Parameter im URDF passend. Stable-Symlink via
+  `udev`-Regel ist möglich aber Out-of-scope. → README erwähnt das im
+  Troubleshooting-Abschnitt.
+- **`WARN_THROTTLE` statt `WARN_ONCE` für persistent NaN:** Schon im D.6-
+  Pseudocode (`RCLCPP_WARN_THROTTLE(*clock_, 5000, ...)`).
+- **Loopback-Mode überspringt Activate-Stagger:** Schon im D.5-Pseudocode
+  (`stagger = loopback_mode_ ? 0 : 50ms`).
+- **Multiple Plugin-Instances:** Wenn jemand zwei `<ros2_control>`-Blöcke
+  mit dem Plugin lädt, würden beide `/dev/ttyACM0` öffnen wollen — der
+  zweite kriegt `EBUSY`. Wir fangen das im `on_configure` mit klarem
+  Error-Log ab. Pragmatisch nicht supported; nicht erwartet bei
+  Single-Hexapod-Setup.
+- **Lifecycle-INFO-Logging:** Jeder `on_*`-Hook loggt am Anfang ein
+  `RCLCPP_INFO("Configuring/Activating/...")` für Debug-Sichtbarkeit.
+- **`on_error_processing`-Hook:** Default-Implementation in der
+  Base-Klasse reicht (return SUCCESS). Wir override es nicht.
+- **SEQ-Wraparound:** `seq_` ist `uint8_t`, Modulo-256 ist OK weil die
+  Firmware stateless bei SEQ ist (echoiert nur in Antworten). Kein
+  Spezial-Handling.
+
+---
+
 ## Was Stufe D explizit **nicht** macht
 
 - **Kein** `gz_ros2_control`/sim-Pfad — das ist Stufe F (URDF-Switch)
@@ -528,19 +777,23 @@ Bevor wir mit D.1 starten möchte ich Bestätigung zu:
 
 1. **Sub-Staging D.1–D.8** wie hier aufgeteilt — passt das, oder
    anders schneiden?
-2. **`SerialPort`-Klasse mit POSIX-FD** statt z.B. boost::asio — ist OK?
+2. **`SerialPort`-Klasse mit POSIX-FD + `shared_mutex`** statt z.B.
+   boost::asio — ist OK?
 3. **`std::thread` statt boost::asio/coroutine** — ist OK?
 4. **`std::optional<StatePayload>` als State-Cache, Mutex-geschützt** —
    ist OK, oder lieber lockfree-Atomic?
-5. **NaN-Handling: behalte last good value + WARN_ONCE** — passt, oder
-   sollte das Plugin in ERROR-State gehen?
+5. **NaN-Handling: behalte last good value + WARN_THROTTLE (5 s)** —
+   passt, oder sollte das Plugin in ERROR-State gehen?
 6. **Watchdog-Recovery manuell** (User schickt RESET) — passt, oder
    sollte das Plugin nach N Sekunden automatisch RESET versuchen?
+7. **Reconnect-Recovery manuell** (User ruft `switch_controllers
+   --activate` nach Kabel-rein) — passt, oder automatisch?
 
 Wenn alle Punkte „passt" sind, ist Default:
 - D.1–D.8 wie oben
-- POSIX-FD, `std::thread`, `std::optional + mutex`
-- NaN → WARN_ONCE + behalten
+- POSIX-FD mit `shared_mutex`, `std::thread`, `std::optional + mutex`
+- NaN → WARN_THROTTLE + behalten
 - Watchdog-Recovery manuell
+- Reconnect-Recovery manuell
 
 Dann fange ich mit **D.1** an.

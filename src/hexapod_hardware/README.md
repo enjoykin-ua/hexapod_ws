@@ -6,10 +6,15 @@ das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufen A + B + C abgeschlossen — Skelett, Build-Setup,
-Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker), und
-Kalibrierungs-Lib (30 Tests, piecewise-linear rad↔pulse-µs Konversion
-mit yaml-cpp Loader und Strong-Exception-Guarantee beim Reload).
+Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
+(Sub-Stage D.2/8 fertig)**. Aktuell:
+- Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
+- Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
+- SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
+- **Reader-Thread (17 Tests inkl. RAII-Lifecycle + Stress-Test 5× start/stop + dispatch
+  STATE/ERROR_REPORT/ACK/NACK + Garbage-Discard)**
+
+Total: **97 gtest-Cases** über vier Sub-Layers.
 
 ---
 
@@ -76,6 +81,142 @@ hexapod_hardware/
 ---
 
 ## Klassen-Übersicht (Stand Stufe A)
+
+### `hexapod_hardware::SerialPort` (neu in Stufe D.1)
+
+POSIX-FD-Wrapper für `/dev/ttyACM*`. RAII-Owner, non-copyable,
+non-movable. Drei Designentscheidungen:
+
+1. **`cfmakeraw()`** — schaltet die Linux-TTY-Line-Discipline ab. Ohne
+   das würde der Kernel `0x0D` automatisch zu `0x0A` mappen (ICRNL) bzw.
+   `0x0A` zu `0x0D 0x0A` expandieren (ONLCR) — und damit jedes
+   COBS+CRC-Frame zerstören, dessen CRC-Byte zufällig `0x0D` ist. Das
+   war einer der zwei Bugs in Phase 7 C.4 (siehe fw-Repo
+   `phase_7_progress.md` Postmortem). Drei spezifische Tests verifizieren
+   dass `0x0D`, `0x0A` und gemischte Sequenzen byte-exakt durchkommen.
+
+2. **`O_NONBLOCK` + `poll()` für Timing** — statt im blocking-Mode mit
+   `VTIME` zu arbeiten. Vorteil: `write_all` kann mit einem 50-ms-Timeout
+   abbrechen wenn die USB-CDC-FIFO wegen Firmware-Hang voll ist (ohne
+   das würde der controller_manager-Tick blockieren). `read_some` hat
+   einen 1-s-Timeout für den Reader-Thread, der nach Timeout sein
+   Shutdown-Flag checken kann.
+
+3. **`std::shared_mutex` als Member** — schützt vor dem Reconnect-Race
+   (D.7): wenn der Reader-Thread `close()` + `open()` macht, während
+   der Hauptthread mitten in `write_all()` ist, hätten wir ein
+   TOCTOU-Pattern. Lösung: `write_all`/`read_some` nehmen
+   `shared_lock`, der Reconnect-Pfad nimmt `exclusive_lock` via
+   `port.exclusive_lock()`. Ein Test verifiziert die Serialisierung
+   per Zeitmessung (Writer blockiert ≥ 200 ms wenn exclusive_lock
+   200 ms gehalten wird).
+
+API-Skizze:
+```cpp
+SerialPort port;
+port.open("/dev/ttyACM0");        // wirft std::system_error bei Fehler
+
+uint8_t frame[] = {…};
+port.write_all(frame, sizeof(frame));   // poll+50ms timeout
+                                        // wirft bei disconnect
+
+uint8_t buf[256];
+size_t n = port.read_some(buf, sizeof(buf));  // poll+1s, returnst 0 bei timeout
+
+// Im Reconnect-Pfad:
+{
+  auto lock = port.exclusive_lock();   // blockiert bis kein I/O läuft
+  port.close();
+  // ... Backoff …
+  port.open(path);
+}  // lock released, write_all/read_some können wieder
+```
+
+Tests in [`test/test_serial_port.cpp`](test/test_serial_port.cpp)
+(14 Test-Cases in 3 Suites): Lifecycle, alle 256 Byte-Werte
+roundtrippen, **CR/LF byte-exakt** (cfmakeraw-Verifikation),
+read-timeout 1 s, write delivers, write-on-closed throws, und
+**Mutex-Contention zwischen write_all und exclusive_lock**.
+
+### `hexapod_hardware::Servo2040Reader` (neu in Stufe D.2)
+
+Hintergrund-Thread der die Servo2040-Wire-Bytes konsumiert,
+auf `0x00`-Delimiter splittet, `decode_frame()` aufruft und nach
+Opcode dispatched. Wichtige Eigenschaften:
+
+**Saubere Lifecycle-Garantien.** Der User-Hinweis war klar: „stark auf
+den Thread aufpassen, sauber starten und schließen, nicht im Hintergrund
+weiterlaufen". Konkret garantiert die Implementation:
+
+1. **Genau ein Thread**, gestartet in `start()`, gejoined in `stop()`.
+   Nie detach. Nie ein zweiter parallel laufender Reader für dieselbe
+   Instanz (double-start wirft `std::runtime_error`).
+2. **Stop-Latenz deterministisch beschränkt** auf ~1 s (= `SerialPort`
+   Read-Timeout). Test `StopJoinsCleanlyWithin1500ms` deckelt das.
+3. **Destruktor ist RAII-sauber:** Wenn der Reader im Scope stirbt, wird
+   automatisch `stop()` aufgerufen, der Thread joined. Test
+   `DestructorJoinsRunningThread` verifiziert.
+4. **`lifecycle_mtx_`** serialisiert `start`/`stop`/`is_running`/Destruktor
+   gegen sich selbst — auch wenn ros2_control-Lifecycle bereits
+   sequentiell ist, schützt das Mutex vor zukünftigen Race-Bugs.
+5. **5× start/stop-Stress-Test** (`RepeatedStartStopLeavesNoThreadBehind`)
+   verifiziert dass nach jedem Stop-Zyklus `is_running() == false` und
+   `died() == false` ist — kein vergessener Thread.
+
+**Dispatch-Verhalten:**
+
+| Eingehender Frame-Opcode | Action |
+|---|---|
+| `STATE_RESPONSE` (`0x82`) | `latest_state_` (mutex-geschützt) updaten — peek-not-consume |
+| `ERROR_REPORT` (`0x7F`) | in `error_queue_` (mutex-geschützt) anhängen |
+| `ACK` (`0xFF`) / `NACK` (`0xFE`) | `RCLCPP_DEBUG`-Log, sonst nichts |
+| unbekannter Opcode | `RCLCPP_WARN`, sonst nichts |
+| CRC-Fehler / COBS-Fehler | `RCLCPP_WARN`, Frame verworfen |
+
+`latest_state()` (peek) wird vom Plugin aktuell **nicht** benutzt — in
+Phase 9 pollen wir GET_STATE nicht (Architektur-Entscheidung B in der
+Stage-D-Plan-Doku). Der Cache ist für Phase 10 / spätere
+Diagnostik-Zwecke vorbereitet.
+
+`drain_error_queue()` wird in Stufe **D.6** (`read()`) bei jedem Tick
+aufgerufen, jeder Eintrag per `RCLCPP_ERROR` geloggt (Detail-Formatierung
+in **D.8**).
+
+**Exception-Sicherheit:** Die gesamte Main-Loop ist in `try/catch`
+eingebettet. Wenn z.B. `std::bad_alloc` aus dem Frame-Assembler fliegt
+oder `std::system_error` aus `SerialPort::read_some` (Disconnect), wird
+`died_ = true` gesetzt und der Thread beendet sich sauber.
+`HexapodSystemHardware::read()` (Stufe D.6) prüft `died()` und meldet
+das an ros2_control via `return_type::ERROR`. Echter Reconnect kommt
+erst in **D.7**.
+
+API-Skizze:
+```cpp
+SerialPort port;
+port.open("/dev/ttyACM0");
+
+Servo2040Reader reader;
+reader.start(port);           // forkt Thread
+// ... während Plugin läuft, Reader sammelt Frames im Hintergrund ...
+
+// Pro read()-Tick:
+for (auto & er : reader.drain_error_queue()) {
+    RCLCPP_ERROR(logger, "FW error %02X (servo %u, aux %d)",
+                 er.error_code, er.servo_idx, er.aux);
+}
+if (reader.died()) {
+    return return_type::ERROR;
+}
+
+// Shutdown:
+reader.stop();    // joined Thread, höchstens 1 s
+port.close();
+```
+
+Tests in [`test/test_servo2040_reader.cpp`](test/test_servo2040_reader.cpp)
+(17 Test-Cases in 2 Suites): `ReaderLifecycle` (6 — inkl. Stress-Test
+und Destructor-RAII), `ReaderPty` (11 — alle Dispatch-Pfade inkl.
+Bad-Frame-Discard und Chunked-Delivery-Reassembly).
 
 ### `hexapod_hardware::HexapodSystemHardware`
 
@@ -495,8 +636,16 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 |---|---|---|
 | **A** | Paket-Skelett, Build, pluginlib-Setup | ✅ |
 | **B** | COBS + CRC-16/CCITT-FALSE + alle Opcode-Encoder/Decoder mit 36 Unit-Tests | ✅ |
-| **C** | YAML-Loader (yaml-cpp), 3-Punkt-Konversion, 27 Unit-Tests | ✅ |
-| **D** | Lifecycle voll, Reader-Thread, Loopback-Mode, USB-Reconnect | offen |
+| **C** | YAML-Loader (yaml-cpp), 3-Punkt-Konversion, 30 Unit-Tests | ✅ |
+| **D** | Lifecycle voll, Reader-Thread, Loopback-Mode, USB-Reconnect | 🟡 in Arbeit (D.1/8) |
+| └ D.1 | SerialPort-Wrapper (cfmakeraw, O_NONBLOCK+poll, shared_mutex), 14 Tests | ✅ |
+| └ D.2 | Reader-Thread mit Frame-Stream-Parser + RAII-Lifecycle, 17 Tests | ✅ |
+| └ D.3 | on_init mit URDF-Joints + Calibration-Lookup-Tabelle | offen |
+| └ D.4 | on_configure / on_cleanup (Port öffnen/schließen) | offen |
+| └ D.5 | on_activate Boot-Sequenz (RESET + 18×ENABLE + SET_TARGETS) | offen |
+| └ D.6 | read/write mit Echo-State + Pulse-Konversion | offen |
+| └ D.7 | USB-Reconnect-Logik mit Backoff | offen |
+| └ D.8 | ERROR_REPORT-Logging-Detail | offen |
 | **E** | Plugin-Registrierung verifizieren | offen |
 | **F** | URDF-Switch + `controllers.real.yaml` | offen |
 | **G** | `real.launch.py` | offen |

@@ -250,7 +250,90 @@
 
 ## Stufe D — `HexapodSystemHardware`-Klasse
 
-(folgt nach Stufe C)
+> **Plan-Doku:** [`phase_9_stage_d_plan.md`](phase_9_stage_d_plan.md) — Architektur, Threading-Modell, Sub-Stage-Aufteilung, 10 Review-Punkte.
+>
+> Stufe D ist in **8 Sub-Stages D.1–D.8** aufgeteilt (Begründung in der Plan-Doku).
+
+### Sub-Stage D.1 — Serial-Port-Wrapper
+
+> Done-Kriterium D.1 (aus Plan): `SerialPort` baut + leakt keinen FD, Bytes überleben byte-exakt (insbesondere 0x0D/0x0A nach cfmakeraw), Read-Timeout funktioniert, write_all wirft bei Timeout, mutex schützt Reconnect-Race.
+
+- [x] D.1.1 Header `include/hexapod_hardware/serial_port.hpp`: API mit `open`/`adopt_fd`/`close`/`write_all`/`read_some`/`exclusive_lock`, non-copyable/non-movable, `std::shared_mutex` als Member
+- [x] D.1.2 Implementation `src/serial_port.cpp`:
+  - `O_RDWR | O_NOCTTY | O_NONBLOCK` beim `open()`
+  - `cfmakeraw()` + `tcflush()` in `configure_termios()` (gemeinsam für `open` + `adopt_fd`)
+  - `write_all()` mit `poll(POLLOUT, 50 ms)` pro Chunk, throw `std::system_error` bei Timeout
+  - `read_some()` mit `poll(POLLIN, 1000 ms)`, returnst 0 bei Timeout (kein Throw)
+  - Klare Error-Messages bei disconnect-errnos (`EIO`, `ENXIO`, `ENODEV`, `EBADF`)
+- [x] D.1.3 Unit-Tests `test/test_serial_port.cpp` mit `openpty(3)`: 14 Tests in 3 Suites:
+  - `SerialPortLifecycle` (5): default-closed, adopt_fd, idempotent close, double-adopt-throws, ENOENT-message
+  - `SerialPortPty` (8): 256-Byte-Roundtrip, **CR-byte-exact, LF-byte-exact, mixed-CR-LF-byte-exact** (cfmakeraw-Verifikation), read-timeout returns 0 (900..1500 ms), write delivers, **exclusive_lock blockt parallel write**
+  - `SerialPortError` (2): write/read auf geschlossenem Port throws
+- [x] D.1.4 `CMakeLists.txt`: `serial_port.cpp` in der Library, Test linkt `util` für `openpty`
+- [x] D.1.5 `colcon build`: grün, keine Warnings
+- [x] D.1.6 `colcon test`: 7/7 grün — `test_serial_port` (14), `test_calibration` (30), `test_servo2040_protocol` (36) + 4 linters
+
+**Done-Kriterium D.1 erreicht:** ✅ (am 2026-05-15)
+
+### Sub-Stage D.2 — Reader-Thread
+
+> Done-Kriterium D.2 (aus Plan): Reader baut, sauberer Start/Stop ohne Hang, gültige Frames erreichen Cache/Queue, ungültige Frames werden verworfen ohne zu poisoning, Thread-Lifecycle ist sauber (kein detach, kein Leak).
+
+- [x] D.2.1 Header `include/hexapod_hardware/servo2040_reader.hpp`: API mit `start`/`stop`/`is_running`/`died`/`latest_state`/`drain_error_queue`, non-copyable/non-movable, drei Mutexe (`lifecycle_mtx_`, `state_mtx_`, `error_mtx_`), zwei Atomics (`stop_requested_`, `died_`)
+- [x] D.2.2 Implementation `src/servo2040_reader.cpp`:
+  - Main-Loop: `read_some` → bytes → split on 0x00 → `decode_frame` → `dispatch`
+  - Dispatch per opcode: STATE_RESPONSE → cache, ERROR_REPORT → queue, ACK/NACK → DEBUG-Log, unknown → WARN
+  - **`try/catch` um die gesamte Loop** mit `died_=true` bei Exception (Review Punkt 4)
+  - **`lifecycle_mtx_`** serialisiert `start`/`stop`/`is_running`/Destructor
+  - `stop_requested_` wird **vor** dem Lifecycle-Lock gesetzt, damit ein hängender `read_some` sofort beim nächsten Timeout reagiert
+  - Disconnect-Errors (`std::system_error` aus `SerialPort::read_some`) setzen `died_` und beenden den Thread (echte Reconnect-Logik kommt in D.7)
+- [x] D.2.3 Unit-Tests `test/test_servo2040_reader.cpp` mit `openpty(3)`: **17 Tests in 2 Suites**:
+  - **`ReaderLifecycle` (6)** — IsRunning-Lifecycle, DoubleStartThrows, StopIdempotent, StopJoinsCleanlyWithin1500ms, **RepeatedStartStopLeavesNoThreadBehind** (5 Zyklen Stress-Test), **DestructorJoinsRunningThread** (RAII-Verifikation)
+  - **`ReaderPty` (11)** — StateFrameLandsInCache, ErrorReportLandsInQueue, MultipleErrorReportsAccumulateInOrder, DrainConsumesQueue, GarbageBytesAreDiscarded, UnknownOpcodeIsDiscarded, CorruptedCrcIsDiscarded, AckAndNackAreSilentlyAccepted, MultipleFramesBackToBackAllProcessed, ChunkedDeliveryIsReassembledCorrectly, LoneDelimiterByteIsIgnored
+- [x] D.2.4 `CMakeLists.txt`: `servo2040_reader.cpp` in der Library, neuer `ament_add_gtest test_servo2040_reader` (linkt auch `util` für `openpty`)
+- [x] D.2.5 `colcon build`: grün, keine Warnings
+- [x] D.2.6 `colcon test`: 8/8 grün — `test_calibration` (30), `test_serial_port` (14), **`test_servo2040_protocol` (36)**, **`test_servo2040_reader` (17)**, plus 4 Linter = **97 gtest-Cases**
+
+**Done-Kriterium D.2 erreicht:** ✅ (am 2026-05-15)
+
+### Stufe-D.2-Notizen
+
+- **Zwei UB-Fallen ausgemerzt während der Entwicklung:**
+  1. `*rclcpp::Clock::make_shared()` als Argument für `RCLCPP_WARN_THROTTLE` — der `shared_ptr<Clock>` ist ein Temporary, das `*` dereferenziert ihn, das Macro hält intern eine Referenz auf den gleich-zerstörten Clock. Plus: in gtest-Fixtures ohne `rclcpp::init()` schlägt die Clock-Konstruktion fehl. Lösung: plain `RCLCPP_WARN` ohne Throttle. Garbage-Frames sind auf USB-CDC selten, Spam ist OK-genug Diagnose.
+  2. Im Test selbst: `std::lock_guard<std::mutex> dummy(*std::make_unique<std::mutex>())` — gleicher Bug. Beide Fixes mit erklärenden Kommentaren im Code.
+- **Thread-Lifecycle-Garantie:** `lifecycle_mtx_` serialisiert `start`/`stop`/Destruktor gegen sich selbst. Aufruf-Konvention bleibt sequentiell (ros2_control-Lifecycle-States sind ohnehin nicht parallel), aber das Mutex schützt vor Race-Condition wenn jemand das missachtet. Niemals vom Reader-Thread selbst gehalten — kein Deadlock-Risiko.
+- **Stop-Latenz:** Maximal ~1 s wegen `SerialPort::read_some`-Timeout (VTIME entspricht 1 s effektiv). Bei Stop-Request wartet der Reader bis zum nächsten poll-Timeout, dann beendet er. Test `StopJoinsCleanlyWithin1500ms` deckelt das auf 1,5 s.
+- **`died()`-Flag vs `is_running()`:** Wenn der Reader-Thread aufgrund einer Exception abbricht, ist `thread_.joinable()` weiter true (kein implizites `detach`), aber `died_` ist true. `is_running()` returnt false. Plugin muss in `read()` `died_` prüfen und `return_type::ERROR` zurückgeben — kommt in D.6.
+
+### Was Stufe D.2 explizit **nicht** macht
+
+- Kein Reconnect-Versuch bei Disconnect — Reader stirbt und `died_` wird gesetzt. Reconnect-Logik kommt in **D.7**.
+- Keine semantische Auswertung von ERROR_REPORT-Codes (Code → Log-Message-Übersetzung) — kommt in **D.8**.
+- Kein automatisches GET_STATE-Polling — siehe Architektur-Entscheidung B in der Plan-Doku.
+
+### Sub-Stage D.3 — `on_init`
+
+(folgt nach D.2)
+
+### Sub-Stage D.4 — `on_configure` / `on_cleanup`
+
+(folgt nach D.3)
+
+### Sub-Stage D.5 — `on_activate` mit Boot-Sequenz
+
+(folgt nach D.4)
+
+### Sub-Stage D.6 — `read()` / `write()`
+
+(folgt nach D.5)
+
+### Sub-Stage D.7 — USB-Reconnect-Logik
+
+(folgt nach D.6)
+
+### Sub-Stage D.8 — ERROR_REPORT-Logging-Detail
+
+(folgt nach D.7)
 
 ---
 

@@ -21,6 +21,8 @@ find_package(yaml-cpp REQUIRED)
 add_library(${PROJECT_NAME} SHARED
   src/servo2040_protocol.cpp
   src/calibration.cpp
+  src/serial_port.cpp
+  src/servo2040_reader.cpp
   src/hexapod_system.cpp
 )
 
@@ -75,6 +77,13 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_servo2040_protocol test/test_servo2040_protocol.cpp)
   target_link_libraries(test_servo2040_protocol ${PROJECT_NAME})
+
+  ament_add_gtest(test_serial_port test/test_serial_port.cpp)
+  # -lutil for openpty(3); only the test needs it, not the runtime lib.
+  target_link_libraries(test_serial_port ${PROJECT_NAME} util)
+
+  ament_add_gtest(test_servo2040_reader test/test_servo2040_reader.cpp)
+  target_link_libraries(test_servo2040_reader ${PROJECT_NAME} util)
 endif()
 
 ament_export_include_directories(include)
