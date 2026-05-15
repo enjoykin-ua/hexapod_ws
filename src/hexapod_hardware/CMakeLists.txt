@@ -23,6 +23,7 @@ add_library(${PROJECT_NAME} SHARED
   src/calibration.cpp
   src/serial_port.cpp
   src/servo2040_reader.cpp
+  src/error_report_log.cpp
   src/hexapod_system.cpp
 )
 
@@ -84,6 +85,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_servo2040_reader test/test_servo2040_reader.cpp)
   target_link_libraries(test_servo2040_reader ${PROJECT_NAME} util)
+
+  ament_add_gtest(test_error_report_log test/test_error_report_log.cpp)
+  target_link_libraries(test_error_report_log ${PROJECT_NAME})
 
   ament_add_gtest(test_hexapod_system test/test_hexapod_system.cpp)
   # util for openpty(3) (used by D.4 on_configure tests).

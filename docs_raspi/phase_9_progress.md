@@ -623,7 +623,80 @@
 - **Kein automatischer Re-Activate via Service-Call** — wäre eine separate Komfort-Schicht (Phase 10+).
 - **Kein Reconnect für adopt_fd-konstruierte SerialPorts** — kein Pfad zum Re-Open, Reader stirbt mit `died_=true`. In Produktion nutzt das Plugin immer `open()`; nur Tests verwenden `adopt_fd`.
 
-### Sub-Stage D.8 — ERROR_REPORT-Logging-Detail
+### Sub-Stage D.8 — ERROR_REPORT-Routing mit Logging-Detail
+
+> **Vorab-Plan:** [`phase_9_stage_d_8_plan.md`](phase_9_stage_d_8_plan.md) — Logik-Skizze, finale Code-Tabelle (8 spezifizierte Codes + 1 Fallback), 11 Tests, 13 Progress-Bullets, User-Entscheidungen vom 2026-05-15 (Variante A für 0x20-Auslassung, Variante B für UNDERVOLTAGE-Vereinfachung).
+>
+> Done-Kriterium D.8 (aus Plan): pro Error-Code human-readable Message + Severity-Routing (WARN/ERROR/FATAL); Format-Tests pure-function direkt.
+
+- [x] D.8.1 Neues Modul `include/hexapod_hardware/error_report_log.hpp`:
+  - `enum class ErrorSeverity { WARN, ERROR, FATAL };`
+  - `ErrorSeverity severity_for(const ErrorReport &);`
+  - `std::string format_error_report(const ErrorReport &);`
+  - Header-Kommentare dokumentieren 0x20-Auslassung + UNDERVOLTAGE-Variante-B
+- [x] D.8.2 Neues Modul `src/error_report_log.cpp`:
+  - `severity_for`: switch mit case-Gruppen (5 WARN, 2 FATAL, 1 ERROR, default ERROR)
+  - `format_error_report`: switch mit pro-Code-Message via snprintf-Helper `fmt(...)` (fixed 256-B buffer, alle Messages << 200 chars)
+  - **0x20 SERVO_OVERCURRENT NICHT im switch** (Variante A) — fällt sauber in default-Branch („Unknown firmware error: code=0x20 ...")
+  - **UNDERVOLTAGE (0x30) ohne Sub-Case** (Variante B) — eine ERROR-Message mit Spannungswert
+  - Inline-Kommentare erklären Auslassung von 0x20 und UNDERVOLTAGE-Vereinfachung
+- [x] D.8.3 `hexapod_system.cpp` `read()` umstellen:
+  - Generic-Log ersetzt durch `format_error_report` + severity-basierter switch über `RCLCPP_WARN`/`RCLCPP_ERROR`/`RCLCPP_FATAL`
+  - Code-Kommentar verweist auf `error_report_log.{hpp,cpp}` + Plan-Doku
+  - `<string>` und `#include "hexapod_hardware/error_report_log.hpp"` ergänzt
+- [x] D.8.4 `CMakeLists.txt`:
+  - `error_report_log.cpp` zur shared library hinzugefügt
+  - `ament_add_gtest(test_error_report_log test/test_error_report_log.cpp)` registriert, kein util-Link nötig (pure-function-Tests, kein PTY)
+- [x] D.8.5 Tests `test/test_error_report_log.cpp` neue Suite `ErrorReportLogFormat` (**11 Tests**):
+  - Pro Code: `FrameCrcIsWarnAndMentionsCrc`, `FrameMalformedMentionsExpectedLen`, `UnknownOpcodeIsWarnAndMentionsDrift`, `PayloadLenMentionsExpectedSize`, `PulseOutOfRangeMentionsServoIdxAndClamped`, `TotalOvercurrentIsFatalAndMentionsLimit`, `UndervoltageIsErrorAndMentionsMv`, `WatchdogTrippedIsFatalAndMentionsReset`
+  - Forward-compat: `UnknownCodeFallsBackToHexDump` (0xAB), `ServoOvercurrentCodeFallsBackToUnknown` (0x20 muss explizit im default landen)
+  - Smoke: `AllSpecCodesReturnNonEmptyString` (alle 8 Codes + 1 unknown nicht-leere Strings)
+  - Test-Helper `Contains` für klarere Failure-Messages
+- [x] D.8.6 `colcon build`: grün, keine Warnings
+- [x] D.8.7 `colcon test`: alle gtests grün, total **200 tests, 0 errors, 0 failures, 18 skipped**
+  (11 neue ErrorReportLogFormat-Tests + bestehende 182 = 193, plus 7 zusätzliche Linter-Sub-Tests durch das neue Test-Binary)
+- [x] D.8.8 **Post-Review-Fix:** uncrustify-Style — `args...` → `args ...` (space vor parameter-pack-expansion)
+- [x] D.8.9 Self-Review-Tabelle (siehe unten); keine inhaltlichen Fixes nötig
+- [x] D.8.10 `phase_9_stage_d_8_test_commands.md` finalisiert
+- [x] D.8.11 README.md: Status auf **D komplett ✅ (alle 8/8 Sub-Stages)**, Lifecycle-Tabelle final, neuer Abschnitt **„Firmware-Error-Diagnose"** mit Code-Tabelle
+- [x] D.8.12 progress.md: diese D.8-Sektion mit Bullets + Notizen + Post-Review-Tabelle
+- [x] D.8.13 PHASE.md: nicht geändert (Stage E–J kommen noch)
+
+**Done-Kriterium D.8 erreicht:** ✅ (am 2026-05-15; 11 gtest-Cases in 1 Test-Suite grün)
+
+**🎉 Stufe D komplett (alle 8 Sub-Stages):**
+- D.1 SerialPort ✅ | D.2 Reader-Thread ✅ | D.3 on_init ✅ | D.4 on_configure/cleanup ✅
+- D.5 on_activate/deactivate ✅ | D.6 read/write ✅ | D.7 USB-Reconnect ✅ | D.8 Error-Logging ✅
+
+### Stufe-D.8-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| snprintf-Buffer-Overflow | ✅ OK | Längste Message ~130 chars << 256-B buffer; explicit clamp |
+| Format-String-Sicherheit | ✅ OK | Compile-time-format-strings, `%s` nur in RCLCPP-Aufrufen mit msg.c_str() |
+| Severity-Mapping konsistent | ✅ OK | WARN (frame-layer + clamp), ERROR (undervoltage + unknown), FATAL (all-servos-off) |
+| UNDERVOLTAGE einheitlich kein WARN/TRIP-Split | ✅ verifiziert | Test stellt sicher dass "TRIP" nicht im String steht |
+| 0x20 SERVO_OVERCURRENT im default-branch | ✅ verifiziert | Test `ServoOvercurrentCodeFallsBackToUnknown` pinnt Contract |
+| Forward-Compat-Fallback | ✅ verifiziert | Test mit 0xAB sieht ERROR + "Unknown" + hex-dump |
+| Thread-Safety | ✅ OK | format_error_report/severity_for sind pure functions, no state |
+| Plugin-Integration | ✅ verifiziert | D.6-`PtyReadDrainsFirmwareErrorReports` zeigt im Log jetzt: `[FATAL] WATCHDOG_TRIPPED — host stopped sending frames...` |
+| Loopback skipt drain | ✅ OK | D.6-Guard `if (!loopback_mode_)` unverändert beibehalten |
+| Performance pro Tick | ✅ OK | Bei leerer Queue: kein format/log overhead |
+| uncrustify-Style `args...` vs `args ...` | 🔴 → ✅ gefixt | Space vor parameter-pack-expansion erforderlich; einmaliger Fix |
+
+### Stufe-D.8-Notizen
+
+- **Pure-function-Tests sind ein Gewinn:** Die Format-Logik direkt zu testen (statt RCLCPP-Log-Capture mit redirect-stderr-Boilerplate) ist sauberer und schneller. Alle 11 Tests laufen in < 1 ms gesamt. Empfehlung: gleiches Pattern für künftige Logging-Verfeinerungen.
+- **Severity-Differenzierung bringt operativen Wert:** Mit `[FATAL]` für all-servos-off-Codes (WATCHDOG, TOTAL_OVERCURRENT) kann der User per `ros2 log` o.ä. nach den schweren Events filtern, ohne im WARN-Geräusch zu ertrinken (FRAME_CRC, PULSE_OUT_OF_RANGE können beim Bringup öfter kommen).
+- **0x20-Auslassung dokumentiert:** Wenn jemand in Phase 11+ eine Hardware-Revision mit Per-Servo-Stromsensor baut und die Firmware den Code wirklich sendet, fällt er sauber in den unknown-Branch — User sieht eine actionable Message. Wenn dann sinnvoll: switch-case explizit ergänzen, plus 2 Tests.
+- **UNDERVOLTAGE-Vereinfachung pragmatisch:** Phase 10 wird auf der Bench tatsächlich sehen ob WARN/TRIP getrennt werden müssen. Falls ja: Firmware-Update zu zwei Codes (0x30 + 0x31), Plugin-Update zu separaten cases. Bis dahin: eine generische ERROR-Message ist ehrlicher als eine Konvention zu erfinden.
+
+### Was Stufe D.8 explizit **nicht** macht
+
+- **Kein automatisches RESET** bei WATCHDOG_TRIPPED — User-Entscheidung manuell (Plan-Doku §6, Phase 10).
+- **Kein NaN-Throttle aus D.6-Post-Review** — bewusst Skip (Scope-Creep, Phase 10 wenn spammy).
+- **Kein RCLCPP-Log-Capture-Test** — Format-Tests reichen, D.6-Integration deckt Pipeline ab.
+- **Keine Per-Servo-Strom-Diagnose** — Servo2040 hat das nicht; eigener Diagnose-Pfad in Phase 10+ wenn Hardware mitspielt.
 
 (folgt nach D.7)
 

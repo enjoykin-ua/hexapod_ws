@@ -17,6 +17,8 @@
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "hexapod_hardware/error_report_log.hpp"
+
 namespace hexapod_hardware
 {
 
@@ -553,15 +555,25 @@ hardware_interface::return_type HexapodSystemHardware::read(
 
   // ─── Drain firmware error reports (loopback has no reader) ───────────
   // The reader thread queues ERROR_REPORT frames as the firmware sends
-  // them (watchdog trips, overcurrent, etc.). We drain once per tick and
-  // log each one. D.8 will refine the per-error-code translation; for D.6
-  // a single-line summary keeps the diagnostic visible.
+  // them (watchdog trips, overcurrent, etc.). Each entry is formatted
+  // and logged at the severity that matches its operational weight —
+  // frame-layer drops as WARN, undervoltage as ERROR, watchdog/total-
+  // overcurrent as FATAL. See error_report_log.{hpp,cpp} for the table
+  // and phase_9_stage_d_8_plan.md for the per-code rationale.
   if (!loopback_mode_) {
     for (const auto & er : reader_.drain_error_queue()) {
-      RCLCPP_ERROR(plugin_logger(),
-        "Firmware error: code=0x%02X servo_idx=%u aux=%d "
-        "(per-code detail comes in stage D.8)",
-        er.error_code, er.servo_idx, er.aux);
+      const std::string msg = format_error_report(er);
+      switch (severity_for(er)) {
+        case ErrorSeverity::WARN:
+          RCLCPP_WARN(plugin_logger(), "%s", msg.c_str());
+          break;
+        case ErrorSeverity::ERROR:
+          RCLCPP_ERROR(plugin_logger(), "%s", msg.c_str());
+          break;
+        case ErrorSeverity::FATAL:
+          RCLCPP_FATAL(plugin_logger(), "%s", msg.c_str());
+          break;
+      }
     }
 
     if (reader_.died()) {

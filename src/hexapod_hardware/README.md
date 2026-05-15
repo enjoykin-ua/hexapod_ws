@@ -6,8 +6,7 @@ das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
-(Sub-Stage D.7/8 fertig)**. Aktuell:
+Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** abgeschlossen. Stufen E (Plugin-Registrierung), F (URDF-Switch), G (real.launch.py), H (echte Servo2040-Anbindung), I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
@@ -23,13 +22,17 @@ Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
   Permutations-Aware-Mapping mit reversed URDF, NaN-Sanity, Int16-Clamp,
   PTY-SET_TARGETS-Frame-Verifikation, ERROR_REPORT-Drain, Reconnect-Verhalten
   für beide Hooks)
-- **USB-Reconnect-Logik mit Backoff (5 Tests: Reader geht in Backoff statt
+- USB-Reconnect-Logik mit Backoff (5 Tests: Reader geht in Backoff statt
   zu sterben, Stop-Signal-Latenz, adopt_fd-Fallback, parallel-write-Race,
   full Plugin-Lifecycle während Disconnect). Backoff-Sequenz
   `{100, 200, 500, 1000, 2000, 5000, 5000}` ms, manuelle Recovery per
-  `switch_controllers --activate` nach Reconnect.**
+  `switch_controllers --activate` nach Reconnect.
+- **Firmware-Error-Diagnose mit Severity-Routing (11 Tests: pro Error-Code
+  human-readable Message, WARN/ERROR/FATAL je nach operativer Konsequenz;
+  forward-compat-Fallback für unbekannte Codes; 0x20 SERVO_OVERCURRENT
+  bewusst in Fallback weil Servo2040 keine Per-Servo-Stromsensoren hat)**
 
-Total: **140 gtest-Cases** über neun Sub-Layers.
+Total: **151 gtest-Cases** über zehn Sub-Layers.
 
 ---
 
@@ -287,7 +290,7 @@ Subklasse von `hardware_interface::SystemInterface`. Wird zur Laufzeit
 | `on_activate`    | ✅ RESET → 18× ENABLE_SERVO mit 50 ms Stagger → SET_TARGETS neutral (Watchdog warmhalten + definierte Initial-Pose) |
 | `on_deactivate`  | ✅ 18× DISABLE_SERVO ohne Stagger (Best-Effort — Torque-off so schnell wie möglich) |
 | `on_cleanup`     | ✅ Reader-Thread stoppen, Serial-Port schließen (in dieser Reihenfolge) |
-| `read`           | ✅ Echo via Calibration::pulse_us_to_radians (rad-Konsumenten sehen letzten Sollwert als „Istwert"); ERROR_REPORT-Drain; reader.died() → return_type::ERROR |
+| `read`           | ✅ Echo via Calibration::pulse_us_to_radians (rad-Konsumenten sehen letzten Sollwert als „Istwert"); ERROR_REPORT-Drain mit per-Code Severity-Routing (siehe „Firmware-Error-Diagnose"); reader.died() → return_type::ERROR |
 | `write`          | ✅ NaN-Sanity → keep last good; rad → pulse_us via Calibration; int16-Clamp gegen UB; in non-loopback: SET_TARGETS-Frame senden |
 
 Plus die `export_*_interfaces`-Methoden, die dem `controller_manager`
@@ -589,6 +592,68 @@ Konfigurationen, Bounds-Checks, ein Real-File-Test gegen
 `config/servo_mapping.yaml`, und **Strong-Exception-Guarantee**
 (`load_from_string` lässt Member-State unangetastet wenn er mid-parse
 wirft — lokale Strukturen + `std::move`-Commit am Ende).
+
+---
+
+## Firmware-Error-Diagnose (Stufe D.8)
+
+Wenn die Servo2040-Firmware ein Problem erkennt, schickt sie ein
+`ERROR_REPORT`-Frame mit drei Feldern:
+
+```
+struct ErrorReport {
+    uint8_t error_code;   // siehe Tabelle unten
+    uint8_t servo_idx;    // bei servo-spezifischen Codes der betroffene Pin
+    int16_t aux;           // codeabhängig: mA, µs, mV, expected LEN, ...
+};
+```
+
+Der Reader-Thread queued das, `read()` drainet pro Tick und loggt jeden
+Eintrag mit einer **per-Code passenden Severity** und einer
+**human-readable Message**, die das `aux`-Feld interpretiert. Damit ist
+Fehler-Diagnose direkt aus den ROS-Logs machbar — kein Hex-Look-up in
+`PROTOCOL.md` nötig.
+
+### Code-Tabelle (Phase 9 Stufe D.8)
+
+| Code | Severity | Message-Kern | Bedeutung |
+|---|---|---|---|
+| `0x01 FRAME_CRC` | `[WARN]` | „CRC error on incoming frame" | Einzelner Frame verworfen, FW re-syncs |
+| `0x02 FRAME_MALFORMED` | `[WARN]` | „malformed frame (expected LEN=%d)" | LEN-Feld-Mismatch, Frame verworfen |
+| `0x03 UNKNOWN_OPCODE` | `[WARN]` | „unknown opcode — protocol drift?" | Host/Firmware-Versions-Mismatch wahrscheinlich |
+| `0x04 PAYLOAD_LEN` | `[WARN]` | „payload length mismatch (expected %d)" | Payload-Größe stimmt nicht zur Opcode-Spec |
+| `0x10 PULSE_OUT_OF_RANGE` | `[WARN]` | „clamped pulse on servo %u to %d µs" | Host-Calibration zu großzügig; FW clampt selbst |
+| `0x21 TOTAL_OVERCURRENT` | `[FATAL]` | „total current %d mA — ALL servos disabled" | Hard-Trip, ganzer Roboter aus |
+| `0x30 UNDERVOLTAGE` | `[ERROR]` | „undervoltage at %d mV — check power supply" | Versorgungsspannung kritisch; PSU/Akku prüfen |
+| `0x40 WATCHDOG_TRIPPED` | `[FATAL]` | „WATCHDOG_TRIPPED — send RESET + ENABLE_SERVO" | Host hat > 200 ms keine Frames geschickt; FW-Schutz griff |
+| unbekannt (inkl. `0x20`) | `[ERROR]` | „Unknown firmware error: code=0xNN servo_idx=%u aux=%d" | Forward-Compat-Fallback |
+
+**Hinweis zum fehlenden `0x20 SERVO_OVERCURRENT`:** Die Servo2040-
+Hardware hat nur einen **Gesamt-Stromsensor**, kein Per-Servo-Sensing.
+Die Firmware kann diesen Code physikalisch nicht senden. Falls jemand in
+Phase 11+ eine Hardware-Revision mit Per-Servo-Stromsensoren baut und
+die Firmware das beibringt: sauber im `error_report_log.cpp`-switch
+ergänzen, plus zwei Tests.
+
+**Hinweis zu UNDERVOLTAGE:** Phase 9 verzichtet bewusst auf eine
+Unterscheidung zwischen WARN-Schwelle und TRIP-Schwelle. Eine
+einheitliche `[ERROR]`-Meldung mit Spannungswert deckt beide Fälle, ohne
+Annahmen über die Firmware-Konvention zu treffen. Wenn Phase 10 auf der
+Bench tatsächlich Undervoltage sieht und die Unterscheidung relevant
+wird: Firmware um 0x31 UNDERVOLTAGE_TRIP erweitern und im Plugin
+separat formatieren.
+
+### Wo lebt der Code?
+
+```
+include/hexapod_hardware/error_report_log.hpp   # ErrorSeverity + freie Funktionen
+src/error_report_log.cpp                        # switch-Statements
+test/test_error_report_log.cpp                  # 11 pure-function-Tests
+```
+
+Tests sind **pure-function-Tests** (kein RCLCPP-Log-Capture nötig) — die
+Format-Logik wird direkt aufgerufen und der Output per Substring-Match
+verifiziert. Schnell (< 1 ms gesamt), deterministisch, leicht erweiterbar.
 
 ---
 
@@ -1055,7 +1120,8 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | └ D.5 | on_activate Boot-Sequenz (RESET + 18×ENABLE 50 ms stagger + SET_TARGETS neutral) + on_deactivate Disable-All, 6 Tests | ✅ |
 | └ D.6 | read/write mit Echo-State + Pulse-Konversion + Permutations-Mapping-Test + NaN-Sanity + Int16-Clamp + ERROR_REPORT-Drain, 9 Tests | ✅ |
 | └ D.7 | USB-Reconnect-Logik mit Backoff `{100..5000}` ms, Reader-Thread retried statt zu sterben, manueller Re-Activate, 5 Tests | ✅ |
-| └ D.8 | ERROR_REPORT-Logging-Detail | offen |
+| └ D.8 | ERROR_REPORT-Routing pro Error-Code mit WARN/ERROR/FATAL-Severity + human-readable Messages, 11 Tests | ✅ |
+| **D** | **Komplett — 8/8 Sub-Stages** | ✅ |
 | **E** | Plugin-Registrierung verifizieren | offen |
 | **F** | URDF-Switch + `controllers.real.yaml` | offen |
 | **G** | `real.launch.py` | offen |
