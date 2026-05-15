@@ -169,18 +169,31 @@ Unit-Tests (`test/test_servo2040_protocol.cpp`):
 ### Stufe C — Kalibrierungs-Lib
 
 `calibration.hpp/.cpp`:
-- Lädt `servo_mapping.yaml`
-- Pro Joint: `output_idx`, `direction`, `pulse_zero`, `pulse_per_rad`,
-  `pulse_min`, `pulse_max`
-- `double radians_to_pulse_us(int joint_idx, double rad)`
-- `double pulse_us_to_radians(int joint_idx, double pulse)` (Inverse für
-  Echo-State)
+- Lädt `servo_mapping.yaml` via `yaml-cpp`
+- Pro Joint vom YAML: `output_idx`, `direction`, `pulse_min`,
+  `pulse_zero`, `pulse_max` (`defaults`-Block füllt fehlende Felder auf)
+- Pro Joint zusätzlich aus URDF: `joint_lower`, `joint_upper`
+- **Drei-Punkt-Schema mit piecewise-linearer Konversion:**
+  - `slope_left  = (pulse_zero - pulse_min) / |joint_lower|`  µs/rad
+  - `slope_right = (pulse_max - pulse_zero) /  joint_upper`   µs/rad
+  - `joint_rad ≥ 0`: `pulse_us = pulse_zero + direction · joint_rad · slope_right`
+  - `joint_rad < 0`: `pulse_us = pulse_zero + direction · joint_rad · slope_left`
+- API:
+  - `double radians_to_pulse_us(int joint_idx, double rad)`
+  - `double pulse_us_to_radians(int joint_idx, double pulse)` (Inverse für
+    Echo-State, gleiches piecewise-Schema rückwärts)
 - Clamping passiert auf Servo2040-Seite (Hard-Clamp), hier nur Konversion
 
 Unit-Tests:
 - `rad=0` → `pulse_zero`
+- `rad=joint_lower` → `pulse_min` (linke Schranke trifft genau)
+- `rad=joint_upper` → `pulse_max` (rechte Schranke trifft genau)
 - `rad=±π/4` → erwarteter Pulse mit Direction
-- Roundtrip rad → pulse → rad ist identity
+- Asymmetrische Konfiguration (`pulse_zero` nicht in der Mitte zwischen
+  `pulse_min`/`pulse_max`): linke und rechte Steigung sind unterschiedlich,
+  Konversion benutzt die richtige
+- Roundtrip rad → pulse → rad ist identity (modulo Rundung)
+- `direction=-1` invertiert das Vorzeichen wie erwartet
 
 **Done-Kriterium C:**
 1. Lib + Unit-Tests grün
@@ -196,7 +209,7 @@ Subklasse von `hardware_interface::SystemInterface`.
 |---|---|
 | `on_init` | URDF parsen (joint-Liste, Limits), Kalibrierungs-YAML laden, interne Vektoren allokieren |
 | `on_configure` | Serial-Port öffnen (`/dev/ttyACM0`, termios), Handshake-Frame mit Servo2040 senden |
-| `on_activate` | `ENABLE`-Frames für alle 18 Servos schicken (Servo2040 macht den Stagger) |
+| `on_activate` | `ENABLE_SERVO`-Frames für alle 18 Servos schicken, **Host macht den Stagger** (50 ms zwischen Frames, gesamt ~900 ms; Firmware bleibt dumm) |
 | `on_deactivate` | `DISABLE`-Frames, Port schließen |
 | `export_state_interfaces` | je Joint: `position`, optional `velocity`, optional `effort` (= Strommessung) |
 | `export_command_interfaces` | je Joint: `position` |

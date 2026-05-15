@@ -1,0 +1,11 @@
+<library path="hexapod_hardware">
+  <class name="hexapod_hardware/HexapodSystemHardware"
+         type="hexapod_hardware::HexapodSystemHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Hexapod SystemInterface via Servo2040 USB-CDC (COBS + CRC-16).
+      18 position command/state interfaces. Echo-state — no real
+      position feedback from the servos. See README.md for details.
+    </description>
+  </class>
+</library>
