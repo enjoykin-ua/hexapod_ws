@@ -30,14 +30,39 @@ struct ServoCalibration
 class Calibration
 {
 public:
-  // Load YAML from disk. Throws on parse error or schema violation.
+  // Load YAML from disk. Throws std::runtime_error on parse error or schema
+  // violation. Schema: top-level `defaults` block + `servo2040_output_to_joint`
+  // map with keys 0..17. See config/servo_mapping.yaml for the canonical
+  // template and ~/hexapod_servo_driver/contrib/servo_mapping.yaml for the
+  // upstream source.
   void load_from_file(const std::string & path);
 
-  // Apply URDF-derived joint limits per joint name. Must be called after
-  // load_from_file() and before any conversion call.
-  void set_joint_limits(const std::string & joint_name, double lower, double upper);
+  // Same as load_from_file but takes the YAML text directly. Useful for
+  // tests and for future "load from ROS parameter blob" wiring. Throws on
+  // parse or schema violation.
+  void load_from_string(const std::string & yaml_text);
 
-  // Conversion API (piecewise-linear about pulse_zero, see progress.md).
+  // Override the joint limits used by the piecewise-linear conversion for
+  // one joint. Should be called after load_from_file()/load_from_string()
+  // for every joint the plugin drives — typically with the URDF-parsed
+  // <limit lower upper> values.
+  //
+  // NOT strictly required for the conversion to *run*: each ServoCalibration
+  // is default-initialised with joint_lower=-1.57 / joint_upper=+1.57, which
+  // happens to match docs/00_conventions.md §11.4 for our current hexapod.
+  // The conversion will produce *some* answer either way — but if the real
+  // URDF limits differ from ±1.57 and this is skipped, the pulse values will
+  // be silently wrong. Don't skip it.
+  //
+  // Silently ignores joint names that are not in the calibration (the URDF
+  // may carry joints we don't drive — e.g. a future passive joint).
+  void set_joint_limits(
+    const std::string & joint_name, double lower,
+    double upper);
+
+  // Conversion API (piecewise-linear about pulse_zero — see
+  // docs_raspi/phase_9_progress.md "Design-Entscheidung Option C").
+  // Throws std::out_of_range if output_idx ∉ [0, NUM_SERVOS).
   double radians_to_pulse_us(int output_idx, double rad) const;
   double pulse_us_to_radians(int output_idx, double pulse_us) const;
 

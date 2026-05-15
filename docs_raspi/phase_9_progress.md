@@ -192,7 +192,59 @@
 
 ## Stufe C — Kalibrierungs-Lib
 
-(folgt nach Stufe B)
+> Done-Kriterium C (aus Plan): Lib + Unit-Tests grün, Skelett-YAML mit Platzhalter-Werten.
+
+- [x] C.1 `yaml-cpp`-basierter Loader (`load_from_file` + `load_from_string` für Tests)
+- [x] C.2 Schema-Validierung: `defaults`-Block + `servo2040_output_to_joint` Map mit 18 Einträgen, jeder Eintrag mit `joint:`-Pflichtfeld; Pulse-Triplet-Sanity `pulse_min < pulse_zero < pulse_max`; `direction ∈ {+1, -1}`; klare Exception-Messages bei Verletzung
+- [x] C.3 Defaults-Fallback: fehlende per-Servo-Felder erben aus `defaults`-Block
+- [x] C.4 `set_joint_limits(joint_name, lower, upper)` — URDF-Limits per Joint-Name injizieren, unbekannte Joints werden stillschweigend ignoriert (für passive Joints)
+- [x] C.5 `radians_to_pulse_us` piecewise-linear: zwei Steigungen meeten bei `pulse_zero`, `direction`-Flip eingebaut
+- [x] C.6 `pulse_us_to_radians` Inverse: gleiche piecewise-Logik rückwärts, Vorzeichen-konsistent
+- [x] C.7 Bounds-Checks (`std::out_of_range` bei `output_idx ∉ [0, 18)`)
+- [x] C.8 `at()` + `output_idx_for_joint()` Lookup-Helper
+- [x] C.9 Unit-Tests `test/test_calibration.cpp`: 27 Test-Cases in 7 Suites:
+  - `YamlLoader` (5) — Happy-Path, Lookup, Defaults-Fallback, Per-Servo-Override
+  - `YamlLoader` Error-Path (6) — Garbage, Missing Map/Joint-Name/Entry, Invalid Direction, Degenerate Triplet, File-Not-Found
+  - `SetJointLimits` (2) — Named-Joint, Silent-Ignore-Unknown
+  - `RadiansToPulse` (4) — Zero=Pulse-Zero, JointLower=PulseMin, JointUpper=PulseMax, ±π/4
+  - `RadiansToPulse` Asymmetric (2) — Unterschiedliche Slopes links/rechts, Negative-Direction mirrors
+  - `PulseToRadians` (2) — Inverse-Identitäten an Endpoints
+  - `Roundtrip` (3) — Forward∘Inverse=Identity für sym/asym/mirror
+  - `Bounds` (2) — Negative + Overflow-Index throws
+  - `RealConfigFile` (1) — Echtes `config/servo_mapping.yaml` parst sauber
+- [x] C.10 `CMakeLists.txt`: `target_compile_definitions(test_calibration PRIVATE SOURCE_DIR_FOR_TESTS=...)` damit Tests die echte YAML aus dem Source-Tree laden können
+- [x] C.11 `colcon build`: grün, keine Warnings
+- [x] C.12 `colcon test`: 6/6 grün
+- [x] C.13 **Post-Review-Fix:** Strong-Exception-Guarantee in `load_from_string` — lädt jetzt in lokale `std::array` + `std::unordered_map`, committet erst am Ende per `std::move`. Bug ohne Fix: bei mid-parse throw blieb das Objekt halb-geladen (Frankenstein-Zustand mit gemischten alten + neuen Einträgen). Praktische Schwere für Phase 9 niedrig (Plugin `on_init` wirft bei Failure und nutzt Calibration nicht weiter), aber relevant für Phase-10-Reload-Workflow und Doku-Treue.
+- [x] C.14 **Post-Review-Tests:** `StrongExceptionGuarantee`-Suite (2 Tests) verifiziert, dass ein fehlgeschlagener `load_from_string` Member-State und vorherige `set_joint_limits`-Werte unangetastet lässt. Plus `YamlLoader.RejectsTypeMismatchAsRuntimeError` als Regressions-Schutz für die yaml-cpp-Exception-Hierarchie (`YAML::Exception : std::runtime_error`).
+- [x] C.15 **Post-Review-Doku:** `set_joint_limits`-Kommentar präzisiert — vorher las er als wäre der Aufruf zwingend, tatsächlich läuft die Konversion auch ohne (mit ±1.57-Defaults aus `ServoCalibration{}`). Jetzt steht klar: „NOT strictly required, but if URDF limits differ from ±1.57 and this is skipped, pulse values will be silently wrong. Don't skip it."
+
+**Done-Kriterium C erreicht:** ✅ (am 2026-05-15, inkl. Post-Review-Fixes; 30 gtest-Cases in 8 Test-Suites grün)
+
+### Stufe-C-Notizen
+
+- **YAML-Schema bewusst „strict aber freundlich":** Fehlende Pflichtfelder (`joint:`, fehlende Index-Einträge) sind harte Errors mit klarer Message. Optionale Pulse-Werte erben aus `defaults`. Das ist genau die Balance, die Phase-10-Kalibrierungstool braucht: es kann minimale Einträge schreiben (nur `joint:`-Name pro Servo, `defaults`-Block einmal), aber Schema-Verletzungen werden früh und deutlich angemerkt.
+- **`pulse_min < pulse_zero < pulse_max` als Loader-Invariante:** Spart einen Haufen NaN-Debug in der Konversionspipeline. Würde es nicht früh gecheckt, hätten Phase-10-Werte mit Bug zu negativen Slopes und stillschweigend falschen Pulse-Werten geführt.
+- **`set_joint_limits` ignoriert unbekannte Joints stillschweigend:** Wenn die URDF passive Joints (z.B. mimic-Joints oder Fixed-Joints) enthält, würde das sonst beim `on_init` einen Loop-Fehler werfen. Bewusst defensiv gewählt.
+- **Piecewise-Linear-Korrektheit:** Die `Roundtrip`-Suite verifiziert `inverse(forward(rad)) == rad` mit 1e-9 Toleranz über den ganzen Joint-Range, in drei Konfigurationen (symmetrisch, asymmetrisch, gespiegelt). Das fängt z.B. den Bug ab, wo die Inverse für `direction=-1` die falsche Seite wählen würde.
+- **`RealConfigFile`-Test:** Lädt die echte `config/servo_mapping.yaml` aus dem Source-Tree und verifiziert, dass sie parst. Damit bricht das Test-Build, wenn jemand das YAML versehentlich kaputt-merged.
+
+### Stufe-C-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Type-Mismatch im YAML als richtige Exception-Klasse | 🟢 OK | `YAML::Exception` erbt von `std::runtime_error` — Header-Versprechen gehalten. Test als Regressions-Schutz hinzugefügt |
+| Strong-Exception-Guarantee in `load_from_string` | 🔴 → ✅ gefixt | Local-vars + std::move-Commit am Ende; 2 Tests verifizieren dass Member-State und `set_joint_limits`-Werte bei mid-parse throw unangetastet bleiben |
+| `set_joint_limits`-Kommentar irreführend | 🟡 → ✅ gefixt | Doku-Lüge korrigiert: Konversion läuft auch ohne, aber mit ±1.57-Defaults (was bei abweichendem URDF still-falsche Pulse-Werte gibt) |
+| NaN-Input in `radians_to_pulse_us` | 🟢 vormerk Stufe D | propagiert als NaN durch — Plugin muss vor Konversion checken |
+| `joint_lower==0` / `joint_upper==0` Edge | 🟢 vormerk Phase 10 | Division durch 0 → inf; tritt bei symmetrischen Joints nicht auf |
+| Continuity bei `rad=0` / `dp=0` | ✅ verifiziert | Beide piecewise-Branches liefern denselben Wert am Übergang |
+
+### Was Stufe C explizit **nicht** macht
+
+- Kein Host-seitiges Pulse-Clamping. Hard-Clamp passiert auf Servo2040-Seite (Phase-7 Stufe C.1). Wenn Calibration einen Pulse < `pulse_min` oder > `pulse_max` produziert (z.B. wegen extremem Joint-Target), schickt das Plugin das raus, die Firmware clampt und meldet `ERR_PULSE_OUT_OF_RANGE`. Plugin loggt das in Stufe D.
+- Kein Persistieren / Schreiben von YAML. Lesen reicht für Phase 9 — der Phase-10-Kalibrierungs-Workflow (Tool das jog'en und Werte schreiben kann) ist Phase-10-Scope.
+- Keine `SET_CALIBRATION`-Frame-Generierung (Opcode `0x10` der Firmware). Die Firmware-seitigen Werte bleiben bei den Defaults aus `config.hpp`; die Host-Konversion ist die maßgebliche Stelle.
 
 ---
 

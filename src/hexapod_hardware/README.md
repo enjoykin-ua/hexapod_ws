@@ -6,9 +6,10 @@ das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufen A + B abgeschlossen (Skelett, Build-Setup,
-Wire-Protokoll-Layer mit 36 Unit-Tests inkl. 5 goldener Hex-Anker
-gegen die Python-Referenz im fw-Repo).
+Aktueller Stand: Stufen A + B + C abgeschlossen — Skelett, Build-Setup,
+Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker), und
+Kalibrierungs-Lib (30 Tests, piecewise-linear rad↔pulse-µs Konversion
+mit yaml-cpp Loader und Strong-Exception-Guarantee beim Reload).
 
 ---
 
@@ -112,22 +113,18 @@ Pro Servo speichern wir vier Werte:
   invertiert montiert ist
 
 **Drei-Punkt-Schema mit piecewise-linearer Konversion** (siehe
-`docs_raspi/phase_9_progress.md` „Design-Entscheidung Option C"):
-
-```
-slope_left  = (pulse_zero - pulse_min) / |joint_lower|   µs/rad
-slope_right = (pulse_max - pulse_zero) /  joint_upper    µs/rad
-
-joint_rad ≥ 0:  pulse_us = pulse_zero + direction · joint_rad · slope_right
-joint_rad < 0:  pulse_us = pulse_zero + direction · joint_rad · slope_left
-```
+[Wire-Protokoll-Layer (Stufe B)](#wire-protokoll-layer-stufe-b) für die
+Wire-Bytes-Sicht und der Abschnitt
+[Kalibrierungs-Layer (Stufe C)](#kalibrierungs-layer-stufe-c) unten für die
+ausführliche Erklärung der Konversion).
 
 Die URDF-Joint-Limits (`joint_lower`, `joint_upper`) werden in
 `on_init` aus der URDF gelesen und per `set_joint_limits()` an die
 `Calibration`-Instanz übergeben.
 
-**Aktuell (Stufe A):** Stub-Implementierungen — `radians_to_pulse_us`
-gibt fix `1500.0` zurück.
+**Aktuell (Stufe C):** Voll implementiert. yaml-cpp Loader mit
+Schema-Validierung, piecewise-linear Konversion in beide Richtungen,
+27 Unit-Tests grün.
 
 ### `servo2040_protocol.hpp` / `.cpp`
 
@@ -272,6 +269,131 @@ nicht fängt.
 
 ---
 
+## Kalibrierungs-Layer (Stufe C)
+
+Diese Schicht übersetzt **Joint-Winkel in Radiant** (was `ros2_control`
+und der Gait-Stack sprechen) in **PWM-Pulsbreiten in Mikrosekunden**
+(was die Servos verstehen) — und zurück, für den Echo-State.
+
+### Warum nicht eine einzige Formel?
+
+Naive Idee: ein einziger Skalierungsfaktor `pulse_per_rad`, fertig.
+Das **bricht**, sobald der Servo asymmetrisch montiert ist:
+
+```
+Symmetrisch (Joint und Servo lineare 1:1-Abbildung):
+   joint_lower = -1.57       joint = 0       joint_upper = +1.57
+   pulse_min   =  500        pulse_zero = 1500    pulse_max = 2500
+   (1500-500)/1.57 = 636.94 µs/rad     ← gleich auf beiden Seiten
+   (2500-1500)/1.57 = 636.94 µs/rad
+
+Asymmetrisch (Servo um 30° geneigt montiert, Mechanik blockt rechts früher):
+   joint_lower = -1.57       joint = 0       joint_upper = +1.00
+   pulse_min   =  500        pulse_zero = 1500    pulse_max = 2400
+   (1500-500)/1.57 = 636.94 µs/rad    ← linke Seite
+   (2400-1500)/1.0  = 900.00 µs/rad    ← rechte Seite, andere Steigung
+```
+
+Im asymmetrischen Fall würde eine einzige Steigung entweder die
+mechanische Grenze auf einer Seite verletzen, oder unnötig konservativ
+sein.
+
+### Drei-Punkt-Schema mit piecewise-linearer Konversion
+
+Pro Servo speichern wir vier Werte (in [`servo_mapping.yaml`](config/servo_mapping.yaml)):
+
+| Feld | Bedeutung |
+|---|---|
+| `pulse_min` (µs) | Pulsbreite die den Servo an den **unteren** Anschlag fährt — entspricht `joint_lower` (aus URDF) |
+| `pulse_zero` (µs) | Pulsbreite die den Servo auf die **Joint-Mitte** (joint_rad = 0) fährt |
+| `pulse_max` (µs) | Pulsbreite die den Servo an den **oberen** Anschlag fährt — entspricht `joint_upper` (aus URDF) |
+| `direction` (±1) | Vorzeichen-Flip wenn Servo-Welle vs URDF-Joint-Achse entgegengesetzt montiert |
+
+Aus diesen drei Pulse-Werten + den URDF-Joint-Limits berechnen wir zur
+Laufzeit zwei Steigungen:
+
+```
+slope_left  = (pulse_zero - pulse_min) / |joint_lower|   µs/rad
+slope_right = (pulse_max - pulse_zero) /  joint_upper    µs/rad
+```
+
+Und konvertieren stückweise linear (piecewise-linear):
+
+```
+joint_rad ≥ 0:  pulse_us = pulse_zero + direction · joint_rad · slope_right
+joint_rad < 0:  pulse_us = pulse_zero + direction · joint_rad · slope_left
+```
+
+Sanity-Check: bei `joint_rad = joint_upper` ergibt das genau `pulse_max`,
+bei `joint_rad = 0` genau `pulse_zero`, bei `joint_rad = joint_lower`
+genau `pulse_min`. Linear dazwischen.
+
+### Was `direction` macht
+
+Stell dir Bein 1 (vorne-rechts) und Bein 6 (vorne-links) vor. Beide
+heben das gleiche physische „Bein-anheben" — aber der Femur-Servo auf
+der linken Seite ist **gespiegelt montiert** (Welle zeigt in die andere
+Richtung). Bei `direction = +1` würde positives `joint_rad` auf der
+linken Seite den Servo **runter** statt **hoch** fahren — falsch.
+
+`direction = -1` für gespiegelte Beine kehrt das um. Konkret:
+```
+joint_rad = +0.5 mit direction = +1 → pulse_us = pulse_zero + 0.5·slope_right
+joint_rad = +0.5 mit direction = -1 → pulse_us = pulse_zero - 0.5·slope_right
+                                              (UNTER pulse_zero!)
+```
+
+Die echten Vorzeichen pro Servo werden in **Phase 10** beim Bring-up
+einzeln per Jog ermittelt und in die YAML geschrieben. In Phase 9 sind
+alle 18 noch `+1` (Platzhalter).
+
+### Echo-State: warum wir die Inverse brauchen
+
+Die Servos liefern kein echtes Position-Feedback. Was wir `read()` als
+Position-State zurückgeben, muss der ros2_control-Stack als **Radiant**
+sehen können — sonst rechnet der JTC mit Pulse-µs und alles ist
+quatsch.
+
+Workflow:
+1. Gait-Stack schickt einen Trajectory-Sollwert in Radiant
+2. Wir konvertieren `rad → pulse_us` via `radians_to_pulse_us`
+3. Wir schicken `SET_TARGETS` mit Pulse-Werten zur Firmware
+4. Im nächsten `read()`: kein echtes Feedback, also reflektieren wir den
+   `last_command_pulse_us` zurück durch `pulse_us_to_radians`
+5. Resultat in `hw_state_positions_[i]` — der JTC sieht *fast* exakt
+   das, was er kommandiert hat (modulo Rundung)
+
+Konsequenz: JTC-Tracking-Error ist strukturell ≈ 0. Das ist eine
+Limitation, keine Eigenschaft des Plugins. Diagnose-Ersatz wäre
+Strommessung — deferred auf Phase 10 oder später.
+
+### Schema-Validierung
+
+Der Loader ist absichtlich „strict aber freundlich":
+
+- **Pflicht:** `servo2040_output_to_joint`-Map mit allen 18 Indizes
+  (0..17), jeder Eintrag mit `joint:`-Name
+- **Optional:** `defaults`-Block + per-Servo-Override für
+  `pulse_min`/`pulse_zero`/`pulse_max`/`direction` (fallen sonst auf
+  Defaults zurück)
+- **Invariante:** `pulse_min < pulse_zero < pulse_max` strikt — sonst
+  würde die Konversion negative oder unendliche Steigungen ergeben
+
+Bei jeder Verletzung: `std::runtime_error` mit klarer Message statt
+NaN-Quellen im Plugin-Lifecycle.
+
+Tests in [`test/test_calibration.cpp`](test/test_calibration.cpp)
+(30 Test-Cases in 8 Suites): Loader Happy-Path, Schema-Error-Path
+(inkl. Type-Mismatch als `std::runtime_error`), `set_joint_limits`
+(inkl. Silent-Ignore unbekannter Joints), symmetrische und asymmetrische
+Konversion, Mirror-Direction, Inverse-Identitäten, Roundtrip in drei
+Konfigurationen, Bounds-Checks, ein Real-File-Test gegen
+`config/servo_mapping.yaml`, und **Strong-Exception-Guarantee**
+(`load_from_string` lässt Member-State unangetastet wenn er mid-parse
+wirft — lokale Strukturen + `std::move`-Commit am Ende).
+
+---
+
 ## Die `on_init`-Signatur — was bedeutet das?
 
 Beim Bauen in Stufe A kam initial folgende Warnung:
@@ -372,8 +494,8 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | Stufe | Inhalt | Status |
 |---|---|---|
 | **A** | Paket-Skelett, Build, pluginlib-Setup | ✅ |
-| **B** | COBS + CRC-16/CCITT-FALSE + alle Opcode-Encoder/Decoder mit 29 Unit-Tests | ✅ |
-| **C** | YAML-Loader (yaml-cpp), 3-Punkt-Konversion, Unit-Tests | offen |
+| **B** | COBS + CRC-16/CCITT-FALSE + alle Opcode-Encoder/Decoder mit 36 Unit-Tests | ✅ |
+| **C** | YAML-Loader (yaml-cpp), 3-Punkt-Konversion, 27 Unit-Tests | ✅ |
 | **D** | Lifecycle voll, Reader-Thread, Loopback-Mode, USB-Reconnect | offen |
 | **E** | Plugin-Registrierung verifizieren | offen |
 | **F** | URDF-Switch + `controllers.real.yaml` | offen |

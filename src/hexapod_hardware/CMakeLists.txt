@@ -67,6 +67,11 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_calibration test/test_calibration.cpp)
   target_link_libraries(test_calibration ${PROJECT_NAME})
+  # Inject source-tree path so the test can load the installed YAML
+  # directly from src/ (build-tree path is stable; install-path lookup is
+  # exercised separately by the stage-I launch-testing smoke test).
+  target_compile_definitions(test_calibration PRIVATE
+    SOURCE_DIR_FOR_TESTS="${CMAKE_CURRENT_SOURCE_DIR}")
 
   ament_add_gtest(test_servo2040_protocol test/test_servo2040_protocol.cpp)
   target_link_libraries(test_servo2040_protocol ${PROJECT_NAME})
