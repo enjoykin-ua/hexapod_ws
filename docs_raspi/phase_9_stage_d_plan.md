@@ -321,8 +321,17 @@ in `read()` geprüft und signalisiert den controller_manager.
 
 ### D.3 — `on_init`: URDF parsen, Calibration laden
 
-**Was:** Der Lifecycle-Hook `on_init(HardwareComponentInterfaceParams &)`
-wird vom `controller_manager` beim Plugin-Laden aufgerufen. Hier:
+**Konzeptuell:** `on_init` ist der Lifecycle-Hook den der
+`controller_manager` aufruft, **sobald das Plugin geladen wird** (beim
+Stack-Start). Wir bekommen die geparste URDF in der Hand und bereiten
+das Plugin vor: wir lernen welche 18 Joints es zu steuern gibt, mit
+welchen Limits, an welchem Servo-Pin jeder hängt, und wo die
+Servo-Kalibrierung herkommt.
+
+Das ist der Punkt der **drei Konfigurations-Quellen** miteinander
+verheiratet — siehe „Konfigurations-Quellen" in der Plugin-README.
+
+**Konkret:**
 
 1. `info_ = params.hardware_info` (durch Base-Klasse)
 2. `info_.joints` durchgehen — **muss exakt 18 sein**
@@ -378,6 +387,34 @@ und der gehört in `last_command_pulse_us_[7]` → entspricht `servo2040.pin 7`.
   (nicht einfach `[0,1,2,…,17]`)
 - Test mit URDF-Joint dessen Name nicht im YAML steht → ERROR aus
   `output_idx_for_joint`
+
+### Was passiert bei Geometrie-Änderungen? (Wichtig für spätere Wartung)
+
+Wenn sich am Roboter etwas ändert — Beinlänge, Körpermaße, Coxa-Winkel,
+Joint-Endanschläge — muss man nicht in `on_init` reinschreiben. Die
+URDF ist die einzige Quelle für die Geometrie; on_init liest sie immer
+neu beim Plugin-Load. **Die Servo-Kalibrierung
+(`servo_mapping.yaml`) bleibt davon unberührt**, weil im Direct-Drive-
+Setup (Servo-Welle = Joint-Achse) der Servo dieselbe Anzahl Radiant für
+dieselbe Pulsbreite dreht — egal wie lang das Bein ist.
+
+| Du änderst… | Was du anfasst | D.3 picked es automatisch auf? |
+|---|---|---|
+| Femur 1 cm länger | URDF (`femur_length`) | ✅ — neue Limits aus URDF, Calibration unangetastet |
+| Körpermaße ändern sich | URDF (`body_width` etc.) | ✅ — D.3 liest die Werte beim nächsten Start |
+| Coxa-Mount-Winkel ändert sich | URDF (`leg_<n>_yaw`-Macro) | ✅ |
+| Mechanischer Joint-Endanschlag ändert sich (z.B. Bein stößt früher an Chassis) | URDF `<limit lower upper>` | ✅ — D.3 reicht neue Limits an Calibration weiter |
+| **Servo getauscht** (anderes Modell, andere µs/rad-Steigung) | `servo_mapping.yaml` (`pulse_min/zero/max` neu — Phase-10-Kalibrierungstool oder manuell) | ⚠️ User-Aktion nötig |
+| **Servo um 90° gedreht montiert** (Pulse-Mitte verschoben) | `servo_mapping.yaml` (`pulse_zero` neu, ggf. `direction` Flip) | ⚠️ User-Aktion nötig |
+| Anderer USB-Port (`ttyACM0` → `ttyACM1`) | `hexapod.ros2_control.xacro` (`<param name="serial_port">`) | ⚠️ User-Aktion nötig |
+
+→ Die häufigsten Iterationen am Roboter (Bein-Geometrie, Gewichte,
+Joint-Range bei Re-Konstruktion) erfordern **null** Anpassung an D.3 —
+einfach URDF aktualisieren, `colcon build` der Description, Plugin
+restarten.
+
+→ YAML anpassen nur bei tatsächlichen Eingriffen am Servo selbst
+(Tausch / Re-Montage / mechanischer Servo-Anschlag wandert).
 
 ### D.4 — `on_configure` / `on_cleanup`: Port öffnen, Reader starten
 

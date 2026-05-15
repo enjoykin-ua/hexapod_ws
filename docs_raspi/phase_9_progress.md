@@ -313,7 +313,11 @@
 
 ### Sub-Stage D.3 — `on_init`
 
-(folgt nach D.2)
+> **Konzept-Erklärung:** [phase_9_stage_d_plan.md §D.3](phase_9_stage_d_plan.md) — inklusive Abschnitt **„Was passiert bei Geometrie-Änderungen?"** der erklärt warum URDF-Anpassungen keine YAML-Eingriffe nach sich ziehen (Direct-Drive-Eigenschaft).
+>
+> **Konfigurations-Quellen-Trennung:** [src/hexapod_hardware/README.md](../src/hexapod_hardware/README.md#konfigurations-quellen) — Tabelle „URDF vs YAML vs ros2_control-Param" plus Update-Workflow pro Änderungs-Typ.
+
+(Implementation folgt nach Review der Doku-Updates.)
 
 ### Sub-Stage D.4 — `on_configure` / `on_cleanup`
 

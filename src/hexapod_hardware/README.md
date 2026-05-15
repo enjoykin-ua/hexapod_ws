@@ -56,6 +56,47 @@ greift nicht. Diagnose-Ersatz wäre Strommessung (deferiert auf später).
 
 ---
 
+## Konfigurations-Quellen
+
+Das Plugin wird von **drei Konfigurations-Quellen** gefüttert
+(URDF / `servo_mapping.yaml` / `<param>`-Block in `hexapod.ros2_control.xacro`)
+mit klar getrennten Verantwortungen. Da das ein Cross-Phasen-Thema ist
+das auch andere Pakete (`hexapod_description`, `hexapod_control`)
+betrifft, liegt der ausführliche **Änderungs-Workflow** zentral in:
+
+→ [docs/01_hardware_change_workflow.md](../../docs/01_hardware_change_workflow.md)
+
+Dort findest du:
+- **„Hardware-Quellen-Stack ab Phase 9"** — die 4 zusätzlichen
+  Wahrheits-Orte für die Hardware-Anbindung
+- **Szenarien 8–12** mit konkreten Anleitungen:
+  - Servo gegen anderes Modell tauschen
+  - Servo gespiegelt / gedreht montieren
+  - USB-Port wechseln
+  - Loopback-Modus für CI aktivieren
+  - Sim ↔ Hardware umschalten
+
+**Plugin-spezifischer Kern in Kürze** (Details und Szenarien im
+zentralen Doc oben):
+
+| Quelle | Wann anfassen |
+|---|---|
+| URDF (`hexapod_physical_properties.xacro` + ros2_control-Block) | Geometrie-/Mechanik-Änderung, Joint-Limits, Plugin-Setup |
+| `config/servo_mapping.yaml` | Servo-Tausch, Servo-Re-Montage |
+| `hexapod.ros2_control.xacro` `<param>` | USB-Port-Wechsel, Loopback-Toggle |
+
+**Wichtige Tatsache** (Begründung in `docs_raspi/phase_9_progress.md`
+Design-Entscheidung Option C): im **Direct-Drive-Setup** (Servo-Welle =
+Joint-Achse) dreht der Servo dieselbe Anzahl Radiant für dieselbe
+Pulsbreite — **egal wie lang das Bein ist**. Beinlänge wirkt sich auf
+Reichweite und Kraftarm aus, das ist URDF/Kinematik-Sache.
+Servo-Kalibrierung bleibt davon unberührt. Daraus folgt: Geometrie-
+Änderungen erfordern **kein** YAML-Update. YAML nur anfassen bei
+tatsächlichen Eingriffen am Servo selbst (Tausch / Re-Montage /
+mechanischer Servo-Anschlag wandert).
+
+---
+
 ## Code-Struktur
 
 ```

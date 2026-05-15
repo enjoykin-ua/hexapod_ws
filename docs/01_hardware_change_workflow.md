@@ -1,16 +1,24 @@
 # Hardware-Änderungen am Hexapod — Anpassungs-Workflow
 
 > **Zweck:** Cross-Phasen-Referenz. Wenn am Roboter mechanisch etwas geändert
-> wird (Bein-Segmente, Servos, Massen, Body-Dimensionen, Foot-Geometrie),
-> stehen hier die Dateien, die mitgezogen werden müssen, und die Tests, die
-> Drift abfangen. Komplementär zu [00_conventions.md](00_conventions.md), das
-> die Konventionen selbst dokumentiert (was und warum) — diese Datei
-> dokumentiert das **Wie ändern** (wo, in welcher Reihenfolge, was wird
-> automatisch propagiert, was muss manuell mitgepflegt werden).
+> wird (Bein-Segmente, Servos, Massen, Body-Dimensionen, Foot-Geometrie) ODER
+> am Hardware-Anbindungs-Stack (Servo-Kalibrierung, USB-Port, Loopback,
+> Sim↔HW-Switch), stehen hier die Dateien, die mitgezogen werden müssen, und
+> die Tests, die Drift abfangen. Komplementär zu
+> [00_conventions.md](00_conventions.md), das die Konventionen selbst
+> dokumentiert (was und warum) — diese Datei dokumentiert das **Wie ändern**
+> (wo, in welcher Reihenfolge, was wird automatisch propagiert, was muss
+> manuell mitgepflegt werden).
+>
+> **Zwei Schichten von Quellen:** der „Roboter-Modell-Stack" (Phasen 0–5,
+> Single-Source-of-Truth-Prinzip unten) und der „Hardware-Anbindungs-Stack"
+> (Phase 7 ff., siehe Abschnitt „Hardware-Quellen-Stack ab Phase 9"). Die
+> beiden Schichten sind **orthogonal** — Änderungen in der einen verlangen
+> in den meisten Fällen keine Anpassung in der anderen.
 
 ---
 
-## Single-Source-of-Truth-Prinzip
+## Single-Source-of-Truth-Prinzip (Roboter-Modell, Phasen 0–5)
 
 **Drei Wahrheits-Orte** im Workspace:
 
@@ -29,7 +37,62 @@ fängt Drift ab (`colcon test --packages-select hexapod_kinematics` wird rot).
 
 ---
 
+## Hardware-Quellen-Stack ab Phase 9
+
+Mit Phase 7 (Servo2040-Firmware) + Phase 9 (`hexapod_hardware`-Plugin)
+kommen **drei zusätzliche Wahrheits-Orte** für die Hardware-Anbindung
+hinzu — parallel zu den Roboter-Modell-Quellen oben, aber **orthogonal**:
+
+4. [hexapod_servo_driver/](https://github.com/enjoykin-ua/hexapod_servo_driver) — separates Repo,
+   Firmware auf dem Servo2040. Wire-Protokoll definiert in
+   [PROTOCOL.md](https://github.com/enjoykin-ua/hexapod_servo_driver/blob/main/PROTOCOL.md).
+   Endet an der USB-CDC-Schnittstelle. Wird in Phase 7 entwickelt und
+   anschließend mit Tag `phase-7-done` eingefroren — solange das
+   Wire-Protokoll Version 1.x bleibt, hier nichts anfassen.
+5. [hexapod_hardware/config/servo_mapping.yaml](../src/hexapod_hardware/config/servo_mapping.yaml)
+   — Servo-Pin → Joint-Name + Pulse-Kalibrierung (`pulse_min/zero/max`,
+   `direction`) pro Servo. **Canonical Source** liegt im fw-Repo unter
+   `contrib/servo_mapping.yaml`, wird in `hexapod_hardware/config/`
+   gespiegelt. Phase-10-Kalibrierungstool schreibt diese Datei.
+6. [hexapod_description/urdf/hexapod.ros2_control.xacro](../src/hexapod_description/urdf/hexapod.ros2_control.xacro)
+   — `<param>`-Block für das Plugin: `serial_port`, `calibration_file`,
+   `loopback_mode`. Wird in Phase 9 Stufe F erweitert um den
+   `use_sim:=true|false`-Xacro-Switch für Sim ↔ HW.
+7. [hexapod_control/config/controllers.real.yaml](../src/hexapod_control/config/controllers.real.yaml)
+   *(kommt in Phase 9 Stufe F)* — HW-spezifische Controller-Limits
+   (reduzierte vel/accel gegenüber Sim-Werten), `use_sim_time:false`.
+
+**Warum die Trennung sauber funktioniert:** im **Direct-Drive-Setup**
+(Servo-Welle = Joint-Achse) dreht jeder Servo dieselbe Anzahl Radiant
+für dieselbe Pulsbreite — unabhängig von Beinlänge, Massen oder
+Mountpunkten. Geometrie- und Mechanik-Änderungen wirken sich auf den
+Roboter-Modell-Stack (Quellen 1–3) aus, **nicht** auf die Servo-
+Kalibrierung (Quelle 5). Begründung in
+[docs_raspi/phase_9_progress.md](../docs_raspi/phase_9_progress.md)
+„Design-Entscheidung Option C".
+
+---
+
 ## Änderungs-Szenarien
+
+**Übersicht der Szenarien:**
+
+| # | Szenario | Quelle die betroffen ist |
+|---|---|---|
+| 1 | Bein-Segment-Größen | URDF Konstanten + IK-config.py |
+| 2 | Joint-Limits / Servo-Winkel | URDF Konstanten + IK-config.py |
+| 3 | Servo-Drehmoment / -Geschwindigkeit (URDF-Werte) | URDF Konstanten |
+| 4 | Massen | URDF Konstanten |
+| 5 | Body-Dimensionen | URDF Konstanten + IK-config.py |
+| 6 | Foot-Geometrie | URDF Konstanten + IK-config.py |
+| 7 | Mountpunkt-Konvention (selten) | URDF + IK-config.py + Test |
+| 8 | Servo gegen anderes Modell tauschen | `servo_mapping.yaml` |
+| 9 | Servo gespiegelt / gedreht montieren | `servo_mapping.yaml` |
+| 10 | USB-Port wechselt | `hexapod.ros2_control.xacro` `<param>` |
+| 11 | Loopback-Modus für CI aktivieren | `hexapod.ros2_control.xacro` `<param>` |
+| 12 | Sim ↔ Hardware umschalten (Phase 9 Stufe F) | Launch-Argument `use_sim` |
+
+---
 
 ### 1. Bein-Segment-Größen ändern
 
@@ -193,6 +256,159 @@ nicht mehr 90°, sondern 60° nach außen).
 - Tripod-Stabilität ändert sich potenziell — Stütz-Dreieck-Geometrie
   prüfen (Phase-5-Stufe-F oder neue Stand-Stabilitäts-Verifikation).
 
+### 8. Servo gegen ein anderes Modell tauschen
+
+**Beispiel:** Stall-Servo verbrannt, neuer Servo (anderes Modell, anderer
+PWM-Bereich: statt 500–2500 µs jetzt 800–2200 µs, andere Steigung µs/rad).
+
+**Was zu tun:**
+1. `hexapod_hardware/config/servo_mapping.yaml` — für den betroffenen Servo-
+   Pin den Eintrag aktualisieren: `pulse_min`, `pulse_max`, ggf. `pulse_zero`
+   neu setzen.
+2. **Empfohlen:** Phase-10-Kalibrierungstool laufen lassen (sobald
+   verfügbar) — fährt automatisch zu den mechanischen Anschlägen und
+   schreibt die echten Werte ins YAML zurück.
+3. Manuelle Alternative bis dahin: per `ros2 topic pub` einzelnen Joint
+   schrittweise jog'en, mechanischen Anschlag identifizieren, Pulse-Wert
+   notieren, ins YAML eintragen.
+4. `colcon build --packages-select hexapod_hardware` (YAML wird ins
+   install/share kopiert).
+5. Plugin neu starten (Stack restarten).
+
+**Was automatisch propagiert:**
+- `Calibration::load_from_file` parst die neuen Werte beim nächsten
+  `on_init`. Piecewise-linear Konversion rechnet mit den neuen
+  Steigungen automatisch.
+
+**Was NICHT betroffen ist:**
+- URDF — Joint-Limits (mechanisch) bleiben unverändert solange der neue
+  Servo die gleiche Joint-Range schafft.
+- `hexapod_kinematics/config.py` — IK ist servo-frei.
+- Firmware — sieht nur Pulse-Bytes, kennt das Servo-Modell nicht.
+
+**Was zusätzlich zu prüfen:**
+- Erster Bring-up mit reduzierten Limits in `controllers.real.yaml`
+  (CLAUDE.md §9 — Hexapod aufbocken, Hardware-Kill-Switch).
+
+### 9. Servo gespiegelt / um 90° gedreht montieren
+
+**Beispiel:** Coxa-Servo eines Beins wurde gewendet (z.B. nach
+Reparatur). Pulse-Zero verschoben oder Drehrichtung relativ zur
+URDF-Joint-Achse invertiert.
+
+**Was zu tun:**
+1. `hexapod_hardware/config/servo_mapping.yaml` für den betroffenen Pin:
+   - `pulse_zero` anpassen (wo ist jetzt die Joint-Mitte in µs?)
+   - bei Drehrichtungs-Flip: `direction: -1` setzen (war vorher `+1`)
+2. `colcon build --packages-select hexapod_hardware`.
+3. Plugin neu starten.
+
+**Was automatisch propagiert:**
+- `Calibration::pulse_us_to_radians` und `radians_to_pulse_us` rechnen
+  mit der neuen Direction. Echo-State im Plugin bleibt selbst-konsistent.
+
+**Was NICHT betroffen ist:**
+- URDF, IK, Gait — alle joint-axis-orientiert, nicht servo-orientiert.
+
+**Was zusätzlich zu prüfen:**
+- **Erste Aktivierung sehr vorsichtig** — wenn `direction`-Flip falsch
+  herum eingetragen ist, fährt der Servo bei positivem cmd in die
+  „falsche" Richtung, möglicherweise gegen einen mechanischen Anschlag.
+  Tipp: bei niedrigem Geschwindigkeitslimit testen, Stand-Pose-Ziel
+  vorgeben, beobachten, ob das Bein wirklich „runter" geht.
+- **Phase-10-Kalibrierungstool** wird (sobald verfügbar) den Direction-
+  Test automatisieren: jog +0.1 rad, prüfe ob Bein nach unten oder oben
+  fährt, ggf. `direction` flippen.
+
+### 10. USB-Port wechselt (`ttyACM0` → `ttyACM1` o.ä.)
+
+**Beispiel:** Anderer Desktop, anderer Pi, oder anderes USB-Gerät hängt
+parallel dran und nimmt den Port `/dev/ttyACM0` weg.
+
+**Was zu tun:**
+1. `hexapod.ros2_control.xacro` — im `<param name="serial_port">`-
+   Eintrag den neuen Pfad eintragen, z.B. `/dev/ttyACM1`.
+2. Plugin neu starten.
+
+**Was automatisch propagiert:**
+- `on_init` liest den neuen Pfad, `on_configure` öffnet den.
+
+**Was NICHT betroffen ist:**
+- Alles andere.
+
+**Was zusätzlich zu prüfen:**
+- User in `dialout`-Gruppe? (`id` → `dialout` muss da sein, sonst
+  `EACCES` beim Port-Open).
+- **Stable Symlink via `udev` (optional, empfohlen für Pi)** — eine
+  `udev`-Regel kann den Servo2040 unabhängig vom Plug-Reihenfolge an
+  einen festen Pfad wie `/dev/hexapod_servo2040` binden:
+  ```
+  # /etc/udev/rules.d/99-hexapod-servo2040.rules
+  SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="0003", \
+      SYMLINK+="hexapod_servo2040", GROUP="dialout", MODE="0660"
+  ```
+  Dann den Symlink im URDF nutzen statt des `ttyACM*`-Pfads.
+
+### 11. Loopback-Modus für CI / Code-Tests aktivieren
+
+**Beispiel:** CI-Pipeline soll das Plugin laden und durchlaufen, ohne
+dass eine echte Servo2040-Hardware angeschlossen ist (z.B. PR-Builds).
+
+**Was zu tun:**
+1. `hexapod.ros2_control.xacro` — `<param name="loopback_mode">true</param>`.
+   Alternativ: Launch-Argument das den `<param>` überschreibt — kommt
+   in Phase 9 Stufe G.
+2. Plugin neu starten.
+
+**Was Loopback-Mode bewirkt:**
+- `on_configure` öffnet **keinen** Serial-Port, startet **keinen**
+  Reader-Thread.
+- `on_activate` schickt **keine** ENABLE_SERVO-Frames (Stagger-Pause
+  wird auf 0 reduziert — fertig in <100 ms statt 900 ms).
+- `write()` schickt **keine** SET_TARGETS-Frames, sondern reflektiert
+  direkt in `last_command_pulse_us_`.
+- `read()` macht weiterhin Echo-State (last_command zurück nach Joint-rad),
+  also ist der ros2_control-Stack komplett konsistent — JTC akzeptiert
+  Trajectories, JSB publisht `/joint_states`, alles als ob.
+
+**Was NICHT betroffen ist:**
+- URDF, IK, Gait, Teleop — alle laufen normal.
+
+**Was zusätzlich zu prüfen:**
+- **Vergiss nicht zurückzuschalten** vor echtem HW-Bring-up. Empfehlung:
+  zwei verschiedene Launch-Files / Launch-Args (kommt in Stufe G:
+  `real.launch.py` mit `loopback:=false` als Default).
+
+### 12. Sim ↔ Hardware umschalten (Phase 9 Stufe F)
+
+**Beispiel:** Du willst denselben Gait-Code einmal in Gazebo (Sim) und
+einmal mit echter Servo2040-Hardware fahren.
+
+**Was zu tun (sobald Stufe F implementiert ist):**
+- Sim: `ros2 launch hexapod_bringup sim.launch.py` — Default
+  `use_sim:=true`, lädt `gz_ros2_control`, nutzt
+  `controllers.yaml`.
+- HW: `ros2 launch hexapod_bringup real.launch.py` — setzt
+  `use_sim:=false`, lädt `hexapod_hardware/HexapodSystemHardware`,
+  nutzt `controllers.real.yaml`.
+
+**Was Phase 9 Stufe F dafür einrichtet:**
+- URDF (`hexapod.ros2_control.xacro`) bekommt einen `<xacro:if>` der
+  zur Build-/Launch-Zeit zwischen `gz_ros2_control` und
+  `hexapod_hardware` als Plugin-Klasse wählt.
+- `controllers.real.yaml` wird angelegt mit `use_sim_time:false` und
+  reduzierten vel/accel-Limits (~30% der Sim-Werte für sicheren Bring-up).
+
+**Was NICHT betroffen ist:**
+- Gait, Teleop, IK, alle High-Level-Knoten sind plugin-agnostisch —
+  sie sprechen mit dem `controller_manager`, der unter der Haube
+  entweder Sim oder HW fährt.
+
+**Was zusätzlich zu prüfen:**
+- **HW-Default-Body-Höhe:** `body_height = -0.052` in Sim (Phase-6-
+  JTC-Tracking-Lag-Workaround) muss in HW zurück auf `-0.047`. Wird
+  in Stufe F als HW-Default gesetzt.
+
 ---
 
 ## Verifikations-Checkliste (nach jeder Änderung)
@@ -226,8 +442,14 @@ Welche Tests in welcher Phase verfügbar sind:
 
 ## Was diese Datei NICHT abdeckt
 
-- **Servo2040-Firmware-Anpassungen** (Phase 7) — separate
-  Hardware-Doku, sobald Phase 7 aktiv ist.
+- **Servo2040-Firmware-Anpassungen** (Wire-Protokoll, Sicherheits-Schichten,
+  Watchdog-Timing, Strom-Limits) — siehe separates Repo
+  [hexapod_servo_driver/](https://github.com/enjoykin-ua/hexapod_servo_driver),
+  insbesondere [PROTOCOL.md](https://github.com/enjoykin-ua/hexapod_servo_driver/blob/main/PROTOCOL.md)
+  und [phase_7_progress.md](../docs_raspi/phase_7_progress.md). Solange
+  das Wire-Protokoll bei Version 1.x bleibt, wirkt sich Firmware-Anpassung
+  **nicht** auf den hexapod_ws aus (Firmware ist „dumm" — kennt nur
+  Pulse-Bytes, keine Joints, keine Kinematik).
 - **Mesh-Dateien (CAD-Visuals)** — aktuell nutzt der Hexapod nur primitive
   Box/Sphere-Visuals, keine Meshes. Wenn eingeführt: Mesh-Pfade über
   `package://hexapod_description/meshes/...` referenzieren, dann
@@ -237,3 +459,8 @@ Welche Tests in welcher Phase verfügbar sind:
 - **Inertien aus echtem CAD** — aktuell aus Box-Approximation berechnet
   (`inertials.xacro`). Wenn präzisere CAD-Inertien vorliegen, dort
   einsetzen, dann auf `# TODO: from CAD`-Kommentare achten (CLAUDE.md §8).
+- **IMU-Anbindung** — wenn IMU dazukommt, eigenes Paket (z.B.
+  `hexapod_imu_hardware`) mit eigenem `<ros2_control type="sensor">`-Block.
+  Plan: siehe Memory `project_imu_separate_sensor_plugin`.
+- **Gait-/Teleop-Parameter-Tuning** — keine Hardware-Änderung; siehe
+  jeweilige Paket-READMEs und Phase-5- / Phase-6-Docs.

@@ -6,6 +6,18 @@ Servo2040-Hardware-Anbindung in Phase 7.
 Phasenweises Vorgehen, verbindliche Konventionen in `CLAUDE.md`,
 aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/`.
 
+## Cross-Phasen-Referenzen
+
+Wichtige Dokumente die unabhängig von der aktuell aktiven Phase
+relevant sind:
+
+| Datei | Wann lesen |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | Vor jeder Session — User-Profil, Tech-Stack, Shell-Verbote, Workflow-Regeln |
+| [PHASE.md](PHASE.md) | Vor jeder Session — aktuelle Phase + Phasen-Übersicht |
+| [docs/00_conventions.md](docs/00_conventions.md) | Naming, Frames, Einheiten, physikalische Konstanten (Joint-Limits, Geometrie) |
+| **[docs/01_hardware_change_workflow.md](docs/01_hardware_change_workflow.md)** | **Wenn du am Roboter etwas änderst** — 12 Szenarien (Bein-Geometrie, Massen, Servos, USB-Port, Sim↔HW-Switch), pro Szenario was du wo anfasst und welche Tests Drift abfangen |
+
 ## Stand
 
 | Phase | Inhalt | Status | Umsetzungsdauer |
