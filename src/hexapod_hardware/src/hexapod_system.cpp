@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <climits>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <stdexcept>
@@ -533,11 +535,46 @@ HexapodSystemHardware::export_command_interfaces()
 hardware_interface::return_type HexapodSystemHardware::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // Stage D.6 fills this in with the proper echo via calibration_.
-  // Until then, naive 1:1 echo (which only works while D.6 isn't using
-  // pulse-µs conversion yet).
-  for (std::size_t i = 0; i < hw_state_positions_.size(); ++i) {
-    hw_state_positions_[i] = hw_command_positions_[i];
+  // ─── Echo-State: pulse → radians via Calibration ─────────────────────
+  // The Servo2040 hardware does not report actual servo positions, so the
+  // best we can do is reflect the last commanded pulse back as the current
+  // state. The result is fed to JTC / joint_state_broadcaster as if the
+  // robot tracked perfectly. Tracking error is therefore structurally zero
+  // (limitation, not a feature — see README "Echo-State-Limitation").
+  //
+  // Index mapping: hw_state_positions_[i] is indexed by URDF slot;
+  // last_command_pulse_us_[output_idx] is indexed by servo-pin. The
+  // joint_to_output_idx_ table (built in on_init) bridges the two.
+  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
+    const int output_idx = joint_to_output_idx_[i];
+    hw_state_positions_[i] = calibration_.pulse_us_to_radians(
+      output_idx, static_cast<double>(last_command_pulse_us_[output_idx]));
+  }
+
+  // ─── Drain firmware error reports (loopback has no reader) ───────────
+  // The reader thread queues ERROR_REPORT frames as the firmware sends
+  // them (watchdog trips, overcurrent, etc.). We drain once per tick and
+  // log each one. D.8 will refine the per-error-code translation; for D.6
+  // a single-line summary keeps the diagnostic visible.
+  if (!loopback_mode_) {
+    for (const auto & er : reader_.drain_error_queue()) {
+      RCLCPP_ERROR(plugin_logger(),
+        "Firmware error: code=0x%02X servo_idx=%u aux=%d "
+        "(per-code detail comes in stage D.8)",
+        er.error_code, er.servo_idx, er.aux);
+    }
+
+    if (reader_.died()) {
+      // ros2_control surfaces this by deactivating the controllers; the
+      // user has to investigate (see README "Reconnect-Recovery").
+      // Log ONCE-style by gating on a transient flag would be ideal —
+      // but RCLCPP_ERROR_ONCE without a clock is fine: it's per-callsite
+      // global, and read() has a single ERROR-return path.
+      RCLCPP_ERROR_ONCE(plugin_logger(),
+        "Reader thread died — see earlier FATAL log. Controller will "
+        "be deactivated by ros2_control until you manually re-activate.");
+      return hardware_interface::return_type::ERROR;
+    }
   }
   return hardware_interface::return_type::OK;
 }
@@ -545,7 +582,68 @@ hardware_interface::return_type HexapodSystemHardware::read(
 hardware_interface::return_type HexapodSystemHardware::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // Stage D.6 fills this in.
+  // ─── Defensive: bail out early if the reader thread died ─────────────
+  // Prevents write_all from throwing on an EIO'd FD; controller_manager
+  // sees ERROR and deactivates cleanly. (Loopback has no reader.)
+  if (!loopback_mode_ && reader_.died()) {
+    RCLCPP_ERROR_ONCE(plugin_logger(),
+      "write(): reader thread died — skipping wire I/O until re-activate");
+    return hardware_interface::return_type::ERROR;
+  }
+
+  // ─── Convert each command (rad) → pulse_us, indexed by servo-pin ─────
+  // The pulse-µs side is the wire-native representation (int16, signed),
+  // so we clamp to the int16 range before casting. The firmware will
+  // hard-clamp again to per-servo pulse_min/pulse_max (Phase-7 stage C.1);
+  // this clamp here is purely to keep the cast well-defined even when
+  // the controller hands us NaN or absurd values.
+  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
+    const int output_idx = joint_to_output_idx_[i];
+    const double rad = hw_command_positions_[i];
+
+    if (std::isnan(rad)) {
+      // NaN from upstream — never let it reach calibration_ (would produce
+      // NaN pulse and corrupt the wire frame). Keep the last good value.
+      // No throttle: NaN in the trajectory is a real bug we want loud.
+      RCLCPP_WARN(plugin_logger(),
+        "NaN command for joint '%s' (slot %zu, pin %d); reusing last good "
+        "pulse %d µs",
+        info_.joints[i].name.c_str(), i, output_idx,
+        last_command_pulse_us_[output_idx]);
+      continue;
+    }
+
+    const double pulse_d = calibration_.radians_to_pulse_us(output_idx, rad);
+    // clamp to int16 range — radians_to_pulse_us is unbounded in theory
+    // (linear extrapolation past joint_lower/joint_upper). Without this
+    // clamp, the static_cast<int16_t> below would be UB for extreme rad
+    // (e.g. rad=100 → pulse ≈ 1.3e6 µs → out of int16). Firmware-side
+    // clamp to pulse_min/pulse_max is the second line of defense.
+    const double pulse_clamped = std::clamp(
+      pulse_d,
+      static_cast<double>(INT16_MIN),
+      static_cast<double>(INT16_MAX));
+    last_command_pulse_us_[output_idx] =
+      static_cast<int16_t>(std::round(pulse_clamped));
+  }
+
+  // ─── Send the wire frame (loopback skips) ────────────────────────────
+  // One SET_TARGETS per tick = one wire frame at 50 Hz ≈ 7 kB/s, well
+  // under the USB-CDC budget (~125 kB/s). encode_set_targets builds
+  // SEQ + 18 × int16 LE + CRC + COBS in one allocation.
+  if (loopback_mode_) {
+    return hardware_interface::return_type::OK;
+  }
+
+  auto frame = encode_set_targets(seq_.fetch_add(1), last_command_pulse_us_);
+  try {
+    serial_port_.write_all(frame.data(), frame.size());
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(plugin_logger(),
+      "write(): SerialPort write_all failed: %s. Controller will be "
+      "deactivated; reconnect logic comes in D.7.", e.what());
+    return hardware_interface::return_type::ERROR;
+  }
   return hardware_interface::return_type::OK;
 }
 

@@ -58,8 +58,33 @@ Versions-Konflikte, die wir vermeiden wollen.
   übersprungen, auch wenn der User „mal eben weitergehen" will.
   Wenn der User springen will: höflich blocken und Done-Kriterium der
   aktuellen Phase abfragen.
-- **Pro Schritt:** erst Konzept besprechen → dann Implementierung → dann Test
-  → **dann kritischer Self-Review BEVOR die Stufe als „fertig" gemeldet wird**.
+- **Pro Schritt:** erst **detaillierten Sub-Stage-Plan dokumentieren** → **User-Freigabe einholen** → erst dann Implementierung → dann Tests → **dann kritischer Self-Review BEVOR die Stufe als „fertig" gemeldet wird**.
+
+  Die Plan-Doku gehört in `docs_raspi/phase_<n>_stage_<X>_<Y>_plan.md`
+  (analog zu `phase_9_stage_d_plan.md` für ganze Stage D), oder als
+  ausführlicher Abschnitt in der nächst-höheren Plan-Doku wenn der Sub-Schritt
+  klein ist. **Inhalte der Plan-Doku, alle vier Pflicht:**
+
+  1. **Logik-Skizze / Pseudocode** — was die Funktion(en) machen, in
+     welcher Reihenfolge, mit welcher Begründung pro Design-Entscheidung.
+  2. **Tests-Liste mit Begründung** — welche Tests die Sub-Stage „fertig"
+     markieren, **und was bewusst NICHT getestet wird** (deferred, scope-out).
+  3. **Progress-Checkliste** — die `[ ]`-Bullets, die nach Implementierung
+     in `docs_raspi/phase_<n>_progress.md` unter der Sub-Stage abgehakt werden.
+     **Das ist der Done-Kriterium-Vertrag**: alle Bullets `[x]` = Sub-Stage fertig,
+     keine Retroaktiv-Anpassung erlaubt. Format: 1:1 die Zeilen, die ins
+     progress-File kopiert werden (mit `D.<x>.1`-Nummerierung).
+  4. **Offene Punkte für User-Review** — explizite Fragen die vor Code-Beginn
+     entschieden werden müssen (Tradeoffs, alternative Designs, Throttling-
+     Strategien usw.).
+
+  Die Test-Anleitung (`*_test_commands.md`) wird ebenfalls **vor Code-Beginn
+  skizziert** (Test-Liste reicht), damit klar ist welche Tests die Sub-Stage
+  „fertig" markieren. Nach Implementierung wird sie final geschrieben.
+
+  Hintergrund: ohne dokumentierten Vorab-Plan + Progress-Checkliste fehlt
+  der Anker für Review, und „Done" wird im Nachhinein rationalisiert statt
+  als Design-Treiber vorab gesetzt.
 - **Kritischer Self-Review** ist Pflicht-Schritt, nicht optional. Auch wenn
   Code baut und Tests grün sind: nochmal selber durchgehen mit Fokus auf
   *was könnte schiefgehen, was wurde vergessen, wo sind Edge-Cases offen*.

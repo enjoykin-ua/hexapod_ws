@@ -7,7 +7,7 @@ State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
 Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
-(Sub-Stage D.5/8 fertig)**. Aktuell:
+(Sub-Stage D.6/8 fertig)**. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
@@ -16,11 +16,15 @@ Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
   Lower-<-Upper-Limit-Validation, Strong-EH-Guarantee bei Re-Init)
 - `on_configure` / `on_cleanup` (6 Tests: Loopback-Skip, pty-Open + Reader-Start,
   Bad-Path-Reject, Configure/Cleanup-Cycle 3×, RAII-Destructor)
-- **`on_activate` / `on_deactivate` (6 Tests: Loopback-Fast, Pty-Boot-Sequence-Order
+- `on_activate` / `on_deactivate` (6 Tests: Loopback-Fast, Pty-Boot-Sequence-Order
   verifiziert byteweise, Stagger-Timing 900 ms ± 100 ms, Deactivate-Disable-All,
-  Activate/Deactivate-Cycle 2×, Activate-Fails-Clean bei Port-Broken)**
+  Activate/Deactivate-Cycle 2×, Activate-Fails-Clean bei Port-Broken)
+- **`read()` / `write()` mit Pulse-Konversion (9 Tests: Loopback-Roundtrip ±2 mrad,
+  Permutations-Aware-Mapping mit reversed URDF, NaN-Sanity, Int16-Clamp,
+  PTY-SET_TARGETS-Frame-Verifikation, ERROR_REPORT-Drain, Reader-Died → ERROR
+  für beide Hooks)**
 
-Total: **126 gtest-Cases** über sieben Sub-Layers.
+Total: **135 gtest-Cases** über acht Sub-Layers.
 
 ---
 
@@ -278,8 +282,8 @@ Subklasse von `hardware_interface::SystemInterface`. Wird zur Laufzeit
 | `on_activate`    | ✅ RESET → 18× ENABLE_SERVO mit 50 ms Stagger → SET_TARGETS neutral (Watchdog warmhalten + definierte Initial-Pose) |
 | `on_deactivate`  | ✅ 18× DISABLE_SERVO ohne Stagger (Best-Effort — Torque-off so schnell wie möglich) |
 | `on_cleanup`     | ✅ Reader-Thread stoppen, Serial-Port schließen (in dieser Reihenfolge) |
-| `read`           | 🟡 Stub (D.6: STATE-Cache → hw_state_positions_, Echo via Calibration::pulse_us_to_radians) |
-| `write`          | 🟡 Stub (D.6: hw_command_positions_ → Pulse-µs → SET_TARGETS-Frame) |
+| `read`           | ✅ Echo via Calibration::pulse_us_to_radians (rad-Konsumenten sehen letzten Sollwert als „Istwert"); ERROR_REPORT-Drain; reader.died() → return_type::ERROR |
+| `write`          | ✅ NaN-Sanity → keep last good; rad → pulse_us via Calibration; int16-Clamp gegen UB; in non-loopback: SET_TARGETS-Frame senden |
 
 Plus die `export_*_interfaces`-Methoden, die dem `controller_manager`
 sagen, welche Joints welche Position-Interfaces haben.
@@ -583,6 +587,133 @@ wirft — lokale Strukturen + `std::move`-Commit am Ende).
 
 ---
 
+## Echo-State-Pfad — die Konversion in Aktion (Stufe D.6)
+
+`write()` und `read()` werden vom `controller_manager` bei jedem 50-Hz-Tick
+aufgerufen. Sie verbinden die ros2_control-Welt (Radiant, URDF-indexed)
+mit der Servo-Welt (Pulse-µs, Servo-Pin-indexed) — und nutzen dabei
+sowohl die `Calibration`-Lib aus Stufe C als auch die in `on_init`
+gebaute Joint→Pin-Tabelle.
+
+### `write()` — eine Frame-Engine pro Tick
+
+```
+hw_command_positions_[i]  (rad, URDF-Slot)
+        │
+        │   NaN-Check (keep last good + WARN)
+        │
+        │   joint_to_output_idx_[i] → output_idx (Pin 0..17)
+        │   Calibration::radians_to_pulse_us(output_idx, rad)
+        │   std::clamp(pulse, INT16_MIN, INT16_MAX)
+        ▼
+last_command_pulse_us_[output_idx]  (Pulse-µs, Servo-Pin)
+        │
+        │   encode_set_targets(seq++, last_command_pulse_us_)
+        ▼
+                 Wire-Frame
+        │
+        │   serial_port_.write_all()    (50 ms POLLOUT-Timeout)
+        ▼
+              USB-CDC → Servo2040
+```
+
+Drei Sicherheits-Layer pro Tick:
+
+1. **`reader_.died()`-Check VOR jedem Tick.** Wenn der Reader-Thread
+   bereits einen Disconnect detektiert hat (POLLHUP/EIO), bricht write()
+   sofort mit `ERROR_ONCE`-Log und `return_type::ERROR` ab. ros2_control
+   sieht den Error und bringt den Controller in `inactive`.
+2. **NaN-Sanity.** Ein bug-haftes JTC-Spline oder ein numerischer Glitch
+   kann NaN in `hw_command_positions_` schreiben. Wir lassen NaN
+   **niemals** in die Calibration-Konversion oder auf die Wire — wir
+   loggen die bug-verdächtige Eingabe (WARN) und behalten den letzten
+   guten Pulse-Wert für diesen Pin.
+3. **int16-Clamp.** `radians_to_pulse_us` extrapoliert linear über die
+   Joint-Limits hinaus (kein Hard-Clamp dort — by design, um Limit-
+   Verletzungen sichtbar zu machen). Für extreme rad-Werte könnte
+   `pulse_d` aus dem int16-Range fliegen → `std::clamp` zwingt vor dem
+   Cast in den gültigen Bereich. Defense-in-depth: die Firmware clampt
+   nochmal auf `pulse_min`/`pulse_max` pro Servo (Phase-7 Stufe C.1).
+
+### `read()` — Echo-State zurück
+
+```
+last_command_pulse_us_[output_idx]  (was wir gerade rausgeschickt haben)
+        │
+        │   joint_to_output_idx_[i] (für URDF-Slot i)
+        │   Calibration::pulse_us_to_radians(output_idx, pulse_us)
+        ▼
+hw_state_positions_[i]              (rad, URDF-Slot — vom JTC gelesen)
+```
+
+Die Servos liefern **kein** echtes Positions-Feedback (Phase-7-Hardware-
+Begrenzung). Stattdessen reflektiert `read()` den letzten Sollwert
+zurück durch die inverse Konversion. JTC sieht damit ein perfekt
+verfolgendes Robot — strukturell ist der Tracking-Error ≈ 0.
+
+Das hat eine **wichtige Konsequenz für `controllers.yaml`** (Stufe F):
+- `stopped_velocity_tolerance` greift nicht (Velocity ≈ 0 zwischen Ticks
+  weil Echo identisch zum letzten Sollwert ist)
+- JTC-Goal-Tolerance-Checks sind trivial erfüllt
+- Echte Diagnose erfordert Strommessung oder einen externen Sensor
+  (Phase 10+)
+
+Zusätzlich erledigt `read()` zwei Buchhaltungs-Aufgaben:
+
+- **Drain der ERROR_REPORT-Queue.** Der Reader-Thread queueisiert
+  Firmware-Errors (WATCHDOG_TRIPPED, OVERCURRENT, …) wie sie ankommen.
+  `read()` drainet einmal pro Tick und loggt jeden Eintrag. Per-Code-
+  Translation kommt in D.8.
+- **`reader_.died()`-Check.** Analog zu write(). Wenn der Reader im
+  Hintergrund gestorben ist, surface'n wir das via `return_type::ERROR`.
+
+### Permutation-Awareness durch `joint_to_output_idx_`
+
+Die URDF kann die 18 Joints in **beliebiger Reihenfolge** im
+`<ros2_control>`-Block listen. Bei write/read muss die richtige
+Übersetzung passieren:
+
+```
+URDF-Slot 0  =  leg_3_femur_joint  =  Servo-Pin 7
+URDF-Slot 1  =  leg_1_coxa_joint   =  Servo-Pin 0
+   …
+```
+
+`hw_command_positions_[0]` ist also der Sollwert für `leg_3_femur_joint`,
+und der gehört auf `last_command_pulse_us_[7]` → Pin 7. Die
+`joint_to_output_idx_`-Tabelle (in `on_init` gebaut) übersetzt das.
+
+Test `LoopbackEchoesAreSlotCorrectWithPermutedJointOrder` setzt eine
+reverse-sortierte URDF mit per-Slot distinkten Werten — wenn die
+Mapping-Tabelle in write()/read() vergessen würde (z.B.
+`hw_state_positions_[output_idx]` statt `hw_state_positions_[i]`),
+würden Werte auf falschen Slots landen und der Test failed sofort.
+
+### Was passiert in Loopback?
+
+In `loopback_mode=true` (URDF-Param) skipt das Plugin alle Wire-I/O,
+aber **macht die gesamte Konversion trotzdem** — d.h.:
+
+- write() führt Konversion + last_command_pulse_us_-Update durch,
+  überspringt aber `encode_set_targets + write_all`
+- read() führt Echo + Konversion durch
+- ERROR_REPORT-Queue ist leer (kein Reader-Thread läuft)
+- `reader_.died()`-Check entfällt (kein Reader)
+
+Damit ist Loopback ein vollwertiger End-to-End-Test-Modus für CI: alle
+Logik-Pfade werden durchlaufen, nur die echte USB-Kommunikation fällt
+aus. Tests `LoopbackRoundtripsCommandThroughCalibration` und
+`LoopbackEchoesAreSlotCorrectWithPermutedJointOrder` verifizieren, dass
+`rad → pulse → rad` ≤ 2 mrad Toleranz roundtrippt.
+
+Tests in [`test/test_hexapod_system.cpp`](test/test_hexapod_system.cpp)
+(9 Test-Cases in der Suite `HexapodSystemWriteRead`): Roundtrip-Genauigkeit,
+Permutations-Mapping, NaN-Sanity, Int16-Clamp gegen UB, byteweise
+Verifikation des SET_TARGETS-Frames, ERROR_REPORT-Drainage, und
+Disconnect-Verhalten für beide Hooks.
+
+---
+
 ## Boot-Sequenz (Stufe D.5) — was passiert beim Activate?
 
 `on_activate` ist der Lifecycle-Hook, den `controller_manager` aufruft, wenn
@@ -812,7 +943,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | └ D.3 | on_init mit URDF-Joints + Calibration-Lookup-Tabelle, 17 Tests | ✅ |
 | └ D.4 | on_configure / on_cleanup (Port öffnen/schließen, Reader-Lifecycle), 6 Tests | ✅ |
 | └ D.5 | on_activate Boot-Sequenz (RESET + 18×ENABLE 50 ms stagger + SET_TARGETS neutral) + on_deactivate Disable-All, 6 Tests | ✅ |
-| └ D.6 | read/write mit Echo-State + Pulse-Konversion | offen |
+| └ D.6 | read/write mit Echo-State + Pulse-Konversion + Permutations-Mapping-Test + NaN-Sanity + Int16-Clamp + ERROR_REPORT-Drain, 9 Tests | ✅ |
 | └ D.7 | USB-Reconnect-Logik mit Backoff | offen |
 | └ D.8 | ERROR_REPORT-Logging-Detail | offen |
 | **E** | Plugin-Registrierung verifizieren | offen |

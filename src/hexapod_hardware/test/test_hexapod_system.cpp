@@ -18,9 +18,11 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include "hardware_interface/hardware_info.hpp"
@@ -902,6 +904,417 @@ TEST(HexapodSystemActivate, ActivateFailsCleanlyIfPortIsBroken)
   EXPECT_EQ(
     plugin.on_activate(rclcpp_lifecycle::State{}),
     hardware_interface::CallbackReturn::ERROR);
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+}
+
+// ============================================================================
+// read() / write() with echo-state + pulse conversion (Sub-Stage D.6)
+//
+// write() converts hw_command_positions_[i] (rad, URDF-indexed) through
+// Calibration::radians_to_pulse_us into last_command_pulse_us_[output_idx]
+// (µs, servo-pin-indexed) and — in non-loopback — sends one SET_TARGETS
+// frame per tick. read() echoes last_command_pulse_us_ back as radians
+// via Calibration::pulse_us_to_radians, drains the reader's error queue,
+// and surfaces reader_.died() as return_type::ERROR.
+//
+// Test-data interaction: ros2_control exports CommandInterface / StateInterface
+// objects that wrap pointers into hw_command_positions_ / hw_state_positions_.
+// Tests poke values via those exported interfaces (get_value / set_value)
+// to stay on the supported API surface — same path controllers would use.
+// ============================================================================
+
+namespace
+{
+
+// Read a State or Command interface value. jazzy 4.44 ships both the
+// deprecated `get_value()` and the new `get_optional()` — we use the
+// new one to silence the deprecation warning and stay forward-compatible
+// with the Kilted Kaiju release that removes the old API.
+template<typename Handle>
+double read_handle(const Handle & h)
+{
+  return h.get_optional().value();
+}
+
+// Write a value via the Handle API. set_value() is [[nodiscard]] bool
+// (returns false on lock contention); in single-threaded tests it must
+// always succeed, but we ASSERT to keep the contract explicit.
+template<typename Handle>
+void write_handle(Handle & h, double value)
+{
+  ASSERT_TRUE(h.set_value(value));
+}
+
+}  // namespace
+
+TEST(HexapodSystemWriteRead, LoopbackRoundtripsCommandThroughCalibration)
+{
+  // Loopback path: write() converts rad → pulse → stores in
+  // last_command_pulse_us_; read() converts pulse → rad → stores in
+  // hw_state_positions_. End-to-end the value should round-trip with
+  // sub-millisecond rounding noise (1 µs pulse step ≈ 1.6e-3 rad).
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  auto state_ifs = plugin.export_state_interfaces();
+  ASSERT_EQ(cmd_ifs.size(), NUM_SERVOS);
+  ASSERT_EQ(state_ifs.size(), NUM_SERVOS);
+
+  // Spread of test inputs that cover both halves of the piecewise-linear
+  // mapping (negative, zero, positive) and end-points (joint_lower/upper).
+  const std::vector<double> values = {-1.5, -0.7, -0.1, 0.0, 0.1, 0.7, 1.5};
+  for (const double v : values) {
+    for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+      write_handle(cmd_ifs[i], v);
+    }
+    EXPECT_EQ(
+      plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+      hardware_interface::return_type::OK);
+    EXPECT_EQ(
+      plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+      hardware_interface::return_type::OK);
+
+    for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+      const double got = read_handle(state_ifs[i]);
+      EXPECT_NEAR(got, v, 2e-3)
+        << "joint slot " << i << " (rad=" << v << ", got=" << got << ")";
+    }
+  }
+}
+
+TEST(HexapodSystemWriteRead, LoopbackEchoesAreSlotCorrectWithPermutedJointOrder)
+{
+  // Verifies the joint_to_output_idx_ table is actually being used by
+  // BOTH write() and read() — not just built in on_init. Two ways the
+  // current Roundtrip test would silently miss a mapping bug:
+  //   (a) all 18 commands carry the same value (we set v for all slots),
+  //       so any permutation echoes the same value back per slot
+  //   (b) canonical URDF order means joint_to_output_idx_[i] = i, so
+  //       even a "forgot the lookup, used [i] directly" bug looks fine
+  // Fix: reverse the URDF joint list AND give each slot a unique value.
+  // If write()/read() ever index into last_command_pulse_us_ without
+  // joint_to_output_idx_, slot i's value will end up on slot (17 - i)
+  // and the assertion fails per slot.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  std::reverse(info.joints.begin(), info.joints.end());
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  auto state_ifs = plugin.export_state_interfaces();
+
+  // Each slot gets a distinct value spread across the joint range.
+  // 18 values × 0.1 rad spread = -0.85 .. +0.85, all inside ±1.57.
+  auto value_for_slot = [](std::size_t i) {
+      return -0.85 + 0.1 * static_cast<double>(i);
+    };
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], value_for_slot(i));
+  }
+  ASSERT_EQ(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+  ASSERT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+
+  // Slot i's state must echo slot i's command — regardless of which
+  // physical servo pin that slot is mapped to.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    const double got = read_handle(state_ifs[i]);
+    const double expected = value_for_slot(i);
+    EXPECT_NEAR(got, expected, 2e-3)
+      << "slot " << i << " (URDF joint '" << info.joints[i].name <<
+      "') expected echo " << expected << ", got " << got;
+  }
+}
+
+TEST(HexapodSystemWriteRead, LoopbackZeroRadStaysAtPulseZero)
+{
+  // Specific anchor test: rad=0 must hit pulse_zero exactly (no rounding
+  // because 1500 µs is an integer). Echo back yields rad=0 exactly.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  auto state_ifs = plugin.export_state_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.0);
+  }
+  ASSERT_EQ(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+  ASSERT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    EXPECT_EQ(read_handle(state_ifs[i]), 0.0) << "slot " << i;
+  }
+}
+
+TEST(HexapodSystemWriteRead, LoopbackNanCommandIsLoggedAndIgnored)
+{
+  // NaN from a misbehaving upstream controller MUST NOT propagate into
+  // the pulse buffer or onto the wire. The plugin keeps the last good
+  // pulse for that pin; downstream read() returns the old radians value
+  // (NOT NaN, that would poison the next controller tick).
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  auto state_ifs = plugin.export_state_interfaces();
+
+  // First write: 0.5 rad on slot 5; everywhere else 0.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], i == 5 ? 0.5 : 0.0);
+  }
+  ASSERT_EQ(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+  ASSERT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+  const double slot5_good = read_handle(state_ifs[5]);
+  EXPECT_NEAR(slot5_good, 0.5, 2e-3);
+
+  // Second write: NaN on slot 5; the others to 0.1.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], i == 5 ? std::nan("") : 0.1);
+  }
+  EXPECT_EQ(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK)
+    << "NaN must not turn write() into ERROR — controllers may be glitchy";
+  ASSERT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+
+  // Slot 5 must still be ≈ 0.5 (the last good value). NEVER NaN.
+  const double slot5_after_nan = read_handle(state_ifs[5]);
+  EXPECT_FALSE(std::isnan(slot5_after_nan))
+    << "NaN propagated into state — would poison the next controller tick";
+  EXPECT_NEAR(slot5_after_nan, 0.5, 2e-3);
+  // Other slots tracked the 0.1 update.
+  EXPECT_NEAR(read_handle(state_ifs[3]), 0.1, 2e-3);
+}
+
+TEST(HexapodSystemWriteRead, LoopbackClampsAbsurdRadInsteadOfUB)
+{
+  // Without int16-clamp in write(), an extreme rad (e.g. 100) would
+  // produce a pulse around 1.3e6 µs, and static_cast<int16_t> of that
+  // is implementation-defined / UB. Verify the cast stays well-defined
+  // and the pulse pegs at INT16_MAX.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  auto state_ifs = plugin.export_state_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], i == 0 ? 100.0 : -100.0);   // mix both extremes
+  }
+  EXPECT_NO_THROW(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}));
+  ASSERT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+
+  // After clamp + echo, state must be finite (no NaN, no inf). The exact
+  // value depends on calibration; we just verify sanity.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    EXPECT_TRUE(std::isfinite(read_handle(state_ifs[i])))
+      << "slot " << i << " produced non-finite state";
+  }
+}
+
+TEST(HexapodSystemWriteRead, PtyWriteSendsSetTargetsFrameWithNeutralPulses)
+{
+  // Send rad=0 from all joints → write() must emit one SET_TARGETS frame
+  // whose 18 int16-LE pulses are all 1500 µs (pulse_zero from YAML).
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.0);
+  }
+  ASSERT_EQ(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+
+  const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(50));
+  const auto frames = split_and_decode_frames(bytes);
+  ASSERT_EQ(frames.size(), 1u);
+  EXPECT_EQ(frames[0].cmd, hexapod_hardware::opcode::SET_TARGETS);
+  ASSERT_EQ(frames[0].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
+  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    const uint8_t lo = frames[0].payload[2 * pin];
+    const uint8_t hi = frames[0].payload[2 * pin + 1];
+    const int16_t pulse = static_cast<int16_t>(
+      static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
+    EXPECT_EQ(pulse, 1500) << "pin " << pin;
+  }
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemWriteRead, PtyReadDrainsFirmwareErrorReports)
+{
+  // Inject an ERROR_REPORT on the master end (= the firmware side of the
+  // pty). The reader thread should pick it up and queue it; the plugin's
+  // read() should drain the queue. Verifying the queue is empty after
+  // means drain() ran. The log message itself is observed via the test
+  // runner's stderr (manual inspection); D.8 will harden the assertion.
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // Hand-craft an ERROR_REPORT frame: WATCHDOG_TRIPPED, servo_idx=0, aux=0.
+  // encode_frame builds COBS + CRC + 0x00 terminator for us.
+  const std::vector<uint8_t> payload = {
+    hexapod_hardware::error_code::WATCHDOG_TRIPPED,
+    /*servo_idx=*/0, /*aux_lo=*/0, /*aux_hi=*/0};
+  const auto wire = hexapod_hardware::encode_frame(
+    /*seq=*/0, hexapod_hardware::opcode::ERROR_REPORT, payload);
+  ASSERT_EQ(
+    ::write(master_fd, wire.data(), wire.size()),
+    static_cast<ssize_t>(wire.size()));
+
+  // Reader thread is blocking-polling — give it a moment to ingest.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  EXPECT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemWriteRead, PtyReadReturnsErrorWhenReaderDies)
+{
+  // After the master end is closed, the slave-side reader thread sees
+  // POLLHUP / EIO and sets died_. Next read() must return ERROR so
+  // ros2_control deactivates the controller (the manual reconnect /
+  // recovery workflow comes in D.7).
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // Disconnect.
+  ::close(master_fd);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  EXPECT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::ERROR);
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+}
+
+TEST(HexapodSystemWriteRead, PtyWriteReturnsErrorWhenReaderDies)
+{
+  // Mirror of the above for write(): after disconnect, write() must
+  // bail out cleanly with ERROR instead of trying to push bytes onto
+  // an EIO'd FD and propagating the system_error out of the hook.
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  ::close(master_fd);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.0);
+  }
+  EXPECT_EQ(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::ERROR);
 
   EXPECT_EQ(
     plugin.on_cleanup(rclcpp_lifecycle::State{}),

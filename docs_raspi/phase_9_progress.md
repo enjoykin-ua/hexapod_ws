@@ -490,9 +490,71 @@
 - Kein automatisches RESET nach Watchdog-Trip mid-run — User entscheidet manuell (siehe Plan-Doku §6 + Phase-10).
 - Keine Reconnect-Logik im Activate-Pfad — kommt in **D.7**. D.5-Verhalten bei mid-Activate-Disconnect: clean abort mit ERROR, Plugin geht in inactive.
 
-### Sub-Stage D.6 — `read()` / `write()`
+### Sub-Stage D.6 — `read()` / `write()` mit Echo-State + Pulse-Konversion
 
-(folgt nach D.5)
+> **Vorab-Plan:** [`phase_9_stage_d_6_plan.md`](phase_9_stage_d_6_plan.md) — Logik-Skizze, Design-Begründungen, 8 (geplante) Tests + 1 Post-Review-Test, Progress-Checkliste als Done-Vertrag.
+>
+> Done-Kriterium D.6 (aus Plan): write→read-Roundtrip ≤ 2 mrad, NaN-Sanity, Int16-Clamp, ERROR_REPORT-Drainage, reader.died() → ERROR.
+
+- [x] D.6.1 `<cmath>` + `<climits>` Includes in `src/hexapod_system.cpp` ergänzt
+- [x] D.6.2 `write()` implementiert mit:
+  1. `reader_.died()`-Defensive-Check (non-loopback) → ERROR_ONCE + return ERROR
+  2. Pro Joint i: `joint_to_output_idx_[i]` lookup, NaN-Check (WARN + keep last good), `radians_to_pulse_us`, `std::clamp` auf int16-Range, `last_command_pulse_us_[output_idx]` Update
+  3. In loopback: nur Konversion, kein Wire-I/O — return OK
+  4. Non-loopback: `encode_set_targets` + `serial_port_.write_all`, catch → ERROR
+- [x] D.6.3 `read()` implementiert mit:
+  1. Pro Joint i: Echo via `pulse_us_to_radians(output_idx, last_command_pulse_us_[output_idx])` → `hw_state_positions_[i]`
+  2. Non-loopback: `reader_.drain_error_queue()`, pro Eintrag RCLCPP_ERROR mit Code/Servo/Aux (Format-Detail D.8)
+  3. `reader_.died()`-Check → ERROR_ONCE + return ERROR
+- [x] D.6.4 Tests `test_hexapod_system.cpp` neue Suite `HexapodSystemWriteRead` (**9 Tests** — 8 geplant + 1 Post-Review):
+  - `LoopbackRoundtripsCommandThroughCalibration` (7 rad-Werte ±1.5, alle 18 Slots, Toleranz 2 mrad)
+  - **`LoopbackEchoesAreSlotCorrectWithPermutedJointOrder` (Post-Review)** — reversed URDF + per-slot distinct values → verifiziert dass `joint_to_output_idx_` in BEIDE Hooks (write + read) tatsächlich angewandt wird
+  - `LoopbackZeroRadStaysAtPulseZero` (exakte Identität bei 0)
+  - `LoopbackNanCommandIsLoggedAndIgnored` (NaN bei Slot 5 → keep 0.5, andere Slots tracken 0.1)
+  - `LoopbackClampsAbsurdRadInsteadOfUB` (rad=±100 → finite state, no UB)
+  - `PtyWriteSendsSetTargetsFrameWithNeutralPulses` (rad=0 → SET_TARGETS mit 18× 1500 µs)
+  - `PtyReadDrainsFirmwareErrorReports` (ERROR_REPORT-Frame inject → read() OK + Drain läuft)
+  - `PtyReadReturnsErrorWhenReaderDies` (master close → POLLHUP → died → read() ERROR)
+  - `PtyWriteReturnsErrorWhenReaderDies` (gleiches für write() → ERROR ohne Exception)
+- [x] D.6.5 Test-Helper im anonymous namespace: `read_handle()` (via `get_optional().value()` für jazzy-4.44-API-Drift), `write_handle()` (via `set_value()` mit `[[nodiscard]]`-ASSERT)
+- [x] D.6.6 `colcon build`: grün, keine Warnings (keine `get_value()`-Deprecation-Warnings)
+- [x] D.6.7 `colcon test`: alle gtests grün, `test_hexapod_system` jetzt **32 Tests**; total **177 tests, 0 errors, 0 failures**
+- [x] D.6.8 Self-Review-Tabelle mit Mapping-Bug-Lücke identifiziert + gefixt
+- [x] D.6.9 **Post-Review-Fix:** zusätzlicher Test `LoopbackEchoesAreSlotCorrectWithPermutedJointOrder` verifiziert dass `joint_to_output_idx_` in write() und read() angewandt wird (nicht nur in on_init gebaut). Lückenschluss zum vorhandenen Roundtrip-Test, der wegen uniform-Werte + kanonischer URDF keine Permutations-Bugs gefangen hätte.
+- [x] D.6.10 `phase_9_stage_d_6_test_commands.md` finalisiert
+- [x] D.6.11 README.md: Status auf D.6/8, Lifecycle-Tabelle `read` / `write` von 🟡 auf ✅, neuer Abschnitt „Echo-State-Pfad — die Konversion in Aktion (D.6)"
+- [x] D.6.12 progress.md: diese D.6-Sektion mit Bullets + Notizen + Post-Review-Tabelle + „Was Stufe D.6 explizit nicht macht"
+
+**Done-Kriterium D.6 erreicht:** ✅ (am 2026-05-15; 9 gtest-Cases in 1 Test-Suite grün)
+
+### Stufe-D.6-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Joint-Permutations-Mapping nicht verifiziert in Roundtrip-Test | 🔴 → ✅ gefixt | Roundtrip setzt uniform value an alle Slots + kanonische URDF → ein `[i]`-statt-`[output_idx]`-Bug wäre nicht aufgefallen. Neuer Test mit reversed URDF + distinkten Werten pro Slot fängt das ab |
+| NaN-Logging nicht throttled | 🟡 vormerk D.8 | Auf echter HW selten; D.8 könnte Counter-Throttle hinzufügen wenn nötig |
+| ERROR_REPORT-Drain-Verifikation indirekt | 🟢 vormerk D.8 | Stärkere Log-Capture-Verifikation in D.8 mit Per-Code-Translation |
+| `RCLCPP_ERROR_ONCE` callsite-global statt instance-global | 🟢 OK | Single-Plugin-Setup unkritisch; bei Multi-Plugin (z.B. zwei Hexapods am Pi) würde nur erster loggen — nicht erwartet |
+| `set_value()` `[[nodiscard]]`-Pflicht im Test | ✅ OK | Test-Helper `write_handle()` mit ASSERT_TRUE konsumiert Return |
+| Encoder-Exception-Pfad in write() | ✅ OK | encode_set_targets-Payload immer 36 B < MAX_PAYLOAD_LEN=253, kein Throw |
+| Bounds-Check `joint_to_output_idx_[i]` ∈ [0,18) | ✅ OK | In on_init validiert via output_idx_for_joint; D.6 nutzt nur die garantierten Werte |
+| Race-Conditions write() ↔ read() ↔ Reader-Thread | ✅ OK | write/read sequentiell im controller_manager-Thread; reader → main via atomic + mutex (queue/state) |
+| Roundtrip-Genauigkeit 2 mrad | ✅ verifiziert | 1 µs pulse-round ≈ 1.6 mrad bei standard slope; 2 mrad Toleranz |
+
+### Stufe-D.6-Notizen
+
+- **Konversions-Pfad „rad → pulse → rad" liefert strukturell ≈ 0 Tracking-Error für JTC.** Das Plugin echoiert den letzten Sollwert als „aktuelle Position" zurück (keine echten Servos-Position-Feedbacks). JTC sieht damit immer „Roboter perfekt auf Sollwert" → `stopped_velocity_tolerance` und ähnliche Konvergenz-Checks greifen nicht. Limitation, nicht Bug. Diagnose-Ersatz (Strommessung etc.) ist Phase-10-Material.
+- **`joint_to_output_idx_` als Schlüssel-Tabelle wird hier in Aktion:** D.3 hat sie gebaut, D.6 nutzt sie in BEIDEN Hooks (write: `last_command_pulse_us_[output_idx] = ...`, read: `... = last_command_pulse_us_[output_idx]`). Der neue Post-Review-Test (mit reverse URDF + distinkten Werten) ist die explizite Bug-Insurance dafür.
+- **Loopback macht trotzdem die Konversion durch.** Das wäre die naive Vereinfachung gewesen („skip in loopback weil eh kein Wire-I/O"), aber dann würde der Roundtrip-Test nicht funktionieren — last_command_pulse_us_ bliebe auf pulse_zero, read() würde immer 0 rad zurückgeben. Loopback skipt nur `encode_set_targets + write_all`, nicht die Konversions-Schleife.
+- **`std::clamp(pulse_d, INT16_MIN, INT16_MAX)` vor `static_cast<int16_t>`:** ohne den Clamp ist der Cast bei extrem-rad UB (signed integer narrowing). Test `LoopbackClampsAbsurdRadInsteadOfUB` setzt rad=±100 → verifiziert `std::isfinite(state)`. Firmware hat als Defense-in-Depth einen weiteren Clamp gegen pulse_min/pulse_max pro Servo (Phase-7 Stufe C.1).
+
+### Was Stufe D.6 explizit **nicht** macht
+
+- Kein Reconnect bei mid-run-Disconnect — kommt in **D.7**. D.6-Verhalten: write()/read() returnen ERROR, ros2_control bringt Plugin in inactive. Manuelle Re-Activation nach Stecker rein nötig.
+- Keine ERROR_REPORT-Übersetzungs-Tabelle (Code → human-readable Message) — kommt in **D.8**. Aktuell loggt read() einen einzeiligen Hex-Dump pro Eintrag.
+- Kein automatisches RESET nach `WATCHDOG_TRIPPED` mid-run — User entscheidet manuell (Plan-Doku §7).
+- Keine `GET_STATE`-Polling für Diagnostik — Architektur-Entscheidung B in Plan-Doku (kein Konsument in Phase 9).
+- Kein NaN-Throttle — falls in der Praxis spammy (Phase 10/H), kommt mit D.8 ein Counter-basierter Throttle.
 
 ### Sub-Stage D.7 — USB-Reconnect-Logik
 
