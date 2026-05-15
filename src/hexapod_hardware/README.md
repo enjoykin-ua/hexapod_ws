@@ -7,7 +7,8 @@ State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
 Aktueller Stand: Stufen A + B abgeschlossen (Skelett, Build-Setup,
-Wire-Protokoll-Layer mit 29 Unit-Tests).
+Wire-Protokoll-Layer mit 36 Unit-Tests inkl. 5 goldener Hex-Anker
+gegen die Python-Referenz im fw-Repo).
 
 ---
 
@@ -259,9 +260,15 @@ if (frame) {
 ```
 
 Tests in [`test/test_servo2040_protocol.cpp`](test/test_servo2040_protocol.cpp)
-(29 Test-Cases): CRC-Self-Test, COBS-Edge-Cases inklusive 0xFF
-chain-extension, alle vier Encoder im Roundtrip, negative Pulse-Werte,
-CRC-Korruption, Truncation, STATE- und ERROR_REPORT-Payload-Decoder.
+(36 Test-Cases in 6 Suites): CRC-Self-Test, COBS-Edge-Cases inklusive
+0xFF chain-extension, alle vier Encoder im Roundtrip, negative
+Pulse-Werte, CRC-Korruption, Truncation, STATE- und
+ERROR_REPORT-Payload-Decoder, Payload-Overflow-Boundary
+(`std::invalid_argument` bei `>MAX_PAYLOAD_LEN`), und **fünf goldene
+Hex-Vektoren** mit exakten Wire-Bytes aus der Python-Referenz
+(`~/hexapod_servo_driver/tools/test_servo2040.py`). Letztere schützen
+vor übereinstimmenden Bugs in Encoder + Decoder, die ein Roundtrip-Test
+nicht fängt.
 
 ---
 

@@ -58,7 +58,7 @@ Die sechs Tests sind:
 
 ---
 
-## Test B.3 — Alle 29 gtest-Cases sichtbar machen
+## Test B.3 — Alle 36 gtest-Cases sichtbar machen
 
 Den gtest direkt aufrufen, damit man sieht welche Test-Cases laufen:
 
@@ -68,20 +68,24 @@ Den gtest direkt aufrufen, damit man sieht welche Test-Cases laufen:
 
 **Erwartung am Ende:**
 ```
-[==========] 29 tests from 5 test suites ran. (X ms total)
-[  PASSED  ] 29 tests.
+[==========] 36 tests from 6 test suites ran. (X ms total)
+[  PASSED  ] 36 tests.
 ```
 
-Die fünf Test-Suites sind:
+Die sechs Test-Suites sind:
 - `Crc16CcittFalse` (3 Tests) — Self-Test 0x29B1, empty input, Determinismus
 - `Cobs` (10 Tests) — Empty, single zero, no zeros, zero in middle, alle
   256 Byte-Werte, 254/255-Byte-Grenze, Reject Zero in Stream, Reject Truncated
-- `Frame` (11 Tests) — Encode-Trailing-Zero, Roundtrips für GET_STATE/RESET/
+- `Frame` (13 Tests) — Encode-Trailing-Zero, Roundtrips für GET_STATE/RESET/
   ENABLE/DISABLE/SET_TARGETS (neutral, distinct, negative), Decode-ohne-Trailer,
-  Reject Corrupted CRC, Reject Truncated, Reject Empty
+  Reject Corrupted CRC, Reject Truncated, Reject Empty, **Reject Oversized
+  Payload (`std::invalid_argument`)**, **Accept MaxPayload-Boundary**
 - `PayloadDecoders` (4 Tests) — STATE valid, STATE wrong length, ERROR_REPORT
   valid, ERROR_REPORT wrong length
 - `EndToEnd` (1 Test) — encode STATE-Frame → decode_frame → decode_state
+- **`GoldenHex` (5 Tests)** — goldene Wire-Bytes-Anker gegen Python-Referenz
+  aus `~/hexapod_servo_driver/tools/test_servo2040.py`: GET_STATE seq=0/seq=1,
+  RESET seq=3, ENABLE_SERVO seq=2 idx=5 on, SET_TARGETS seq=0 alle 1500.
 
 ---
 

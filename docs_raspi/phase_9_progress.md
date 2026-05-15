@@ -154,8 +154,12 @@
 - [x] B.9 `CMakeLists.txt`: zweiter `ament_add_gtest` registriert
 - [x] B.10 `colcon build`: grün, keine Warnings
 - [x] B.11 `colcon test`: 6/6 grün (test_calibration, test_servo2040_protocol, cppcheck, lint_cmake, uncrustify, xmllint)
+- [x] B.12 **Post-Review-Fix:** Range-Check in `encode_frame` (throw `std::invalid_argument` bei `payload.size() > MAX_PAYLOAD_LEN=253`). Bug ohne Fix: 300-Byte-Payload → LEN-Feld überläuft auf 44, Wire wird ohne Warnung produziert, Firmware verwirft als FRAME_MALFORMED — silent corruption. Mit Test verifiziert.
+- [x] B.13 **Post-Review:** Goldene Hex-Anker-Tests gegen Python-Referenz (`~/hexapod_servo_driver/tools/test_servo2040.py`): 5 Frames mit exakten Wire-Bytes verankert (GET_STATE seq=0/seq=1, RESET seq=3, ENABLE_SERVO seq=2 idx=5 on, SET_TARGETS seq=0 alle 1500). Schützt vor übereinstimmenden Bugs in Encoder + Decoder, die ein Roundtrip-Test nicht fängt.
+- [x] B.14 **Post-Review:** unnötiger `<cstring>`-Include raus; Kommentar zu impl-defined `uint16→int16`-Cast im STATE-Decoder hinzugefügt (well-defined two's-complement-wrap auf x86_64 + ARM64, identisch mit Firmware-Idiom).
+- [x] B.15 **Cross-Repo-Verifikation:** STATE-Payload-Layout (18× int16 pulse, 18× uint16 current_mA, uint16 voltage_mV, uint8 status_flags) und ERROR_REPORT-Layout (uint8 code, uint8 servo_idx, int16 LE aux) gegen Firmware-`main.cpp` `handle_get_state` + `send_error` byteweise abgeglichen. ✓ identisch.
 
-**Done-Kriterium B erreicht:** ✅ (am 2026-05-15)
+**Done-Kriterium B erreicht:** ✅ (am 2026-05-15, inkl. Post-Review-Fixes; 36 gtest-Cases in 6 Test-Suites grün)
 
 ### Stufe-B-Notizen
 
@@ -164,6 +168,19 @@
 - **Frame-Roundtrip-Symmetrie:** `encode_frame` hängt 0x00-Trenner an; `decode_frame` toleriert sowohl mit als auch ohne Trenner. Damit kann ein späterer Streaming-Reader (Stufe D) je nach Komfort 0x00 weglassen oder mitschicken.
 - **Negativer-Pulse-Test:** `int16` ist signed, aber unsere Wire-Konversion arbeitet mit `uint8_t`. Der Test `RoundtripSetTargetsNegativePulse` mit `-1234` verifiziert, dass die Sign-Erhaltung an der Konversions-Grenze funktioniert (`int16 → 2× uint8 LE → zurück`).
 - **Test-Vorbild:** Die Test-Vektoren sind teilweise direkt aus `~/hexapod_servo_driver/tools/test_servo2040.py` übernommen (Self-Test 0x29B1, SET_TARGETS 1500 µs → `DC 05`, ENABLE_SERVO Payload-Format). Damit ist Host-/Firmware-Kompatibilität strukturell schon getestet, ohne dass tatsächliche USB-Kommunikation läuft.
+
+### Stufe-B-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| LEN-Overflow in `encode_frame` bei Payload > 253 | 🔴 → ✅ gefixt | throw `std::invalid_argument`, mit Boundary-Test |
+| Hex-Dump-Anker gegen Python-Ref fehlt | 🟡 → ✅ ergänzt | 5 goldene Vektoren in `GoldenHex`-Test-Suite |
+| `<cstring>`-Include unnötig | 🟢 → ✅ entfernt | — |
+| `uint16 → int16`-Cast impl-defined pre-C++20 | 🟢 → ✅ kommentiert | well-defined auf unseren Targets, gleicher Idiom in fw |
+| STATE/ERROR_REPORT Layout vs Firmware | ✅ verifiziert | byteweise Match mit `main.cpp` `handle_get_state` + `send_error` |
+| SEQ-Counter im Plugin | 🟢 vormerk Stufe D | encode_frame nimmt SEQ vom Caller, atomic counter im Plugin |
+| ERROR_REPORT-Routing im Plugin | 🟢 vormerk Stufe D | Reader-Thread + RCLCPP_ERROR-Log |
+| PULSE_OUT_OF_RANGE handling | 🟢 vormerk Stufe D | wenn fw das schickt: zu großzügige Calibration oder extremes Target |
 
 ### Was Stufe B explizit **nicht** macht
 

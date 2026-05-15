@@ -56,6 +56,11 @@ constexpr uint8_t UNDERVOLTAGE_WARNING = 1u << 5;
 
 constexpr std::size_t NUM_SERVOS = 18;
 
+// LEN field is a single byte in the wire frame (PROTOCOL.md §2.3). Payloads
+// must be ≤ 253 bytes; 254 + 255 are reserved for future protocol use and
+// passing more is undefined behaviour on the firmware side.
+constexpr std::size_t MAX_PAYLOAD_LEN = 253;
+
 struct StatePayload
 {
   std::array<int16_t, NUM_SERVOS> last_pulse_us{};
@@ -91,6 +96,11 @@ std::vector<uint8_t> encode_reset(uint8_t seq);
 
 // Generic frame encoder. Builds SEQ ‖ CMD ‖ LEN ‖ PAYLOAD ‖ CRC16-LE,
 // COBS-encodes the lot, appends one trailing 0x00 delimiter.
+//
+// Precondition: payload.size() <= MAX_PAYLOAD_LEN (253).
+// Throws std::invalid_argument if the payload would overflow the 1-byte LEN
+// field — silent truncation would corrupt the wire and the firmware would
+// drop the frame (or worse, mis-parse it as the start of the next one).
 std::vector<uint8_t> encode_frame(
   uint8_t seq, uint8_t cmd,
   const std::vector<uint8_t> & payload);

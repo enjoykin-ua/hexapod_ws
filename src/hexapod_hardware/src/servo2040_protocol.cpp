@@ -8,7 +8,8 @@
 
 #include "hexapod_hardware/servo2040_protocol.hpp"
 
-#include <cstring>
+#include <stdexcept>
+#include <string>
 
 namespace hexapod_hardware
 {
@@ -119,6 +120,12 @@ std::vector<uint8_t> encode_frame(
   uint8_t seq, uint8_t cmd,
   const std::vector<uint8_t> & payload)
 {
+  if (payload.size() > MAX_PAYLOAD_LEN) {
+    throw std::invalid_argument(
+            "hexapod_hardware::encode_frame: payload size " +
+            std::to_string(payload.size()) +
+            " exceeds MAX_PAYLOAD_LEN=" + std::to_string(MAX_PAYLOAD_LEN));
+  }
   std::vector<uint8_t> pre_cobs;
   pre_cobs.reserve(payload.size() + 5);
   pre_cobs.push_back(seq);
@@ -231,6 +238,11 @@ std::optional<StatePayload> decode_state(const std::vector<uint8_t> & payload)
 
   StatePayload out;
   std::size_t offset = 0;
+  // Note on the uint16 → int16 casts below: pre-C++20 the conversion of an
+  // unsigned value > INT16_MAX to int16_t is implementation-defined. On every
+  // platform we ship to (x86_64 Linux, ARM64 Linux) this is well-defined two's-
+  // complement wrap, which is exactly the wire format. Same idiom as the
+  // firmware reference in ~/hexapod_servo_driver/src/main.cpp.
   for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
     out.last_pulse_us[i] = static_cast<int16_t>(
       static_cast<uint16_t>(payload[offset]) |
