@@ -86,7 +86,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_servo2040_reader ${PROJECT_NAME} util)
 
   ament_add_gtest(test_hexapod_system test/test_hexapod_system.cpp)
-  target_link_libraries(test_hexapod_system ${PROJECT_NAME})
+  # util for openpty(3) (used by D.4 on_configure tests).
+  target_link_libraries(test_hexapod_system ${PROJECT_NAME} util)
   # Source-tree YAML path for the on_init happy-path test.
   target_compile_definitions(test_hexapod_system PRIVATE
     SOURCE_DIR_FOR_TESTS="${CMAKE_CURRENT_SOURCE_DIR}")

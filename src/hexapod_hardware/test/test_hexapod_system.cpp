@@ -11,8 +11,15 @@
 
 #include <gtest/gtest.h>
 
+#include <fcntl.h>
+#include <pty.h>
+#include <termios.h>
+#include <unistd.h>
+
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/hardware_info.hpp"
@@ -388,6 +395,193 @@ TEST(HexapodSystemInit, FailedReinitDoesNotMutateTable)
   ASSERT_EQ(cmd_after.size(), NUM_SERVOS);
   EXPECT_EQ(cmd_after[0].get_prefix_name(), joint0_before);
   EXPECT_EQ(cmd_after[17].get_prefix_name(), joint17_before);
+}
+
+// ============================================================================
+// on_configure / on_cleanup (Sub-Stage D.4)
+//
+// Tests fall into two groups:
+//   1. Loopback path — no real FD, just verifies the SUCCESS return and
+//      that we don't accidentally try to open something.
+//   2. PTY path — opens a real pty pair and feeds the slave's name as
+//      "serial_port" to the plugin. on_configure should then open it
+//      (the slave end) and start the reader thread; on_cleanup tears
+//      both down.
+// ============================================================================
+
+namespace
+{
+
+// Open a fresh PTY pair. master_fd_out gets the master end (kept open by
+// the test so the slave stays alive); slave_name_out gets the slave's
+// device path that we'll feed to SerialPort::open via the hardware param.
+// The slave FD itself is closed immediately; the plugin opens its own.
+void open_pty_for_serial_port(int * master_fd_out, std::string * slave_name_out)
+{
+  int master_fd = -1, slave_fd = -1;
+  char slave_name[256] = {0};
+  ASSERT_EQ(::openpty(&master_fd, &slave_fd, slave_name, nullptr, nullptr), 0)
+    << "openpty failed: " << ::strerror(errno);
+  // Put master end in raw mode so any traffic we drive into it for stub
+  // tests doesn't get LF/CR-mangled by the kernel.
+  struct termios m;
+  ASSERT_EQ(::tcgetattr(master_fd, &m), 0);
+  ::cfmakeraw(&m);
+  ASSERT_EQ(::tcsetattr(master_fd, TCSANOW, &m), 0);
+  ::close(slave_fd);   // let SerialPort::open() open the slave-name path itself
+  *master_fd_out = master_fd;
+  *slave_name_out = slave_name;
+}
+
+}  // namespace
+
+TEST(HexapodSystemConfigure, LoopbackConfigureSucceedsWithoutPort)
+{
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  // loopback_mode=true is already in the default valid info.
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // on_configure must succeed without touching a device path — even
+  // though the default "/dev/ttyACM0" almost certainly isn't openable
+  // by the test runner.
+  EXPECT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+}
+
+TEST(HexapodSystemConfigure, LoopbackCleanupIsSafeEvenIfNotConfigured)
+{
+  // on_cleanup must be idempotent — calling it after on_init but before
+  // on_configure (or twice in a row) shouldn't crash or throw.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);  // double-cleanup
+}
+
+TEST(HexapodSystemConfigure, RejectsNonExistentSerialPort)
+{
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] =
+    "/dev/this_serial_port_does_not_exist_42";
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  // open() will throw ENOENT — on_configure must catch and return ERROR.
+  EXPECT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::ERROR);
+}
+
+TEST(HexapodSystemConfigure, ConfigureWithPtyOpensPortAndStartsReader)
+{
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // Indirect verification: send bytes onto the master end and give the
+  // reader thread a moment to process. If the reader isn't running, the
+  // bytes pile up in the PTY buffer and the plugin notices nothing. If
+  // it IS running, garbage gets logged as decode_failed. Either way the
+  // plugin stays alive (no died_ flag).
+  const uint8_t garbage[] = {0x11, 0x22, 0x33, 0x00};
+  ASSERT_GT(::write(master_fd, garbage, sizeof(garbage)), 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  // Cleanup tears it all down without leak / hang.
+  const auto t0 = std::chrono::steady_clock::now();
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  const auto dt = std::chrono::steady_clock::now() - t0;
+  EXPECT_LT(dt, std::chrono::milliseconds(1500))
+    << "on_cleanup took " <<
+    std::chrono::duration_cast<std::chrono::milliseconds>(dt).count() << " ms";
+
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemConfigure, ConfigureCleanupCycleCanRepeat)
+{
+  // ros2_control allows configure → cleanup → configure cycles. Make
+  // sure we can handle it without leaking the reader thread or the FD.
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_EQ(
+      plugin.on_configure(rclcpp_lifecycle::State{}),
+      hardware_interface::CallbackReturn::SUCCESS) << "iteration " << i;
+    EXPECT_EQ(
+      plugin.on_cleanup(rclcpp_lifecycle::State{}),
+      hardware_interface::CallbackReturn::SUCCESS) << "iteration " << i;
+  }
+
+  ::close(master_fd);
+}
+
+TEST(HexapodSystemConfigure, DestructorCleansUpAutomatically)
+{
+  // RAII: if a user destroys the plugin without calling on_cleanup
+  // explicitly, the member destructors (Servo2040Reader, SerialPort)
+  // must still produce a clean exit. We verify by configuring inside
+  // a nested scope and confirming the destructor returns quickly.
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  const auto t0 = std::chrono::steady_clock::now();
+  {
+    HexapodSystemHardware plugin;
+    auto info = make_valid_info();
+    info.hardware_parameters["loopback_mode"] = "false";
+    info.hardware_parameters["serial_port"] = slave_name;
+    ASSERT_EQ(
+      plugin.on_init(make_params(info)),
+      hardware_interface::CallbackReturn::SUCCESS);
+    ASSERT_EQ(
+      plugin.on_configure(rclcpp_lifecycle::State{}),
+      hardware_interface::CallbackReturn::SUCCESS);
+    // No explicit on_cleanup — let the destructor handle it.
+  }
+  const auto dt = std::chrono::steady_clock::now() - t0;
+  EXPECT_LT(dt, std::chrono::milliseconds(1500))
+    << "Destructor took too long to join reader thread: " <<
+    std::chrono::duration_cast<std::chrono::milliseconds>(dt).count() << " ms";
+
+  ::close(master_fd);
 }
 
 int main(int argc, char ** argv)

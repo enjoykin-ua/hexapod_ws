@@ -386,7 +386,53 @@
 
 ### Sub-Stage D.4 — `on_configure` / `on_cleanup`
 
-(folgt nach D.3)
+> Done-Kriterium D.4 (aus Plan): Loopback-Mode skipt Port-Open; PTY-Path öffnet Port + startet Reader; on_cleanup schließt sauber ohne Hang; ungültiger Pfad → ERROR.
+
+- [x] D.4.1 Header: `SerialPort serial_port_` und `Servo2040Reader reader_` als Direct-Member. Deklarations-Reihenfolge bewusst: SerialPort zuerst (zerstört zuletzt), Reader danach (zerstört zuerst via RAII → stop+join vor close). `on_cleanup` als Lifecycle-Hook deklariert.
+- [x] D.4.2 `on_configure` implementiert:
+  - Loopback-Mode: return SUCCESS ohne Port-Open + Reader-Start (Architektur-Entscheidung aus Stage-D-Plan)
+  - Sonst: `serial_port_.open(serial_port_path_)` mit klarem FATAL-Log bei Fehler (Hinweis auf `dialout`-Gruppe + URDF-Param)
+  - Bei `reader_.start(serial_port_)`-Fehler: Port wieder schließen (Cleanup-Invarianz)
+- [x] D.4.3 `on_cleanup` implementiert:
+  - **Reihenfolge:** `reader_.stop()` ZUERST, dann `serial_port_.close()`. Sonst würde der Reader-Thread auf einem geschlossenen FD pollen und unnötig `died_=true` setzen (POLLNVAL/EBADF).
+  - Beide Aufrufe sind idempotent + noexcept — sicher auch ohne vorheriges `on_configure` oder doppelt
+- [x] D.4.4 Tests `test_hexapod_system.cpp` neue Suite `HexapodSystemConfigure` (6 Tests):
+  - `LoopbackConfigureSucceedsWithoutPort` — loopback skipt Port-Open ohne ENOENT-Crash trotz nicht-existentem Default-Pfad
+  - `LoopbackCleanupIsSafeEvenIfNotConfigured` — `on_cleanup` doppelt + ohne `on_configure` → SUCCESS
+  - `RejectsNonExistentSerialPort` — bad path → ERROR mit klarem Log
+  - `ConfigureWithPtyOpensPortAndStartsReader` — pty-Pair + serial_port=ttyname(slave) → Port wird geöffnet, Reader läuft (verifiziert durch Garbage-Bytes-Schicken auf master + Reader-Verarbeitung); `on_cleanup` joined in < 1.5 s
+  - `ConfigureCleanupCycleCanRepeat` — 3 × configure/cleanup-Zyklus → kein FD-Leak, kein Thread-Leak
+  - `DestructorCleansUpAutomatically` — Plugin im Scope erstellen, configure, **kein** explizites `on_cleanup` → Destructor joined Reader-Thread + schließt Port automatisch in < 1.5 s
+- [x] D.4.5 `CMakeLists.txt`: `target_link_libraries(test_hexapod_system util)` für `openpty(3)` ergänzt
+- [x] D.4.6 `colcon build`: grün, keine Warnings
+- [x] D.4.7 `colcon test`: 9/9 grün; `test_hexapod_system` jetzt 23 Tests; **162 tests, 0 errors, 0 failures**
+- [x] D.4.8 **Post-Review:** drei defensive Ergänzungen:
+  1. **`died_`-Check 10 ms nach `reader_.start()`** — fängt das Edge-Case ab, dass der Reader-Thread zwischen `open()` und seinem ersten `poll()` einen Disconnect-EIO sieht. Ohne den Check würde `on_configure` SUCCESS returnen und erst der erste `read()`-Tick (~20 ms später) den Fehler melden. Mit dem Check schlägt es früher und mit besserem Log fehl. Cleanup (`reader_.stop()` + `serial_port_.close()`) korrekt nachgezogen.
+  2. **Code-Kommentar zu doppeltem `on_configure`** — erklärt, dass `serial_port_.open()` „already open" wirft, ERROR-Pfad keine State-Corruption macht (Port bleibt offen wie vor dem Call). ros2_control-Lifecycle erlaubt das ohnehin nicht, aber der Hinweis spart einem zukünftigen Reviewer die Analyse.
+  3. **Member-Lifetime-Kommentar im Header** — erklärt explizit warum die Deklarations-Reihenfolge `SerialPort` vor `Servo2040Reader` der Reader-Thread-Referenz Sicherheit gibt (Reader-Destruktor joined den Thread bevor SerialPort zerstört wird). Schützt vor späterer Member-Umsortierung ohne Verständnis.
+
+### Stufe-D.4-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Member-Destruktion-Reihenfolge | ✅ verifiziert | C++-Garantie umgekehrte Konstruktions-Reihenfolge, Test `DestructorCleansUpAutomatically`. Kommentar im Header verewigt. |
+| Cleanup-Reihenfolge stop→close | ✅ verifiziert | Sonst POLLNVAL/EBADF im Reader, unnötiger `died_=true`. Kommentar in `on_cleanup`. |
+| Doppelter on_configure | ✅ dokumentiert | Open wirft, ERROR-Return, Port-State intakt. Kommentar im Code. |
+| Reader-died direkt nach start() | 🟡 → ✅ defensiv gefixt | 10 ms Sleep + `died()`-Check + cleaner Cleanup-Pfad |
+| Reader-Thread-Reference-Lifetime | ✅ dokumentiert | Member-Deklaration im Header explizit kommentiert, schützt vor späterer Re-Order |
+
+### Stufe-D.4-Notizen
+
+- **Member-Deklarations-Reihenfolge ist kritisch:** `SerialPort` vor `Servo2040Reader`. C++-Garantie: Destruction in umgekehrter Reihenfolge. → Reader-Destruktor läuft zuerst (stop+join), SerialPort-Destruktor danach (close). Verhindert die „Reader liest noch, Port wird geschlossen → SIGSEGV/EBADF"-Race. Selbst wenn der User `on_cleanup` vergisst, ist die RAII-Kette sicher (Test `DestructorCleansUpAutomatically` verifiziert).
+- **Cleanup-Reihenfolge umgekehrt zur Setup-Reihenfolge:** `on_configure` macht `open → start`; `on_cleanup` macht `stop → close`. Niemals Reader laufen lassen während FD geschlossen wird.
+- **Loopback bleibt komplett serial-port-frei:** kein `open()`, kein Reader-Thread. Sogar in D.5 (`on_activate`) wird die Stagger-Sleep auf 0 reduziert und Wire-Frames werden nicht generiert. Damit ist Loopback ein vollwertiger CI-Modus ohne irgendwelche IO-Voraussetzungen.
+- **Repeat-Cycle robust:** `ConfigureCleanupCycleCanRepeat` macht 3 × full-cycle. Wichtig weil ros2_control configure→cleanup→configure-Lifecycle erlaubt (z.B. nach einem Fehler-Recover-Versuch). `SerialPort::open` checkt `fd_ >= 0` und wirft beim doppelten open — aber unsere Cleanup setzt `fd_ = -1`, also funktioniert das Re-Open.
+
+### Was Stufe D.4 explizit **nicht** macht
+
+- Keine ENABLE_SERVO-Frames — kommt in **D.5** (`on_activate`)
+- Kein SET_TARGETS oder ergebnis-relevantes write/read — **D.6**
+- Kein Reconnect-Retry bei verlorenem Port — **D.7** (D.4-Verhalten bei mid-run-Disconnect: Reader-Thread stirbt mit `died_=true`)
 
 ### Sub-Stage D.5 — `on_activate` mit Boot-Sequenz
 

@@ -5,10 +5,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -269,7 +271,92 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
 hardware_interface::CallbackReturn HexapodSystemHardware::on_configure(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Stage D.4 fills this in (serial port open, reader thread start).
+  RCLCPP_INFO(plugin_logger(), "on_configure starting (loopback_mode=%s, serial_port=%s)",
+    loopback_mode_ ? "true" : "false", serial_port_path_.c_str());
+
+  if (loopback_mode_) {
+    // No serial port to open; no reader thread to start. The lifecycle
+    // is otherwise identical so the rest of the plugin (write/read echo,
+    // controller_manager interaction) works the same.
+    RCLCPP_INFO(plugin_logger(),
+      "Loopback mode: skipping serial-port open and reader-thread start");
+    return hardware_interface::CallbackReturn::SUCCESS;
+  }
+
+  // ─── 1) Open serial port ───────────────────────────────────────────────
+  // Note on repeated on_configure calls: ros2_control's lifecycle manager
+  // only allows on_configure from the `unconfigured` state, so this code
+  // path is normally entered exactly once per cycle. If somehow it IS
+  // called twice without an intervening on_cleanup, serial_port_.open()
+  // will throw "port is already open" — we catch it, return ERROR, and
+  // leave the (already-open) port intact. No state corruption.
+  try {
+    serial_port_.open(serial_port_path_);
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(plugin_logger(),
+      "Failed to open serial port '%s': %s. "
+      "Common causes: device not plugged in, missing dialout-group "
+      "membership (id | grep dialout), wrong path in URDF <param "
+      "name=\"serial_port\">.",
+      serial_port_path_.c_str(), e.what());
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  // ─── 2) Start reader thread ────────────────────────────────────────────
+  // Must come AFTER the port is open. If start() fails we have to close
+  // the port again to keep the cleanup invariants consistent.
+  try {
+    reader_.start(serial_port_);
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(plugin_logger(), "Failed to start reader thread: %s", e.what());
+    serial_port_.close();
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  // ─── 3) Defensive: did the reader die in its first 10 ms? ──────────────
+  // Edge case: USB disconnect lands between open() and the reader's first
+  // poll() call — the thread reads EIO immediately and sets died_ = true.
+  // Without this check we'd return SUCCESS, the lifecycle manager would
+  // activate the plugin, and only the first read() tick (~20 ms later)
+  // would catch the disconnect. With the check we fail loud right here.
+  //
+  // 10 ms is a deliberate choice: long enough for the reader's first
+  // read_some() to land (it's blocking with a 1 s poll timeout, but a
+  // device-disconnect errno comes back from poll() much faster than the
+  // timeout); short enough that on_configure stays snappy.
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  if (reader_.died()) {
+    RCLCPP_FATAL(plugin_logger(),
+      "Reader thread died within 10 ms of start (probable disconnect "
+      "between port open and first read). Check USB connection to "
+      "Servo2040.");
+    reader_.stop();   // idempotent, joins the already-exited thread
+    serial_port_.close();
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  RCLCPP_INFO(plugin_logger(),
+    "on_configure complete (serial port open, reader thread running)");
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn HexapodSystemHardware::on_cleanup(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  RCLCPP_INFO(plugin_logger(), "on_cleanup starting");
+
+  // Order matters: stop the reader thread first so it can't be reading
+  // from the FD when we close it (close while another thread is in
+  // poll/read on the FD → POLLNVAL/EBADF — Servo2040Reader logs that
+  // as a system_error and sets died_=true, which is needlessly alarming).
+  //
+  // Both stop() and close() are idempotent and noexcept — calling them
+  // on an unconfigured plugin (loopback mode that never opened a port,
+  // or on_init failed before on_configure) is safe.
+  reader_.stop();
+  serial_port_.close();
+
+  RCLCPP_INFO(plugin_logger(), "on_cleanup complete");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 

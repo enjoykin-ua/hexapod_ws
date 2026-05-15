@@ -14,7 +14,9 @@
 #include "rclcpp_lifecycle/state.hpp"
 
 #include "hexapod_hardware/calibration.hpp"
+#include "hexapod_hardware/serial_port.hpp"
 #include "hexapod_hardware/servo2040_protocol.hpp"
+#include "hexapod_hardware/servo2040_reader.hpp"
 
 namespace hexapod_hardware
 {
@@ -27,6 +29,9 @@ public:
     const hardware_interface::HardwareComponentInterfaceParams & params) override;
 
   hardware_interface::CallbackReturn on_configure(
+    const rclcpp_lifecycle::State & previous_state) override;
+
+  hardware_interface::CallbackReturn on_cleanup(
     const rclcpp_lifecycle::State & previous_state) override;
 
   hardware_interface::CallbackReturn on_activate(
@@ -82,6 +87,28 @@ private:
   // Sized to NUM_SERVOS at construction, not on_init — fixed by hardware.
   // Initialised to pulse_zero per servo at end of on_init.
   std::array<int16_t, NUM_SERVOS> last_command_pulse_us_{};
+
+  // ─── Hardware (opened/started in on_configure, closed in on_cleanup) ─────
+  // Declaration order is INTENTIONAL: serial_port_ is constructed first
+  // and (per C++ rules) destroyed LAST. reader_ is constructed second and
+  // destroyed FIRST — its destructor calls stop()+join() before
+  // serial_port_'s destructor can close the FD out from under the running
+  // reader thread. This makes the destruction path safe even if a user
+  // forgets to call on_cleanup.
+  //
+  // Lifetime of the reference held by the reader thread:
+  //   - Servo2040Reader::start(SerialPort & port) stores a SerialPort *
+  //     inside the spawned thread (via lambda capture).
+  //   - That reference is only valid as long as serial_port_ lives.
+  //   - The declaration order above guarantees serial_port_ outlives
+  //     reader_ because reader_'s destructor (stop+join) finishes before
+  //     serial_port_'s destructor begins. Do not reorder these without
+  //     understanding the consequence.
+  //
+  // In loopback_mode_ neither is actually used; both stay default-constructed
+  // (port not open, reader not started).
+  SerialPort serial_port_{};
+  Servo2040Reader reader_{};
 };
 
 }  // namespace hexapod_hardware
