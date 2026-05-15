@@ -7,7 +7,7 @@ State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
 Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
-(Sub-Stage D.6/8 fertig)**. Aktuell:
+(Sub-Stage D.7/8 fertig)**. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
@@ -19,12 +19,17 @@ Aktueller Stand: Stufen A + B + C abgeschlossen, **Stufe D in Arbeit
 - `on_activate` / `on_deactivate` (6 Tests: Loopback-Fast, Pty-Boot-Sequence-Order
   verifiziert byteweise, Stagger-Timing 900 ms ± 100 ms, Deactivate-Disable-All,
   Activate/Deactivate-Cycle 2×, Activate-Fails-Clean bei Port-Broken)
-- **`read()` / `write()` mit Pulse-Konversion (9 Tests: Loopback-Roundtrip ±2 mrad,
+- `read()` / `write()` mit Pulse-Konversion (9 Tests: Loopback-Roundtrip ±2 mrad,
   Permutations-Aware-Mapping mit reversed URDF, NaN-Sanity, Int16-Clamp,
-  PTY-SET_TARGETS-Frame-Verifikation, ERROR_REPORT-Drain, Reader-Died → ERROR
-  für beide Hooks)**
+  PTY-SET_TARGETS-Frame-Verifikation, ERROR_REPORT-Drain, Reconnect-Verhalten
+  für beide Hooks)
+- **USB-Reconnect-Logik mit Backoff (5 Tests: Reader geht in Backoff statt
+  zu sterben, Stop-Signal-Latenz, adopt_fd-Fallback, parallel-write-Race,
+  full Plugin-Lifecycle während Disconnect). Backoff-Sequenz
+  `{100, 200, 500, 1000, 2000, 5000, 5000}` ms, manuelle Recovery per
+  `switch_controllers --activate` nach Reconnect.**
 
-Total: **135 gtest-Cases** über acht Sub-Layers.
+Total: **140 gtest-Cases** über neun Sub-Layers.
 
 ---
 
@@ -587,6 +592,111 @@ wirft — lokale Strukturen + `std::move`-Commit am Ende).
 
 ---
 
+## USB-Disconnect-Recovery (Stufe D.7) — User-Workflow
+
+Bei einem Disconnect (Software-USB-Stack-Hänger, udev-Re-Enumerate beim
+Pi-Boot, Firmware-Reboot durch Watchdog/Brown-Out, Power-Glitch) macht
+das Plugin Folgendes:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. Reader-Thread sieht POLLHUP/EIO im read_some()                   │
+│    → catch (system_error) im loop()                                 │
+│    → ruft reconnect_loop(port) auf                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 2. reconnect_loop                                                   │
+│    • Pfad merken (z.B. "/dev/ttyACM0")                              │
+│    • port.close() — fd_ → -1                                        │
+│    • Backoff-Schleife: {100, 200, 500, 1000, 2000, 5000, 5000} ms   │
+│    • Pro Iter: 50-ms-Sleep-Chunks → port.open(path) retry           │
+│    • Bei Erfolg: INFO-Log mit Recovery-Befehl, return true          │
+│    • Bei stop_requested_: return false (Reader exit)                │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 3. Während des Backoff (port closed):                               │
+│    • write() versucht write_all → throws "port not open" → ERROR    │
+│    • read()  echoiert weiterhin last_command_pulse_us_ → OK         │
+│      (reader.died()==false weil aktiv retrying)                     │
+│    • ros2_control sieht die write-ERRORs, deaktiviert Controller    │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 4. Bei erfolgreichem Reopen:                                        │
+│    • Reader läuft normal weiter (assembly.clear() → fresh frames)   │
+│    • Plugin bleibt im INACTIVE state                                │
+│    • INFO-Log zeigt User den nötigen Re-Activate-Befehl             │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### User-Recovery-Workflow
+
+Nach einem Reconnect-Erfolg läuft der Reader-Thread wieder, aber
+ros2_control hat die Controller wegen der `write()`-ERRORs schon
+deaktiviert. Das Plugin **macht den Re-Activate NICHT automatisch** —
+nach einem Disconnect kann der Roboter mechanisch in undefinierter Pose
+sein (Servos waren spannungsfrei, Beine können durchgesackt sein). Der
+User muss das explizit bestätigen:
+
+```bash
+# 1. Status prüfen
+ros2 control list_controllers
+# → alle Leg-Controller sind „inactive"
+
+# 2. Roboter visuell prüfen — Beine in sinnvoller Pose? Aufgebockt?
+#    Wenn die Beine durchgesackt sind: hand-positionieren, dann erst Schritt 3.
+
+# 3. Re-Aktivieren
+ros2 control switch_controllers --activate \
+    joint_state_broadcaster \
+    leg_1_controller leg_2_controller leg_3_controller \
+    leg_4_controller leg_5_controller leg_6_controller
+```
+
+Das `on_activate` schickt dann die übliche Boot-Sequenz (RESET → 18×
+ENABLE_SERVO mit 50 ms Stagger → SET_TARGETS neutral, siehe Stufe D.5)
+und der Roboter ist wieder fahrbereit.
+
+### Was `died()` jetzt bedeutet (gegenüber D.6)
+
+`Servo2040Reader::died()` returnt nur dann true, wenn der Reader-Thread
+**unwiderruflich** ausgefallen ist:
+- Exception aus dem Main-Loop (z.B. `std::bad_alloc`)
+- `adopt_fd`-Pfad: kein `path_` gespeichert → keine Möglichkeit zum
+  Re-Open. Im Plugin-Produktivbetrieb tritt das nicht auf (das Plugin
+  nutzt immer `serial_port_.open(path)`).
+
+Normale USB-Disconnects setzen `died_` **nicht** mehr — der Reader ist
+im Backoff aktiv und wird beim nächsten erfolgreichen `open()` weiter
+laufen. `is_running()` bleibt während des Backoff true.
+
+### Backoff-Sequenz — Begründung
+
+Die Folge `{100, 200, 500, 1000, 2000, 5000, 5000}` ms ist Phase-7-
+empirisch: ein USB-CDC-Re-Enumerate auf Linux dauert typisch ~200 ms,
+ein udev-Reset etwas länger. Erste 3 Stufen schnell, dann ausweitend,
+steady-state bei 5 s (CPU-Last vernachlässigbar, dem Kernel-USB-Stack
+Zeit zur Erholung gegeben). Sleep ist in 50-ms-Chunks unterteilt, damit
+ein paralleler `stop()` aus dem Plugin-`on_cleanup` innerhalb von ~50 ms
+ankommt — auch beim steady-state-5-s-Wait.
+
+Tests in [`test/test_servo2040_reader.cpp`](test/test_servo2040_reader.cpp)
+(`ReaderReconnect`-Suite mit 4 Tests) und
+[`test/test_hexapod_system.cpp`](test/test_hexapod_system.cpp)
+(`HexapodSystemReconnect`-Suite mit 1 Test) verifizieren die einzelnen
+Bausteine. **Der Reconnect-Erfolgs-Pfad selbst wird in Stage H mit echter
+Hardware verifiziert** — PTYs können den Slave-Pfad nach Master-Close
+nicht wiederbeleben, also können wir „open() klappt nach Disconnect" in
+CI nicht direkt simulieren (Plan-Doku §D.7 Option C, vom User
+freigegeben).
+
+---
+
 ## Echo-State-Pfad — die Konversion in Aktion (Stufe D.6)
 
 `write()` und `read()` werden vom `controller_manager` bei jedem 50-Hz-Tick
@@ -944,7 +1054,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | └ D.4 | on_configure / on_cleanup (Port öffnen/schließen, Reader-Lifecycle), 6 Tests | ✅ |
 | └ D.5 | on_activate Boot-Sequenz (RESET + 18×ENABLE 50 ms stagger + SET_TARGETS neutral) + on_deactivate Disable-All, 6 Tests | ✅ |
 | └ D.6 | read/write mit Echo-State + Pulse-Konversion + Permutations-Mapping-Test + NaN-Sanity + Int16-Clamp + ERROR_REPORT-Drain, 9 Tests | ✅ |
-| └ D.7 | USB-Reconnect-Logik mit Backoff | offen |
+| └ D.7 | USB-Reconnect-Logik mit Backoff `{100..5000}` ms, Reader-Thread retried statt zu sterben, manueller Re-Activate, 5 Tests | ✅ |
 | └ D.8 | ERROR_REPORT-Logging-Detail | offen |
 | **E** | Plugin-Registrierung verifizieren | offen |
 | **F** | URDF-Switch + `controllers.real.yaml` | offen |

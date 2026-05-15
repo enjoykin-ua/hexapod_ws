@@ -556,9 +556,72 @@
 - Keine `GET_STATE`-Polling für Diagnostik — Architektur-Entscheidung B in Plan-Doku (kein Konsument in Phase 9).
 - Kein NaN-Throttle — falls in der Praxis spammy (Phase 10/H), kommt mit D.8 ein Counter-basierter Throttle.
 
-### Sub-Stage D.7 — USB-Reconnect-Logik
+### Sub-Stage D.7 — USB-Reconnect-Logik mit Backoff
 
-(folgt nach D.6)
+> **Vorab-Plan:** [`phase_9_stage_d_7_plan.md`](phase_9_stage_d_7_plan.md) — Architektur, Pseudocode, Lock-Strategie (mit zwei dokumentierten Plan-Korrekturen während Implementation), 5 Tests (Option C: kein Erfolgs-Test in CI), 13 Progress-Bullets.
+>
+> Done-Kriterium D.7 (aus Plan): Reader stirbt nicht mehr bei Disconnect, geht in Backoff-Loop; `write()` returnt ERROR (Port geschlossen); `read()` bleibt OK (Echo bleibt konsistent, reader.died()=false); manueller Re-Activate per `switch_controllers` nach Reconnect.
+
+- [x] D.7.1 `SerialPort::path()`-Getter ergänzt + `path_`-Member, gesetzt nach erfolgreichem `open()`, geleert in `close()` und `adopt_fd()` (letzteres setzt explizit `path_=""`, weil ohne Pfad keine Recovery möglich ist)
+- [x] D.7.2 `Servo2040Reader::reconnect_loop` private Methode implementiert:
+  1. `port.path()` als Wertkopie holen (eigener shared_lock intern)
+  2. Early-out wenn `path.empty()` (adopt_fd-Fall → `died_=true` + return false)
+  3. `port.close()` (eigener unique_lock intern)
+  4. Backoff-Schleife `{100, 200, 500, 1000, 2000, 5000, 5000}` ms, hardcoded
+  5. Sleep in 50-ms-Chunks (Stop-Latenz ≤ 50 ms)
+  6. `port.open(path)` Erfolg → INFO-Log mit Recovery-Befehl + return true
+  7. `stop_requested_` während Backoff → return false (Reader exit)
+- [x] D.7.3 `Servo2040Reader::loop`-`catch (system_error)` ruft `reconnect_loop` statt sofort `died_=true`. Bei `true`: `assembly.clear()` (mid-frame-Bytes vom alten Stream sind nutzlos) + `continue`. Bei `false`: clean `return`
+- [x] D.7.4 `died_`-Semantik im Header-Kommentar dokumentiert: nur bei terminal-error (Exception aus Loop, adopt_fd ohne Pfad), NICHT bei normalem Disconnect mit Pfad
+- [x] D.7.5 Tests `test_servo2040_reader.cpp` neue Suite `ReaderReconnect` (4 Tests):
+  - `ReaderEntersReconnectLoopInsteadOfDying` (Disconnect → kein died_, `is_running()` bleibt true; Backoff-WARN-Logs verifizieren visuell die korrekte Sequenz)
+  - `ReconnectBackoffRespectsStopSignal` (stop() während Backoff → join < 200 ms dank 50-ms-Sleep-Chunks)
+  - `AdoptedFdMarksDiedBecauseNoPathToRetry` (adopt_fd-Pfad → FATAL + `died_=true`, kein endloser Retry)
+  - `ParallelWriteDoesNotCrashDuringReconnect` (1-kHz-Writer parallel zum Disconnect → kein Crash, mix aus OK/throw je nach Lock-Timing)
+- [x] D.7.6 Tests `test_hexapod_system.cpp` neue Suite `HexapodSystemReconnect` (1 Test):
+  - `PluginSurfacesErrorWhileReaderRetriesReconnect` (full lifecycle: configure→activate→disconnect → write() ERROR persistent, read() OK, on_cleanup unterbricht Backoff in < 500 ms)
+- [x] D.7.7 **2 D.6-Tests an D.7-Semantik angepasst:**
+  - `PtyReadReturnsErrorWhenReaderDies` → `PtyReadStaysOkWhileReaderRetriesReconnect` (Erwartung: OK statt ERROR, weil Reader retried statt zu sterben). Klarer Kommentar dass das die D.7-Vertragsänderung ist.
+  - `PtyWriteReturnsErrorWhenReaderDies` → `PtyWriteReturnsErrorWhilePortClosedDuringReconnect` (Erwartung bleibt ERROR, aber via port-closed-Pfad statt died-Pfad)
+- [x] D.7.8 `colcon build`: grün, keine Warnings
+- [x] D.7.9 `colcon test`: alle gtests grün, total **182 tests, 0 errors, 0 failures**
+- [x] D.7.10 Plan-Korrekturen während Implementation in `phase_9_stage_d_7_plan.md` dokumentiert: (1) Lock-Granularität (lang → kurz → keine), (2) EDEADLK-Risiko bei `std::shared_mutex`-Rekursion
+- [x] D.7.11 Self-Review-Tabelle (siehe unten)
+- [x] D.7.12 `phase_9_stage_d_7_test_commands.md` finalisiert
+- [x] D.7.13 README.md: Status auf D.7/8, Lifecycle-Verhalten bei Disconnect dokumentiert, neuer Abschnitt „USB-Disconnect-Recovery — User-Workflow"
+
+**Done-Kriterium D.7 erreicht:** ✅ (am 2026-05-15; 5 neue gtest-Cases, 2 alte D.6-Tests an D.7-Semantik angepasst)
+
+### Stufe-D.7-Post-Review (kritische Punkte, durchgegangen am 2026-05-15)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Lock-Strategie (Plan: lange exclusive_lock) | 🔴 → ✅ gefixt | Hätte Controller-Tick 5 s blockiert. Korrektur: nur momentweise locks. Plan-Doku dokumentiert |
+| Lock-Strategie (2. Iter: momentweise exclusive_lock) | 🔴 → ✅ gefixt | EDEADLK aufgetreten — `std::shared_mutex` nicht rekursiv. Final: KEIN externer Lock, interne Locks pro Call reichen |
+| D.6-Tests inkompatibel mit D.7-Vertragsänderung | 🔴 → ✅ gefixt | `reader.died()` ist nicht mehr der Disconnect-Pfad → 2 Tests umbenannt + Erwartungen angepasst |
+| openpty(nullptr-slave) → SEGFAULT | 🔴 → ✅ gefixt | Alle 4 ReaderReconnect-Tests mit valid slave_fd + immediate close |
+| Stop-Latenz während Backoff | ✅ verifiziert | 50-ms-Chunks via Test belegt (< 200 ms gemessen) |
+| `died_`-Semantik präzise abgegrenzt | ✅ dokumentiert | Header-Kommentar explizit: nur bei terminal-error |
+| Race write_all ↔ close/open | ✅ verifiziert | `ParallelWriteDoesNotCrashDuringReconnect` mit 1-kHz-Hammer |
+| Reconnect-Success-Pfad in CI | 🟢 vormerk Stage H | Bewusst gewählt (Plan-Option C, User-bestätigt) — PTYs können den Pfad nach close nicht wiederbeleben; Stage H mit echter HW deckt das ab via authorized-toggle / firmware-reboot |
+| NaN-Loops bei USB-Flackern (kein max-attempt-Cap) | 🟢 vormerk Phase 10 | Bewusst Best-Effort, CPU-Last vernachlässigbar (steady-state 5 s Sleep). Phase-10-Tooling kann ggf. Health-Check hinzufügen |
+| Plugin-Recovery-Workflow für User | ✅ dokumentiert | INFO-Log + README-Abschnitt mit `switch_controllers --activate`-Befehl |
+| Memory/Lifetime path in reconnect_loop | ✅ OK | `const std::string path = port.path();` ist Wertkopie auf Reader-Stack |
+
+### Stufe-D.7-Notizen
+
+- **Lock-Strategie war der größte Iterationspunkt.** Die ursprüngliche Plan-Idee (exclusive_lock für die ganze Backoff-Funktion) hätte den Controller-Tick eingefroren. Die erste Korrektur (momentweise exclusive_lock) löste das, kollidierte aber mit den internen Locks von `port.path()`/`port.close()`/`port.open()` (`std::shared_mutex` ist NICHT rekursiv → EDEADLK „Resource deadlock avoided" beim Selbst-Lock). Die finale Lösung („gar kein externer Lock, der internen Lock pro Call reicht") ist die einfachste und korrekt. Lehre: `shared_mutex`-Nutzung sorgfältig durchdenken, nicht naiv ein „äußeres Lock zum Schutz drumherum" annehmen.
+- **`died_`-Semantik präziser:** D.6 hatte angenommen jeder Disconnect setzt `died_=true`. D.7 ändert das: `died_` ist jetzt nur noch für terminal-errors (Exception aus dem Loop, adopt_fd ohne Pfad). Normaler Disconnect mit Pfad → Reader retried, `died_` bleibt false. Dadurch musste der D.6-Test-Vertrag für `read()` neu definiert werden (OK statt ERROR während Backoff).
+- **Pragmatik der Test-Strategie:** Option C (kein Reconnect-Erfolgs-Test in CI) hat sich beim Schreiben als richtig erwiesen. Die Tests die der Reader im Backoff macht (open() failt) sind GENAU dieselben open()-Aufrufe, die in Stage H mit echter HW erfolgreich sein werden. Die Logik-Pfade sind also schon getestet, nur die System-Antwort fehlt.
+- **`assembly.clear()` nach erfolgreichem Reconnect:** im Test-Setup (CI) erreichen wir den Erfolg-Pfad nicht, also wird `assembly.clear()` nicht aktiv getriggert. Code-Pfad ist trivial und durch Code-Review verifiziert.
+
+### Was Stufe D.7 explizit **nicht** macht
+
+- **Kein automatisches Re-Activate** des Controllers nach Reconnect — bewusst manuell. Nach einem Disconnect kann der Roboter mechanisch in undefinierter Pose sein (Servos waren spannungsfrei). User muss explizit `ros2 control switch_controllers --activate ...` aufrufen.
+- **Kein Max-Retry-Cap** — Backoff läuft unendlich (bis stop oder Erfolg). CPU-Last bei steady-state 5 s ist vernachlässigbar.
+- **Kein Reconnect bei NACK / Watchdog-Trip mid-run** — das ist Protokoll-Level, nicht USB-Level. Watchdog-Recovery bleibt manuell (Plan-Doku §6, Phase 10).
+- **Kein automatischer Re-Activate via Service-Call** — wäre eine separate Komfort-Schicht (Phase 10+).
+- **Kein Reconnect für adopt_fd-konstruierte SerialPorts** — kein Pfad zum Re-Open, Reader stirbt mit `died_=true`. In Produktion nutzt das Plugin immer `open()`; nur Tests verwenden `adopt_fd`.
 
 ### Sub-Stage D.8 — ERROR_REPORT-Logging-Detail
 

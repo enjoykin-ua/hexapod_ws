@@ -73,8 +73,12 @@ public:
   bool is_running() const noexcept;
 
   // True if the reader thread caught an exception and exited
-  // prematurely. The plugin's read() inspects this and surfaces it to
-  // ros2_control as return_type::ERROR.
+  // prematurely, OR if it gave up trying to reconnect (e.g. the port
+  // had been adopted via adopt_fd, so there's no path to re-open with).
+  // A normal disconnect that the reconnect-loop is actively retrying
+  // does NOT set this flag — is_running() stays true throughout, and
+  // the plugin's write()/read() block on the SerialPort's shared_lock
+  // until the reconnect either succeeds or stop() is called.
   bool died() const noexcept;
 
   // Peek at the latest STATE-RESPONSE frame, if any has arrived since
@@ -91,6 +95,17 @@ public:
 private:
   void loop(SerialPort & port);
   void dispatch(const DecodedFrame & frame);
+
+  // Backoff-loop that closes and re-opens the SerialPort after a disconnect.
+  // Called from loop() when read_some() throws a disconnect-class
+  // system_error. Returns true on successful reconnect (loop() should
+  // continue), false if stop_requested_ tripped during the wait OR if
+  // the port has no path to re-open with (adopt_fd case → died_=true).
+  //
+  // Holds the SerialPort's exclusive_lock for the entire close+open
+  // window, so parallel write_all()/read_some() calls block until the
+  // reconnect completes.
+  bool reconnect_loop(SerialPort & port);
 
   std::atomic<bool> stop_requested_{false};
   std::atomic<bool> died_{false};

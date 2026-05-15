@@ -1251,12 +1251,21 @@ TEST(HexapodSystemWriteRead, PtyReadDrainsFirmwareErrorReports)
   ::close(master_fd);
 }
 
-TEST(HexapodSystemWriteRead, PtyReadReturnsErrorWhenReaderDies)
+TEST(HexapodSystemWriteRead, PtyReadStaysOkWhileReaderRetriesReconnect)
 {
-  // After the master end is closed, the slave-side reader thread sees
-  // POLLHUP / EIO and sets died_. Next read() must return ERROR so
-  // ros2_control deactivates the controller (the manual reconnect /
-  // recovery workflow comes in D.7).
+  // D.7 changed the contract: after master close the reader does NOT die
+  // anymore — it enters reconnect_loop. So reader.died() stays false and
+  // read() keeps echoing last_command_pulse_us_, returning OK.
+  //
+  // The write() path still surfaces ERROR (via port-closed → write_all
+  // throws) — verified separately in the HexapodSystemReconnect suite.
+  // ros2_control sees those write-ERRORs and deactivates the controller,
+  // so the user-facing behaviour is the same as before D.7. The only
+  // difference is that the reader keeps trying to come back instead of
+  // requiring a full stack restart.
+  //
+  // (Before D.7 this test asserted ERROR on read() because the reader
+  // died. The asserted value flipped with the D.7 contract change.)
   int master_fd;
   std::string slave_name;
   open_pty_for_serial_port(&master_fd, &slave_name);
@@ -1272,24 +1281,29 @@ TEST(HexapodSystemWriteRead, PtyReadReturnsErrorWhenReaderDies)
     plugin.on_configure(rclcpp_lifecycle::State{}),
     hardware_interface::CallbackReturn::SUCCESS);
 
-  // Disconnect.
+  // Disconnect — reader sees POLLHUP, enters reconnect_loop (NOT died_).
   ::close(master_fd);
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   EXPECT_EQ(
     plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
-    hardware_interface::return_type::ERROR);
+    hardware_interface::return_type::OK)
+    << "read() must stay OK while reader retries; died_ is false during backoff";
 
   EXPECT_EQ(
     plugin.on_cleanup(rclcpp_lifecycle::State{}),
     hardware_interface::CallbackReturn::SUCCESS);
 }
 
-TEST(HexapodSystemWriteRead, PtyWriteReturnsErrorWhenReaderDies)
+TEST(HexapodSystemWriteRead, PtyWriteReturnsErrorWhilePortClosedDuringReconnect)
 {
-  // Mirror of the above for write(): after disconnect, write() must
-  // bail out cleanly with ERROR instead of trying to push bytes onto
-  // an EIO'd FD and propagating the system_error out of the hook.
+  // Companion to the read test above. write() must surface ERROR — but
+  // for a different reason than pre-D.7:
+  //   - Before D.7: reader.died()==true, write() takes the early-exit
+  //   - D.7+: reader retries (died_=false), but the port is closed during
+  //     the backoff window, so write_all() throws "port not open" → ERROR
+  // The user-visible return_type::ERROR is identical; the new path is
+  // verified here.
   int master_fd;
   std::string slave_name;
   open_pty_for_serial_port(&master_fd, &slave_name);
@@ -1319,6 +1333,88 @@ TEST(HexapodSystemWriteRead, PtyWriteReturnsErrorWhenReaderDies)
   EXPECT_EQ(
     plugin.on_cleanup(rclcpp_lifecycle::State{}),
     hardware_interface::CallbackReturn::SUCCESS);
+}
+
+// ============================================================================
+// USB-Reconnect (Sub-Stage D.7)
+//
+// Verifies the full-plugin behaviour: after a disconnect the reader enters
+// backoff, write()/read() consistently return ERROR (since the port is
+// closed during the wait), and the lifecycle still tears down cleanly.
+//
+// The success path (open() of /dev/pts/N after master close) is NOT
+// covered here — pure PTYs invalidate the path on master close (user-
+// approved Plan-Option C). Stage H verifies it on real hardware.
+// ============================================================================
+
+TEST(HexapodSystemReconnect, PluginSurfacesErrorWhileReaderRetriesReconnect)
+{
+  // Setup: configure with a pty so the reader can actually run.
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  // Trigger disconnect. Reader enters reconnect_loop; for the pty path
+  // the open() retries will keep failing — reader stays in backoff forever,
+  // is_running() stays true, died() stays false (this is the D.7 contract).
+  ::close(master_fd);
+
+  // Wait for the reader to detect POLLHUP and enter backoff. Once in
+  // backoff the port is closed (fd_<0), so write_all() throws and the
+  // controller_manager-style write() consistently returns ERROR. Same
+  // for read(): it sees reader.died()==false but the writes-can't-work
+  // contract is what matters here (the plugin behaviour is that read()
+  // echoes last_command_pulse_us_, which still works — read() returns
+  // OK during backoff because reader is alive). So we focus on write().
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  // Set commands to something so write() has work to do.
+  auto cmd_ifs = plugin.export_command_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.0);
+  }
+
+  // write() should return ERROR consistently — port is closed during backoff.
+  // We tick several times; the result must stay ERROR (not flap).
+  for (int tick = 0; tick < 5; ++tick) {
+    EXPECT_EQ(
+      plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+      hardware_interface::return_type::ERROR)
+      << "tick " << tick << " — write() should consistently be ERROR while reader retries";
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+
+  // read() during backoff: reader.died() is false (reader is retrying),
+  // so read() returns OK and the echo state stays consistent. That's
+  // the designed behaviour — ros2_control will already have deactivated
+  // the controller off the write() ERRORs, so read() correctness here
+  // is mostly academic but verified for completeness.
+  EXPECT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK)
+    << "read() during backoff should still echo last commands (reader not died)";
+
+  // Cleanup must still finish quickly even while reader is mid-backoff.
+  // stop() interrupts the chunked sleep, joins in ~50 ms.
+  const auto t0 = std::chrono::steady_clock::now();
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  const auto dt = std::chrono::steady_clock::now() - t0;
+  EXPECT_LT(dt, std::chrono::milliseconds(500))
+    << "on_cleanup during reconnect took " <<
+    std::chrono::duration_cast<std::chrono::milliseconds>(dt).count() << " ms";
 }
 
 int main(int argc, char ** argv)

@@ -422,6 +422,192 @@ TEST_F(ReaderPty, LoneDelimiterByteIsIgnored)
   EXPECT_FALSE(reader_.latest_state().has_value());
 }
 
+// ============================================================================
+// Reconnect (Sub-Stage D.7)
+//
+// We exercise the reader's behaviour when read_some() hits a disconnect:
+//   - it should NOT die immediately; instead reconnect_loop() takes over
+//   - is_running() / died() should reflect "still trying"
+//   - stop() during the backoff sleep must complete within ~100 ms
+//   - the adopt_fd() path (no remembered path) MUST set died_ — we can't
+//     re-open without a path
+//
+// Following the user-approved Plan-Option C: the success path (open() of
+// the *same* /dev/pts/N after master close) is NOT testable with pure
+// PTYs (the slave path is invalidated when the master closes). Stage H
+// (real HW) verifies the success path by triggering a firmware-side
+// reboot or USB-authorized toggle. CI tests here only verify the
+// "enters backoff and either retries forever or stops cleanly" envelope.
+// ============================================================================
+
+TEST(ReaderReconnect, ReaderEntersReconnectLoopInsteadOfDying)
+{
+  // openpty() and use SerialPort::open(slave_name) so SerialPort::path()
+  // is populated — adopt_fd() leaves it empty and triggers the
+  // died_=true early-out (verified separately below).
+  int master_fd, slave_fd;
+  char slave_name[256] = {0};
+  ASSERT_EQ(::openpty(&master_fd, &slave_fd, slave_name, nullptr, nullptr), 0)
+    << "openpty failed: " << ::strerror(errno);
+  struct termios m;
+  ASSERT_EQ(::tcgetattr(master_fd, &m), 0);
+  ::cfmakeraw(&m);
+  ASSERT_EQ(::tcsetattr(master_fd, TCSANOW, &m), 0);
+  // Close the slave FD immediately; SerialPort::open() will open the same
+  // path itself. (openpty() requires a valid out-pointer for slave_fd.)
+  ::close(slave_fd);
+
+  SerialPort port;
+  port.open(slave_name);
+  Servo2040Reader reader;
+  reader.start(port);
+
+  // Trigger disconnect. The slave path is now dead, so reconnect_loop's
+  // open() retries will keep failing — reader stays in backoff.
+  ::close(master_fd);
+
+  // Wait for the reader to hit the disconnect path and enter backoff.
+  // The poll-timeout inside read_some is up to 1 s, but POLLHUP fires
+  // immediately; in practice the catch lands within ~10 ms.
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  // Reader thread MUST still be alive (in backoff), NOT marked died.
+  EXPECT_TRUE(reader.is_running())
+    << "Reader should still be running while retrying open()";
+  EXPECT_FALSE(reader.died())
+    << "Disconnect with a known path should NOT set died_";
+
+  reader.stop();
+  port.close();
+}
+
+TEST(ReaderReconnect, ReconnectBackoffRespectsStopSignal)
+{
+  // Same setup as above — reader enters backoff against a dead pty path.
+  // Then we stop() mid-backoff and verify the join completes quickly
+  // (chunked sleep means stop-latency ≤ 50 ms + a bit of thread-join
+  // overhead; we deckel at 200 ms for CI scheduler jitter).
+  int master_fd, slave_fd;
+  char slave_name[256] = {0};
+  ASSERT_EQ(::openpty(&master_fd, &slave_fd, slave_name, nullptr, nullptr), 0);
+  struct termios m;
+  ASSERT_EQ(::tcgetattr(master_fd, &m), 0);
+  ::cfmakeraw(&m);
+  ASSERT_EQ(::tcsetattr(master_fd, TCSANOW, &m), 0);
+  ::close(slave_fd);
+
+  SerialPort port;
+  port.open(slave_name);
+  Servo2040Reader reader;
+  reader.start(port);
+  ::close(master_fd);
+
+  // Let the reader enter the backoff loop. After ~300 ms it should be
+  // in the middle of the second wait (200 ms) or the third (500 ms).
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  ASSERT_TRUE(reader.is_running());
+
+  const auto t0 = std::chrono::steady_clock::now();
+  reader.stop();
+  const auto dt = std::chrono::steady_clock::now() - t0;
+  EXPECT_LT(dt, std::chrono::milliseconds(200))
+    << "stop() during reconnect-backoff took " <<
+    std::chrono::duration_cast<std::chrono::milliseconds>(dt).count() <<
+    " ms (chunked sleep should bound it at ~50 ms + join overhead)";
+  EXPECT_FALSE(reader.is_running());
+
+  port.close();
+}
+
+TEST(ReaderReconnect, AdoptedFdMarksDiedBecauseNoPathToRetry)
+{
+  // The adopt_fd() path leaves SerialPort::path_ empty — reconnect_loop
+  // can't retry against that and must mark died_ + exit cleanly.
+  int master_fd, slave_fd;
+  ASSERT_EQ(::openpty(&master_fd, &slave_fd, nullptr, nullptr, nullptr), 0);
+  struct termios m;
+  ASSERT_EQ(::tcgetattr(master_fd, &m), 0);
+  ::cfmakeraw(&m);
+  ASSERT_EQ(::tcsetattr(master_fd, TCSANOW, &m), 0);
+
+  SerialPort port;
+  port.adopt_fd(slave_fd);   // path_ stays empty
+  Servo2040Reader reader;
+  reader.start(port);
+
+  ::close(master_fd);   // trigger disconnect
+
+  // Reader should die quickly (no path to retry) — within ~200 ms.
+  const auto deadline = std::chrono::steady_clock::now() +
+    std::chrono::milliseconds(500);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (reader.died()) {break;}
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_TRUE(reader.died())
+    << "adopt_fd path should set died_ on disconnect (no path to retry)";
+  EXPECT_FALSE(reader.is_running());
+
+  reader.stop();
+  port.close();
+}
+
+TEST(ReaderReconnect, ParallelWriteDoesNotCrashDuringReconnect)
+{
+  // Concurrency: while the reader is in reconnect_loop, the plugin tick
+  // may attempt write_all on the port. The shared_mutex must serialise
+  // safely — no crashes, no UB; write_all() either succeeds (before the
+  // disconnect) or throws "port not open" (after). Nothing else.
+  int master_fd, slave_fd;
+  char slave_name[256] = {0};
+  ASSERT_EQ(::openpty(&master_fd, &slave_fd, slave_name, nullptr, nullptr), 0);
+  struct termios m;
+  ASSERT_EQ(::tcgetattr(master_fd, &m), 0);
+  ::cfmakeraw(&m);
+  ASSERT_EQ(::tcsetattr(master_fd, TCSANOW, &m), 0);
+  ::close(slave_fd);
+
+  SerialPort port;
+  port.open(slave_name);
+  Servo2040Reader reader;
+  reader.start(port);
+
+  // Writer thread: hammers write_all at 1 kHz while disconnect happens.
+  std::atomic<bool> stop_writer{false};
+  std::atomic<int> ok_count{0};
+  std::atomic<int> err_count{0};
+  std::thread writer([&]() {
+      const uint8_t byte = 0x42;
+      while (!stop_writer.load()) {
+        try {
+          port.write_all(&byte, 1);
+          ++ok_count;
+        } catch (const std::exception &) {
+          ++err_count;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    });
+
+  // Let some writes succeed first, then trigger disconnect.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  ::close(master_fd);
+
+  // Let the reader enter backoff and the writer hammer away.
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  stop_writer.store(true);
+  writer.join();
+  reader.stop();
+  port.close();
+
+  // We don't pin exact numbers — racy timing — but we want SOME writes
+  // observed AND no crash, no NaN-style nonsense. Both counters should
+  // be small but positive (or at least the err_count after disconnect).
+  EXPECT_GT(ok_count.load() + err_count.load(), 0)
+    << "Writer thread didn't observe ANY writes — test loop broken?";
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

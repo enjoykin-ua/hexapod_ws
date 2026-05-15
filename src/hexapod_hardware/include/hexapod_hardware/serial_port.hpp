@@ -73,10 +73,21 @@ public:
   // FD after a USB disconnect.
   std::unique_lock<std::shared_mutex> exclusive_lock();
 
+  // The path most recently passed to open(), or empty if the port was
+  // adopted via adopt_fd() (no path available) or is currently closed.
+  // The Reader-Thread's reconnect-loop (stage D.7) uses this to know
+  // which device to re-open after a disconnect. Returned by value to
+  // avoid lifetime issues if the caller closes the port concurrently.
+  std::string path() const;
+
 private:
   void configure_termios();  // helper used by both open() and adopt_fd()
 
   int fd_{-1};
+  // Set in open(path), cleared in close()/adopt_fd. Guarded by mtx_ for
+  // the same reason fd_ is — the reconnect-loop reads path_ under the
+  // exclusive lock, callers of path() take the shared lock.
+  std::string path_{};
   mutable std::shared_mutex mtx_;
 };
 

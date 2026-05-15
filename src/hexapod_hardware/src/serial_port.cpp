@@ -64,6 +64,9 @@ void SerialPort::open(const std::string & path)
     fd_ = -1;
     throw;
   }
+  // Remember the path for the reconnect-loop in Servo2040Reader (stage D.7).
+  // Only set after termios succeeded so a half-open state can't leak a path.
+  path_ = path;
 }
 
 void SerialPort::adopt_fd(int fd)
@@ -90,6 +93,10 @@ void SerialPort::adopt_fd(int fd)
     fd_ = -1;  // don't close — caller owned the FD before we did
     throw;
   }
+  // adopt_fd has no path to remember; leaving path_ empty signals the
+  // reconnect-loop that a re-open is not possible (it must bail out with
+  // died_ in that case — there's nothing to retry against).
+  path_.clear();
 }
 
 void SerialPort::configure_termios()
@@ -136,6 +143,9 @@ void SerialPort::close() noexcept
     ::close(fd_);
     fd_ = -1;
   }
+  // Clear the remembered path so the next open() call records a fresh
+  // one and so callers of path() see "" while the port is closed.
+  path_.clear();
 }
 
 bool SerialPort::is_open() const noexcept
@@ -229,6 +239,12 @@ std::size_t SerialPort::read_some(uint8_t * buf, std::size_t max_len)
 std::unique_lock<std::shared_mutex> SerialPort::exclusive_lock()
 {
   return std::unique_lock<std::shared_mutex>(mtx_);
+}
+
+std::string SerialPort::path() const
+{
+  std::shared_lock<std::shared_mutex> lock(mtx_);
+  return path_;   // copy; safe to use after the lock is released
 }
 
 }  // namespace hexapod_hardware
