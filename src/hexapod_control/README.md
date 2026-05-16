@@ -7,7 +7,8 @@
 
 ```
 config/
-└── controllers.yaml   # controller_manager + 1× JSB + 6× JTC
+├── controllers.yaml        # Sim-Pfad (Phase 4–6): controller_manager + 1× JSB + 6× JTC, position+velocity-state
+└── controllers.real.yaml   # HW-Pfad (Phase 9 Stage F): selber Aufbau, position-state only, update_rate 50, use_sim_time false
 ```
 
 ## Zweck
@@ -19,12 +20,28 @@ abonnieren, mit welchen Update-/Publish-Raten. Die Hardware-Sicht
 `<ros2_control>`-Block des URDF in
 [hexapod_description/urdf/hexapod.ros2_control.xacro](../hexapod_description/urdf/hexapod.ros2_control.xacro).
 
-Das Paket ist auf **Desktop und Pi gleichermaßen installiert** —
-`controllers.yaml` ist hardware-unabhängig, weil `ros2_control` über
-das `HardwareInterface` abstrahiert. In Phase 4-6 lädt das
-`gz_ros2_control`-Plugin die Datei im Sim-Prozess; ab Phase 7 lädt
-sie der `controller_manager` auf dem Pi mit dem Custom-HW-Plugin
-für die Servo2040.
+Das Paket ist auf **Desktop und Pi gleichermaßen installiert**.
+Welche der beiden yamls geladen wird, hängt vom Launch-Pfad ab:
+
+- **Sim** (Phase 4–6): das `gz_ros2_control`-Plugin in
+  `hexapod.ros2_control.xacro` lädt `controllers.yaml` direkt im
+  Gazebo-Prozess. Pfad-Auflösung per `$(find hexapod_control)`.
+- **HW** (Phase 9 Stage G ff.): `ros2_control_node` aus `real.launch.py`
+  lädt `controllers.real.yaml` als `--params-file`-Argument.
+
+Beide yamls definieren dieselben 7 Controller (1× JSB + 6× JTC). Die
+Diffs (siehe Top-Comment in `controllers.real.yaml`) reflektieren rein
+die Hardware-Realität:
+
+| Setting | controllers.yaml | controllers.real.yaml | Begründung |
+|---|---|---|---|
+| `update_rate` | 100 Hz | 50 Hz | Plugin-SET_TARGETS-Tickrate per Stage D.5/D.6-Design ist 50 Hz; höhere Rate würde nur USB-Bus saturieren |
+| `use_sim_time` | true | false | Wallclock am Pi/Desktop, nicht /clock aus Gazebo |
+| `state_interfaces` (per leg_X_controller) | `[position, velocity]` | `[position]` | hexapod_hardware-Plugin exportiert nur position (Echo-State, kein Velocity-Feedback vom Servo2040) |
+
+**TODO Phase 10:** Vel/Accel-Limits (constraints-Block) aus Bench-
+Trajektorie ableiten und in `controllers.real.yaml` ergänzen — siehe
+TODO-Kommentar im File und `phase_9_stage_f_plan.md`.
 
 ## Architektur
 

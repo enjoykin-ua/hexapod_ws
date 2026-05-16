@@ -757,13 +757,101 @@
 | Plan-Abweichungen während Implementation | ✅ dokumentiert | (1) Plan schätzte „~80 Zeilen Test-File", real ~125 Zeilen wegen ausführlicher Erklärungs-Kommentare zu Tests-Intent (Black-Box-Argument, Pragma-Begründung). (2) Pragma-Suppression war nicht im Plan vorgesehen, kam erst beim Build raus. (3) Test-Counter im Plan „mind. 203 tests", real 208 (ctest entries inkl. Lint-Subtests; 154 gtest-Cases). Keine fachliche Abweichung. → in Plan-Doku als Korrektur-Sektion ergänzen. |
 | Pragma-Block-Drift-Risiko | 🟢 später | Falls jemand zwischen die zwei `EXPECT_EQ`-Calls weiteren Code einfügt, läuft der im suppressed Bereich. Aktuelles Risiko gering, Block ist nur 2 Zeilen. Falls Stage F/G das Plugin auf die neue API migriert, fällt der Pragma-Block ohnehin weg. |
 
-(folgt nach Stufe E)
+## Stufe F — URDF-Anpassung & `controllers.real.yaml`
+
+> **Vorab-Plan:** [`phase_9_stage_f_plan.md`](phase_9_stage_f_plan.md) — Logik-Skizze, Tests-Liste F-T1 bis F-T9, 19 Progress-Bullets, User-Entscheidungen vom 2026-05-16:
+> - **F-Q1** velocity-Mismatch → **A** (URDF + yaml conditional)
+> - **F-Q2** Top-Level-Arg-Deklaration → **B** (Korrektur, auch im Top-File deklarieren — konsistent mit `enable_foot_contact`-Konvention, robust gegen 6-Monate-Drift)
+> - **F-Q3** HW-Param-Style → **A** (xacro-Args mit Defaults)
+> - **F-Q4** Vel/Accel-Limits → **A** (jetzt nicht; TODO-Pendenz an drei Stellen für Phase 10)
+> - **F-Q5** F-T9-Smoke → **A** (jetzt schon; End-to-End-Beweis vor Stage G)
+>
+> Done-Kriterium F (aus Plan): URDF baut + parsed in beiden Modi (sim/hw), `controllers.real.yaml` committed mit Plugin-Vertrag (nur position-state), bestehender Sim-Pfad (Phase 4–6) regression-frei.
+
+- [x] F.1 Vorab-User-Antworten zu den 5 offenen Fragen (siehe „User-Entscheidungen"-Tabelle in der Plan-Doku)
+- [x] F.2 `hexapod.ros2_control.xacro` refactored: drei xacro-Args (`use_sim`, `serial_port`, `loopback_mode`), `<xacro:if>`-Conditional um Plugin-Wahl, `<xacro:if>` um velocity-state_interface, `<xacro:if>` um `<gazebo>`-Block. Header-Kommentar erklärt Sim/HW-Switch + Velocity-Begründung. (Bewusst nicht umbenannt: `<ros2_control name="GazeboSimSystem">` bleibt — Renaming auf "HexapodSystem" laut Mutter-Plan-Doku wäre semantisch sauberer, aber der `name`-Attribut ist nur ein Logging-Tag und ein Rename hätte F-T2 byte-equal-Ziel gebrochen. → Plan-Korrektur in `phase_9_stage_f_plan.md`.)
+- [x] F.3 `hexapod.urdf.xacro` Top-Level zusätzlich um die drei neuen `<xacro:arg>`s erweitert (Variante B per F-Q2-Antwort): `use_sim default="true"`, `serial_port default="/dev/ttyACM0"`, `loopback_mode default="false"`. Top-Kommentar dokumentiert die drei Failure-Modes-Begründung (xacro-Strikt-Mode, Include-Refactor, Diagnose).
+- [x] F.4 Neue Datei `hexapod_control/config/controllers.real.yaml` mit Diffs zu `controllers.yaml`: `update_rate=50`, `use_sim_time=false`, `state_interfaces=[position]` pro leg_X_controller; Top-Comment dokumentiert alle drei Diffs + `# TODO Phase 10: Vel/Accel-Limits aus Bench-Trajektorie ableiten`
+- [x] F.5 `hexapod_control/CMakeLists.txt`: kein Edit nötig — bestehender `install(DIRECTORY config DESTINATION ...)` (Zeile 6-7) installiert das ganze `config/`-Verzeichnis automatisch. `controllers.real.yaml` wird ohne Änderung mitinstalliert. Plan-Doku-Annahme „install(FILES …)"-Liste-Edit war unzutreffend (das Paket hat nie eine FILES-Liste benutzt).
+- [x] F.6 `colcon build` (alle betroffenen Pakete: hexapod_description + hexapod_control + hexapod_hardware) grün, keine Warnings (3 packages finished, 0.65s, controllers.real.yaml als symlink installiert)
+- [x] F.7 Test F-T2 (Sim-URDF byte-equal zum Pre-F-Output): nach Comment-Stripping + Whitespace-Normalize **strukturell byte-identisch**. Diffs nur in 3 XML-Kommentar-Blöcken (Header der ros2_control-Sektion + Gazebo-Block-Doku) — bewusste Doku-Erweiterungen für Stage F, kein semantischer Effekt
+- [x] F.8 Test F-T3 + F-T4 (HW-URDF strukturell korrekt, Args durchgereicht): F-T3 mit defaults: 18 position-state, 0 velocity-state, 0 gazebo-Blöcke, Plugin = `hexapod_hardware/HexapodSystemHardware`, alle 3 Hardware-Params mit Default-Werten. F-T4 mit Overrides `serial_port:=/dev/null loopback_mode:=true`: beide overrides sauber im URDF
+- [x] F.9 Test F-T5 (`check_urdf` für beide Modes): beide URDFs `Successfully Parsed XML`, root `base_link` mit 6 Children
+- [x] F.10 Test F-T6 (yaml validate): `python3 yaml.safe_load` auf controllers.real.yaml — alle Felder korrekt: update_rate=50, use_sim_time=False, alle 6 leg_X_controller mit state_interfaces=[position] und command_interfaces=[position]
+- [x] F.11 Test F-T7 (hexapod_hardware-Tests weiter 0 failures): **Summary: 208 tests, 0 errors, 0 failures, 20 skipped** (identisch zu Stage-E-Endstand, kein Regression durch URDF-Refactor wie erwartet — Test-Helper bauen synthetische HardwareInfo unabhängig vom URDF)
+- [x] F.12 Test F-T8 (sim.launch.py + RViz + Roboter steht stabil — User-ausgeführt **am 2026-05-16, grün bestätigt**): Gazebo-Modell sichtbar, RViz ohne Fehler-Marker, Stand-Pose stabil, alle 7 Controller active. **verstärkt nach User-Rückfrage 2026-05-16**: nicht nur „JTCs active" sondern auch Gazebo-Modell sichtbar, RViz ohne Fehler-Marker, Stand-Pose stabil.
+- [⏭️] F.13 Test F-T9 — **verschoben nach Stage G** (2026-05-16, nach User-Rückfrage). Begründung: in der Implementations-Phase kam raus, dass F-T9 inhaltlich genau Stage-G-Done-Kriterium 1+2 abdeckt (`real.launch.py` + `list_controllers` zeigt 7 active). F-Q5-Antwort revidiert (A → B). Vorlage in `/tmp/f_t9_smoke.launch.py` ist 95 % fertig — Stage G greift sie auf, finalisiert in `hexapod_bringup/launch/real.launch.py`.
+- [x] F.13b Test F-T10 (**NEU nach User-Rückfrage 2026-05-16:** End-to-End Walking-Smoke — sim + gait + teleop + PS4 — User-ausgeführt **am 2026-05-16, grün bestätigt**): Tripod-Gait läuft vorwärts, Drehen auf der Stelle, Body-Höhe L2/R2 sichtbar. Voller IK + Gait + Teleop-Pfad regression-frei. Begründung: bei diesem URDF-Refactor-Umfang reicht der „nur JTCs active"-Test nicht; voller IK + Gait + Teleop-Pfad muss einmal durchlaufen sein damit subtile Regressions nicht erst in der Inbetriebnahme entdeckt werden.
+- [x] F.14 Kritischer Self-Review-Tabelle in `phase_9_progress.md` (siehe unten)
+- [x] F.15 Eventuelle Post-Review-Fixes — **keine inhaltlichen Fixes nötig** (Self-Review-Tabelle hat keinen 🔴-Eintrag; zwei 🟡-Vormerker (`name="GazeboSimSystem"`-Rename → Stage J, Vel/Accel-Limits → Phase 10) bleiben dokumentiert, ein 🟢-später (Pragma-Block-Drift aus Stage E übernommen). Keine Code-/Doku-Änderung in Stage F erforderlich.
+- [x] F.16 `phase_9_stage_f_test_commands.md` finalisiert (10 Tests inkl. F-T8 verstärkt + F-T10 NEU; pro Test ausführbare Befehle, je eine Sektion mit Erwartung; 13-Symptom-Fehlerdiagnose-Tabelle)
+- [x] F.17 README-Updates: `hexapod_description/README.md` (alle URDF-Files in der Inhalt-Liste + neue „Public xacro-Args"-Tabelle mit den 4 Args inkl. enable_foot_contact + den 3 neuen Stage-F-Args), `hexapod_control/README.md` (controllers.real.yaml in Inhalt-Liste, neue Sim/HW-Diff-Tabelle mit Begründungen, TODO-Phase-10-Hinweis)
+- [x] F.18 progress.md: F-Sektion mit Bullets + Notizen + Post-Review-Tabelle + Pendenz-Eintrag „Vel/Accel-Limits in real.yaml" für Phase 10 (siehe Post-Review oben + Stufen-F-Notizen unten)
+- [x] F.19 Memory-Einträge geschrieben: (a) `project_phase10_real_yaml_vel_limits.md` (Cross-Session-Reminder „In Phase 10: Vel/Accel-Limits aus Bench-Trajektorie ableiten"), (b) `feedback_urdf_refactor_full_smoke.md` (Konvention nach User-Rückfrage 2026-05-16: bei URDF-Refactors immer sim+rviz+walking-Smoke). Beide in MEMORY.md verlinkt.
+
+### Stufen-F-Notizen
+
+- **F-Q2-Empfehlung gekippt A→B durch Erklären der Failure-Modes:** Beim Schreiben der „xacro-arg Top-Level Deklaration"-Erklärung an den User (Frage 2 reformuliert) wurde klar dass die ursprüngliche A-Empfehlung („nur im Include") drei reale Failure-Modes für 6-Monate-Sicht hat (xacro-Strikt-Mode-Updates, Include-Refactors, Diagnose-Sucharbeit). Konvention im Repo ist eh schon B (`enable_foot_contact` ist im Top-File deklariert). Lesson learned: bei „nur Aufwand vs. nur Robustheit"-Trade-offs explizit Failure-Modes durchdenken bevor man die Empfehlung formuliert — nicht erst beim Erklären für den User.
+- **F-T8/T10-Erweiterung nach User-Rückfrage:** Plan-Doku hatte ursprünglich „nur JTCs werden active" als Sim-Smoke. Nach User-Frage wurde klar: bei dem URDF-Refactor-Umfang reicht das nicht — Phase 9 Stage F berührt xacro-Includes, conditional-Blöcke, state-Interfaces. Subtile Mesh-/tf2-/Velocity-Konsumenten-Bugs zeigen sich erst bei der Visualisierung + Bewegung. Test-Liste verstärkt: F-T8 mit Gazebo-Modell-Check + RViz-Modell-Check + Stand-Stabilität, plus neues F-T10 mit End-to-End-Walking + PS4. Konvention dafür ist im Memory ([[feedback-urdf-refactor-full-smoke]]).
+- **Pure-doku-only F.5:** Plan hatte einen CMake-Edit für `install(FILES ...)`. Das hexapod_control-Paket nutzt aber `install(DIRECTORY config DESTINATION ...)` — neue yaml im config/-Ordner wird ohne CMake-Edit automatisch mitinstalliert. Lesson: Plan-Doku vor finalem Schreiben kurz das install-Pattern im Ziel-Paket checken — spart einen leeren Bullet.
+- **`name="GazeboSimSystem"` semantisch falsch im HW-Mode, bewusst nicht renamed:** Mutter-Plan-Doku zeigt `name="HexapodSystem"`. Renaming hätte F-T2 byte-equal-Ziel gebrochen, und der Attribut ist nur ein Logging-Tag (`ros2 control list_hardware_components` zeigt es; kein funktionaler Lookup). Plan-Korrektur dokumentiert in Plan-Doku, Stage-J-Vormerk in Self-Review-Tabelle. Wenn jemand in Stage J die Cosmetics aufräumt: einfach umbenennen, F-T2 wegfällt dann sowieso.
+
+### Was Stufe F explizit **nicht** macht
+
+- **Kein `real.launch.py`** (Stage G) — Stage F endet mit dem manuellen F-T9-Smoke der den `ros2_control_node` direkt aufruft; Stage G baut darum dann das Launch-Skript mit Spawnern.
+- **Kein echter Servo2040-Anschluss** (Stage H) — F-T9 ist `loopback_mode:=true`.
+- **Keine Vel/Accel-Limits in `controllers.real.yaml`** (Phase 10 nach Bench-Daten, siehe TODO-Comment im yaml + Memory).
+- **Keine `<ros2_control name="...">`-Umbenennung** (Stage J Polish, siehe Self-Review-Tabelle).
+- **Keine `launch_testing`-Suite** für den HW-Pfad — überzogen für die XML-Refactor-Frage; manuelle F-T9-Smokes reichen.
+
+**Done-Kriterium F (CI-Anteil) erreicht:** ✅ (am 2026-05-16; F-T1 bis F-T7 alle grün, 208 hexapod_hardware-Tests unverändert + 0 failures, URDFs strukturell sauber in beiden Modi, yaml valid).
+**Done-Kriterium F (User-Smoke-Anteil) erreicht:** ✅ (am 2026-05-16; F-T8 + F-T10 grün vom User bestätigt — Sim+RViz+Stand stabil, Tripod-Gait läuft mit PS4. F-T9 verschoben nach Stage G mit `/tmp/f_t9_smoke.launch.py` als 95-%-fertige Vorlage).
+
+**🎉 Stufe F komplett.** Phase 9 Stand: A + B + C + D (8/8) + E + **F** ✅. Verbleibend: G (real.launch.py), H (echte Servo2040-Anbindung), I (Tests + Doku), J (Phase-9-Abschluss).
+
+### Stufen-F-Post-Review (kritische Punkte, durchgegangen am 2026-05-16, **vor User-Smoke-Tests F-T8/T9/T10**)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Sim-URDF nach Refactor strukturell identisch zu Pre-F | ✅ verifiziert | F-T2: Comment-Stripping + Whitespace-Normalize → byte-identisch. Diffs nur in 3 erklärenden Kommentar-Blöcken. Sim-Pfad ist regression-frei auf URDF-Generation-Ebene. |
+| HW-URDF semantisch korrekt (Plugin, Hardware-Params, kein velocity, kein gazebo) | ✅ verifiziert | F-T3 zählt: Plugin = `hexapod_hardware/HexapodSystemHardware`, 18 position-states, 0 velocity-states, 0 gazebo-Blöcke, alle 3 Hardware-Params mit Default-Werten gesetzt. |
+| Args-Override (`serial_port`, `loopback_mode`) durchgereicht | ✅ verifiziert | F-T4: `serial_port:=/dev/null loopback_mode:=true` landen 1:1 im URDF-`<param>`-Block. xacro-Top-Level + Include-Doppel-Deklaration (Variante B) funktioniert wie erwartet. |
+| `check_urdf` valid in beiden Modi | ✅ verifiziert | F-T5: beide URDFs `Successfully Parsed XML`, Frame-Tree intakt (root base_link, 6 Kinder). |
+| `controllers.real.yaml` syntaktisch + semantisch korrekt | ✅ verifiziert | F-T6: yaml.safe_load grün, alle drei Diffs (update_rate=50, use_sim_time=False, state_interfaces=[position]) korrekt durch alle 6 leg_X_controller. |
+| Stage-A–E Plugin-Tests weiter grün | ✅ verifiziert | F-T7: 208 tests, 0 failures, identisch zu Stage-E-Endstand. |
+| Velocity-State-Mismatch-Risiko (Konsumenten?) | ✅ OK | grep über kinematics/gait/teleop ergab keine velocity-Subscriber. F-T10 wird das End-to-End bestätigen. |
+| `<ros2_control name="GazeboSimSystem">` semantisch falsch im HW-Mode | 🟡 vormerk Stage J | Mutter-Plan-Doku zeigt `name="HexapodSystem"`. Nicht renamed weil F-T2-Byte-Equal-Ziel + Attribut ist nur Logging-Tag (kein funktionaler Lookup). Renaming-Refactor in Stage J zusammen mit anderen Polish-Items. |
+| Vel/Accel-Limits in real.yaml fehlen | 🟡 vormerk Phase 10 | Bewusste Entscheidung (F-Q4-Antwort A) — Limits ohne Bench-Daten arbiträr. TODO-Hinweis an drei Stellen: yaml-Top-Comment, hexapod_control/README.md, Memory-Eintrag F.19. |
+| Pragma-Block-Drift (aus Stage E übernommen) | 🟢 später | Falls Plugin in Stage F/G/I auf `on_export_*_interfaces()`-API migriert wird, fällt Pragma-Block in test_plugin_registration.cpp weg. Kein Stage-F-Issue. |
+| `xacro:if`/`xacro:unless`-Konsistenz | ✅ OK | Sowohl `<xacro:if value="${use_sim}">` als auch `<xacro:unless value="${use_sim}">` werden für mutually-exclusive Blöcke verwendet. Korrekt strukturiert (kein `if true` + `if false` Anti-Pattern). |
+| `$(find hexapod_hardware)` in HW-Param `calibration_file` | ✅ OK | Ergibt im generierten URDF `/home/enjoykin/hexapod_ws/install/hexapod_hardware/share/hexapod_hardware/config/servo_mapping.yaml` — Plugin liest die installierte Datei, nicht die source-tree-Datei. Konsistent mit dem Phase-9-Workflow (geänderte yaml braucht `colcon build hexapod_hardware`). |
+| Plan-Abweichungen während Implementation | ✅ dokumentiert | Vier Punkte in `phase_9_stage_f_plan.md` Plan-Korrekturen-Sektion: F-T8/T10-Erweiterung nach User-Frage, ros2_control-name-Behalt, F.5 nicht nötig, F-T2-Kriterium präzisiert. |
+| User-Smokes F-T8 + F-T10 (F-T9 verschoben nach Stage G) | ✅ verifiziert (2026-05-16) | F-T8 grün (Gazebo + RViz + Stand stabil + 7 Controller active), F-T10 grün (Tripod-Gait läuft, Drehen, Body-Höhe). F-T9 verschoben nach Stage G (siehe Plan-Korrektur Punkt 5). **Stage F damit voll DONE.** |
 
 ---
 
 ## Stufe G — `real.launch.py`
 
-(folgt nach Stufe F)
+> **Seed aus Stage F:** Die ad-hoc-Launch-Vorlage
+> `/tmp/f_t9_smoke.launch.py` (geschrieben am 2026-05-16 während Stage F)
+> ist zu ~95 % der Stage-G-Deliverable: RSP + ros2_control_node mit
+> HW-URDF (use_sim:=false, loopback_mode:=true) + JSB-Spawner + 6
+> leg-JTC-Spawner via OnProcessExit-Chain. Sie kam aus der F-Q5-
+> Verschiebung-Entscheidung (`phase_9_stage_f_plan.md` Plan-Korrektur
+> Punkt 5). Stage G greift sie 1:1 auf und ergänzt:
+> - Launch-Args (`loopback_mode:=true|false`, `serial_port:=...`)
+>   damit Stage H (echte Servos) ohne URDF-Edit nur den Launch-Arg
+>   überschreibt
+> - Finaler Ort `hexapod_bringup/launch/real.launch.py` (statt /tmp)
+> - Install-Eintrag in `hexapod_bringup/CMakeLists.txt`
+> - README-Doku-Block in `hexapod_bringup/README.md` mit den
+>   Launch-Args-Definitionen + Aufruf-Beispielen
+> - Stage-G-Done-Kriterien-Smoke (vorher F-T9): `ros2 launch ... loopback_mode:=true` startet sauber, `list_hardware_components` zeigt Plugin als active, `list_controllers` zeigt 7 active
+>
+> Hilfreiche Referenzen:
+> - Original-F-T9-Block in `phase_9_stage_f_test_commands.md` (mit Heredoc-Inhalt + Schritt-für-Schritt-Anleitung)
+> - sim.launch.py-OnProcessExit-Pattern in `hexapod_bringup/launch/sim.launch.py` (Stage-F-Vorlage bereits getestet)
+> - Stage-G-Done-Kriterien aus Mutter-Plan-Doku `phase_9_hexapod_hardware.md`
 
 ---
 

@@ -2,22 +2,47 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!--
-    ros2_control-Anbindung fuer die 18 Bein-Joints + gz_ros2_control-Plugin.
+    ros2_control-Anbindung fuer die 18 Bein-Joints.
 
-    Wird vom robot_state_publisher ignoriert (auf dem Pi unschaedlich).
-    Phase 7 ersetzt das gz_ros2_control-Plugin durch ein Custom-
-    HardwareInterface fuer die Servo2040; controllers.yaml und
-    Interface-Deklarationen bleiben dabei unveraendert.
+    Sim/HW-Switch (Phase 9 Stufe F): das Argument `use_sim` (Top-Level-
+    Default true) waehlt zwischen
+      - gz_ros2_control/GazeboSimSystem  (Phase 4-6, Sim-Pfad)
+      - hexapod_hardware/HexapodSystemHardware (Phase 9, echte Servo2040)
+    Die Wahl ist mutually exclusive — beide Plugins koennen nicht
+    gleichzeitig denselben Joint-Pool besitzen (ros2_control-Constraint).
+
+    Hardware-Parameter (`serial_port`, `loopback_mode`) werden nur im
+    HW-Pfad evaluiert, sind aber im Top-File ebenfalls als <xacro:arg>
+    deklariert (siehe hexapod.urdf.xacro), damit Launch-Files sie
+    sauber als oeffentliches Interface ueberschreiben koennen ohne
+    den Include zu kennen. Defaults: /dev/ttyACM0 + loopback_mode=false.
+
+    Velocity-State-Interface ist nur im Sim-Pfad exportiert. Gazebo's
+    GazeboSimSystem liefert echtes Velocity-Feedback; das Servo2040-
+    Plugin hat strukturell kein Velocity-Feedback (Echo-State, siehe
+    hexapod_hardware/README.md). controllers.real.yaml listet daher
+    nur position-state, controllers.yaml weiterhin position+velocity.
 
     Limit-Werte stammen aus hexapod_physical_properties.xacro
     (Single Source of Truth, siehe 00_conventions.md §11.4).
     Doppeltes Sicherheitsnetz: controller_manager clamped auf
-    <param min/max>, Gazebo zusaetzlich auf <limit>.
+    <param min/max>, Gazebo zusaetzlich auf <limit>, Plugin zusaetzlich
+    auf Calibration::set_joint_limits-Strikt-Range-Check.
   -->
+
+  <xacro:property name="use_sim" value="$(arg use_sim)"/>
 
   <ros2_control name="GazeboSimSystem" type="system">
     <hardware>
-      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      <xacro:if value="${use_sim}">
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </xacro:if>
+      <xacro:unless value="${use_sim}">
+        <plugin>hexapod_hardware/HexapodSystemHardware</plugin>
+        <param name="serial_port">$(arg serial_port)</param>
+        <param name="calibration_file">$(find hexapod_hardware)/config/servo_mapping.yaml</param>
+        <param name="loopback_mode">$(arg loopback_mode)</param>
+      </xacro:unless>
     </hardware>
 
     <xacro:macro name="joint_iface" params="name lower upper">
@@ -27,7 +52,9 @@
           <param name="max">${upper}</param>
         </command_interface>
         <state_interface name="position"/>
-        <state_interface name="velocity"/>
+        <xacro:if value="${use_sim}">
+          <state_interface name="velocity"/>
+        </xacro:if>
       </joint>
     </xacro:macro>
 
@@ -63,15 +90,20 @@
   </ros2_control>
 
   <!--
-    gz_ros2_control-System-Plugin: laedt controllers.yaml und startet
-    den controller_manager im Sim-Prozess. $(find ...) wird von xacro
-    aufgeloest, daher muss hexapod_control vorher gebaut + gesourct sein.
+    Gazebo-System-Plugin: laedt controllers.yaml und startet den
+    controller_manager im Sim-Prozess. Nur im Sim-Pfad relevant — im
+    HW-Pfad startet ros2_control_node aus real.launch.py (Stage G)
+    den controller_manager mit controllers.real.yaml separat.
+    $(find ...) wird von xacro aufgeloest, daher muss hexapod_control
+    vorher gebaut + gesourct sein.
   -->
-  <gazebo>
-    <plugin filename="gz_ros2_control-system"
-            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-      <parameters>$(find hexapod_control)/config/controllers.yaml</parameters>
-    </plugin>
-  </gazebo>
+  <xacro:if value="${use_sim}">
+    <gazebo>
+      <plugin filename="gz_ros2_control-system"
+              name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <parameters>$(find hexapod_control)/config/controllers.yaml</parameters>
+      </plugin>
+    </gazebo>
+  </xacro:if>
 
 </robot>

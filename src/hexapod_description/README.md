@@ -12,12 +12,27 @@ urdf/
 ├── leg.xacro                           # Bein-Macro (coxa/femur/tibia/foot)
 ├── hexapod_physical_properties.xacro   # Maße, Massen, Joint-Limits
 ├── inertials.xacro                     # box_inertia / sphere_inertia mit Mindestschranke
+├── hexapod.ros2_control.xacro          # ros2_control-Block + Sim/HW-Switch (Phase 9 Stage F)
+├── hexapod.gazebo.xacro                # Gazebo-spezifische Reibung (Phase 3)
+├── hexapod.foot_contact.xacro          # Foot-Contact-Sensoren (Phase 5 D, conditional)
 └── materials.xacro                     # orange / grey / black
 launch/
 └── display.launch.py                   # RViz + joint_state_publisher_gui + world-TF
 config/
 └── view.rviz                           # RViz-Config (Fixed Frame: world)
 ```
+
+## Public xacro-Args (CLI-Schnittstelle des URDF-Moduls)
+
+Alle Args sind im Top-File `hexapod.urdf.xacro` deklariert und damit
+ohne Wissen über die Includes setzbar (`xacro hexapod.urdf.xacro X:=Y`).
+
+| Arg | Default | Wirkung | Einführung |
+|---|---|---|---|
+| `enable_foot_contact` | `true` | bei `false`: kein Sensor-Block in der URDF, Bridge + Konversionsknoten werden im Launch nicht gestartet | Phase 5 Stage D |
+| `use_sim` | `true` | `true`: `gz_ros2_control/GazeboSimSystem` + `<gazebo>`-Plugin-Block + `velocity`-state. `false`: `hexapod_hardware/HexapodSystemHardware` + `<param>`-Block, kein Gazebo, kein velocity-state | Phase 9 Stage F |
+| `serial_port` | `/dev/ttyACM0` | nur in `use_sim:=false` ausgewertet — gibt das USB-CDC-Device an, das `hexapod_hardware`-Plugin öffnet | Phase 9 Stage F |
+| `loopback_mode` | `false` | nur in `use_sim:=false` ausgewertet — bei `true` öffnet das Plugin keinen seriellen Port und liefert geschriebene Commands als state zurück (CI-/Bringup-freundlich) | Phase 9 Stage F |
 
 ## Zweck
 

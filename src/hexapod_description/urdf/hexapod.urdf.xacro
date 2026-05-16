@@ -7,6 +7,26 @@
        gestartet (siehe hexapod_bringup/launch/sim.launch.py). -->
   <xacro:arg name="enable_foot_contact" default="true"/>
 
+  <!-- Phase 9 Stufe F: Sim/HW-Switch + Hardware-Parameter.
+       Diese drei Args sind die "öffentliche Schnittstelle" des URDF-
+       Moduls für Phase 9. Konsumiert werden sie in
+       hexapod.ros2_control.xacro (xacro:if-Branches und <param>-Werte
+       im hexapod_hardware-Plugin), aber sie sind hier im Top-File
+       deklariert, damit:
+         (1) sie an einer Stelle dokumentiert sind ("welche Args nimmt
+             dieses URDF entgegen?"),
+         (2) ein Refactor des Includes (z.B. conditional include in
+             einer späteren Stage) die Arg-Deklaration nicht still
+             entfernt,
+         (3) striktere künftige xacro-Versionen, die alle CLI-Args im
+             Top-File deklariert sehen wollen, sauber funktionieren.
+       Konvention konsistent mit `enable_foot_contact` oben.
+       Defaults sind Sim-kompatibel — `xacro hexapod.urdf.xacro`
+       ohne Args ergibt 1:1 das Pre-Phase-9-URDF. -->
+  <xacro:arg name="use_sim" default="true"/>
+  <xacro:arg name="serial_port" default="/dev/ttyACM0"/>
+  <xacro:arg name="loopback_mode" default="false"/>
+
   <xacro:include filename="hexapod_physical_properties.xacro"/>
   <xacro:include filename="materials.xacro"/>
   <xacro:include filename="inertials.xacro"/>

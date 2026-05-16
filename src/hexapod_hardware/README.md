@@ -6,7 +6,7 @@ das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** + **E (Plugin-Registrierung)** abgeschlossen. Stufen F (URDF-Switch), G (real.launch.py), H (echte Servo2040-Anbindung), I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
+Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** + **E (Plugin-Registrierung)** + **F (URDF-Switch + controllers.real.yaml)** abgeschlossen. Stufen G (real.launch.py), H (echte Servo2040-Anbindung), I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
@@ -1218,7 +1218,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | └ D.8 | ERROR_REPORT-Routing pro Error-Code mit WARN/ERROR/FATAL-Severity + human-readable Messages, 11 Tests | ✅ |
 | **D** | **Komplett — 8/8 Sub-Stages** | ✅ |
 | **E** | Plugin-Registrierung runtime via `pluginlib::ClassLoader` verifiziert (3 Tests) + Test-Helper-Refactor in `test/test_helpers.hpp` | ✅ |
-| **F** | URDF-Switch + `controllers.real.yaml` | offen |
+| **F** | URDF-Switch (`use_sim` xacro-arg + `<xacro:if>`-Conditionals) + `controllers.real.yaml` (50 Hz, position-only state, no velocity); F-T8/T10 Sim-Regression-Smoke grün; F-T9 nach Stage G verschoben | ✅ |
 | **G** | `real.launch.py` | offen |
 | **H** | Echte Servo2040-Anbindung mit Oszi/Logic-Analyzer | offen |
 | **I** | Tests + diese README finalisieren | offen |

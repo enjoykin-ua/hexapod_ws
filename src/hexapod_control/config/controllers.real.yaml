@@ -1,0 +1,123 @@
+# controllers.real.yaml - ros2_control-Konfiguration fuer den ECHTEN Hexapod
+# (Servo2040-Hardware via hexapod_hardware-Plugin).
+#
+# Wird vom ros2_control_node in real.launch.py (Phase 9 Stufe G) in den
+# controller_manager geladen. Pendant zu controllers.yaml (Sim-Pfad,
+# wird vom gz_ros2_control-Plugin in der URDF geladen).
+#
+# Diffs gegenueber controllers.yaml:
+#  - update_rate 100 -> 50 Hz: Plugin-SET_TARGETS-Tickrate ist per
+#    Stage D.5/D.6-Design 50 Hz; 100 Hz wuerde den USB-Bus verdoppeln
+#    ohne operativen Mehrwert (Servos selber updaten PWM nicht schneller).
+#  - use_sim_time true -> false: Wallclock am Pi/Desktop, nicht /clock
+#    aus Gazebo (Phase-6-Uebergabe-Notiz in PHASE.md).
+#  - state_interfaces [position, velocity] -> [position]: das Plugin
+#    exportiert nur position (Echo-State, kein echtes Velocity-Feedback
+#    vom Servo2040). Ein 'velocity' in der yaml + nicht-exportiert vom
+#    Plugin = JTC-Spawner-Failure (Resource not available).
+#
+# TODO Phase 10: Vel/Accel-Limits (constraints-Block) aus Bench-
+# Trajektorie ableiten und hier einsetzen. Aktuell limit-frei wie in
+# controllers.yaml, weil ohne Bench-Daten jeder Wert arbiträr waere.
+# Bringup in Stage H + Phase 10 muss daher mit reduzierter Joystick-
+# Geschwindigkeit + aufgebocktem Roboter (CLAUDE.md §9) durchgefuehrt
+# werden, bis konservative Limits hier eingetragen sind.
+
+controller_manager:
+  ros__parameters:
+    update_rate: 50  # Hz - matches Plugin-Tickrate aus Stage D.5/D.6
+    use_sim_time: false  # WICHTIG: false fuer echte HW (Wallclock)
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    leg_1_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_2_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_3_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_4_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_5_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leg_6_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+leg_1_controller:
+  ros__parameters:
+    joints:
+      - leg_1_coxa_joint
+      - leg_1_femur_joint
+      - leg_1_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_2_controller:
+  ros__parameters:
+    joints:
+      - leg_2_coxa_joint
+      - leg_2_femur_joint
+      - leg_2_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_3_controller:
+  ros__parameters:
+    joints:
+      - leg_3_coxa_joint
+      - leg_3_femur_joint
+      - leg_3_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_4_controller:
+  ros__parameters:
+    joints:
+      - leg_4_coxa_joint
+      - leg_4_femur_joint
+      - leg_4_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_5_controller:
+  ros__parameters:
+    joints:
+      - leg_5_coxa_joint
+      - leg_5_femur_joint
+      - leg_5_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+leg_6_controller:
+  ros__parameters:
+    joints:
+      - leg_6_coxa_joint
+      - leg_6_femur_joint
+      - leg_6_tibia_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
