@@ -36,7 +36,105 @@ Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** + **E (Pl
   on_init, exportiert die spezifizierten 18 Interfaces). Damit ist die
   Manifest-/package.xml-/CMake-/.so-Verdrahtung runtime-bewiesen.)**
 
-Total: **154 gtest-Cases** über sieben Test-Binaries.
+Total: **154 gtest-Cases** über sieben Test-Binaries, plus 1
+launch_testing-Smoke (`hexapod_bringup`-Paket, Stage I.4).
+
+---
+
+## Quick-Start (Phase 9 Stage G/H/I)
+
+Echte Hardware (Servo2040 am USB, Servo-Netzteil auf 6.0 V; mit oder
+ohne Hexapod-Servos):
+
+```bash
+ros2 launch hexapod_bringup real.launch.py
+```
+
+Loopback-Modus (CI / Dry-Run, kein USB-Port wird geöffnet, kein
+Servo-Netzteil nötig):
+
+```bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
+```
+
+Anderer USB-Port (z.B. `/dev/ttyACM1` wenn `/dev/ttyACM0` schon belegt):
+
+```bash
+ros2 launch hexapod_bringup real.launch.py serial_port:=/dev/ttyACM1
+```
+
+Args kombiniert:
+
+```bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true serial_port:=/dev/null
+```
+
+### Plugin-Parameter
+
+Gesetzt im URDF-`<param>`-Block in
+[`hexapod.ros2_control.xacro`](../hexapod_description/urdf/hexapod.ros2_control.xacro),
+per xacro-Args überschreibbar:
+
+| Param | Default | Wirkung |
+|---|---|---|
+| `serial_port` | `/dev/ttyACM0` | USB-CDC-Device der Servo2040 |
+| `calibration_file` | `$(find hexapod_hardware)/config/servo_mapping.yaml` | Pulse-µs ↔ Joint-Winkel-Mapping pro Servo |
+| `loopback_mode` | `false` | `true` = kein seriellen Port öffnen, Echo-State auch ohne HW |
+
+### Topics
+
+Das Plugin publisht **keine** ROS-Topics direkt — State + Command-
+Interfaces gehen über `controller_manager` an die Controller. Sichtbare
+Topics nach `real.launch.py`-Start (via `joint_state_broadcaster` + 6×
+`JointTrajectoryController` aus
+[`controllers.real.yaml`](../hexapod_control/config/controllers.real.yaml)):
+
+| Topic | Typ | Wer |
+|---|---|---|
+| `/joint_states` | `sensor_msgs/JointState` | `joint_state_broadcaster`, alle 18 Joints, 50 Hz |
+| `/leg_<n>_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` | JTC-Action pro Bein |
+| `/leg_<n>_controller/joint_trajectory` | `trajectory_msgs/JointTrajectory` | JTC Topic-Interface pro Bein |
+| `/robot_description` | `std_msgs/String` (latched) | `robot_state_publisher`, generiertes URDF |
+| `/tf` | `tf2_msgs/TFMessage` | `robot_state_publisher`, kinematische Transformationen |
+
+Verifikation nach Bringup (in zweitem Terminal):
+
+```bash
+ros2 control list_hardware_components   # Plugin sollte active sein
+ros2 control list_controllers           # 7 Zeilen active (1× JSB + 6× JTC)
+```
+
+### Wichtige Limitation — Echo-State
+
+Der Servo2040 liefert **kein echtes Position-Feedback** (siehe
+ausführliche Erklärung in Sektion „Echo-State-Pfad" weiter unten).
+Das Plugin gibt als Position-State zurück was zuletzt geschickt wurde,
+in Radiant rückgerechnet. **Konsequenzen:**
+
+- JTC-Tracking-Error ist strukturell ≈ 0
+- `stopped_velocity_tolerance` aus JTC-Konfig greift nicht
+- echte Servo-Position kann (bei real angeschlossenen Servos)
+  vom Echo-State abweichen, z.B. wenn Servo am Endanschlag steht
+  oder mechanisch verklemmt ist
+- Diagnose-Ersatz wäre Stromsense (Effort-Interface aus
+  Servo2040-STATE-Frames, deferiert auf später)
+
+### Bekannte kosmetische WARN beim Boot
+
+Beim ersten `read()` nach `SerialPort::open()` kann im Log eine
+einmalige Zeile erscheinen:
+
+```
+[hexapod_hardware.reader]: Servo2040Reader: frame decode failed (CRC/COBS/length, NN B)
+```
+
+Das ist USB-CDC-Boot-Garbage: zwischen `tcflush(TCIOFLUSH)` (in
+`SerialPort::configure_termios()`) und dem ersten `read()` durch den
+Reader-Thread können neue Bytes von der Firmware ankommen (Race-
+Condition, nicht durch `tcflush` verhinderbar). Der Reader syncht
+sich nach dem nächsten Frame-Delimiter (0x00) wieder ein. **Eine
+einzelne WARN ist erwartet und unkritisch.** Wenn ein Sturm
+auftritt: USB-Kabel / -Hub prüfen, Firmware-Stand verifizieren.
 
 ---
 

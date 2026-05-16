@@ -973,7 +973,89 @@
 
 ## Stufe I — Tests & Doku
 
-(folgt nach Stufe H)
+> **Vorab-Plan:** [`phase_9_stage_i_plan.md`](phase_9_stage_i_plan.md) — Logik-Skizze (3 Bereiche: tcflush-Code-Fix, launch_testing-Suite, README-Polish), Tests-Liste I-T1 bis I-T6, 18 Progress-Bullets, User-Entscheidungen vom 2026-05-16:
+> - **I-Q1** tcflush-Fix → **A → A (revidiert)** — Fix zurückgezogen weil `::tcflush(fd_, TCIOFLUSH)` bereits in `serial_port.cpp` Zeile 136 existiert (entdeckt nach Plan-Freigabe beim Sondieren). User-Re-Entscheidung: WARN als known-cosmetic im README dokumentieren statt nutzlosen Duplikat-Code. 208/0 Test-Total bleibt.
+> - **I-Q2** launch_testing-Suite → **A** (full Suite, headless-CI-fähig)
+> - **I-Q3** README-Polish-Tiefe → **A** (Quick-Start-Block oben, deckt alle 6 Mutter-Plan-I.3-Items ab)
+>
+> Done-Kriterium I (aus Mutter-Plan-Doku): Unit-Tests grün + launch_testing-Smoke grün + README komplett (Echo-State-Limitation klar).
+
+- [x] I.1 Vorab-User-Antworten zu den 3 offenen Fragen (siehe „User-Entscheidungen"-Tabelle in der Plan-Doku; alle 3 = A)
+- [x] I.2 Code-Fix `tcflush`-Patch — **zurückgezogen** (Plan-Drift): bestehender Code in `serial_port.cpp` Zeile 136 macht das bereits via `::tcflush(fd_, TCIOFLUSH)` mit identischer Begründung. Statt-Action: WARN als „known-cosmetic" im README dokumentieren (siehe I.10).
+- [x] I.3 OpenPurgesStaleInputBuffer-Unit-Test — **zurückgezogen** (Folge-Korrektur aus I.2): nicht nötig wenn kein Code-Change.
+- [x] I.4 launch_testing-Suite `test/launch/test_real_launch_loopback.py` im `hexapod_bringup`-Paket — ~210 Zeilen Python. Drei Tests: `test_hardware_component_active` (ListHardwareComponents-Service → Plugin im LIFECYCLE_PRIMARY_STATE_ACTIVE), `test_all_controllers_active` (ListControllers-Service → alle 7 active mit 45 s Retry-Loop für CI-Slowdown), `test_no_error_exit_codes` (post-shutdown, akzeptiert 0/-2/-15 für SIGTERM-Spawner)
+- [x] I.5 `hexapod_bringup/CMakeLists.txt`: `find_package(launch_testing_ament_cmake REQUIRED)` + `add_launch_test(test/launch/test_real_launch_loopback.py TIMEOUT 60)` im BUILD_TESTING-Block
+- [x] I.6 `hexapod_bringup/package.xml`: `<test_depend>launch_testing_ament_cmake</test_depend>` + `<test_depend>launch_testing_ros</test_depend>` + `<test_depend>controller_manager_msgs</test_depend>` ergänzt
+- [x] I.7 `colcon build` grün, keine Warnings (1 package finished, 0.96s)
+- [x] I.8 Test I-T2 (hexapod_hardware-Tests: 208/0 unverändert — Plugin-Code in Stage I nicht angefasst). **Summary: 208 tests, 0 errors, 0 failures, 20 skipped** wie Stage-H-Endstand
+- [x] I.9 Test I-T3 (hexapod_bringup launch_testing-Smoke grün): **Summary: 18 tests, 0 errors, 0 failures, 0 skipped** (3 launch_test gtest-Cases + 15 lint-Subtests). Drei Iterationen waren nötig wegen Linter-Fixes (copyright-Header in real.launch.py + sim.launch.py + Test-File; pep257 D403/D213; flake8 F401 + I100). Dokumentation in Plan-Korrektur.
+- [x] I.10 README-Polish: Quick-Start-Block (4 Aufruf-Beispiele) + Plugin-Parameter-Tabelle (3 Params mit Defaults + Wirkung) + Topics-Tabelle (5 Topics inkl. Verifikations-Befehle) + Echo-State-Limitation-Block (4 Bullet-Konsequenzen) + Bekannte-kosmetische-WARN-Hinweis (Folge-Action aus I.2-Zurückziehung) am Anfang von `hexapod_hardware/README.md` zwischen Status-Zeile und „Was dieses Paket tut". ~80 Zeilen-Block.
+- [x] I.11 Test I-T4 (README-Sanity-Check): Markdown-Block ist syntaktisch sauber, alle Aufruf-Beispiele matchen Stage-G real.launch.py-Args, Topics-Liste konsistent mit controllers.real.yaml (7 Controller → JSB publisht /joint_states, 6 JTCs exposieren follow_joint_trajectory-Action + joint_trajectory-Topic).
+- [⏭️] I.12 Test I-T5 — **entfällt** (war Regression-Smoke für tcflush-Fix; Fix ist zurückgezogen → kein Regression-Test nötig)
+- [ ] I.13 Test I-T6 (sim.launch.py-Regression — User-Smoke)
+- [x] I.14 Kritischer Self-Review-Tabelle in `phase_9_progress.md` (siehe unten)
+- [x] I.15 Eventuelle Post-Review-Fixes — **3 Fixes durchgeführt während Stage I**: (1) I.2/I.3 zurückgezogen (tcflush schon da, Plan-Drift in I-Q1-Korrektur dokumentiert), (2) 4 Linter-Iterationen für launch_testing-File (copyright in 3 Files inkl. retroaktiver sim.launch.py-Header-Add, pep257 D213/D403, flake8 F401/I100), (3) Test-Logic-Fixes: 45 s statt 20 s Retry-Loop für Controllers (CI-Slowdown), Exit-Code-Tolerance `[0, -2, -15]` für Spawner-SIGTERM. Alle in Plan-Korrektur dokumentiert.
+- [x] I.16 `phase_9_stage_i_test_commands.md` finalisiert (6 Tests: I-T1 Build, I-T2 hexapod_hardware 208/0, I-T3 launch_testing-Smoke 18/0, I-T4 README-Sanity, I-T5 entfällt, I-T6 sim.launch.py-Regression als User-Smoke; 9-Symptom-Fehlerdiagnose-Tabelle)
+- [ ] I.17 hexapod_hardware/README Status-Zeile auf „A + B + C + D + E + F + G + H + I abgeschlossen" + Stufentabelle Stage I = ✅ — folgt nach User-Smoke I-T6
+- [x] I.18 progress.md: I-Sektion mit Bullets + Notizen + Post-Review-Tabelle + Stage-J-Übergabe-Items (siehe unten)
+
+### Stufen-I-Post-Review (kritische Punkte, durchgegangen am 2026-05-16, **vor User-Smoke I-T6**)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| I-Q1 tcflush-Fix Plan-Drift | ✅ dokumentiert | Code existiert bereits; User-Re-Entscheidung A (zurückziehen + README-Doku statt nutzlosen Duplikat). Plan-Korrektur Punkt 1. |
+| launch_testing-Suite headless-CI-tauglich | ✅ verifiziert | I-T3 grün: 18 tests (3 launch_test + 15 lint subtests), 0 failures. Loopback-Mode bedeutet kein Display/USB nötig — läuft auch in CI-Container. |
+| Spawner-Chain-Race in test_all_controllers_active | ✅ behoben | Erste Iteration: 20 s Retry-Loop war zu kurz → `leg_2_controller` nicht active als Test prüfte. Fix: 45 s Loop. CI-Slowdown abgefedert. |
+| Spawner-SIGTERM-Exit-Code | ✅ behoben | Erste Iteration: `assertExitCodes` strikt → -15 (SIGTERM) failed. Fix: `allowable_exit_codes=[0, -2, -15]` mit Erklärungs-Kommentar. |
+| Linter-Pass-Rate erste Iteration | 🟡 lesson learned | 4 verschiedene Failures in 3 Iterationen gefixt. Hätte mit Vorlage-Pattern aus `launch_testing_ros/examples/` reduziert werden können. Lesson in Plan-Korrektur Punkt 2 + neuer Memory-Eintrag-Idee (siehe unten). |
+| `<test_depend>controller_manager_msgs</test_depend>` notwendig | ✅ OK | Für die `ListHardwareComponents`/`ListControllers`-Service-Imports im Test-File. Wäre sonst Runtime-Import-Error. |
+| Plugin-Code unverändert (208/0 stabil) | ✅ verifiziert | I-T2 bestätigt 208/0 wie nach Stage H. Plugin-Refactor war explizit out-of-scope. |
+| README-Quick-Start-Block-Konsistenz | ✅ verifiziert | I-T4 manuell durchgegangen: Aufrufe stimmen mit Stage-G real.launch.py-Args, Parameter-Defaults stimmen mit hexapod.urdf.xacro Top-Level-Args (Stage F), Topics-Liste stimmt mit controllers.real.yaml (Stage F) + JSB/JTC-Standard-Topics. |
+| Bekannte-kosmetische-WARN-Hinweis-Korrektheit | ✅ verifiziert | Erklärung im README-Block referenziert korrekt `SerialPort::configure_termios()` Zeile 136 + Race-Condition-Pfad. |
+| Sim-Pfad-Regression (I-T6) noch nicht ausgeführt | 🟡 wartet | User-Smoke. Inhaltlich sehr unwahrscheinlich dass Stage I Sim-Pfad bricht (nur copyright-Header-Adds in launch/*.py), aber Sanity-Check ist sinnvoll. |
+| Plan-Abweichungen während Implementation | ✅ dokumentiert | 2 Punkte in `phase_9_stage_i_plan.md` Plan-Korrektur. |
+
+### Stufen-I-Notizen
+
+- **Linter-Patterns für ROS2-Test-Files dokumentiert (Wert für künftige Stages):** beim launch_testing-Build sind 4 verschiedene Linter (copyright, pep257, flake8, lint_cmake) involviert. Vorlage-Pattern: `launch_testing_ros/examples/talker_listener_launch_test.py` als Basis nehmen statt from-scratch schreiben. Diese Lesson sollte als Memory-Eintrag persistiert werden, kommt aber durch die explizite Plan-Korrektur-Doku auch ohne Memory durch — entscheide ich nach Stage J ob Memory-Add nötig ist.
+- **README-Konsolidierungs-Frage offen:** der hexapod_hardware/README hat jetzt 1280+ Zeilen (war ~1200, +80 Quick-Start). I-Q3-Option C (Konsolidierung — Stage-Konzept-Sektionen in progress.md auslagern) wurde verworfen. Stage J kann nochmal überlegen ob das sinnvoll wäre. Aktuell ist das README sehr ausführlich aber für jemand der die Geschichte lesen will gut navigierbar.
+- **Memory-Eintrag aus Stage H (Oszi-Pendenz) unverändert offen:** Stage I berührt das nicht. Pendenz bleibt im `project_phase9_h_oscilloscope_pending.md` bis Hardware-Verfügbarkeit oder Phase-9-Final-Retro.
+
+### Stage-J-Übergabe-Items (für nächste Stage vorbereitet)
+
+Stage J ist reine Phasen-Abschluss-Aktion. Folgende konkrete Items
+liegen für J bereit:
+
+1. **`<ros2_control name="GazeboSimSystem">` → `name="HexapodSystem"`-Rename** in
+   [`hexapod.ros2_control.xacro`](../src/hexapod_description/urdf/hexapod.ros2_control.xacro)
+   (1-Zeile-Edit). Aus Stage F's Self-Review-🟡-Vormerker. Mutter-Plan-
+   Doku zeigt `name="HexapodSystem"`. Nach Rename: F-T2 (Sim-URDF
+   byte-equal) wird natürlich diffen — aber Stage F's Done-Kriterium
+   ist erreicht und Stage J's Job ist gerade die finalen Polish-Items.
+2. **Git-Aktionen:**
+   - `git tag phase-9-done HEAD` im `hexapod_ws`-Repo
+   - Optional: `git tag phase-7-done HEAD` retroaktiv im `hexapod_servo_driver`-Repo (aus Stage H H-T3-Doku-Drift)
+3. **PHASE.md-Update:**
+   - Phase 9 Status auf 🟢 abgeschlossen
+   - Phase 10 (Single-Leg Bring-up + Kalibrierung) als 🟡 aktiv
+   - Phase-9-Retro (kurz): was gut lief, was hat länger gedauert, was offen ist (Oszi-Anteil aus H, README-Konsolidierungs-Frage)
+4. **Memory-Eintrag-Cleanup** (optional):
+   - `project_phase9_h_oscilloscope_pending.md` bleibt (Cross-Phase-
+     Pendenz, Phase 10 wird daran erinnert)
+   - Andere Stage-Memory-Einträge sind generell und bleiben
+5. **Hexapod_hardware/README**:
+   - Status-Zeile auf „A + B + C + D + E + F + G + H + I + J abgeschlossen"
+   - Stufentabelle Stage J = ✅
+   - Status-Banner 🟡 → 🟢 wenn Phase 9 als komplett markiert
+
+**Was Stage J explizit NICHT macht:**
+- keine neuen Features
+- keine Code-Refactors (außer dem 1-Zeile-name-Rename)
+- keine Tests-Erweiterung
+- keine User-Smokes (User-Smokes aus H + I + sim-Regression bleiben das Beweis-Material)
+
+**Done-Kriterium I (CI-Anteil) erreicht:** ✅ (am 2026-05-16; I-T1 Build, I-T2 hexapod_hardware 208/0, I-T3 launch_testing 18/0, I-T4 README-Sanity alle grün; pluggable launch_testing-Suite ist im Repo, Quick-Start-Block im README, alle Mutter-Plan-I.3-Items abgedeckt).
+**Done-Kriterium I (User-Smoke-Anteil) ⏸️ ausstehend:** I-T6 sim.launch.py-Regression bleibt offen bis User-Run grün.
 
 ---
 
