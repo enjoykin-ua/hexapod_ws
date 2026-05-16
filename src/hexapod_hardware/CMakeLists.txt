@@ -95,6 +95,16 @@ if(BUILD_TESTING)
   # Source-tree YAML path for the on_init happy-path test.
   target_compile_definitions(test_hexapod_system PRIVATE
     SOURCE_DIR_FOR_TESTS="${CMAKE_CURRENT_SOURCE_DIR}")
+
+  # Stage E — pluginlib runtime registration. Loads the installed plugin
+  # via pluginlib::ClassLoader and verifies the manifest/library wiring.
+  ament_add_gtest(test_plugin_registration test/test_plugin_registration.cpp)
+  target_link_libraries(test_plugin_registration ${PROJECT_NAME})
+  ament_target_dependencies(test_plugin_registration pluginlib hardware_interface)
+  # Same SOURCE_DIR_FOR_TESTS define as test_hexapod_system — the shared
+  # test_helpers.hpp uses it to locate config/servo_mapping.yaml.
+  target_compile_definitions(test_plugin_registration PRIVATE
+    SOURCE_DIR_FOR_TESTS="${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 ament_export_include_directories(include)

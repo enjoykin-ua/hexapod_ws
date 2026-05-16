@@ -33,81 +33,16 @@
 #include "hexapod_hardware/hexapod_system.hpp"
 #include "hexapod_hardware/servo2040_protocol.hpp"
 
+#include "test_helpers.hpp"
+
 using hexapod_hardware::HexapodSystemHardware;
 using hexapod_hardware::NUM_SERVOS;
 
-namespace
-{
-
-// Path to the in-tree calibration YAML. Injected via CMake target_compile_definitions
-// — same trick test_calibration uses for its RealConfigFile test.
-const std::string YAML_PATH = std::string(SOURCE_DIR_FOR_TESTS) +
-  "/config/servo_mapping.yaml";
-
-// The canonical joint name list, in the order Calibration assigns servo-pin
-// indices (0..17) — see config/servo_mapping.yaml.
-const std::vector<std::string> CANONICAL_JOINT_NAMES = {
-  "leg_1_coxa_joint", "leg_1_femur_joint", "leg_1_tibia_joint",
-  "leg_2_coxa_joint", "leg_2_femur_joint", "leg_2_tibia_joint",
-  "leg_3_coxa_joint", "leg_3_femur_joint", "leg_3_tibia_joint",
-  "leg_4_coxa_joint", "leg_4_femur_joint", "leg_4_tibia_joint",
-  "leg_5_coxa_joint", "leg_5_femur_joint", "leg_5_tibia_joint",
-  "leg_6_coxa_joint", "leg_6_femur_joint", "leg_6_tibia_joint",
-};
-
-// Build one URDF joint entry: a position command interface with the given
-// limits + a position state interface. That matches what xacro emits from
-// the <ros2_control> block in hexapod.ros2_control.xacro.
-hardware_interface::ComponentInfo make_joint(
-  const std::string & name, double lower = -1.57, double upper = +1.57)
-{
-  hardware_interface::ComponentInfo j;
-  j.name = name;
-  j.type = "joint";
-
-  hardware_interface::InterfaceInfo cmd;
-  cmd.name = "position";
-  cmd.min = std::to_string(lower);
-  cmd.max = std::to_string(upper);
-  j.command_interfaces.push_back(cmd);
-
-  hardware_interface::InterfaceInfo state;
-  state.name = "position";
-  j.state_interfaces.push_back(state);
-
-  return j;
-}
-
-// Build a fully-valid HardwareInfo (18 joints in canonical order, all
-// 3 hardware_parameters set, calibration_file pointing at the real YAML).
-hardware_interface::HardwareInfo make_valid_info()
-{
-  hardware_interface::HardwareInfo info;
-  info.name = "HexapodSystem";
-  info.type = "system";
-  info.hardware_parameters = {
-    {"serial_port", "/dev/ttyACM0"},
-    {"calibration_file", YAML_PATH},
-    {"loopback_mode", "true"},  // tests run without hardware
-  };
-  for (const auto & name : CANONICAL_JOINT_NAMES) {
-    info.joints.push_back(make_joint(name));
-  }
-  return info;
-}
-
-// Wrap a HardwareInfo into the params struct on_init wants.
-hardware_interface::HardwareComponentInterfaceParams make_params(
-  const hardware_interface::HardwareInfo & info)
-{
-  hardware_interface::HardwareComponentInterfaceParams p;
-  p.hardware_info = info;
-  // executor stays default-constructed (empty weak_ptr). on_init in D.3
-  // does not touch the executor; later stages might.
-  return p;
-}
-
-}  // namespace
+// HardwareInfo / params builders moved to test/test_helpers.hpp in Stage E
+// (shared with test_plugin_registration.cpp).
+using hexapod_hardware_test::make_joint;
+using hexapod_hardware_test::make_valid_info;
+using hexapod_hardware_test::make_params;
 
 // ============================================================================
 // Happy path

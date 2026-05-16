@@ -6,7 +6,7 @@ das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** abgeschlossen. Stufen E (Plugin-Registrierung), F (URDF-Switch), G (real.launch.py), H (echte Servo2040-Anbindung), I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
+Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** + **E (Plugin-Registrierung)** abgeschlossen. Stufen F (URDF-Switch), G (real.launch.py), H (echte Servo2040-Anbindung), I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
@@ -31,8 +31,12 @@ Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** abgeschlo
   human-readable Message, WARN/ERROR/FATAL je nach operativer Konsequenz;
   forward-compat-Fallback für unbekannte Codes; 0x20 SERVO_OVERCURRENT
   bewusst in Fallback weil Servo2040 keine Per-Servo-Stromsensoren hat)**
+- **Pluginlib-Registrierung verifiziert (3 Tests: ClassLoader findet
+  `hexapod_hardware/HexapodSystemHardware`, geladene Instanz besteht
+  on_init, exportiert die spezifizierten 18 Interfaces). Damit ist die
+  Manifest-/package.xml-/CMake-/.so-Verdrahtung runtime-bewiesen.)**
 
-Total: **151 gtest-Cases** über zehn Sub-Layers.
+Total: **154 gtest-Cases** über sieben Test-Binaries.
 
 ---
 
@@ -657,6 +661,97 @@ verifiziert. Schnell (< 1 ms gesamt), deterministisch, leicht erweiterbar.
 
 ---
 
+## Pluginlib-Registrierung (Stufe E) — wie ros2_control unser Plugin findet
+
+Dieses Paket erscheint nicht durch Magie im `controller_manager`. Damit
+ein ros2_control-Stack zur Laufzeit unsere `HexapodSystemHardware` als
+SystemInterface laden kann, müssen **vier Dinge zusammenpassen** — fehlt
+eines, bricht das Laden mit (oft kryptischen) pluginlib-Exceptions ab.
+
+Stufe E beweist diese Verdrahtung mit drei Runtime-Tests in
+`test/test_plugin_registration.cpp`. Was geprüft wird:
+
+```
+                                            ┌─────────────────────────┐
+[1] hexapod_hardware.xml          ─────────►│ Manifest                │
+   (in Repo-Root des Pakets)                │  <library path="...">   │
+                                            │   <class name="..."     │
+                                            │          type="..."     │
+                                            │     base_class_type=... │
+                                            └────────────┬────────────┘
+                                                         │
+                                                         ▼
+[2] CMakeLists.txt                ─────────► installiert nach
+   pluginlib_export_plugin_         share/hexapod_hardware/...xml
+   description_file(...)            UND legt Resource-Index-Eintrag an:
+                                    share/ament_index/resource_index/
+                                      hardware_interface__pluginlib__plugin/
+                                        hexapod_hardware
+                                                         │
+                                                         ▼
+[3] package.xml                   ─────────► <export>
+   <hardware_interface              │   <hardware_interface
+    plugin="${prefix}/...xml"/>     │      plugin="${prefix}/...xml"/>
+                                    │ </export>
+                                    │
+                                                         │
+                                                         ▼
+[4] libhexapod_hardware.so        ─────────► PLUGINLIB_EXPORT_CLASS-Macro
+   in src/hexapod_system.cpp                  am Ende von hexapod_system.cpp
+                                              registriert die Klasse als
+                                              Pluginlib-loadable Symbol
+                                                         │
+                                                         ▼
+                                            ┌─────────────────────────┐
+                                            │ pluginlib::ClassLoader  │
+                                            │  scannt AMENT_PREFIX_   │
+                                            │  PATH nach allen Resource│
+                                            │  -Index-Einträgen,      │
+                                            │  baut Plugin-Liste,     │
+                                            │  dlopen()'t die .so,    │
+                                            │  instanziiert via       │
+                                            │  Factory-Pattern.       │
+                                            └─────────────────────────┘
+```
+
+**Zentraler Punkt:** Der `share/ament_index/resource_index/...`-Eintrag
+ist der **Auto-Discovery-Mechanismus** von ament/pluginlib — ohne ihn
+findet pluginlib das Plugin nicht, auch wenn `.so` und Manifest da
+sind. Genau diesen Eintrag legt `pluginlib_export_plugin_description_file`
+in CMake an. Verifizieren mit:
+
+```bash
+cat install/hexapod_hardware/share/ament_index/resource_index/\
+hardware_interface__pluginlib__plugin/hexapod_hardware
+# Erwartet: share/hexapod_hardware/hexapod_hardware.xml
+```
+
+Die drei Tests (jeweils ohne `controller_manager`-Setup, rein per
+ClassLoader-API):
+
+| Test | Was bewiesen wird |
+|---|---|
+| `PluginIsLoadableViaPluginlib` | Resource-Index + Manifest sind sichtbar; `createSharedInstance` lädt die `.so` und instanziiert die Klasse |
+| `LoadedPluginPassesOnInit` | Vtable + Symbol-Loading stimmen — die geladene Instanz ist funktional identisch zur direkt-konstruierten (`on_init` mit valid HardwareInfo → SUCCESS) |
+| `LoadedPluginExposes18Interfaces` | Plugin-Spec-Vertrag: 6 Beine × 3 Joints, exportiert über die Base-Class-Vtable |
+
+Für den End-to-End-Test mit echtem `controller_manager` (`ros2 control
+list_hardware_components`) brauchen wir Stage F (URDF-Switch zwischen
+`gz_ros2_control` Sim und `hexapod_hardware`) plus Stage G
+(`real.launch.py`). Stage E beweist nur die **Plugin-Verdrahtung selbst**.
+
+### Test-Helper-Refactor (Stage E.1)
+
+Die `make_valid_info()`/`make_params()`/`make_joint()`-Builder, die seit
+Stage D.3 in `test_hexapod_system.cpp` lebten, sind in Stage E.1 in
+einen gemeinsamen Header `test/test_helpers.hpp` (namespace
+`hexapod_hardware_test`, alle Symbole `inline` für ODR-Sicherheit)
+verschoben. Beide Stage-D- und Stage-E-Test-Binaries nutzen jetzt den
+selben HardwareInfo-Builder — DRY ohne Duplikation, kein Rauschen
+beim Vergleich der Test-Setups.
+
+---
+
 ## USB-Disconnect-Recovery (Stufe D.7) — User-Workflow
 
 Bei einem Disconnect (Software-USB-Stack-Hänger, udev-Re-Enumerate beim
@@ -1122,7 +1217,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | └ D.7 | USB-Reconnect-Logik mit Backoff `{100..5000}` ms, Reader-Thread retried statt zu sterben, manueller Re-Activate, 5 Tests | ✅ |
 | └ D.8 | ERROR_REPORT-Routing pro Error-Code mit WARN/ERROR/FATAL-Severity + human-readable Messages, 11 Tests | ✅ |
 | **D** | **Komplett — 8/8 Sub-Stages** | ✅ |
-| **E** | Plugin-Registrierung verifizieren | offen |
+| **E** | Plugin-Registrierung runtime via `pluginlib::ClassLoader` verifiziert (3 Tests) + Test-Helper-Refactor in `test/test_helpers.hpp` | ✅ |
 | **F** | URDF-Switch + `controllers.real.yaml` | offen |
 | **G** | `real.launch.py` | offen |
 | **H** | Echte Servo2040-Anbindung mit Oszi/Logic-Analyzer | offen |

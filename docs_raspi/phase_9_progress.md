@@ -704,11 +704,58 @@
 
 ## Stufe E — Plugin-Registrierung
 
-(folgt nach Stufe D)
+> **Vorab-Plan:** [`phase_9_stage_e_plan.md`](phase_9_stage_e_plan.md) — Logik-Skizze, 3 Tests, 10 Progress-Bullets, User-Entscheidungen vom 2026-05-16 (Variante A für Scope „nur pluginlib::ClassLoader-Tests", Variante A für CLI-Verifikation, Variante B für Test-Helper-Refactor in `test/test_helpers.hpp`, 3 Tests reichen).
+>
+> Done-Kriterium E (aus Plan): pluginlib::ClassLoader findet das installierte Plugin, kann es instanziieren, on_init grün, 18 Interfaces exportiert.
 
----
+- [x] E.1 Test-Helper-Refactor (Variante B) — neuer Header `test/test_helpers.hpp` (`namespace hexapod_hardware_test`, alle Symbole `inline` für ODR-Sicherheit) mit `make_joint`, `make_valid_info`, `make_params`, Konstanten `YAML_PATH` + `CANONICAL_JOINT_NAMES`. `test_hexapod_system.cpp` zieht jetzt nur noch die drei `make_*`-Funktionen via `using`-Declaration in den Datei-Scope (Konstanten werden nicht mehr direkt referenziert). Bestehende 202 Tests + 0 failures nach Refactor verifiziert.
+- [x] E.2 Test-Datei `test/test_plugin_registration.cpp` mit 3 Tests:
+  - `PluginIsLoadableViaPluginlib` — `ClassLoader::getDeclaredClasses()` enthält `hexapod_hardware/HexapodSystemHardware`, `createSharedInstance` liefert non-null. Black-Box: kein `hexapod_system.hpp`-Include, NUM_SERVOS-Hardcoding stattdessen aus Plugin-Spec (6 × 3 = 18, CLAUDE.md §1).
+  - `LoadedPluginPassesOnInit` — geladene Instanz besteht `on_init` mit valid HardwareInfo (loopback_mode=true) → SUCCESS
+  - `LoadedPluginExposes18Interfaces` — `export_state_interfaces()` und `export_command_interfaces()` liefern jeweils 18 Einträge. Lokales `#pragma GCC diagnostic ignored "-Wdeprecated-declarations"` mit erklärendem Kommentar (Plugin überschreibt die alte API; Migration zu `on_export_*_interfaces()` ist out-of-scope für Stage E)
+- [x] E.3 `CMakeLists.txt`: `ament_add_gtest(test_plugin_registration ...)` + `ament_target_dependencies(... pluginlib hardware_interface)` + `SOURCE_DIR_FOR_TESTS`-Define
+- [x] E.4 `colcon build`: grün, keine Warnings
+- [x] E.5 `colcon test`: alle Tests grün, total **208 ctest entries (154 gtest cases inkl. 3 neue PluginRegistration + 18 Lint/Linter-Subtests), 0 errors, 0 failures, 20 skipped**
+- [x] E.6 Kritischer Self-Review-Tabelle in `phase_9_progress.md` (siehe unten)
+- [x] E.7 Eventuelle Post-Review-Fixes — keine inhaltlichen Fixes nötig (Tabelle hat keinen 🔴-Eintrag); Plan-Korrektur-Sektion in `phase_9_stage_e_plan.md` ergänzt (drei nicht-fachliche Abweichungen)
+- [x] E.8 `phase_9_stage_e_test_commands.md` finalisiert (8 Tests: Build/Suite/Stage-E-fokussiert/D.x-Sicherheit/Resource-Index/xmllint/ldd/list_hardware_components-NICHT-Teil; Fehlerdiagnose-Tabelle mit 9 Symptomen)
+- [x] E.9 README.md: Status auf „**E komplett ✅**" + 154 gtest-Cases, Stufentabelle E ✅ ergänzt, neue Konzept-Sektion **„Pluginlib-Registrierung (Stufe E) — wie ros2_control unser Plugin findet"** mit ASCII-Diagramm der vier Verdrahtungspunkte, Test-Tabelle und Test-Helper-Refactor-Hinweis
+- [x] E.10 progress.md: diese E-Sektion mit Bullets + Notizen + Post-Review-Tabelle (siehe oben + Notizen unten)
 
-## Stufe F — URDF-Anpassung & `controllers.real.yaml`
+### Stufen-E-Notizen
+
+- **Pluginlib-Verdrahtung ist „4 Dinge müssen stimmen"**: Manifest, CMake-Macro, package.xml-Export, .so-Macro. Wenn nur eines fehlt, bricht ClassLoader ab. Diese drei Tests reichen, um genau diese Verdrahtung mit zwei Codezeilen pro Test zu pinnen.
+- **Black-Box war die richtige Entscheidung:** `kExpectedInterfaceCount = 18` als Spec-Hardcoding (CLAUDE.md §1: 6 × 3) statt `NUM_SERVOS`-Import macht das Test-File robust gegen interne Plugin-Refactors und gleichzeitig empfindlich gegen Spec-Drift (Hardware-Revision ohne Doku-Update).
+- **Test-Helper-Refactor:** Per Memory-Konvention „Design-Entscheidungen mit Alternativen festhalten" — die Alternative A (Inline-Kopie) wurde verworfen wegen Duplikations-Risiko bei künftigen Stages, B gewählt für DRY mit `inline`-ODR-Safety. Header-Top-Comment dokumentiert die Anforderung an `SOURCE_DIR_FOR_TESTS`-Define.
+- **Pragma-Suppression statt Plugin-Migration:** Die jazzy-Deprecation auf `export_*_interfaces()` wegzubauen würde bedeuten, das Plugin von der alten auf die neue `on_export_*_interfaces()`-API zu refactorn — laut `hardware_component_interface.hpp` Z.177 gewinnt die alte Override sowieso solange sie non-empty Vector liefert. Damit ist der Pragma-Block die ehrliche Lösung; der Migrations-Refactor ist ein eigener Task in einer späteren Stufe (Stage F oder I).
+- **`ros2 control list_hardware_components` bewusst nicht in Stage E:** Braucht laufenden controller_manager mit URDF — Aufwand vs. Nutzen schlecht weil F/G das ohnehin liefern. In `phase_9_stage_e_test_commands.md` ausdrücklich als „nicht Teil Stage E, erwartet failt mit 'service not found'" dokumentiert.
+
+### Was Stufe E explizit **nicht** macht
+
+- **Kein launch_testing mit ros2_control_node** — überzogen für die „pluginlib lädt"-Frage; F/G/H bringen den echten Stack
+- **Kein End-to-End-Lifecycle bis on_activate** — on_init reicht als Plugin-Lebensfähigkeits-Beweis, weitere Schritte brauchen PTY-Setup (Stage D-Land)
+- **Keine Plugin-API-Migration** auf `on_export_*_interfaces()` — eigener Task, out-of-scope (siehe Pragma-Suppression-Begründung oben)
+- **Keine Multi-Instanz-Tests** (parallele Plugin-Loads für hypothetisches Multi-Hexapod-Setup) — kein konkreter Bedarf in Phase 9
+
+**Done-Kriterium E erreicht:** ✅ (am 2026-05-16; 3 gtest-Cases in 1 Test-Suite grün, alle 154 gtest-Cases und 208 ctest-entries 0 failures)
+
+### Stufe-E-Post-Review (kritische Punkte, durchgegangen am 2026-05-16)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| `pluginlib::ClassLoader`-Konstruktor wirft bei nicht-installiertem Plugin | ✅ OK | colcon test setzt AMENT_PREFIX_PATH; bei fehlinstallierter .so/Manifest würde Test 1 mit klarer pluginlib-Exception abbrechen, was ein gravierender Build-Setup-Bug wäre (ohne Stage E nicht detektierbar). Konstruktor explizit in `ASSERT_NO_THROW` zu wrappen wäre kosmetisch. |
+| `createSharedInstance` vs `createUniqueInstance` | ✅ OK | Shared ist idiomatic; bindet die geladene .so an die shared_ptr-Lifetime, was für unabhängige Tests perfekt ist. Plugin hat keinen statischen State, also keine Cross-Test-Kontamination. |
+| Mehrfach-Loader-Instanziierung über die 3 Tests hinweg | ✅ OK | Jeder Test bekommt einen frischen `ClassLoader`, jeder ruft `createSharedInstance` einmal auf. Keine Singleton-Anforderung in pluginlib. |
+| Lifecycle-Coverage nur bis on_init | ✅ OK | Plan §"Was Stage E NICHT macht": on_configure/activate/read/write brauchen PTY-Setup, das ist Stage D-Land und im Real-Stack ohnehin Stage F/G/H. on_init ist der erste Schritt — ist der grün, ist die Plugin-Instanz lebensfähig genug für den Pluginlib-Beweis. |
+| Test-Helper ODR-Sicherheit | ✅ OK | `inline const std::string` + `inline` für Funktionen ist seit C++17 ODR-safe. Beide TUs (test_hexapod_system + test_plugin_registration) bekommen den selben YAML_PATH. |
+| `SOURCE_DIR_FOR_TESTS`-Define in beiden Targets | ✅ OK | CMake setzt das Define jetzt auch für `test_plugin_registration`. test_helpers.hpp dokumentiert die Anforderung im File-Top-Comment — falls jemand den Header künftig in einem dritten Test ohne Define inkludiert, ist das ein klarer Compile-Fehler statt eines stillen Bugs. |
+| Test-Helper Namespace `hexapod_hardware_test` | ✅ OK | Bewusst getrennt von `hexapod_hardware`; vermeidet Symbol-Kollision mit Plugin-Internals. |
+| Black-Box: kein `hexapod_system.hpp`-Include in test_plugin_registration | ✅ OK | `kExpectedInterfaceCount = 18` ist Spec-Wissen (CLAUDE.md §1: 6 Beine × 3), nicht Implementierungs-Wissen. Wenn jemand NUM_SERVOS im Plugin auf 20 ändert ohne Spec-Update, schlägt Test 3 fehl (gewollt). |
+| Deprecation-Warning auf `export_*_interfaces()` | ✅ OK (mit Doku) | jazzy markiert die alte API deprecated. Plugin überschreibt aber die alte API (Stage A–D); Migration zu `on_export_*_interfaces()` würde laut hardware_component_interface.hpp Z.177-Doku den Override umgehen (legacy-Vector-Pfad gewinnt nur bei non-empty return). Lokaler `#pragma GCC diagnostic`-Block dokumentiert die bewusste Entscheidung. Plugin-API-Migration ist out-of-scope Stage E. |
+| `ament_target_dependencies pluginlib hardware_interface` redundant? | ✅ OK | Beide sind transitive Deps von `${PROJECT_NAME}`, aber explizit ist robuster — wenn die Plugin-Lib künftig refactored wird und eine der Deps verliert, bleibt der Test unabhängig grün-baufähig. |
+| `<test_depend>pluginlib</test_depend>` in package.xml | ✅ OK | Nicht nötig: pluginlib ist runtime-`<depend>`, das deckt build+test ab. Keine Änderung an package.xml. |
+| Plan-Abweichungen während Implementation | ✅ dokumentiert | (1) Plan schätzte „~80 Zeilen Test-File", real ~125 Zeilen wegen ausführlicher Erklärungs-Kommentare zu Tests-Intent (Black-Box-Argument, Pragma-Begründung). (2) Pragma-Suppression war nicht im Plan vorgesehen, kam erst beim Build raus. (3) Test-Counter im Plan „mind. 203 tests", real 208 (ctest entries inkl. Lint-Subtests; 154 gtest-Cases). Keine fachliche Abweichung. → in Plan-Doku als Korrektur-Sektion ergänzen. |
+| Pragma-Block-Drift-Risiko | 🟢 später | Falls jemand zwischen die zwei `EXPECT_EQ`-Calls weiteren Code einfügt, läuft der im suppressed Bereich. Aktuelles Risiko gering, Block ist nur 2 Zeilen. Falls Stage F/G das Plugin auf die neue API migriert, fällt der Pragma-Block ohnehin weg. |
 
 (folgt nach Stufe E)
 
