@@ -1,8 +1,39 @@
 # Aktive Phase
 
-**Aktuell:** Phase 9 — ROS2-Plugin `hexapod_hardware`
-**Datei:** `docs_raspi/phase_9_hexapod_hardware.md`
-**Progress-Tracker:** `docs_raspi/phase_9_progress.md` (legen wir zu Phase-9-Start an)
+**Aktuell:** Phase 10 — Single-Leg Bring-up + Kalibrierung
+**Datei:** `docs_raspi/phase_10_single_leg.md`
+**Progress-Tracker:** `docs_raspi/phase_10_progress.md` (legen wir zu Phase-10-Start an)
+
+> **Phase 9 (ROS2-Plugin `hexapod_hardware`):** ✅ abgeschlossen am 2026-05-16.
+> Alle 10 Stufen A–J durchgelaufen. CI-Anteil voll grün (208 Plugin-Tests +
+> 18 launch_testing-Tests), Hardware-Pfad bis Plugin↔Firmware-Pipeline mit
+> echtem Servo2040 ohne Hexapod-Servos verifiziert. **Ausstehende Items:**
+> Oszi/Logic-Analyzer-Verifikation (Stage H H-T8/H-T9) — dokumentiert in
+> Memory-Eintrag `project_phase9_h_oscilloscope_pending.md` als Cross-Session-
+> Reminder; bei Hardware-Verfügbarkeit (z.B. Phase 10 Bench-Setup) nachholen.
+>
+> **Phase-9-Retro (kurz):**
+> - **Was gut lief:** der Plan-First-Workflow mit jeweils 4–5 offenen Fragen
+>   pro Stufe hat substantielle Design-Diskussionen produziert (z.B. F-Q1
+>   velocity-State-Mismatch, G-Q1 loopback-Default, H-Q1 Bench-Netzteil-
+>   Setup) die im Code-Edit allein nicht aufgekommen wären. Memory-Konvention
+>   `feedback_urdf_refactor_full_smoke.md` aus Stage F hat in Stage G + H
+>   direkt gegriffen.
+> - **Was länger gedauert hat als geplant:** Hardware-Stages (H, I) hatten
+>   mehr Real-World-Lessons als antizipiert (USB-CDC-Boot-Garbage,
+>   ros2_control Auto-Deactivate-Bei-Write-Fail, Linter-Pattern-Lerncurve
+>   für launch_testing). Plan-Korrektur-Sektionen pro Stage haben das
+>   transparent gemacht. Bei F-Q5 wurde F-T9 nach Stage G verschoben weil
+>   die „einzelner CLI-Aufruf reicht"-Annahme an rcl-Parser-Limitierung
+>   gescheitert ist.
+> - **Was offen ist:** (1) Oszi/Logic-Analyzer-Tests (siehe oben), (2)
+>   optional `phase-7-done`-Tag retroaktiv im fw-Repo (Doku-Hygiene aus
+>   Stage H H-T3), (3) Plugin-API-Migration `export_*_interfaces()` →
+>   `on_export_*_interfaces()` ist out-of-scope geblieben (alte API gewinnt
+>   wenn Override non-empty) — Pragma-Suppression in test_plugin_registration.cpp.
+>
+> **Git-Aktionen zum Phasenwechsel** (`phase-9-done`-Tag im hexapod_ws,
+> Commit der phase_9-Docs) macht der User beim Phasenwechsel.
 
 > **Phase 7 (Servo2040 Firmware):** ✅ abgeschlossen am 2026-05-14.
 > Alle Stufen A–G grün am Board verifiziert, Doku in `docs_raspi/phase_7_progress.md`
@@ -52,8 +83,8 @@
 | 7 | Servo2040 Firmware | `docs_raspi/phase_7_servo2040_fw.md` | 🟢 abgeschlossen (2026-05-14) |
 | 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | ⏸️ pausiert (deadline: vor Phase 11) |
 | 8b | Sim+HW Visual-Mirror (optional) | `docs_raspi/phase_8b_sim_hw_mirror.md` | ⚪ optional |
-| 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | 🟡 aktiv |
-| 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | ⚪ offen |
+| 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | 🟢 abgeschlossen (2026-05-16; Oszi-Verifikation H-T8/H-T9 pending bei Hardware-Verfügbarkeit) |
+| 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟡 aktiv |
 | 11 | Pi-Plattform & Portierung | `docs_raspi/phase_11_pi_platform.md` | ⚪ offen |
 | 12 | Voll-Bringup mit echtem Roboter | `docs_raspi/phase_12_full_bringup.md` | ⚪ offen |
 

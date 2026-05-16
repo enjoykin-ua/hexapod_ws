@@ -32,7 +32,7 @@
 
   <xacro:property name="use_sim" value="$(arg use_sim)"/>
 
-  <ros2_control name="GazeboSimSystem" type="system">
+  <ros2_control name="HexapodSystem" type="system">
     <hardware>
       <xacro:if value="${use_sim}">
         <plugin>gz_ros2_control/GazeboSimSystem</plugin>

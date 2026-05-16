@@ -992,11 +992,11 @@
 - [x] I.10 README-Polish: Quick-Start-Block (4 Aufruf-Beispiele) + Plugin-Parameter-Tabelle (3 Params mit Defaults + Wirkung) + Topics-Tabelle (5 Topics inkl. Verifikations-Befehle) + Echo-State-Limitation-Block (4 Bullet-Konsequenzen) + Bekannte-kosmetische-WARN-Hinweis (Folge-Action aus I.2-Zurückziehung) am Anfang von `hexapod_hardware/README.md` zwischen Status-Zeile und „Was dieses Paket tut". ~80 Zeilen-Block.
 - [x] I.11 Test I-T4 (README-Sanity-Check): Markdown-Block ist syntaktisch sauber, alle Aufruf-Beispiele matchen Stage-G real.launch.py-Args, Topics-Liste konsistent mit controllers.real.yaml (7 Controller → JSB publisht /joint_states, 6 JTCs exposieren follow_joint_trajectory-Action + joint_trajectory-Topic).
 - [⏭️] I.12 Test I-T5 — **entfällt** (war Regression-Smoke für tcflush-Fix; Fix ist zurückgezogen → kein Regression-Test nötig)
-- [ ] I.13 Test I-T6 (sim.launch.py-Regression — User-Smoke)
+- [x] I.13 Test I-T6 (sim.launch.py-Regression) — User-ausgeführt **am 2026-05-16, grün bestätigt**: Sim-Pfad regression-frei nach Stage-I-Changes (copyright-Header-Adds + launch_testing-Suite-Add brechen nichts).
 - [x] I.14 Kritischer Self-Review-Tabelle in `phase_9_progress.md` (siehe unten)
 - [x] I.15 Eventuelle Post-Review-Fixes — **3 Fixes durchgeführt während Stage I**: (1) I.2/I.3 zurückgezogen (tcflush schon da, Plan-Drift in I-Q1-Korrektur dokumentiert), (2) 4 Linter-Iterationen für launch_testing-File (copyright in 3 Files inkl. retroaktiver sim.launch.py-Header-Add, pep257 D213/D403, flake8 F401/I100), (3) Test-Logic-Fixes: 45 s statt 20 s Retry-Loop für Controllers (CI-Slowdown), Exit-Code-Tolerance `[0, -2, -15]` für Spawner-SIGTERM. Alle in Plan-Korrektur dokumentiert.
 - [x] I.16 `phase_9_stage_i_test_commands.md` finalisiert (6 Tests: I-T1 Build, I-T2 hexapod_hardware 208/0, I-T3 launch_testing-Smoke 18/0, I-T4 README-Sanity, I-T5 entfällt, I-T6 sim.launch.py-Regression als User-Smoke; 9-Symptom-Fehlerdiagnose-Tabelle)
-- [ ] I.17 hexapod_hardware/README Status-Zeile auf „A + B + C + D + E + F + G + H + I abgeschlossen" + Stufentabelle Stage I = ✅ — folgt nach User-Smoke I-T6
+- [x] I.17 hexapod_hardware/README Status-Zeile auf „A + B + C + D + E + F + G + H + I abgeschlossen" + Stufentabelle Stage I = ✅ — wird mit Stage-J-Updates kombiniert (Stage J übernimmt Status-Banner 🟡 → 🟢 in einem)
 - [x] I.18 progress.md: I-Sektion mit Bullets + Notizen + Post-Review-Tabelle + Stage-J-Übergabe-Items (siehe unten)
 
 ### Stufen-I-Post-Review (kritische Punkte, durchgegangen am 2026-05-16, **vor User-Smoke I-T6**)
@@ -1055,10 +1055,81 @@ liegen für J bereit:
 - keine User-Smokes (User-Smokes aus H + I + sim-Regression bleiben das Beweis-Material)
 
 **Done-Kriterium I (CI-Anteil) erreicht:** ✅ (am 2026-05-16; I-T1 Build, I-T2 hexapod_hardware 208/0, I-T3 launch_testing 18/0, I-T4 README-Sanity alle grün; pluggable launch_testing-Suite ist im Repo, Quick-Start-Block im README, alle Mutter-Plan-I.3-Items abgedeckt).
-**Done-Kriterium I (User-Smoke-Anteil) ⏸️ ausstehend:** I-T6 sim.launch.py-Regression bleibt offen bis User-Run grün.
+**Done-Kriterium I (User-Smoke-Anteil) erreicht:** ✅ (am 2026-05-16; I-T6 sim.launch.py-Regression grün vom User bestätigt).
+
+**🎉 Stufe I komplett.** Phase 9 Stand: A + B + C + D (8/8) + E + F + G + H + **I** ✅. Verbleibend: J (Phase-9-Abschluss).
 
 ---
 
 ## Stufe J — Phase-9-Abschluss
 
-(folgt nach Stufe I)
+> **Vorab-Plan:** [`phase_9_stage_j_plan.md`](phase_9_stage_j_plan.md) — knappe Plan-Doku, referenziert die Stage-I-Übergabe-Items als Logik-Skizze. 4 Tests (alle CI), 9 Progress-Bullets, **1 offene Frage J-Q1** (Phase-7-Tag-Retro im fw-Repo) am 2026-05-16 mit **B (ignorieren)** beantwortet.
+>
+> Done-Kriterium J (aus Mutter-Plan-Doku): `phase_9_progress.md` finalisiert, Git-Commit + Tag `phase-9-done`, PHASE.md auf Phase 10 aktualisiert.
+
+- [x] J.1 Vorab-User-Bestätigung J-Q1 (B: Phase-7-Tag-Retro ignorieren, schon in Stage-H-Plan-Korrektur dokumentiert)
+- [x] J.2 `<ros2_control name="GazeboSimSystem">` → `<ros2_control name="HexapodSystem">` in `hexapod.ros2_control.xacro` (1-Zeile-Edit). `test_helpers.hpp` benutzt schon `"HexapodSystem"`, also keine Test-Anpassung nötig.
+- [x] J.3 `colcon build --packages-select hexapod_description hexapod_hardware hexapod_bringup` grün — 3 packages finished, keine Warnings
+- [x] J.4 `colcon test`: hexapod_hardware **208/0** + hexapod_bringup **18/0** unverändert (J-T2 + J-T3)
+- [x] J-T4 xacro-Verifikation: `xacro hexapod.urdf.xacro | grep "<ros2_control name"` zeigt `<ros2_control name="HexapodSystem" type="system">`
+- [x] J.5 PHASE.md: Phase 9 → 🟢 abgeschlossen (mit Oszi-Pending-Hinweis), Phase 10 → 🟡 aktiv, Phase-9-Retro-Block mit „was gut/länger/offen"
+- [x] J.6 hexapod_hardware/README: Status-Banner 🟡 → 🟢, Status-Zeile auf „Phase 9 abgeschlossen", Stufentabelle I + J = ✅
+- [x] J.7 progress.md: diese Stage-J-Sektion mit Bullets + Notizen + Self-Review + Phase-9-Done-Banner (siehe unten)
+- [x] J.8 Kritischer Self-Review-Tabelle (siehe unten)
+- [ ] J.9 Summary für User (folgt nach diesem Bullet-Block in der finalen Stage-J-Message). User führt aus: `git add -A && git commit ...` + `git tag phase-9-done HEAD`.
+
+### Stufen-J-Post-Review (kritische Punkte, durchgegangen am 2026-05-16)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| `<ros2_control name>`-Rename Konsistenz | ✅ verifiziert | Stage F's Plan-Korrektur Punkt 2 hat das Renaming bereits als Stage-J-Vormerk identifiziert. `test_helpers.hpp` (Stage E) hat schon `"HexapodSystem"` — Test-Suite musste nicht angepasst werden. URDF + Tests sind jetzt konsistent. |
+| Sim-Pfad-Regression durch Rename | ✅ OK | F-T2 (Sim-URDF byte-equal zum Pre-F-Stand) wird natürlich diffen — aber Stage F's Done-Kriterium ist seit 2026-05-16 bereits geschlossen, F-T2 ist kein CI-Test sondern Stage-F-spezifischer Vor-/Nach-Diff. Der Sim-Pfad funktioniert weiter (Stage I-T6 hat das bestätigt vor dem Rename; Rename ändert nur den Logging-Tag, keinen funktionalen Code-Pfad). |
+| Plugin-Test-Suite weiter 208/0 nach Rename | ✅ verifiziert | J.4: 208 tests, 0 errors, 0 failures, 20 skipped. Test-Helper-`info.name = "HexapodSystem"` war schon richtig. |
+| launch_testing-Suite weiter 18/0 nach Rename | ✅ verifiziert | J.4: 18/0. Der launch_testing-File checkt `plugin_name == "hexapod_hardware/HexapodSystemHardware"` (Pluginlib-Plugin-Name, **nicht** `name`-Attribut), also vom Rename nicht betroffen. |
+| Phase-9-Doku-Kohärenz | ✅ verifiziert | Alle 10 Stage-Plan-Dokus (A–J) liegen unter `docs_raspi/phase_9_stage_<X>_plan.md`, alle 10 Stage-Test-Commands-Dokus (B–J) ebenso, alle haben User-Entscheidungen + Plan-Korrektur (außer A, B, C, D-Sub-Stages die vor diesem Pattern liefen). progress.md ist 1100+ Zeilen aber mit klarer Stage-Trennung und Done-Banner pro Stage. |
+| Offene Items zum Phase-9-Abschluss | 🟡 dokumentiert | (1) Oszi/Logic-Analyzer-Tests H-T8/H-T9 → Memory-Eintrag `project_phase9_h_oscilloscope_pending.md` als Cross-Session-Reminder; (2) Plugin-API-Migration `export_*_interfaces()` → `on_export_*_interfaces()` → bleibt 🟢 später; (3) `phase-7-done`-Tag im fw-Repo → ignored per J-Q1=B. |
+| README-Konsolidierungs-Frage offen geblieben | 🟡 vormerk Phase 10/11 | hexapod_hardware/README ist 1280+ Zeilen. Phase-Konzept-Sektionen könnten in progress.md ausgelagert werden. Kein konkreter Anlass jetzt — entscheidet sich wenn jemand das README in Phase 10/11 zur Hand nimmt und stolpert. |
+| Stage-J-Plan-Korrekturen | ✅ keine | Stage J war pure Mechanik (1-Zeile + Doku), keine Implementations-Drift. |
+| Memory-Einträge nach Phase 9 | ✅ konsolidiert | 5 phase-9-relevante Memory-Einträge bleiben: project_phase9_decisions, project_phase9_h_oscilloscope_pending, project_imu_separate_sensor_plugin (Cross-Phase), project_phase10_real_yaml_vel_limits (Phase-10-Hand-Off), feedback_urdf_refactor_full_smoke (generisch). MEMORY.md verlinkt alle. |
+| Build + Test + Doku in einem Commit | 🟡 vormerk User | Der `<ros2_control name>`-Rename + PHASE.md + README + progress.md sind alle Stage-J-Edits in einem Commit. User wird darauf hingewiesen in der Summary. |
+
+### Stufen-J-Notizen
+
+- **Phase 9 war die größte Phase bisher**: 10 Stages mit jeweils detailliertem Plan-First-Workflow, ~1280 Zeilen progress.md, ~1280 Zeilen README, ~3200 Zeilen Plugin-Code, **154 gtest-Cases + 3 launch_test-Cases = 157 produktive Tests**, plus etliche Lint-Subtests, plus die volle Hardware-zu-Sim-Switch-Architektur. Das Plan-First-Pattern hat sich auch unter Lange-Sicht bewährt — jede Stage-Plan-Korrektur ist transparent dokumentiert, jede User-Entscheidung als Tabelle, jeder Self-Review-Punkt nachvollziehbar.
+- **Was sich für künftige Phasen bewährt hat:**
+  1. Plan-First mit 4 Pflichtinhalten (Logik / Tests / Progress-Checkliste als Done-Vertrag / Offene Fragen)
+  2. User-Smokes statt nur CI-Tests für Hardware-Stages
+  3. Memory-Konvention für Cross-Stage-Pendenzen
+  4. Plan-Korrektur-Sektion am Ende jeder Stage-Plan-Doku (transparent dokumentiert, nicht stillschweigend)
+  5. Self-Review-Tabelle als Pflicht-Schritt mit OK/🔴/🟡/🟢-Klassifizierung
+- **Was beim nächsten Mal anders sollte:**
+  1. Vor Plan-Schreibung kurz den Ziel-Code lesen (I-Q1-Lesson)
+  2. Für neue Test-Files in ROS2-Paketen direkt ein bestehendes Beispiel als Vorlage nehmen (I-Linter-Iterationen-Lesson)
+  3. Hardware-Stages brauchen unbedingt einen Bench-Setup-Block ganz oben in test_commands.md (Stage-H-Lesson)
+  4. „Einzelner CLI-Aufruf reicht"-Annahmen kritisch hinterfragen (Stage-F-Q5 → F-T9-Verschiebung)
+
+### Was Stufe J explizit **nicht** macht
+
+- **Kein Git-Commit + Tag** durch mich. User führt das aus (CLAUDE.md „Executing actions with care": Git-Operationen wie Commits + Tags brauchen explizite User-Aktion, nicht assistant-initiated).
+- **Keine Memory-Eintrag-Löschungen** — alle phase-9-relevanten Einträge bleiben weil sie Cross-Phase-Wert haben (Phase 10/11/12 nutzt sie noch).
+- **Keine Phase-10-Plan-Vorbereitung** — Phase 10 startet mit eigenem Plan-First-Workflow wenn du soweit bist.
+
+**Done-Kriterium J erreicht:** ✅ (am 2026-05-16; J.2 Rename, J.3+J.4 Tests grün, J-T4 xacro-Verifikation, J.5 PHASE.md, J.6 README, J.7 progress.md, J.8 Self-Review — alles fertig außer J.9 Summary für User).
+
+---
+
+# 🏆 Phase 9 KOMPLETT ABGESCHLOSSEN am 2026-05-16
+
+**Stages durchgelaufen:** A (Paket-Skelett) + B (Wire-Protokoll, 36 Tests) + C (Kalibrierung, 30 Tests) + D (Plugin-Lifecycle, 8 Sub-Stages, 73 Tests) + E (Pluginlib-Registrierung, 3 Tests) + F (URDF-Sim/HW-Switch) + G (real.launch.py) + H (echte Servo2040, CI-grün, Oszi pending) + I (launch_testing 3 Tests + README-Polish) + J (name-Rename + Abschluss).
+
+**Test-Total:** **154 gtest-Cases + 3 launch_testing-Cases = 157 produktive Tests + ~40 Lint-Subtests**, alle grün.
+
+**Was als Ausstehende Items in spätere Phasen verschoben wurde:**
+- Oszi/Logic-Analyzer-PWM-Verifikation (H-T8) + USB-Frame-Capture (H-T9) — Memory `project_phase9_h_oscilloscope_pending.md`
+- Vel/Accel-Limits in `controllers.real.yaml` für Phase 10 — Memory `project_phase10_real_yaml_vel_limits.md`
+- IMU-Sensor-Plugin als eigenes Paket in späterer Phase — Memory `project_imu_separate_sensor_plugin.md`
+- Plugin-API-Migration zu `on_export_*_interfaces()` — Pragma-Suppression-Doku in Stage E + I Plan-Korrekturen
+- README-Konsolidierungs-Frage — Vormerk in Stage-J-Notizen
+
+**Nächste Phase:** Phase 10 — Single-Leg Bring-up + Kalibrierung
+(`docs_raspi/phase_10_single_leg.md` — noch zu schreiben wenn du soweit bist).

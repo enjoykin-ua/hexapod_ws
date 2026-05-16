@@ -5,8 +5,13 @@ ROS2-Plugin (`ros2_control` SystemInterface), das den Hexapod über das
 das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
-Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** + **E (Plugin-Registrierung)** + **F (URDF-Switch + controllers.real.yaml)** + **G (real.launch.py mit Loopback-Bringup)** + **H (echte Servo2040-Anbindung, CI-Anteil; Oszi-Anteil ⏸️ pending wegen Hardware-Limit)** abgeschlossen. Stufen I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
+Status: 🟢 **Phase 9 abgeschlossen (2026-05-16).**
+Alle 10 Stufen A–J durchgelaufen: Wire-Protokoll (B) + Kalibrierung (C) +
+Plugin-Lifecycle (D, alle 8 Sub-Stages) + Pluginlib-Registrierung (E) +
+URDF-Sim/HW-Switch (F) + real.launch.py-Bringup (G) + echte Servo2040-
+Anbindung (H, CI-Anteil grün, Oszi/Logic-Analyzer-Verifikation H-T8/H-T9
+⏸️ pending wegen Hardware-Limit) + Tests/Doku-Polish (I) + Phase-9-Abschluss
+mit ros2_control-name-Rename (J). Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
@@ -1319,7 +1324,8 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | **F** | URDF-Switch (`use_sim` xacro-arg + `<xacro:if>`-Conditionals) + `controllers.real.yaml` (50 Hz, position-only state, no velocity); F-T8/T10 Sim-Regression-Smoke grün; F-T9 nach Stage G verschoben | ✅ |
 | **G** | `real.launch.py` in `hexapod_bringup` (RSP + ros2_control_node + JSB+6JTC-Spawner-Chain) mit LaunchArgs `loopback_mode` (default false) + `serial_port` (default /dev/ttyACM0). G-T4 Loopback-Bringup-Smoke + G-T7/T8 Sim-Regression grün | ✅ |
 | **H** | Echte Servo2040-Anbindung (CI-Anteil): real.launch.py ohne Loopback, Plugin lädt mit echter Firmware, JTC-Trajectory-Roundtrip, USB-Reconnect-Smoke (D.7 real-world bestätigt), Cleanup. **Oszi-Anteil (H-T8 PWM-Wellenform + H-T9 Logic-Analyzer-USB-Frame-Capture) ⏸️ pending wegen Hardware-Limit** — voll dokumentiert in `phase_9_stage_h_test_commands.md`, Cross-Session-Reminder im Memory | ✅ (CI) / ⏸️ (Oszi) |
-| **I** | Tests + diese README finalisieren | offen |
+| **I** | launch_testing-Suite für real.launch.py loopback (3 Tests headless-CI in hexapod_bringup), README-Quick-Start-Block (Aufrufe + Plugin-Params + Topics + Echo-State + bekannte WARN); tcflush-Fix-Vorschlag zurückgezogen (Code existiert bereits) | ✅ |
+| **J** | Phase-9-Abschluss: `<ros2_control name="GazeboSimSystem">` → `name="HexapodSystem"` (1-Zeile-Rename), PHASE.md auf Phase 10 aktiv, hexapod_hardware/README Status 🟡 → 🟢, progress.md Stage-J + Phase-9-Done-Banner + Retro | ✅ |
 
 ---
 
