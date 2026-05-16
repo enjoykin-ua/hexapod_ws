@@ -904,7 +904,70 @@
 
 ## Stufe H — Echte Servo2040-Anbindung
 
-(folgt nach Stufe G)
+> **Vorab-Plan:** [`phase_9_stage_h_plan.md`](phase_9_stage_h_plan.md) — Logik-Skizze, Tests-Liste H-T1 bis H-T10, 15 Progress-Bullets, User-Entscheidungen vom 2026-05-16:
+> - **H-Q1** Bench-Setup → **A** (modifiziert): Servo2040 per USB, **Servo-Netzteil wird vor H-T4 angeschlossen** (6.0 V, CC-Limit ~0.5 A) damit kein UNDERVOLTAGE-Sturm
+> - **H-Q2** Trajectory-Tiefe → **A** (minimal, leg_1_controller, 0.1 rad)
+> - **H-Q3** USB-Reconnect-Smoke → **A** (jetzt schon)
+> - **H-Q4** Oszi/Logic-Analyzer-Doku → **A** (ausführliche Schritt-für-Schritt + Memory-Eintrag)
+>
+> Done-Kriterium H (modifiziert vs. Mutter-Plan-Doku): CI-Anteil (H-T10 + H-T1–T7 grün vom User bestätigt) erreicht, Oszi-/Logic-Analyzer-Anteil (H-T8 + H-T9) **dokumentiert aber nicht ausgeführt** — Hardware aktuell nicht verfügbar; Memory-Eintrag als Cross-Session-Pendenz.
+
+- [x] H.1 Vorab-User-Antworten zu den 4 offenen Fragen (siehe „User-Entscheidungen"-Tabelle in der Plan-Doku; alle 4 = A, plus Setup-Klärung „Servo-Netzteil wird angeschlossen vor H-T4")
+- [x] H.2 `phase_9_stage_h_test_commands.md` finalisiert (10 Tests; **prominenter Bench-Setup-Block ganz oben** mit Netzteil-Anschluss-Anleitung 6.0 V + CC-Limit 0.5 A; H-T1–T3 Voraussetzungs-Checks; H-T4 Bringup mit Negativ-Bestätigung „kein ERROR_REPORT-Sturm"; H-T5 Trajectory-Smoke mit konkretem action send_goal-Befehl; H-T6 USB-Reconnect mit klarer Warnung „nur USB ziehen, nicht Strom"; H-T7 Cleanup; **H-T8/T9 explizit als „⏸️ OPTIONAL — nicht in unserem Setup ausführbar"** mit voller Schritt-für-Schritt-Anleitung für späteren Hardware-Besitzer; 13-Symptom-Fehlerdiagnose-Tabelle)
+- [x] H.3 User-Voraussetzungs-Checks H-T1 + H-T2 + H-T3 grün **am 2026-05-16** (USB-Device sichtbar, dialout-Permission OK, Firmware-Stand manuell bestätigt). **Hinweis H-T3:** `phase-7-done`-Tag wurde nicht im fw-Repo gesetzt (Doku-Drift aus Phase-7-Abschluss) → `git describe --tags` zeigt `legacy-pushups-10-g6525ffe`. User-Bestätigung „neueste FW geflasht" akzeptiert; test_commands.md-Anweisung entsprechend aufgeweicht. Optionaler Cleanup: `git tag phase-7-done HEAD` im fw-Repo retroaktiv setzen.
+- [x] H.4 Test H-T4 (real.launch.py ohne Loopback) — User-ausgeführt **am 2026-05-16, grün bestätigt**: alle Plugin-Lifecycle-Stages durchlaufen sauber (on_init → on_configure → on_activate Boot-Sequenz mit `seq counter advanced by 20` = 18× ENABLE_SERVO + RESET + neutral SET_TARGETS), `update rate is 50 Hz` aus controllers.real.yaml, alle 7 Controller `Successfully switched controllers` → active. **Kosmetische Beobachtung:** eine einzelne `Servo2040Reader: frame decode failed (CRC/COBS/length, 83 B)`-WARN während on_activate, typisches USB-CDC-Boot-Garbage beim Initial-Open (Kernel-Puffer hatte Alt-Frames vor dem RSP-Open). Nicht kritisch — kein Sturm, alle 20 Boot-Frames sauber ACK'd. Fix-Vorschlag „`tcflush(fd, TCIFLUSH)` direkt nach Port-Open" als 🟡 vormerk Stage I/J.
+- [x] H.5 Test H-T5 (JTC-Trajectory-Smoke `leg_1_controller`) — User-ausgeführt **am 2026-05-16, grün bestätigt**: `Goal reached, success!` im Log. Plugin-→-Firmware-Roundtrip (write SET_TARGETS → Echo-State → JTC sieht Soll=Ist) end-to-end funktional.
+- [x] H.6 Test H-T6 (USB-Reconnect-Smoke) — User-ausgeführt **am 2026-05-16, grün bestätigt**: Kabel-Pull → POLLERR/HUP erkannt → Reader-Thread `entering reconnect-loop` + Backoff-Sequenz `{100, 200, 500, 1000, 2000}` ms exakt wie in Stage D.7 konfiguriert → Kabel wieder rein → `reconnect SUCCESS after 5 attempts`. **Wichtige Erkenntnis (Plan-Drift):** ros2_control hat einen Auto-Deactivate-Mechanismus für die Hardware-Komponente bei write-Fail — nicht nur die Controller werden inactive, sondern auch das Plugin selbst. Recovery-Procedure muss daher **ZUERST** `ros2 control set_hardware_component_state GazeboSimSystem active` und **DANN** `switch_controllers --activate ...` machen. test_commands.md-Anweisung wurde retroaktiv korrigiert (siehe Plan-Korrektur).
+- [x] H.7 Test H-T7 (Cleanup-Verifikation nach Ctrl-C) — User-ausgeführt **am 2026-05-16, grün bestätigt**: sauberes Beenden, kein hängender Prozess, USB-Device frei.
+- [⏸️] H.8 Test H-T8 (Oszi-PWM-Wellenform-Verifikation) — **nicht ausgeführt: kein Oszi verfügbar**. Anweisung in test_commands.md dokumentiert (Pin GPIO16, Pulsweiten-Bereich 1000–2000 µs, Saleae/Rigol). Memory-Eintrag als Cross-Session-Pendenz.
+- [⏸️] H.9 Test H-T9 (Logic-Analyzer-USB-Frame-Capture) — **nicht ausgeführt: kein Logic-Analyzer verfügbar**. Anweisung dokumentiert (USB-CDC mitschneiden, mit Stage-B-Encoder cross-validieren).
+- [x] H.10 Test H-T10 (hexapod_hardware-Tests weiter 208/0): **Summary: 208 tests, 0 errors, 0 failures, 20 skipped** — identisch zum Stage-G-Endstand. Plugin in Stage H nicht angefasst, strikt 0 Diff erwartet — verifiziert.
+- [x] H.11 Kritischer Self-Review-Tabelle in `phase_9_progress.md` (siehe unten)
+- [x] H.12 Eventuelle Post-Review-Fixes — **zwei retro-Fixes durchgeführt während Stage H:** (1) test_commands.md H-T6-Recovery-Procedure korrigiert (set_hardware_component_state ZUERST, dann switch_controllers — vorher fehlte das, weil ros2_control-Auto-Deactivate-Verhalten der Hardware-Komponente bei write-Fail nicht antizipiert war). (2) test_commands.md H-T3 aufgeweicht zu „User-Bestätigung reicht falls phase-7-done-Tag nicht im fw-Repo gesetzt wurde" (Doku-Drift aus Phase-7-Abschluss).
+- [x] H.13 README-Update: `hexapod_hardware/README.md` Status-Zeile auf „A + B + C + D + E + F + G + H abgeschlossen" + Stufentabelle Stage H = ✅ (CI-Anteil, mit Hinweis dass Oszi-Anteil ⏸️ pending ist)
+- [x] H.14 progress.md: H-Sektion mit Bullets + Notizen + Post-Review-Tabelle (diese Sektion)
+- [x] H.15 Memory-Eintrag geschrieben: `project_phase9_h_oscilloscope_pending.md` (Cross-Session-Reminder „Phase 9 Stage H Oszi/Logic-Analyzer-Tests H-T8 + H-T9 noch nicht ausgeführt — bei Hardware-Verfügbarkeit nachholen + Eintrag löschen"). In MEMORY.md verlinkt.
+
+### Stufen-H-Post-Review (kritische Punkte, durchgegangen am 2026-05-16, **nach grünen User-Smokes**)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Plugin lädt mit echter Firmware (USB-CDC, nicht Loopback) | ✅ verifiziert | H-T4 grün: on_init → on_configure (Port open) → on_activate (Boot-Sequenz mit 20 Frames). Alle 7 Controller `active`. Stage-A–G-Code real-world bestätigt. |
+| Servo-Netzteil-Anschluss-Anweisung war essentiell | ✅ dokumentiert | Ohne 6.0 V am Servo-Rail würde Firmware permanent UNDERVOLTAGE_TRIPPED setzen und alle ENABLE_SERVO mit NACK beantworten. Bench-Setup-Block ganz oben in test_commands.md macht das explizit. |
+| H-T3-Doku-Drift: `phase-7-done`-Tag fehlt im fw-Repo | 🟡 vormerk (optional) | Phase-7-Abschluss-PHASE.md erwähnt Tag als optionalen Schritt; User hat ihn nicht gesetzt. Pragmatische Behandlung: H-T3-Anweisung aufgeweicht, „User-Bestätigung neueste FW geflasht" akzeptiert. Optional retroaktiv `git tag phase-7-done HEAD` im fw-Repo. |
+| USB-CDC-Boot-Garbage WARN in H-T4 | 🟡 vormerk Stage I/J | Eine einzelne `frame decode failed (83 B)`-WARN beim Initial-Open des Ports. Plugin-Code könnte `tcflush(fd, TCIFLUSH)` direkt nach `open()` machen um den Initial-Puffer zu purgen — kosmetischer Fix in `serial_port.cpp::open()`. |
+| ros2_control Auto-Deactivate der Hardware-Komponente bei write-Fail | ✅ dokumentiert | War im Stage-D.7-Plan **nicht antizipiert** (dort ging es nur um Reader-Backoff). H-T6-Smoke hat gezeigt: write-Fail → controller_manager setzt nicht nur die Controller, sondern auch die Hardware-Komponente auf `inactive`. Recovery-Procedure muss daher `set_hardware_component_state ... active` ZUERST machen. test_commands.md retroaktiv korrigiert. |
+| Stage-D.7-Reconnect-Backoff-Verhalten real-world | ✅ verifiziert | H-T6 zeigt exakt `{100, 200, 500, 1000, 2000}` ms-Sequenz aus dem Plugin-Code, `reconnect SUCCESS after 5 attempts`. Reader-Thread bleibt am Leben (kein `[FATAL]`, kein Thread-Terminate). Stage-D.7-Design real-world bestätigt. |
+| H-T6 controller_manager-„Not acceptable command interfaces"-ERROR | ✅ OK (kosmetisch) | Beim Disconnect-Trigger versucht controller_manager einen sauberen deactivate-mode-switch, aber die Interfaces sind ja schon weg → ERROR-Output ist erwartet aber funktional unkritisch (Controller landen trotzdem in `inactive`). Kein Fix nötig. |
+| JTC-Trajectory-Roundtrip durch das Plugin | ✅ verifiziert | H-T5: minimale leg_1-Trajectory → `Goal reached, success!`. write SET_TARGETS → Echo-State → JTC sieht Soll=Ist. End-to-End-Pfad gesund. |
+| Cleanup-Verhalten nach Ctrl-C | ✅ verifiziert | H-T7: sauberes Beenden, kein hängender Prozess, USB-Device frei. on_deactivate (18× DISABLE_SERVO) sauber durchgelaufen. |
+| H-T10 hexapod_hardware-Tests Regression | ✅ verifiziert | 208/0 unverändert. Plugin in Stage H nicht angefasst. |
+| Oszi/Logic-Analyzer-Tests H-T8 + H-T9 | ⏸️ pending (Hardware-Limit) | Vollständig dokumentiert in test_commands.md mit konkreten Pin-Nummern, Pulsweiten-Bereichen, Tools-Empfehlungen. Memory-Eintrag `project_phase9_h_oscilloscope_pending.md` als Cross-Session-Reminder. Nachholen bei Hardware-Verfügbarkeit. |
+| Plan-Abweichungen während Implementation | ✅ dokumentiert | Plan-Korrektur-Sektion in `phase_9_stage_h_plan.md` (folgt) mit 3 Punkten: H-T3-Tag-Drift, H-T4-USB-Boot-Garbage, H-T6-Auto-Deactivate-Erkenntnis (test_commands.md retroaktiv korrigiert). |
+
+### Stufen-H-Notizen
+
+- **Stage-H wertvoll trotz Hardware-Limit:** Auch ohne Oszi/Logic-Analyzer haben wir vier substanzielle Real-World-Erkenntnisse bekommen die kein Unit-Test gefunden hätte:
+  1. USB-CDC-Boot-Garbage beim Initial-Open (TCIFLUSH-Fix-Idee)
+  2. ros2_control Auto-Deactivate der Hardware-Komponente bei write-Fail (Recovery-Procedure korrigiert)
+  3. UNDERVOLTAGE-Sturm wenn Servo-Netzteil fehlt (Bench-Setup-Wichtigkeit explizit dokumentiert)
+  4. Stage-D.7-Reconnect-Backoff in real-world genau wie konfiguriert
+- **Doku-Lessons sind teurer als Code-Lessons.** Drei der Plan-Drift-Punkte (Tag fehlt, Auto-Deactivate, Boot-Garbage) hätten in besseren Vorab-Plänen vermieden werden können — aber kein bekanntes Pattern hätte das antizipiert ohne real-world-Run. Take-away: für Hardware-Stages ist eine erste „live, beobachten" Iteration genauso wertvoll wie die Plan-Doku selbst.
+- **Phase-7-Hygiene:** `git tag phase-7-done` retroaktiv setzen wäre sinnvoll für zukünftige Phasen-Abschluss-Discipline. Nicht-blockierend, optional.
+
+### Was Stufe H explizit **nicht** macht
+
+- **Keine echten Hexapod-Servos** — Phase 10. Verifikation der echten Pulse-µs-zu-Winkel-Konversion mit kalibrierten Endlagen kommt dort.
+- **Keine PWM-Wellenform-Verifikation am Output-Pin** (H-T8) — kein Oszi verfügbar. Dokumentiert in test_commands.md + Memory.
+- **Kein Logic-Analyzer USB-Frame-Capture** (H-T9) — dito.
+- **Keine Plugin-Code-Änderungen** — Plugin in Stage H nicht angefasst (208 Tests unverändert).
+- **Kein gait + kein teleop** — modulare Trennung, Phase 10/12-Land.
+- **Keine `<ros2_control name>`-Umbenennung** — Stage J Polish.
+
+**Done-Kriterium H (CI-Anteil) erreicht:** ✅ (am 2026-05-16; H-T1, H-T2, H-T3, H-T4, H-T5, H-T6, H-T7, H-T10 alle grün vom User bestätigt — Plugin lädt mit echter Firmware, JTC-Trajectory-Roundtrip funktioniert, USB-Reconnect-Verhalten verifiziert, Cleanup sauber, 208 Plugin-Tests unverändert).
+**Done-Kriterium H (Oszi-Anteil) akzeptiert als pending:** ⏸️ (H-T8 + H-T9 mangels Hardware nicht ausgeführt, ausführlich dokumentiert in test_commands.md, Memory-Eintrag als Cross-Session-Reminder).
+
+**🎉 Stufe H komplett (im verfügbaren Umfang).** Phase 9 Stand: A + B + C + D (8/8) + E + F + G + **H** ✅ (Oszi-Anteil ⏸️). Verbleibend: I (Tests + Doku-Polish), J (Phase-9-Abschluss).
 
 ---
 
