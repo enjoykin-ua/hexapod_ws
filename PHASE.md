@@ -2,7 +2,8 @@
 
 **Aktuell:** Phase 10 — Single-Leg Bring-up + Kalibrierung
 **Datei:** `docs_raspi/phase_10_single_leg.md`
-**Progress-Tracker:** `docs_raspi/phase_10_progress.md` (legen wir zu Phase-10-Start an)
+**Progress-Tracker:** `docs_raspi/phase_10_progress.md`
+**Sicherheits-Setup:** `docs_raspi/phase_10_safety_setup.md`
 
 > **Phase 9 (ROS2-Plugin `hexapod_hardware`):** ✅ abgeschlossen am 2026-05-16.
 > Alle 10 Stufen A–J durchgelaufen. CI-Anteil voll grün (208 Plugin-Tests +
