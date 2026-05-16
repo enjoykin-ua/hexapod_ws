@@ -6,7 +6,7 @@ das Sim-Plugin `gz_ros2_control` und exportiert 18 Position-Command-/
 State-Interfaces an `controller_manager`.
 
 Status: 🟡 **In Entwicklung — Phase 9.**
-Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** + **E (Plugin-Registrierung)** + **F (URDF-Switch + controllers.real.yaml)** abgeschlossen. Stufen G (real.launch.py), H (echte Servo2040-Anbindung), I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
+Aktueller Stand: Stufen A + B + C + **D komplett (alle 8 Sub-Stages)** + **E (Plugin-Registrierung)** + **F (URDF-Switch + controllers.real.yaml)** + **G (real.launch.py mit Loopback-Bringup)** abgeschlossen. Stufen H (echte Servo2040-Anbindung), I (Tests + Doku) und J (Phase-Abschluss) folgen. Aktuell:
 - Wire-Protokoll-Layer (36 Tests inkl. 5 goldener Hex-Anker gegen Python-Ref)
 - Kalibrierungs-Lib (30 Tests, piecewise-linear Konversion + Strong-EH-Guarantee)
 - SerialPort-Wrapper (14 Tests inkl. cfmakeraw-Byte-Exaktheit + Mutex-Race-Serialisierung)
@@ -1219,7 +1219,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 | **D** | **Komplett — 8/8 Sub-Stages** | ✅ |
 | **E** | Plugin-Registrierung runtime via `pluginlib::ClassLoader` verifiziert (3 Tests) + Test-Helper-Refactor in `test/test_helpers.hpp` | ✅ |
 | **F** | URDF-Switch (`use_sim` xacro-arg + `<xacro:if>`-Conditionals) + `controllers.real.yaml` (50 Hz, position-only state, no velocity); F-T8/T10 Sim-Regression-Smoke grün; F-T9 nach Stage G verschoben | ✅ |
-| **G** | `real.launch.py` | offen |
+| **G** | `real.launch.py` in `hexapod_bringup` (RSP + ros2_control_node + JSB+6JTC-Spawner-Chain) mit LaunchArgs `loopback_mode` (default false) + `serial_port` (default /dev/ttyACM0). G-T4 Loopback-Bringup-Smoke + G-T7/T8 Sim-Regression grün | ✅ |
 | **H** | Echte Servo2040-Anbindung mit Oszi/Logic-Analyzer | offen |
 | **I** | Tests + diese README finalisieren | offen |
 

@@ -832,26 +832,73 @@
 
 ## Stufe G — `real.launch.py`
 
-> **Seed aus Stage F:** Die ad-hoc-Launch-Vorlage
-> `/tmp/f_t9_smoke.launch.py` (geschrieben am 2026-05-16 während Stage F)
-> ist zu ~95 % der Stage-G-Deliverable: RSP + ros2_control_node mit
-> HW-URDF (use_sim:=false, loopback_mode:=true) + JSB-Spawner + 6
-> leg-JTC-Spawner via OnProcessExit-Chain. Sie kam aus der F-Q5-
-> Verschiebung-Entscheidung (`phase_9_stage_f_plan.md` Plan-Korrektur
-> Punkt 5). Stage G greift sie 1:1 auf und ergänzt:
-> - Launch-Args (`loopback_mode:=true|false`, `serial_port:=...`)
->   damit Stage H (echte Servos) ohne URDF-Edit nur den Launch-Arg
->   überschreibt
-> - Finaler Ort `hexapod_bringup/launch/real.launch.py` (statt /tmp)
-> - Install-Eintrag in `hexapod_bringup/CMakeLists.txt`
-> - README-Doku-Block in `hexapod_bringup/README.md` mit den
->   Launch-Args-Definitionen + Aufruf-Beispielen
-> - Stage-G-Done-Kriterien-Smoke (vorher F-T9): `ros2 launch ... loopback_mode:=true` startet sauber, `list_hardware_components` zeigt Plugin als active, `list_controllers` zeigt 7 active
+> **Vorab-Plan:** [`phase_9_stage_g_plan.md`](phase_9_stage_g_plan.md) — Logik-Skizze, Tests-Liste G-T1 bis G-T8, 18 Progress-Bullets, User-Entscheidungen vom 2026-05-16:
+> - **G-Q1** loopback_mode-Default → **A** (`false`, echte HW als Default; Loopback-Smoke setzt explizit `:=true`)
+> - **G-Q2** RViz im real.launch.py → **A** (nicht mitstarten; separat per `rviz2 -d view.rviz` bei Bedarf)
+> - **G-Q3** gait + teleop → **A** (modular separat, Konsistenz zu sim.launch.py)
+> - **G-Q4** G-T4-Smoke-Style → **A** (User-Run, kein launch_testing)
 >
-> Hilfreiche Referenzen:
-> - Original-F-T9-Block in `phase_9_stage_f_test_commands.md` (mit Heredoc-Inhalt + Schritt-für-Schritt-Anleitung)
-> - sim.launch.py-OnProcessExit-Pattern in `hexapod_bringup/launch/sim.launch.py` (Stage-F-Vorlage bereits getestet)
-> - Stage-G-Done-Kriterien aus Mutter-Plan-Doku `phase_9_hexapod_hardware.md`
+> Done-Kriterium G (aus Mutter-Plan-Doku): `ros2 launch hexapod_bringup real.launch.py loopback_mode:=true` startet sauber, `ros2 control list_hardware_components` zeigt Plugin als active, `ros2 control list_controllers` zeigt 1× JSB + 6× JTC alle active. Sim-Pfad regression-frei.
+>
+> **Vorlage:** `/tmp/f_t9_smoke.launch.py` (95% fertig, aus Stage F's F-T9-Verschiebung). Stage G ergänzt nur Launch-Args + finalen Ort + README + Spawner.
+
+- [x] G.1 Vorab-User-Antworten zu den 4 offenen Fragen (siehe „User-Entscheidungen"-Tabelle in der Plan-Doku; alle 4 = A)
+- [x] G.2 `hexapod_bringup/launch/real.launch.py` neu (155 Zeilen, basierend auf `/tmp/f_t9_smoke.launch.py`-Vorlage), mit `DeclareLaunchArgument('loopback_mode', default='false')` + `DeclareLaunchArgument('serial_port', default='/dev/ttyACM0')`, xacro-Args (`use_sim:=false` fest + die zwei LaunchConfigs) über `Command([])`-Substitution durchgereicht. Ausführlicher Top-Docstring erklärt Topologie + bewusste Auslassungen (kein gait/teleop/RViz/Gazebo).
+- [x] G.3 `hexapod_bringup/package.xml`: `<exec_depend>hexapod_hardware</exec_depend>` ergänzt (für korrekte Build-Reihenfolge + Runtime-Plugin-Discovery)
+- [x] G.4 `hexapod_bringup/README.md`: neuer „Real-Hardware-Bringup (Stufe G)"-Abschnitt mit 4 Aufruf-Beispielen (Default-HW / Loopback / serial_port-Override / Kombination), Args-Tabelle, Topologie-Diagramm, Diffs-zu-sim.launch.py, Verifikations-Befehle, Wann-nutzt-man-welchen-Launch-Tabelle. Header + Inhalt-Tabelle erweitert (sim + real). Beziehung-zu-anderen-Paketen-Tabelle erweitert (hexapod_hardware ergänzt, Spalten-Anmerkungen welcher Eintrag für sim/real)
+- [x] G.5 `colcon build` (hexapod_bringup) grün, 1 package finished, 0.68s, keine Warnings
+- [x] G.6 Test G-T2 (`ros2 launch ... --show-args`): zeigt korrekt `loopback_mode` (default `false`) + `serial_port` (default `/dev/ttyACM0`) mit Description-Strings
+- [x] G.7 Test G-T3 (xacro mit LaunchConfig-Args durchgereicht — strukturell korrekt): `xacro ... use_sim:=false loopback_mode:=true serial_port:=/dev/ttyACM1` → `<param name="serial_port">/dev/ttyACM1</param>`, `<param name="loopback_mode">true</param>` korrekt im URDF
+- [x] G.8 Test G-T4 (**Loopback-Bringup-Smoke** — User-ausgeführt **am 2026-05-16, grün bestätigt**): `ros2 launch hexapod_bringup real.launch.py loopback_mode:=true` → keine `[ERROR]`/`[FATAL]` im Log, `list_hardware_components` zeigt Plugin als active, `list_controllers` zeigt 7 active. **Stage-G-Hauptbeweis** (vorgezogen aus Stage F's F-T9) erfolgreich.
+- [x] G.9 Test G-T5 (Args-Override-Smoke `loopback_mode:=true serial_port:=/dev/null` — User-ausgeführt **am 2026-05-16, grün bestätigt**): live veröffentlichtes `robot_description` enthält `<param name="serial_port">/dev/null</param>` (überschriebener Wert statt Default `/dev/ttyACM0`). LaunchConfiguration → xacro → `<param>`-Substitutionskette funktioniert end-to-end.
+- [x] G.10 Test G-T6 (hexapod_hardware-Tests weiter 0 failures — **208 tests, 0 errors, 0 failures, 20 skipped**, identisch zum Stage-F-Endstand; Plugin-Code in Stage G nicht angefasst, also strict 0 Diff erwartet — verifiziert)
+- [x] G.11 Test G-T7 (sim.launch.py-Regression — User-ausgeführt **am 2026-05-16, grün bestätigt**): sim.launch.py unverändert lauffähig nach Stage G, 7 Controller active, Sim-Pfad regression-frei.
+- [x] G.12 Test G-T8 (Sim-Walking-Regression mit gait + teleop + PS4 — User-ausgeführt **am 2026-05-16, grün bestätigt**): voller IK + Gait + Teleop-Pfad funktioniert, Tripod-Gait läuft, Drehen, Body-Höhe. Memory-Konvention `feedback_urdf_refactor_full_smoke.md` erfüllt.
+- [x] G.13 Kritischer Self-Review-Tabelle in `phase_9_progress.md` (siehe unten)
+- [x] G.14 Eventuelle Post-Review-Fixes — keine inhaltlichen Fixes nötig (Self-Review-Tabelle hat keinen 🔴-Eintrag, zwei 🟡-Vormerker bleiben aus Stage F dokumentiert)
+- [x] G.15 `phase_9_stage_g_test_commands.md` finalisiert (8 Tests inkl. G-T4 vorgezogener Stage-G-Hauptbeweis + G-T7/T8 Sim-Regression nach Memory-Konvention; 10-Symptom-Fehlerdiagnose-Tabelle)
+- [x] G.16 README-Updates: `hexapod_bringup/README.md` (neuer Stage-G-Abschnitt, siehe G.4) + `hexapod_hardware/README.md` Status-Zeile auf „A + B + C + D + E + F + G abgeschlossen" + Stufentabelle Stage G = ✅
+- [x] G.17 progress.md: G-Sektion mit Bullets + Notizen + Post-Review-Tabelle (siehe unten)
+- [x] G.18 `/tmp/f_t9_smoke.launch.py` cleanup — Datei gelöscht (`rm -v`). Vorlage wurde in `hexapod_bringup/launch/real.launch.py` finalisiert, Wegwerf-Copy nicht mehr nötig.
+
+### Stufen-G-Post-Review (kritische Punkte, durchgegangen am 2026-05-16, **vor User-Smoke-Tests G-T4/T5/T7/T8**)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Launch-Syntax + Args-Deklaration | ✅ verifiziert | G-T2: `--show-args` zeigt beide LaunchArgs mit korrekten Defaults + Description-Strings. Bug-Class „vergessenes DeclareLaunchArgument" frühzeitig abgedeckt. |
+| xacro-Args-Durchreichung über LaunchConfiguration | ✅ verifiziert | G-T3: `xacro ... loopback_mode:=true serial_port:=/dev/ttyACM1` → `<param>`-Werte stimmen 1:1 im generierten URDF. Die `Command(['xacro ', ..., LaunchConfiguration(...)])`-Substitution funktioniert wie erwartet. |
+| `<exec_depend>hexapod_hardware</exec_depend>` in package.xml | ✅ OK | Hinzugefügt; sorgt für korrekte Build-Reihenfolge (hexapod_hardware vor hexapod_bringup) und für Runtime-Plugin-Discovery (hexapod_hardware's AMENT_PREFIX_PATH-Eintrag wird beim source-en gezogen). |
+| Spawner-Chain analog sim.launch.py | ✅ OK | OnProcessExit(spawn_jsb → leg_spawners) ist 1:1 das Pattern aus `sim.launch.py`. JTCs werden erst gestartet wenn JSB läuft (sonst leerer State-Estimate). |
+| use_sim_time: False überall | ✅ OK | Sowohl in `robot_description`-Dict (für RSP) als auch implizit für controller_manager. Pendant zum `controllers.real.yaml`-Setting (auch False). |
+| Default loopback_mode=false | ✅ OK | Stage H profitiert ohne Override; Loopback-Smoke setzt explizit. G-Q1-Entscheidung A umgesetzt. |
+| Plugin-Code unverändert (Stage G ist pures Launch-File-Work) | ✅ verifiziert | G-T6: 208 Tests grün, exakt wie nach Stage F. Keine Regression. |
+| `<ros2_control name="GazeboSimSystem">` im HW-Pfad missverständlich | 🟡 Stage J | Logging-Tag aus URDF; `list_hardware_components` zeigt es. Plugin-Name in der Zeile darunter ist korrekt. Rename-Refactor bleibt Stage-J-Vormerk (Stage F Plan-Korrektur Punkt 2). |
+| Doppel-Spawner-Race (sim + real Launch parallel) | ✅ OK theoretisch | sim und real laufen nie gleichzeitig (mutually exclusive — beide hätten denselben `controller_manager`-Node-Namen + dieselben Joint-Resources). Kein Code-Schutz nötig — der zweite Launch würde sofort mit „node already exists"-Error abbrechen, was das richtige Verhalten ist. |
+| RViz/gait/teleop NICHT inline | ✅ OK (bewusst) | G-Q2 + G-Q3 = A. Konsistent zu sim.launch.py. README dokumentiert die separate Start-Konvention. |
+| `/tmp/f_t9_smoke.launch.py`-Cleanup | 🟡 pending G.18 | Wegwerf-Vorlage aus Stage F, wird gelöscht jetzt im G.18-Step. |
+| Plan-Abweichungen während Implementation | ✅ dokumentiert | 3 Punkte in `phase_9_stage_g_plan.md` Plan-Korrekturen-Sektion: AskUserQuestion-Limit (4 statt 5), G-T1-Build-Scope-Wording, GazeboSimSystem-Name-Display in G-T4. Keine fachlichen Diffs. |
+| Memory-Konvention `feedback_urdf_refactor_full_smoke.md` greift auch hier | ✅ OK | Stage G ist Bringup-Refactor am gleichen Paket wie sim.launch.py → G-T7 (Sim-launch-Smoke) + G-T8 (Walking-Smoke) sind im Test-Plan, auch wenn Stage G die URDF nicht direkt anfasst. |
+| User-Smokes G-T4/T5/T7/T8 | ✅ verifiziert (2026-05-16) | G-T4 grün (Loopback-Bringup: Plugin + 7 Controller active im Log + list_*-Output), G-T5 grün (Args-Override: `/dev/null` korrekt im veröffentlichten robot_description), G-T7 grün (sim.launch.py-Regression: 7 Controller active), G-T8 grün (Walking-Regression: Tripod-Gait + Drehen + Body-Höhe). **Stage G damit voll DONE.** |
+
+### Stufen-G-Notizen
+
+- **Launch-File-Größe ~155 Zeilen** vs. Plan-Schätzung ~120. Mehr Top-Doku-Block + ausführlichere LaunchArg-Description-Strings. Lesbarkeit > Kürze, gleiche Politik wie bei test_plugin_registration.cpp in Stage E.
+- **`xacro ... use_sim:=false` hartkodiert im `Command([])`, nicht als LaunchArg.** Bewusste Entscheidung: `real.launch.py` ist per Definition der HW-Pfad — wer Sim will, soll `sim.launch.py` nehmen. Das spart einen weiteren LaunchArg und vermeidet die Verwirrung „warum hat real.launch.py ein use_sim-Arg".
+- **`ros2_control_node` bekommt sowohl `robot_description` als auch `real_yaml` als Params.** Das ist der jazzy-Standard-Pattern: `robot_description` für die Hardware-Info-Parsing-Pipeline + `controllers.real.yaml` für die controller_manager-Params + Controller-Type-Deklarationen. Beide werden gemerged. War mir nicht 100% sicher beim Schreiben, aber das ist exakt das was `/tmp/f_t9_smoke.launch.py` schon gemacht hat (und das hat in Stage F's Smoke schon gewerkt).
+- **Stage G war schneller fertig als Stage F.** Stage F war ein URDF-Refactor mit vielen architektur-relevanten Trade-offs (velocity-Mismatch, xacro-Args-Scope, Vel-Limits). Stage G war im Wesentlichen „Stage-F-Vorlage finalisieren + LaunchArgs ergänzen". Lesson: wenn die Plan-Doku einer Stage zu kompakt aussieht (kurze Logik-Skizze, wenige offene Fragen), ist die Stage wahrscheinlich auch wirklich kompakt — kein Anlass künstlich zu komplizieren.
+
+### Was Stufe G explizit **nicht** macht
+
+- **Kein echter Servo2040-Anschluss** — Stage H. G-T4 ist `loopback_mode:=true`.
+- **Kein gait, kein teleop, kein RViz im real.launch.py** — G-Q2 + G-Q3 = A. Modular separat starten.
+- **Keine launch_testing-Suite** — G-Q4 = A. CI-Coverage über `--show-args` (G-T2) + Plugin-Tests (G-T6); End-to-End via User-Smoke G-T4.
+- **Keine Trajectory-Tests via JTC-Action-Server** — Stage H/I-Land.
+- **Keine `<ros2_control name="...">`-Umbenennung** — Stage J Polish (siehe Stage F Self-Review).
+
+**Done-Kriterium G (CI-Anteil) erreicht:** ✅ (am 2026-05-16; G-T1, G-T2, G-T3, G-T6 alle grün; 208 hexapod_hardware-Tests unverändert, Launch-Syntax + Args + xacro-Substitution alle korrekt).
+**Done-Kriterium G (User-Smoke-Anteil) erreicht:** ✅ (am 2026-05-16; G-T4 + G-T5 + G-T7 + G-T8 alle grün vom User bestätigt — Loopback-Bringup mit Plugin + 7 Controller active, Args-Override `/dev/null` live im robot_description, sim.launch.py-Regression-frei, voller Sim-Walking-Stack funktioniert).
+
+**🎉 Stufe G komplett.** Phase 9 Stand: A + B + C + D (8/8) + E + F + **G** ✅. Verbleibend: H (echte Servo2040-Anbindung mit Oszi/Logic-Analyzer), I (Tests + Doku-Polish), J (Phase-9-Abschluss).
 
 ---
 
