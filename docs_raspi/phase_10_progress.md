@@ -401,12 +401,68 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ## Stufe E — Stack-Validation leg_6_tibia (1 Servo isoliert)
 
-> Wird mit Stage-E-Plan-Doku aufgefüllt sobald Stage D abgeschlossen ist.
+> **Vorab-Plan:** [`phase_10_stage_e_plan.md`](phase_10_stage_e_plan.md) —
+> Logik-Skizze (E.0 Bench-Setup PSU 4 A, E.1 Plugin-Bringup, E.2 Tibia
+> direction-Test isoliert, E.3 optional Flip, E.4 Endlagen ±1.0 rad,
+> E.5 Shutdown, E.6 Build/Test/Self-Review), Tests-Liste E-T1..E-T7,
+> 14 Progress-Bullets.
+>
+> **User-Entscheidungen vom 2026-05-17 (alle Variante A):**
+> - **E-Q1** Tibia direction-Test-Form → **A** (isoliert `[0,0,+0.1]`)
+> - **E-Q2** Endlagen-Test Reihenfolge → **A** (Stage-C-Pattern, kein Schwerkraft-Hebel)
+> - **E-Q3** User-Hand-Position vor Launch → **A** (locker, Tibia passive ≈ pulse_zero)
+> - **E-Q4** Bei Tibia-Stall in Endlagen → **A** (pulse_min/max +30 µs enger ziehen)
+>
+> **Begleit-Datei:**
+> - [`phase_10_stage_e_test_commands.md`](phase_10_stage_e_test_commands.md)
+>
+> Done-Kriterium E: Tibia `direction` final (mit oder ohne Flip), Endlagen ±1.0 rad ohne Stall, kein Firmware-Trip, RViz und echtes Bein synchron, Build+Test regression-frei.
 
-**Stages-E-Output (Erwartung):**
-- E.1 Tibia an Pin 17 angeschlossen, Coxa + Femur abgeklemmt
-- E.2 Trajectory ±0.1 rad und ±1.0 rad
-- E.3 Tibia direction final
+- [x] E.1 phase_10_stage_e_plan.md (Plan-Doku) finalisiert + User-Freigabe (2026-05-17)
+- [x] E.2 phase_10_stage_e_test_commands.md angelegt (2026-05-17)
+- [x] E.3 E.0 Bench-Setup-Check ausgeführt vom User (PSU 7.0 V / 4 A, nur Tibia an Pin 17) (2026-05-17)
+- [x] E.4 E.1 Plugin-Bringup grün, kein Trip (2026-05-17)
+- [x] E.5 E.2 Tibia direction-Test gefahren — User-Beobachtung **synchron mit RViz** → direction=+1 (default) ist korrekt, **kein Flip nötig** (2026-05-17)
+- [x] E.6 E.3 direction-Flip auf -1 **nicht ausgeführt** (Stage E.2 zeigte direction=+1 korrekt) — übersprungen, YAML Pin 17 bleibt bei default direction (2026-05-17)
+- [x] E.7 E.4 Tibia Endlagen-Test in User-Smoke verifiziert („passt, die richtungen drehen sich wie in rviz") (2026-05-17)
+- [x] E.8 E.5 PSU AUS, Tibia abgeklemmt (User vor Commit) (2026-05-17)
+- [x] E.9 E.6 colcon build grün, 1 package finished 0 errors (2026-05-17)
+- [x] E.10 E.6 colcon test grün **208/0/20 + 18/0/0** im ersten Lauf (kein flaky-Retry nötig) (2026-05-17)
+- [x] E.11 E-T3..E-T6 User-Bestätigung („hier passt alles man braucht kein inverter, die richtungen drehen sich wie in rviz") (2026-05-17)
+- [x] E.12 E-T7 YAML-Inspektion: Tibia Pin 17 direction-Wert **unverändert** (default +1), aber Kommentar-Block ergänzt mit Stage-E-Bestätigung + Cross-Phase-Hinweis zur widerlegten Left-Side-Hypothese (2026-05-17)
+- [x] E.13 Kritischer Self-Review-Tabelle (siehe unten)
+- [x] E.14 Stage-E-Notizen (siehe unten)
+
+**Done-Kriterium E erreicht (CI-Anteil + User-Smoke):** ✅ am 2026-05-17.
+
+### Stage-E-Post-Review (kritische Punkte, 2026-05-17)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Plan-Doku-Vollständigkeit (4 Pflichtinhalte CLAUDE.md §4) | ✅ verifiziert | Logik-Skizze (E.0–E.6), Tests-Liste (E-T1..E-T7), Progress-Checkliste (E.1–E.14), User-Antworten E-Q1..E-Q4 alle Variante A |
+| Tibia direction=+1 funktional verifiziert | ✅ verifiziert | User-Beobachtung „die richtungen drehen sich wie in rviz" — direction=+1 (default) ist korrekt für Tibia. **Kein YAML-Wert geändert** für Pin 17. |
+| **Left-Side-Konsistenz-Hypothese WIDERLEGT** | 🟡 wichtiger Cross-Phase-Datenpunkt | Stage D Notiz hatte vermutet: alle linksseitigen Servos invertiert. Stage E zeigt: leg_6 Tibia ist `+1`, also Hypothese falsch. **Konsequenz für Phase-12-Auto-Cal:** Tool muss **jeden** Servo individuell testen, keine Vorhersage aus Bein-Seite oder Joint-Typ möglich. YAML-Kommentar entsprechend erweitert. |
+| Tibia Endlagen-Test ohne Stall | ✅ verifiziert | User-Bestätigung „passt alles" — keine Stall-Brumm-Events, kein Trip. Tibia isoliert war wie erwartet entspannt (kein Bein-Gewicht-Hebel). |
+| Self-Collision-Schutz Coxa weiter aktiv | ✅ unverändert | Coxa stromlos abgeklemmt in Stage E, kein Test-Risiko. pulse_min=1280 bleibt für spätere Stages. |
+| Regression-Frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 im ersten Lauf grün. Kein flaky-Retry nötig (im Gegensatz zu Stages C+D). Erwartet, weil Stage E nur YAML-Kommentar geändert hat (keinen direction-Wert). |
+| YAML-Diff minimal | ✅ verifiziert | `git diff src/hexapod_hardware/config/servo_mapping.yaml`: nur Kommentar-Block in der Pin-15-17-Sektion erweitert um Stage-E-Bestätigung + Cross-Phase-Hinweis. **Keine Werte geändert.** |
+| Alle 3 leg_6-Joints direction final | ✅ verifiziert | Pin 15 (Coxa): -1, Pin 16 (Femur): -1, Pin 17 (Tibia): +1 (default). Stage F kann mit den vollständig kalibrierten Werten starten. |
+| Selbst-Beschädigungs-Risiko nach Stage E | ✅ unverändert | Tibia nach Test abgeklemmt, Bench-PSU AUS. Setup bereit für Stage F (alle 3 Servos + IK). |
+| Memory-Einträge nach Stage E | ✅ unverändert | Left-Side-Konsistenz-Widerlegung ist im YAML-Kommentar + Stage-E-Post-Review verankert. Phase-12-Auto-Cal-Plan kann das beim Implementieren aufgreifen — kein separater Memory-Eintrag nötig (zu spezifisch, Cross-Phase-Verweis genügt). |
+
+### Stage-E-Plan-Korrektur (Drifts während Implementation)
+
+| # | Punkt | Begründung |
+|---|---|---|
+| 1 | **User-Smoke E-T6/E-T4 in einem Schritt zusammengefasst (wie Stages C+D)** | User hat pragmatisch direction-Test und Endlagen zusammen gefahren und Status „hier passt alles" als Gesamt-Bestätigung gemeldet. Done-Kriterium voll erfüllt. Test-Commands-Doc-Goal-Wert in E-T4 wurde während Test auf `[0.0, 0.0, -1.0]` angepasst (User-IDE-Edit, größere Bewegung statt +0.1, sicher weil Tibia isoliert) — analog zu Stage C/D Adhoc-Anpassungen. |
+| 2 | **Tibia direction=+1 = default → keine YAML-Wert-Änderung nötig** | Erstes Mal in Phase 10 dass ein Servo direction default behält. YAML-Kommentar-Block trotzdem erweitert um Stage-E-Bestätigung und Cross-Phase-Hinweis (Hypothese-Widerlegung). |
+
+### Stage-E-Notizen
+
+- **Tibia direction-Pattern bricht Left-Side-Hypothese:** Stage-D-Notiz spekulierte: "linksseitige Beine → alle Servos direction=-1". Stage E zeigt: leg_6 Tibia ist `+1`, also kein einheitliches Muster pro Bein-Seite. Phase-12-Auto-Cal-Tool muss jeden der verbleibenden 15 Servos individuell testen. Spart keine Test-Iterationen.
+- **Stage E war wie geplant der entspannteste direction-Test:** kein Schwerkraft-Hebel, Tibia passive ≈ pulse_zero, einfacher Bringup ohne Hand-Mitigation. Bestätigt das Mutter-Plan-Design (Tibia isoliert vor Stage F Voll-Integration).
+- **Phase 10 direction-Tests komplett:** alle 3 leg_6-Joints individuell verifiziert. Stage F kann sofort mit IK-Roundtrip starten ohne weitere direction-Diagnose.
+- **CI war im ersten Lauf grün:** kein flaky-Retry nötig wie in Stages C+D (wo direction-Flip eine echte YAML-Wert-Änderung auslöste). Stage E hat nur YAML-Kommentar erweitert, der von keinem Test geprüft wird — Konsistenz mit der Test-Suite ist trivial.
 
 ---
 

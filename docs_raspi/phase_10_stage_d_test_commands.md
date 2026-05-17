@@ -121,7 +121,7 @@ ros2 action send_goal /leg_6_controller/follow_joint_trajectory \
     trajectory: {
       joint_names: ['leg_6_coxa_joint', 'leg_6_femur_joint', 'leg_6_tibia_joint'],
       points: [
-        {positions: [0.0, 0.1, 0.0], time_from_start: {sec: 3, nanosec: 0}}
+        {positions: [0.0, 1.0, 0.0], time_from_start: {sec: 3, nanosec: 0}}
       ]
     }
   }"
