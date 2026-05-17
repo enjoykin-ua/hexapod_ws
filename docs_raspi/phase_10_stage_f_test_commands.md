@@ -1,0 +1,446 @@
+# Phase 10 — Stufe F — Test-Anleitung (User-Smoke)
+
+**Was geprüft wird:** Voll-Integration aller 3 leg_6-Servos unter IK +
+gait_node-Kontrolle. Phase-12-Software-Pipeline wird hier durchgehend
+verifiziert.
+
+> 🚨 **Erste Walking-Trajectories.** PSU 7.0 V / **CC 8 A** (3 Servos).
+> User-Hand am Bein vor Launch (Stage-D-Pattern).
+
+**Stage F ist in zwei Halb-Stages aufgeteilt (User-Entscheid F-Q6):**
+
+- **F-Phase-1:** F-T3 Lineal-Check (stromlos) + F-T4 Plugin-Bringup +
+  F-T5 IK-Probe → Shutdown → Commit
+- **F-Phase-2:** Bench-Setup wieder + F-T6 gait_node + cmd_vel +
+  F-T8 Strom-Auswertung → Shutdown → Commit
+
+Doppelter Bringup-Aufwand für mehr Sicherheits-Anker zwischen IK-Test
+und Walking-Test.
+
+**Plan:** [`phase_10_stage_f_plan.md`](phase_10_stage_f_plan.md)
+**Sicherheits-Setup:** [`phase_10_safety_setup.md`](phase_10_safety_setup.md)
+
+**Was NICHT in Stage F ausgeführt wird:**
+- Vel/Accel-Limit-Eintrag in `controllers.real.yaml` (Stage G)
+- Boden-Walking (Phase 12)
+
+---
+
+---
+
+# 🟢 F-Phase-1: F.1 + F.2 (Lineal + IK-Probe)
+
+## Bench-Setup (VOR allen Tests!)
+
+1. **Bench-PSU OUTPUT AUS**
+2. **CC-Limit umstellen 4 A → 8 A** (3-Servo-Bein, Mutter-Plan §B)
+3. Setpoint bleibt **7.0 V**
+4. **Servo2040 USB** am Desktop sichtbar:
+   ```bash
+   ls -l /dev/ttyACM*
+   ```
+5. **Alle 3 leg_6-Servos anstecken:**
+   - Coxa → Pin 15
+   - Femur → Pin 16
+   - Tibia → Pin 17
+   - Polaritäts-Check pro Stecker (braun/rot/gelb)
+6. **leg_5:** ruhige Default-Pose
+7. **User-Hand bereit:** Bein in Phase-5-Stand-Position vorzuhalten
+   (Fuß ~5–10 cm unter Body, alle Joints leicht geknickt). PSU-Aus-Knopf
+   griffbereit.
+8. **PSU OUTPUT AN** → Strom-Anzeige < 400 mA idle (3 Servos)
+   - > 1 A = Verdacht auf Kurzschluss, sofort AUS
+
+---
+
+## F-T3 — F.1 Bein-Geometrie-Lineal-Check (~15 min, stromlos)
+
+> **Stromlos:** für F.1 wird **kein Plugin gestartet**. Reine
+> mechanische Messung. PSU kann AN bleiben, aber Plugin-Aktivierung
+> kommt erst in F-T4.
+
+### Mess-Schritte
+
+Bein in geometrische Default-Pose halten (Coxa radial außen, Femur
+horizontal, Tibia gestreckt). Pro Segment Lineal/Schieblehre anlegen:
+
+| Segment | URDF (mm) | Mess-Punkt (Achse → Achse) | Toleranz |
+|---|---|---|---|
+| Coxa | 43.6 | Coxa-Joint-Welle → Femur-Joint-Welle | ±5 mm |
+| Femur | 79.94 | Femur-Joint-Welle → Tibia-Joint-Welle | ±5 mm |
+| Tibia | 178.7 | Tibia-Joint-Welle → Fuß-Spitze | ±5 mm |
+
+**Bei Abweichung > 5 mm:**
+- STOP, gemeinsam überlegen ob URDF angepasst wird
+- Anpassung in `src/hexapod_description/urdf/hexapod_physical_properties.xacro`
+- `colcon build --packages-select hexapod_description hexapod_hardware`
+- F-T4 retest mit angepasster Geometrie
+
+**User-Bestätigung F-T3:**
+- [ ] Coxa-Länge: ___ mm (URDF 43.6 mm, ±5 mm OK?)
+- [ ] Femur-Länge: ___ mm (URDF 79.94 mm)
+- [ ] Tibia-Länge: ___ mm (URDF 178.7 mm)
+- [ ] Alle 3 innerhalb ±5 mm → F-T4 starten
+
+---
+
+## F-T4 — F.2 Plugin-Bringup mit User-Hand (~3 min)
+
+> 🚨 **Reihenfolge wie Stage D:** Hand zuerst, dann Launch.
+
+### Schritt 1: Hand am Bein
+
+User hält leg_6 in Phase-5-Stand-Position (Fuß ~5–10 cm unter Body,
+ungefähr da wo Stand-Pose den Fuß hätte). Hand bleibt aktiv.
+
+### Schritt 2: Plugin starten
+
+```bash
+# Terminal 1
+cd ~/hexapod_ws
+source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=false
+```
+
+### Schritt 3: Log-Sequenz beobachten
+
+Wie Stage D: `on_init`, `on_configure`, `on_activate complete`, 18×
+ENABLE_SERVO + neutral SET_TARGETS. Keine Trips.
+
+### Schritt 4: Hand wegnehmen
+
+Wenn alle 3 Servos sauber halten → **langsam** Hand wegnehmen. Servos
+halten Bein in Joint-Mitten-Pose (Coxa radial außen, Femur horizontal,
+Tibia gestreckt).
+
+**User-Bestätigung F-T4:**
+- [ ] Plugin-Bringup ohne Errors
+- [ ] Alle 3 Servos halten Bein-Pose stabil nach Hand-Wegnehmen
+
+---
+
+## F-T5 — F.2 IK-Probe-Test (~10 min)
+
+### Schritt 1: RViz starten (Terminal 2)
+
+```bash
+source ~/hexapod_ws/install/setup.bash
+rviz2  # Add RobotModel + TF (base_link)
+```
+
+### Schritt 2: Strom-Logger starten (Terminal 3)
+
+```bash
+python3 ~/hexapod_servo_driver/tools/log_state.py \
+  --out ~/hexapod_ws/data/phase_10/leg6_F2_$(date +%Y%m%dT%H%M).csv
+```
+
+Logger schreibt CSV mit `t_s, voltage_mv, current_ma, flags, p0..p17`.
+
+### Schritt 3: IK-Probe ausführen (Terminal 4)
+
+```bash
+source ~/hexapod_ws/install/setup.bash
+python3 ~/hexapod_ws/tools/phase_10_f2_ik_probe.py
+```
+
+**Erwartung:**
+- Skript loggt 2 IK-Ergebnisse (angles_a, angles_b)
+- Action-Goal an `/leg_6_controller/follow_joint_trajectory`
+- **Echtes Bein:** Fuß bewegt sich linear **vertikal um ~3 cm hoch**
+  (von Body-Höhe -10 cm zu -7 cm) in ~4 s
+- **RViz:** synchron zur echten Bewegung
+- Strom-Peak < 4 A
+- Action-Result: `status=SUCCEEDED` (oder ähnlich)
+
+**Bei Fehler:**
+- IK wirft `IKError` → Zielpunkt geometrisch nicht erreichbar.
+  Wahrscheinlich URDF-Geometrie ≠ Realität. F.1 nochmal prüfen.
+- Servo brummt → pulse_min/max zu eng, oder direction-Fehler.
+  Stages-C/D/E-Werte nochmal prüfen.
+- Goal abgelehnt → joint_names oder Position-Range falsch im Skript.
+
+### Schritt 4: Logger stoppen
+
+```bash
+# Terminal 3: Ctrl-C
+```
+
+**User-Bestätigung F-T5:**
+- [ ] Fuß bewegt sich linear vertikal ~3 cm (Sichtkontrolle, Lineal optional)
+- [ ] RViz und echtes Bein synchron
+- [ ] Kein Stall-Brumm
+- [ ] CSV `leg6_F2_*.csv` aufgezeichnet
+
+---
+
+## 🛑 F-Phase-1 Ende — Shutdown vor Commit
+
+```bash
+Terminal 4: (IK-Probe-Skript ist von selber beendet)
+Terminal 3: Ctrl-C (Logger stoppen)
+Terminal 1: Ctrl-C → real.launch.py shutdown (18× DISABLE_SERVO)
+```
+
+Dann:
+1. **Bench-PSU OUTPUT AUS**
+2. **Coxa, Femur, Tibia von Servo2040 abziehen**
+3. PSU bleibt 7.0 V eingestellt
+
+**User-Bestätigung F-Phase-1-Shutdown:**
+- [ ] real.launch.py sauber heruntergefahren
+- [ ] PSU OUTPUT AUS
+- [ ] Alle 3 Servos abgeklemmt
+
+**→ User-Commit F-Phase-1**, dann weiter mit F-Phase-2.
+
+---
+
+# 🟢 F-Phase-2: F.3 + F.4 (gait_node + Strom-Auswertung)
+
+## Bench-Setup (wieder anstecken)
+
+1. **Bench-PSU OUTPUT AUS** (sollte aus sein nach F-Phase-1-Shutdown)
+2. **CC-Limit weiter 8 A**, Setpoint 7.0 V
+3. **Alle 3 Servos wieder anstecken** (Coxa Pin 15, Femur Pin 16, Tibia Pin 17)
+4. **Stock-Halterungs-Check (Self-Review-Punkt #12):**
+   - Sichtprüfung wie viel Spielraum leg_6 mech. nach unten hat unter der
+     Aufhängung
+   - Tripod-step_height = 3 cm → Bein hebt sich bei jedem Schwung 3 cm
+     unter der Stand-Pose-Position
+   - Falls Bein gegen Stock-Halterung schlagen könnte: leg_6 etwas
+     anders aufhängen oder Stand-Pose-Punkt anpassen
+5. **leg_5:** weiter in ruhiger Default-Pose
+6. **User-Hand bereit** Bein horizontal vorzuhalten (wie F-Phase-1)
+7. **PSU OUTPUT AN** → < 400 mA idle erwartet
+
+---
+
+## F-T4b — Plugin-Bringup für F-Phase-2 (~3 min)
+
+> Re-Bringup wie F-T4 in F-Phase-1, gleiche Hand-Mitigation.
+
+```bash
+# Terminal 1
+cd ~/hexapod_ws
+source install/setup.bash
+# (USER-HAND AM BEIN HORIZONTAL HALTEN, DANN:)
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=false
+```
+
+Hand wegnehmen sobald Servos halten. Plugin bleibt für F-T6 + F-T8 an.
+
+---
+
+## F-T6 — F.3 gait_node + cmd_vel (~10 min)
+
+> **Plugin (Terminal 1) läuft.** Wir bauen drüber den gait-Layer auf.
+
+### Schritt 1: Strom-Logger starten (Terminal 3)
+
+```bash
+python3 ~/hexapod_servo_driver/tools/log_state.py \
+  --out ~/hexapod_ws/data/phase_10/leg6_F3_$(date +%Y%m%dT%H%M).csv
+```
+
+### Schritt 2: RViz starten (Terminal 2, falls noch nicht offen)
+
+```bash
+rviz2  # Add RobotModel + TF (base_link)
+```
+
+### Schritt 3: gait_node mit HW-Args starten (Terminal 5)
+
+> ⚡ **HW-Args zwingend** — `gait.launch.py` Default ist für Sim
+> (`body_height=-0.052`, `use_sim_time=true`). Ohne Override:
+> - `body_height=-0.052` (Sim-Workaround) wäre 5 mm tiefer als HW-Stand
+> - `use_sim_time=true` würde gait-Timer auf `/clock`-Topic warten,
+>   das im HW-Pfad nicht existiert → **gait hängt komplett**
+
+```bash
+source ~/hexapod_ws/install/setup.bash
+ros2 launch hexapod_gait gait.launch.py \
+  body_height:=-0.047 \
+  use_sim_time:=false
+```
+
+**Erwartete Logs:**
+- gait_node spawned
+- State-Machine in STANDING-Default
+- /cmd_body_height und andere Topics publiziert
+
+**Sim-Sicherheit:** dieser CLI-Override ändert **nichts** an
+`gait.launch.py` selbst. Beim nächsten Sim-Aufruf
+(`ros2 launch hexapod_gait gait.launch.py` ohne Args) lädt der
+Sim-Default (-0.052) automatisch wieder.
+
+### Schritt 3: cmd_vel füttern (Terminal 6)
+
+```bash
+source ~/hexapod_ws/install/setup.bash
+ros2 topic pub /cmd_vel geometry_msgs/Twist '{linear: {x: 0.02}}'
+```
+
+**Erwartung:**
+- gait_node schaltet auf WALKING-State
+- Generiert Tripod-Pattern für alle 6 Beine
+- **leg_6:** schwingt physisch vor/zurück im Tripod, Fuß-Hub ~3 cm
+- **RViz:** alle 6 Beine im Tripod-Pattern visualisiert
+- Strom-Peaks korrelieren mit leg_6-Schwingphase
+
+### Schritt 5b: Stock-Halterungs-Sichtkontrolle (Self-Review-Punkt #12)
+
+Während des Walking-Tests **periodisch** visuell prüfen:
+- Schlägt leg_6 in Aufhängung beim Hochschwung an?
+- Bleibt > 1 cm Abstand zu mechanischer Halterung?
+
+Falls Kontakt mit Halterung: PSU sofort AUS, Stand-Pose-Punkt anpassen
+(`body_height` weiter nach unten setzen oder Aufhängung neu justieren).
+
+### Schritt 5c: ANY_SERVO_OVERCURRENT-Toleranz-Regel (Self-Review-Punkt #6)
+
+> ⚠️ **Wichtig:** im Log werden wahrscheinlich `ANY_SERVO_OVERCURRENT`-
+> Frames für leere Pins 0-14 auftauchen (Phase-9-Stolperfalle: Firmware
+> misst Strom-Sensoren auch ohne angeschlossenen Servo).
+
+**Toleranz-Regel:**
+- **Tolerieren** wenn der Error nur Pins 0-14 betrifft (in dem Log-Eintrag
+  steht meist welcher Servo-Index betroffen ist)
+- **STOP wenn Pin 15, 16 oder 17 betroffen** (das sind die echten leg_6-
+  Servos, kein false-positive)
+- Plus tolerieren wenn das Bein visuell sauber läuft, ohne Brumm oder Trip
+
+Cross-Phase-Anmerkung: in Phase 12 mit allen 18 Servos angeschlossen wird
+dieses false-positive von selbst verschwinden. Firmware-Fix optional in
+Phase 13+ (Pin-Maske für aktive Servos).
+
+### Schritt 4: ~10 s laufen lassen, dann Ctrl-C alle Terminals
+
+```
+Terminal 6: Ctrl-C (cmd_vel pub stoppen)
+Terminal 5: Ctrl-C (gait.launch.py stoppen) — leg_6 fährt zurück in Stand-Pose
+Terminal 3: Ctrl-C (Logger)
+```
+
+**Plugin (Terminal 1) bleibt an** für eventuelle Re-Tests.
+
+**Wenn F-T6 hängt aber F-T5 grün war:**
+- Problem in gait_node oder cmd_vel-Mapping (nicht IK!)
+- Debug: `ros2 topic echo /leg_6_controller/joint_trajectory` (was sendet gait_node?)
+- Vergleich mit F.2-IK-Output: gleiche Joint-Werte?
+
+**User-Bestätigung F-T6:**
+- [ ] gait_node startet ohne Fehler (mit `body_height:=-0.047 use_sim_time:=false`)
+- [ ] /cmd_vel wird angenommen, gait wechselt zu WALKING-State
+- [ ] leg_6 schwingt physisch im Tripod-Pattern
+- [ ] Alle 6 Beine in RViz zeigen Tripod
+- [ ] Kein Stall, kein WATCHDOG_TRIPPED
+- [ ] **Stock-Halterungs-Check OK** (leg_6 schlägt nicht in Aufhängung)
+- [ ] Kein OVERCURRENT auf Pin 15/16/17 (false-positives auf 0-14 toleriert)
+- [ ] CSV `leg6_F3_*.csv` aufgezeichnet
+
+---
+
+## F-T7 — F-Phase-2 Shutdown (~3 min)
+
+```bash
+Terminal 6: Ctrl-C (cmd_vel pub stoppen)
+Terminal 5: Ctrl-C (gait.launch.py)
+Terminal 3: Ctrl-C (Logger)
+Terminal 1: Ctrl-C (real.launch.py → 18× DISABLE_SERVO)
+```
+
+Dann:
+1. **Bench-PSU OUTPUT AUS**
+2. **Alle 3 Servos abziehen**
+3. PSU bleibt 7.0 V eingestellt
+
+**User-Bestätigung F-T7:**
+- [ ] Alle Launches sauber heruntergefahren
+- [ ] PSU AUS, Servos abgeklemmt
+
+---
+
+## F-T8 — F.4 Strom-Profil-Auswertung (Claude + User)
+
+CSV in Pandas laden + plotten:
+
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# F.2-CSV (direkter IK, kurze Bewegung)
+df_f2 = pd.read_csv("leg6_F2_*.csv")
+print("F.2 max current:", df_f2["current_ma"].max(), "mA")
+
+# F.3-CSV (gait_node, längere Bewegung)
+df_f3 = pd.read_csv("leg6_F3_*.csv")
+print("F.3 max current:", df_f3["current_ma"].max(), "mA")
+
+# Vel-Peaks pro Joint (delta-pulse / delta-t)
+for pin in ["p15", "p16", "p17"]:
+    dp_dt = df_f3[pin].diff() / df_f3["t_s"].diff()
+    print(f"{pin} max |dp/dt|: {dp_dt.abs().max():.1f} µs/s")
+
+# Plot zur Visualisierung
+df_f3.plot(x="t_s", y=["p15", "p16", "p17", "current_ma"], subplots=True)
+plt.show()
+```
+
+**Was wir extrahieren für Stage G:**
+
+| Metrik | Wert (TBD nach F-T8) | Stage-G-Verwendung |
+|---|---|---|
+| F.3 max current (Rail-Total) | ___ mA | Sanity: < 8000 (CC-Limit) |
+| F.3 max \|dp/dt\| Pin 15 (Coxa) | ___ µs/s | → rad/s via slope → Vel-Limit |
+| F.3 max \|dp/dt\| Pin 16 (Femur) | ___ µs/s | → rad/s |
+| F.3 max \|dp/dt\| Pin 17 (Tibia) | ___ µs/s | → rad/s |
+| Idle vs. Walking-Strom Differenz | ___ mA | Phase-8-PSU-Sizing |
+
+**User-Bestätigung F-T8:**
+- [ ] CSVs in Pandas geladen
+- [ ] Plot zeigt klare Korrelation zwischen p15/16/17 und current_ma
+- [ ] Werte in Stage-F-Notizen (`phase_10_progress.md` Stage-F-Sektion) übernommen
+
+---
+
+## Fehlerdiagnose-Tabelle
+
+| Symptom | Wahrscheinliche Ursache | Fix |
+|---|---|---|
+| F.1 Längen-Abweichung > 5 mm | reale Bein-Geometrie ≠ URDF | URDF anpassen in `hexapod_physical_properties.xacro`, rebuild |
+| F.2 IK wirft IKError | Zielpunkt geometrisch unerreichbar | Andere Punkte testen (näher zum Bein, höher) oder Bein-Längen prüfen |
+| F.2 Fuß bewegt sich aber nicht linear vertikal | direction-Werte oder pulse-Cal stimmen nicht | RViz-Sync prüfen (sollte gleich aussehen); ggf. Stages C/D/E retest |
+| F.2 Action-Goal wird abgelehnt | joint_names falsch oder positions außerhalb URDF-Limits | IK-Output prüfen; sollte in ±1.57/±1.57/±1.50 sein |
+| F.3 gait_node startet nicht | Phase-6-Übergabe-Defaults stimmen für HW nicht | siehe PHASE.md Phase-6-Übergabe (body_height=-0.047 für HW); gait params überprüfen |
+| F.3 leg_6 schwingt nicht | gait_node sendet evtl. an falschen Controller-Namen | `ros2 topic echo /leg_6_controller/joint_trajectory` prüfen |
+| ANY_SERVO_OVERCURRENT für Pin 0–14 | false-positive aus Firmware ohne Servo am Pin | aus Stolperfallen-Liste tolerieren, leg_6 selbst sauber? |
+| WATCHDOG_TRIPPED während gait | gait_node update_rate zu langsam | controller_manager + gait_node Rate prüfen |
+| Strom-Peak > 6 A | mehrere Servos gleichzeitig im Stall | PSU AUS, gait params reduzieren |
+
+---
+
+## Done-Kriterium Stage F (User-Smoke-Anteil)
+
+**F-Phase-1 User bestätigt:**
+- [ ] F-T3 F.1 Lineal-Check: alle 3 Längen ±5 mm OK
+- [ ] F-T4 F.2 Plugin-Bringup mit allen 3 Servos + Hand-Mitigation
+- [ ] F-T5 F.2 IK-Probe-Test: 3 cm Fuß-Hub, keine Stalls, CSV aufgezeichnet
+- [ ] F-Phase-1-Shutdown sauber
+
+**→ User-Commit F-Phase-1**
+
+**F-Phase-2 User bestätigt:**
+- [ ] Bench-Setup wieder + Stock-Halterungs-Check
+- [ ] F-T4b Re-Bringup ok
+- [ ] F-T6 gait_node + cmd_vel: Tripod-Pattern an leg_6 sichtbar, kein OVERCURRENT auf Pin 15/16/17
+- [ ] F-T7 Shutdown sauber
+- [ ] F-T8 Strom-CSV-Auswertung übernommen (CSVs in `~/hexapod_ws/data/phase_10/`)
+
+**→ User-Commit F-Phase-2**
+
+Claude bestätigt (jeweils nach User-Smoke pro Halb-Stage):
+- [ ] colcon build grün
+- [ ] colcon test grün (208/0/20 + 18/0/0)
+- [ ] Self-Review in `phase_10_progress.md`
+- [ ] Phase-12-Pipeline-Erkenntnisse + Stage-G-Vorbereitungs-Tabelle

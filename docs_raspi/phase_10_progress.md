@@ -468,13 +468,67 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ## Stufe F — IK-Roundtrip leg_6 voll (3 Servos) + Voll-Pipeline-Test
 
-> Wird mit Stage-F-Plan-Doku aufgefüllt sobald Stage E abgeschlossen ist.
+> **Vorab-Plan:** [`phase_10_stage_f_plan.md`](phase_10_stage_f_plan.md) —
+> Logik-Skizze (F.0 Bench-Setup CC 8 A, F.1 Lineal-Check stromlos,
+> F.2 IK-Probe-Skript via `~/hexapod_ws/tools/phase_10_f2_ik_probe.py`,
+> F.3 gait_node + /cmd_vel via `ros2 launch hexapod_gait gait.launch.py`,
+> F.4 Strom-CSV-Auswertung), Tests-Liste F-T1..F-T8, 17 Progress-Bullets.
+>
+> **User-Entscheidungen vom 2026-05-17:**
+> - **F-Q1** F.1 Lineal-Genauigkeit → **A** (Lineal/Schieblehre, ±5 mm)
+> - **F-Q2/F-Q3** F.2 IK-Skript → **A** (Standalone `tools/phase_10_f2_ik_probe.py` + Default-Ziele 3 cm vertikal)
+> - **F-Q4** F.3 cmd_vel → **A** (`linear.x=0.02 m/s` für ~10 s)
+> - **F-Q5** F.4 Strom-Auswertung → **A** (Pandas-Plot, User-Auge auf Peaks)
+> - **F-Q6** Pause zwischen F.2 und F.3 → **B** (Commit zwischen F.2 und F.3, „nichts kaputt machen")
+>
+> **Workflow: Stage F in zwei Halb-Stages** (User-Entscheid F-Q6):
+> - **F-Phase-1:** F.0 + F.1 + F.2 + Shutdown + User-Commit
+> - **F-Phase-2:** Re-Bench-Setup + F.3 + F.4 + Shutdown + User-Commit
+>
+> **5 Anpassungen aus Stage-F-Self-Review** (vor User-Freigabe ergänzt):
+> - **#5**: `gait.launch.py` HW-Args `body_height:=-0.047 use_sim_time:=false` explizit (Sim-Defaults im Code unverändert)
+> - **#6**: ANY_SERVO_OVERCURRENT-Toleranz-Regel geschärft (nur Pin 0-14 false-positive, STOP bei 15/16/17)
+> - **#9**: gait.launch.py-Param-Check: `use_sim_time=true` (Sim-Default) **muss** für HW auf false, sonst hängt gait_node
+> - **#11**: CSV-Ablage standardisiert auf `~/hexapod_ws/data/phase_10/` (committed ins Repo)
+> - **#12**: Stock-Halterungs-Sichtkontrolle während F.3 ergänzt
+>
+> **Begleit-Dateien:**
+> - [`phase_10_stage_f_test_commands.md`](phase_10_stage_f_test_commands.md)
+> - [`../tools/phase_10_f2_ik_probe.py`](../tools/phase_10_f2_ik_probe.py)
+>
+> **Plan-Korrektur:** `real.launch.py` hat **kein** `gait:=true`-Arg (wie schon `rviz:=true` aus Stage C). gait_node muss separat via `ros2 launch hexapod_gait gait.launch.py` gestartet werden.
+>
+> Done-Kriterium F: F.1 Geometrie ±5 mm OK ODER URDF angepasst; F.2 direkter IK-Trajectory grün; F.3 gait_node + cmd_vel grün; Strom-CSVs aufgezeichnet; kein Stall/Trip; RViz synchron; Build+Test regression-frei.
 
-**Stages-F-Output (Erwartung):**
-- F.1 Bein-Geometrie-Verifikation (Lineal-Check vs. URDF)
-- F.2 Direkter IK-Aufruf via Python-Skript (Diagnose-Probe)
-- F.3 gait_node mit `/cmd_vel`-Stub (Voll-Pipeline-Test)
-- F.4 Strom-Profil-Auswertung für Stage G
+- [x] F.1 phase_10_stage_f_plan.md (Plan-Doku) finalisiert + User-Freigabe + 5 Self-Review-Anpassungen (2026-05-17)
+- [x] F.2 phase_10_stage_f_test_commands.md finalisiert mit Halb-Stages-Struktur (2026-05-17)
+- [x] F.3 tools/phase_10_f2_ik_probe.py angelegt (Standalone Skript mit IK + JTC-Action-Client) (2026-05-17)
+- [x] F.4 data/phase_10/ Verzeichnis angelegt für CSV-Ablage (2026-05-17)
+
+**F-Phase-1 — Lineal + IK-Probe:**
+- [ ] F.5 F.0 Bench-Setup-Check (PSU 7.0 V / 8 A, alle 3 Servos Pin 15+16+17)
+- [ ] F.6 F.1 Bein-Geometrie-Lineal-Check (Coxa/Femur/Tibia ±5 mm OK ODER URDF angepasst)
+- [ ] F.7 F.2 Plugin-Bringup mit User-Hand, alle 3 Servos halten Bein
+- [ ] F.8 F.2 IK-Probe-Skript ausgeführt, Fuß-Hub ~3 cm, kein Stall
+- [ ] F.9 F.2 Strom-CSV `leg6_F2_*.csv` aufgezeichnet in data/phase_10/
+- [ ] F.10 F-Phase-1-Shutdown sauber
+- [ ] F.11 F-Phase-1 colcon build + test grün
+- [ ] F.12 User-Commit F-Phase-1
+
+**F-Phase-2 — gait_node + Strom-Auswertung:**
+- [ ] F.13 Re-Bench-Setup + Stock-Halterungs-Sichtkontrolle
+- [ ] F.14 F-T4b Re-Bringup grün
+- [ ] F.15 F.3 gait_node mit `body_height:=-0.047 use_sim_time:=false`
+- [ ] F.16 F.3 /cmd_vel mit linear.x=0.02 → leg_6 schwingt Tripod
+- [ ] F.17 F.3 Strom-CSV `leg6_F3_*.csv` aufgezeichnet, kein OVERCURRENT auf Pin 15/16/17
+- [ ] F.18 F.4 CSV-Auswertung: Vel/Accel/Strom-Peaks dokumentiert
+- [ ] F.19 F-Phase-2-Shutdown sauber
+- [ ] F.20 F-Phase-2 colcon build + test grün
+- [ ] F.21 Stage-F-Self-Review (CLAUDE.md §4-Pflicht)
+- [ ] F.22 Stage-F-Notizen + Phase-12-Pipeline-Erkenntnisse + Stage-G-Vorbereitungs-Tabelle
+- [ ] F.23 User-Commit F-Phase-2
+
+**Done-Kriterium F erreicht:** [TBD nach User-HW-Arbeit]
 
 ---
 
