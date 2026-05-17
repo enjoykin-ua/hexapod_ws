@@ -129,9 +129,11 @@ Konsolidiert aus Mutter-Plan-Doku
 - [x] A.8 A-T4 (Dateien existieren) verifiziert (2026-05-16)
 - [x] A.9 Kritischer Self-Review-Tabelle (siehe unten) — CLAUDE.md §4-Pflicht (2026-05-16)
 - [x] A.10 Post-Review-Fix: Mutter-Plan-Doku Stage-D CC-Limit-Eintrag (7 A) ergänzt für Konsistenz mit safety_setup.md §2 (2026-05-16)
-- [ ] A.11 A-T5 (User-Review der safety_setup.md) — User-Smoke per Lesen, pending
+- [x] A.11 A-T5 (User-Review der safety_setup.md): grün **am 2026-05-16, User-Freigabe** inkl. wertvoller Architektur-Rückmeldung zum Initial-Pulse-Konzept (siehe Plan-Korrektur #4). Stage A komplett.
 
-**Done-Kriterium A erreicht:** ✅ am 2026-05-16 (CI-Anteil: A.1–A.10 alle abgeschlossen, Build + Test regression-frei, Self-Review ohne offene 🔴-Punkte). User-Anteil A.11 (Review der safety_setup.md) wartet auf User.
+**Done-Kriterium A erreicht:** ✅ am 2026-05-16 (alle A.1–A.11 abgeschlossen, Build + Test regression-frei, Self-Review ohne offene 🔴-Punkte, User-Rückmeldung positiv + inhaltlich erweiternd).
+
+**🎉 Stufe A komplett abgeschlossen.** Phase 10 Stand: **A** ✅. Verbleibend: B (Tester Pre-Cal), C, D, E, F, G, I.
 
 ### Stage-A-Post-Review (kritische Punkte, durchgegangen am 2026-05-16)
 
@@ -184,12 +186,45 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ## Stufe B — Mech. End-Stop-Check stromlos + HJ-Tester Pre-Cal leg_6
 
-> Wird mit Stage-B-Plan-Doku aufgefüllt sobald Stage A abgeschlossen ist.
+> **Vorab-Plan:** [`phase_10_stage_b_plan.md`](phase_10_stage_b_plan.md) —
+> Logik-Skizze (B.0–B.4 mit Sub-Stages), Tests-Liste B-T1 bis B-T7,
+> 20 Progress-Bullets, User-Entscheidungen vom 2026-05-16/17:
+> - **B-Q1** Servo-Setup → **A** (Servo bleibt im Bein montiert, Signal/GND am Tester)
+> - **B-Q2** Tester-Anzeige → **A** (Digital-Display mit µs-Anzeige)
+> - **B-Q3** Servo-Reihenfolge → **A** (Coxa → Femur → Tibia)
+> - **B-Q4** Werte-Workflow → **A** (separates `calibration_log.md` als Audit-Trail, dann konsolidiert ins YAML)
+> - **B-Q5** Visuelle Joint-Mitte → **A** (Augenmaß reicht)
+> - **B-Q6** Anschlag außerhalb Tester-Range → **A** (theoretisch berechneten Wert nutzen)
+> - **B-Q7** Tester-PSU-Spannung → **A** (einstellbar, auf 7.0 V gesetzt)
+> - **B-Q8 (2026-05-17, Strategie-Wechsel C → B'):** Self-Collision-Strategie → **B' Pragmatisch** (leg_5 bleibt montiert, einmalig in worst-case-Pose gestellt, `pulse_min`/`max` mit 5° Sicherheits-Abstand vor leg_5-Berührung statt max. Single-Leg-Range). User-Sicherheits-Priorität über Range-Maximierung.
+>
+> **Begleit-Dateien:**
+> - [`phase_10_stage_b_calibration_log.md`](phase_10_stage_b_calibration_log.md) — Audit-Trail (User füllt während B.1+B.2)
+> - [`phase_10_stage_b_test_commands.md`](phase_10_stage_b_test_commands.md) — operative User-Anleitung
+>
+> Done-Kriterium B: mech. End-Stops für leg_6 (3 Joints) im Log dokumentiert, Tester-Pre-Cal-Werte für Pin 15/16/17 im YAML konsolidiert (`pulse_min < pulse_zero < pulse_max`, alle in 800–2200 µs), Build/Tests regression-frei.
 
-**Stages-B-Output (Erwartung aus Mutter-Plan-Doku):**
-- B.1 Mech. End-Stop-Check (leg_6, 3 Joints) ohne Strom
-- B.2 HJ-Tester Pre-Cal pro Servo (pulse_zero, pulse_min, pulse_max)
-- B.3 Werte in `servo_mapping.yaml` für Pin 15/16/17 eingetragen
+- [x] B.1 phase_10_stage_b_plan.md (Plan-Doku) finalisiert + User-Freigabe (2026-05-16)
+- [x] B.2 phase_10_stage_b_calibration_log.md angelegt als Audit-Trail (Skelett mit Tabellen für End-Stops + Tester-Pre-Cal) (2026-05-16)
+- [x] B.3 phase_10_stage_b_test_commands.md angelegt mit operativer Anleitung (B-T0 bis B-T6 mit User-Smoke-Schritten + Fehlerdiagnose-Tabelle) (2026-05-16)
+- [ ] B.4 B.0 Bench-Setup-Check ausgeführt vom User (Hexapod fest, Tester verfügbar, Display funktioniert, Tester-PSU auf 7.0 V)
+- [ ] B.5 B.1 Mech. End-Stop-Check stromlos für **Coxa** abgeschlossen, Log §1.1 eingetragen
+- [ ] B.6 B.1 Mech. End-Stop-Check stromlos für **Femur** abgeschlossen, Log §1.2 eingetragen
+- [ ] B.7 B.1 Mech. End-Stop-Check stromlos für **Tibia** abgeschlossen, Log §1.3 eingetragen
+- [ ] B.8 B.2 HJ-Tester Pre-Cal **Coxa** (`pulse_zero`/`min`/`max`), Log §2.1 eingetragen
+- [ ] B.9 B.2 HJ-Tester Pre-Cal **Femur**, Log §2.2 eingetragen
+- [ ] B.10 B.2 HJ-Tester Pre-Cal **Tibia**, Log §2.3 eingetragen
+- [ ] B.11 B.3 YAML konsolidiert: Pin 15/16/17 in `servo_mapping.yaml` haben Tester-Werte
+- [ ] B.12 B.3 git diff auf `servo_mapping.yaml` zeigt nur Pin 15/16/17 verändert, andere 15 unverändert
+- [ ] B.13 B-T1 colcon build grün, regression-frei
+- [ ] B.14 B-T2 colcon test grün, 208/0/20 + 18/0/0 unverändert
+- [ ] B-T3 (YAML-Plausibilität) verifiziert
+- [ ] B-T4 (Log vollständig) verifiziert
+- [ ] B.15 Kritischer Self-Review-Tabelle (CLAUDE.md §4-Pflicht)
+- [ ] B.16 Eventuelle Post-Review-Fixes
+- [ ] B-T5 + B-T6 + B-T7 User-Bestätigung
+
+**Done-Kriterium B erreicht:** [TBD nach User-HW-Arbeit]
 
 ---
 

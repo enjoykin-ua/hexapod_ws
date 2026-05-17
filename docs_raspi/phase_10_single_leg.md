@@ -98,7 +98,39 @@ zugänglich. Phase 10 ist Single-Leg-Bring-up — die anderen Servos
 brauchen wir erst in Phase 12 wenn der Hexapod voll montiert + verkabelt
 ist.
 
+**Strategie für `pulse_min`/`pulse_max` — Konservativ-Pragmatisch (Strategie B', User-Entscheid 2026-05-17):**
+
+`pulse_min`/`pulse_max` für leg_6 werden als **Self-Collision-sichere
+Hardware-Hard-Stops** kalibriert, nicht als maximaler mechanischer
+Single-Leg-Range:
+
+- **Workflow:** leg_5 (direkter Nachbar) wird **einmalig in eine
+  worst-case-Pose** geschwenkt (Coxa maximal Richtung leg_6) und bleibt
+  passiv in dieser Pose während der gesamten Stage B (Servo-Getriebe-
+  Friction hält ohne Strom). Anschließend wird leg_6 per Tester so
+  bewegt, dass `pulse_min`/`pulse_max` mit **5° Sicherheits-Abstand
+  vor dem Berührungspunkt mit leg_5** gesetzt werden.
+- **Konsequenz:** leg_6 kann **physisch** leg_5 nicht treffen — auch bei
+  Software-Vollbug, IK-Fehler, falscher Trajectory etc. Plugin-Konversion
+  + Firmware-Hard-Clamp setzen die Pulse-Werte durch.
+- **Range-Verlust:** voraussichtlich ~20–30 % für leg_6-Coxa (einseitiger
+  Nachbar leg_5). Mittel-Beine in Phase 12 (leg_2/leg_5) werden ~50 %
+  Range-Verlust haben (zwei Nachbarn). Akzeptiert für maximale Hardware-
+  Sicherheit.
+- **Defense in Depth:** Phase 12 setzt Workspace-Boxes (`hexapod_kinematics`)
+  **innerhalb** dieser Pulse-Hard-Stops. Beide Schichten zusammen
+  garantieren Self-Collision-Vermeidung sowohl in Software (Workspace)
+  als auch in Hardware (Pulse-Clamp).
+
 **Verworfen:**
+- **Strategie A — Voller Range im YAML, Self-Collision nur durch Software:**
+  ursprünglich vorgeschlagen, aber User-Sicherheits-Priorität spricht
+  dagegen. Bei Software-Bug kein Hardware-Schutz.
+- **Strategie C — leg_5 demontieren für maximalen Single-Leg-Range:**
+  ursprünglich auch im Plan, verworfen am 2026-05-17. Hardware-Sicherheit
+  jetzt höher gewichtet als Range-Maximierung.
+- **Strategie B (strikt) — leg_5 vor jeder Messung neu in worst-case schwenken:**
+  zu viel Mess-Aufwand, kein praktischer Sicherheits-Vorteil gegenüber B'.
 - **Tester-only:** spart Stack-Stages aber findet `direction` nicht. Risikoreicher.
 - **Stack-only (Manuelles Jog vom User per `joint_state_publisher_gui`):**
   geht in Theorie, aber ohne Tester-Pre-Cal müsste man am Stack die mech.
