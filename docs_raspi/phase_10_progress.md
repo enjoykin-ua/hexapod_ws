@@ -207,24 +207,55 @@ Konsolidiert aus Mutter-Plan-Doku
 - [x] B.1 phase_10_stage_b_plan.md (Plan-Doku) finalisiert + User-Freigabe (2026-05-16)
 - [x] B.2 phase_10_stage_b_calibration_log.md angelegt als Audit-Trail (Skelett mit Tabellen für End-Stops + Tester-Pre-Cal) (2026-05-16)
 - [x] B.3 phase_10_stage_b_test_commands.md angelegt mit operativer Anleitung (B-T0 bis B-T6 mit User-Smoke-Schritten + Fehlerdiagnose-Tabelle) (2026-05-16)
-- [ ] B.4 B.0 Bench-Setup-Check ausgeführt vom User (Hexapod fest, Tester verfügbar, Display funktioniert, Tester-PSU auf 7.0 V)
-- [ ] B.5 B.1 Mech. End-Stop-Check stromlos für **Coxa** abgeschlossen, Log §1.1 eingetragen
-- [ ] B.6 B.1 Mech. End-Stop-Check stromlos für **Femur** abgeschlossen, Log §1.2 eingetragen
-- [ ] B.7 B.1 Mech. End-Stop-Check stromlos für **Tibia** abgeschlossen, Log §1.3 eingetragen
-- [ ] B.8 B.2 HJ-Tester Pre-Cal **Coxa** (`pulse_zero`/`min`/`max`), Log §2.1 eingetragen
-- [ ] B.9 B.2 HJ-Tester Pre-Cal **Femur**, Log §2.2 eingetragen
-- [ ] B.10 B.2 HJ-Tester Pre-Cal **Tibia**, Log §2.3 eingetragen
-- [ ] B.11 B.3 YAML konsolidiert: Pin 15/16/17 in `servo_mapping.yaml` haben Tester-Werte
-- [ ] B.12 B.3 git diff auf `servo_mapping.yaml` zeigt nur Pin 15/16/17 verändert, andere 15 unverändert
-- [ ] B.13 B-T1 colcon build grün, regression-frei
-- [ ] B.14 B-T2 colcon test grün, 208/0/20 + 18/0/0 unverändert
-- [ ] B-T3 (YAML-Plausibilität) verifiziert
-- [ ] B-T4 (Log vollständig) verifiziert
-- [ ] B.15 Kritischer Self-Review-Tabelle (CLAUDE.md §4-Pflicht)
-- [ ] B.16 Eventuelle Post-Review-Fixes
-- [ ] B-T5 + B-T6 + B-T7 User-Bestätigung
+- [x] B.4 B.0 Bench-Setup-Check ausgeführt vom User (Hexapod fest, Tester verfügbar, Display funktioniert, Tester-PSU auf 7.0 V, leg_5 in worst-case-Pose) (2026-05-17)
+- [x] B.5 B.1 Mech. End-Stop-Check für **Coxa** im Log §1.1 dokumentiert (Anschlags-Ursachen qualitativ — Self-Collision mit leg_5 / mech. Bein-Endlage; Winkel nicht direkt gemessen, µs-Werte aus §2.1) (2026-05-17)
+- [x] B.6 B.1 Mech. End-Stop-Check für **Femur** im Log §1.2 dokumentiert (mech. Anschlag außerhalb Tester-Range, qualitativ erfasst — siehe §4.1 Audit) (2026-05-17)
+- [x] B.7 B.1 Mech. End-Stop-Check für **Tibia** im Log §1.3 dokumentiert (mech. Anschlag außerhalb Tester-Range, qualitativ erfasst — siehe §4.1 Audit) (2026-05-17)
+- [x] B.8 B.2 HJ-Tester Pre-Cal **Coxa** (`pulse_zero`/`min`/`max` = 1550/1280/1860 µs), Log §2.1 eingetragen (2026-05-17)
+- [x] B.9 B.2 HJ-Tester Pre-Cal **Femur** (`pulse_zero`/`min`/`max` = 1533/840/2170 µs), Log §2.2 eingetragen (2026-05-17)
+- [x] B.10 B.2 HJ-Tester Pre-Cal **Tibia** (`pulse_zero`/`min`/`max` = 1539/840/2172 µs), Log §2.3 eingetragen (2026-05-17)
+- [x] B.11 B.3 YAML konsolidiert: Pin 15/16/17 in `servo_mapping.yaml` haben Tester-Werte (2026-05-17)
+- [x] B.12 B.3 git diff auf `servo_mapping.yaml` zeigt nur Pin 15/16/17 verändert, andere 15 unverändert (verifiziert)
+- [x] B.13 B-T1 colcon build grün, 3 packages 0 errors (2026-05-17)
+- [x] B.14 B-T2 colcon test grün, **208/0/20 + 18/0/0 wiederhergestellt** nach Post-Review-Fix der 3 test_hexapod_system-Tests (2026-05-17)
+- [x] B-T3 (YAML-Plausibilität) verifiziert (alle drei Pins: `pulse_min < pulse_zero < pulse_max`, alle in [800, 2200] µs)
+- [x] B-T4 (Log vollständig) verifiziert: §1.1/§1.2/§1.3 + §2.1/§2.2/§2.3 + §3-Konsolidierung + §4.1-Audit-Notiz
+- [x] B.15 Kritischer Self-Review-Tabelle (siehe unten)
+- [x] B.16 Post-Review-Fix: 3 Tests in `test_hexapod_system.cpp` an committed YAML angepasst (`kExpectedPulseZero[NUM_SERVOS]`-Array + Roundtrip-Toleranz auf 6e-3 rad gelockert) (2026-05-17)
+- [ ] B-T5 + B-T6 + B-T7 User-Bestätigung (pending — User commitet als nächstes)
 
-**Done-Kriterium B erreicht:** [TBD nach User-HW-Arbeit]
+**Done-Kriterium B erreicht (CI-Anteil):** ✅ am 2026-05-17 (alle B.1–B.16 erledigt, Build + Test 208/0/20 + 18/0/0 grün, Self-Review ohne offene 🔴-Punkte). User-Smoke-Anteil (B-T5/T6/T7) pending bis User die Tester-Werte bestätigt + commitet.
+
+### Stage-B-Post-Review (kritische Punkte, 2026-05-17)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Plan-Doku-Vollständigkeit (4 Pflichtinhalte CLAUDE.md §4) | ✅ verifiziert | Logik-Skizze (B.0–B.4), Tests-Liste (B-T1 bis B-T7 + Was-NICHT), Progress-Checkliste (B.1–B.16), User-Entscheidungen B-Q1..B-Q8 in Plan-Doku |
+| YAML-Diff minimal (nur Pin 15/16/17) | ✅ verifiziert | `git diff src/hexapod_hardware/config/servo_mapping.yaml`: +22/-3 Zeilen, nur Leg-6-Block. Pin 0–14 unverändert. |
+| Plausibilitäts-Check der 3 Tester-Werte-Sets | ✅ verifiziert | Pro Pin: `pulse_min < pulse_zero < pulse_max`, alle in [800, 2200] µs, Strategie-B'-Begründung für Coxa-Range; Femur/Tibia-Range > URDF dokumentiert in §4.1 |
+| Audit-Trail im calibration_log vollständig | ✅ verifiziert | §1.1–§1.3 Anschlags-Ursachen qualitativ, §2.1–§2.3 µs-Werte mit Mess-Methodik, §3 Vorher/Nachher-Block, §4.1 Audit-Notiz zur Tester-Range-Limitierung Femur/Tibia |
+| Regression-Frei colcon build | ✅ verifiziert | 3 packages finished, 0 errors, keine neuen Warnings vs. Stage-A-Endstand |
+| Regression-Frei colcon test (initial) | 🔴 → ✅ gefixt | **Erste Test-Iteration nach YAML-Edit**: 3 Failures in `test_hexapod_system.cpp` — hardcoded `1500` für alle 18 Pins gegen jetzt-committed 1550/1533/1539 für Pin 15/16/17 (Tests **PtyActivateSendsBootSequenceInOrder**, **PtyWriteSendsSetTargetsFrameWithNeutralPulses**, **LoopbackRoundtripsCommandThroughCalibration**). Plan-Doku-Annahme „Tests nutzen Fixtures, nicht committed YAML" war falsch — Tests **lesen das committed YAML als Default-Fixture**. **Fix:** `kExpectedPulseZero[NUM_SERVOS]`-Konstante eingeführt (per-Pin pulse_zero), zwei `EXPECT_EQ(pulse, 1500)`-Stellen auf Array-Lookup umgestellt; Roundtrip-Toleranz von 2e-3 rad auf 6e-3 rad gelockert wegen jetzt engster Range Pin 15 (197 µs/rad ≈ 5.1e-3 rad/µs). Plugin-Code **nicht** angefasst. Nach Fix: 208/0/20. |
+| Plan-Korrektur dokumentiert | ✅ in Stage-B-Plan-Korrektur-Sektion | Plan-Annahme B-T2 „208/0/20 unverändert ... `calibration.yaml`-spezifische Unit-Tests verwenden Test-Fixtures, nicht das committed YAML" muss für künftige Stages umformuliert werden. Tests im Pfad ENABLE→SET_TARGETS lesen das committed YAML implicit als Default-Fixture via `make_valid_info()`. |
+| `direction` für Pin 15/16/17 bleibt `+1` Platzhalter | ✅ wie geplant | Stages C/D/E entscheiden direction per Beobachtungs-Test, kein Stage-B-Job |
+| Top-Level YAML-Status bleibt `placeholder` | ✅ wie geplant | 15 andere Pins sind weiter Defaults; Stage I setzt pro-Eintrag-Feld `status: calibrated` für Pin 15/16/17 |
+| Mech.-Anschlag außerhalb Tester-Range (Femur/Tibia) | ✅ dokumentiert + Phase-12-Verweis | §4.1 Audit-Notiz erklärt: Pulse-Hard-Stop für Femur/Tibia in Phase 10 nicht aktiv (URDF-Software-Clamp greift früher), Phase 12 SW-Auto-Cal verfeinert. Phase-12-Stufe-B-Plan-Doku passend erweitert. |
+| Self-Beschädigungs-Risiko nach Stage B | ✅ unverändert | Stage B hat **stromlos + Tester-PSU** gearbeitet — Bench-PSU blieb AUS, kein Servo2040-Bringup, kein Code-Lauf gegen echte HW. Setup-Status: Servos abgeklemmt, Bench-PSU AUS. |
+| Memory-Einträge nach Stage B | ✅ unverändert | Keine neue Cross-Session-Erkenntnis — Stage B war reine Vor-Kalibrierung. Phase-12-Stufe-B (SW-Auto-Cal) ist im Plan-Doc verankert, nicht in Memory. |
+
+### Stage-B-Plan-Korrektur (Drifts während Implementation)
+
+| # | Punkt | Begründung |
+|---|---|---|
+| 1 | **Plan-Annahme B-T2 zu Test-Fixtures war falsch** | Plan-Doku sagte „`calibration.yaml`-spezifische Unit-Tests verwenden Test-Fixtures, nicht das committed YAML". Realität: 3 Tests in `test_hexapod_system.cpp` (Boot-Sequence, Neutral-Pulses, Loopback-Roundtrip) lesen das committed YAML implizit via `make_valid_info()`. Stage-B-YAML-Edit hat hardcoded `1500`-Erwartungen brechen. **Fix:** Tests an committed YAML angepasst (per-Pin-Konstanten + gelockerte Toleranz). |
+| 2 | **Phase 12 um neue Stufe B (SW-Auto-Kalibrierung der 15 Restservos) erweitert** | Auf User-Wunsch 2026-05-17. Phase 12 hatte 8 Stufen A–H, jetzt 9 Stufen A–I. Neue Stufe B nutzt Plugin als Black Box (kein Plugin-Code-Edit), Tool wird neues Python-Paket `hexapod_calibration` mit Terminal-UI. Ziel: bessere Auto-Cal als HJ-Tester durch echte Stack-Pipeline + beidseitige Self-Collision-Tests für Mittel-Beine. Cross-Phase-Verweis in `calibration_log.md` §4.1. |
+| 3 | **B.1 und B.2 in einem Schritt zusammen am Tester gemessen** | Plan sah vor: B.1 stromlos End-Stop-Check, dann B.2 Tester-Pre-Cal. Realität: User hat beides am Tester gemacht — Anschlags-Ursachen identifiziert während Tester-Drehung, µs-Werte direkt abgelesen. Methodik im Log §1 als „Tester-basiert, kein Goniometer" transparent vermerkt. Sinnvoller pragmatischer Workflow ohne Funktionsverlust. |
+
+### Stage-B-Notizen
+
+- **Mech. Anschlag-Range > URDF (Femur/Tibia):** beim Tester ist klar geworden, dass beide Miuzei-MS61-Servos mechanisch deutlich mehr als ±90° können — Tester-Range (800–2200 µs) hat noch keinen Anschlag-Brumm erzeugt. Effektive Joint-Begrenzung kommt aus URDF-Software-Clamp. Phase 12 SW-Auto-Cal kann das verfeinern.
+- **Strategie B' war für Coxa bindend, für Femur/Tibia rein zur Inspirational-Doku-Konsistenz:** Bei leg_6 als Eck-Bein gibt's nur leg_5 als Nachbar, und nur die Coxa kann leg_5 erreichen. Femur und Tibia haben mit Self-Collision nichts zu tun — Werte stammen von mech. Servo-Range (jenseits Tester-Limit).
+- **Test-Fix war 30 Min Aufwand:** Stage-B-Plan hatte das nicht antizipiert. Lehre für künftige YAML-Stages: vor dem Edit grep nach Hardcodes der zu ändernden Werte. Memory-Eintrag wäre overkill (zu spezifisch), aber gut für die Phase-12-Stufe-B-Plan-Doku mitzunehmen (Auto-Cal-Tool wird `servo_mapping.yaml` ähnlich editieren).
 
 ---
 

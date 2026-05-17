@@ -44,6 +44,21 @@ using hexapod_hardware_test::make_joint;
 using hexapod_hardware_test::make_valid_info;
 using hexapod_hardware_test::make_params;
 
+// pulse_zero per servo pin, mirroring the committed servo_mapping.yaml.
+// Pin 0..14 fall back to the YAML defaults (pulse_zero = 1500). Pin 15/16/17
+// are Phase 10 Stage B pre-calibration values (HJ-Tester, 2026-05-17) — see
+// docs_raspi/phase_10_stage_b_calibration_log.md for the audit trail.
+// Tests that exercise the boot/neutral-pulse path use this table instead of
+// a hardcoded 1500 so Stage B's YAML edits don't trigger spurious failures.
+constexpr int16_t kExpectedPulseZero[NUM_SERVOS] = {
+  1500, 1500, 1500,   // leg_1 (pins  0,  1,  2) — defaults
+  1500, 1500, 1500,   // leg_2 (pins  3,  4,  5) — defaults
+  1500, 1500, 1500,   // leg_3 (pins  6,  7,  8) — defaults
+  1500, 1500, 1500,   // leg_4 (pins  9, 10, 11) — defaults
+  1500, 1500, 1500,   // leg_5 (pins 12, 13, 14) — defaults
+  1550, 1533, 1539,   // leg_6 (pins 15, 16, 17) — Phase 10 Stage B pre-cal
+};
+
 // ============================================================================
 // Happy path
 // ============================================================================
@@ -659,8 +674,9 @@ TEST(HexapodSystemActivate, PtyActivateSendsBootSequenceInOrder)
     EXPECT_EQ(f.payload[1], 0x01) << "expected enable=true at pin " << static_cast<int>(pin);
   }
 
-  // Frame 19: SET_TARGETS with all 18 pulses at pulse_zero (1500 µs per
-  // the in-tree servo_mapping.yaml — int16-LE: 0xDC 0x05).
+  // Frame 19: SET_TARGETS with all 18 pulses at the per-pin pulse_zero from
+  // the in-tree servo_mapping.yaml. Pin 0..14 use the YAML defaults (1500),
+  // pin 15/16/17 use Phase 10 Stage B pre-cal values (see kExpectedPulseZero).
   EXPECT_EQ(frames[19].cmd, hexapod_hardware::opcode::SET_TARGETS);
   ASSERT_EQ(frames[19].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
   for (std::size_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
@@ -668,7 +684,8 @@ TEST(HexapodSystemActivate, PtyActivateSendsBootSequenceInOrder)
     const uint8_t hi = frames[19].payload[2 * pin + 1];
     const int16_t pulse = static_cast<int16_t>(
       static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
-    EXPECT_EQ(pulse, 1500) << "neutral pulse_zero mismatch at servo pin " << pin;
+    EXPECT_EQ(pulse, kExpectedPulseZero[pin])
+      << "neutral pulse_zero mismatch at servo pin " << pin;
   }
 
   // SEQ starts at 0; fetch_add returns pre-increment value. So the wire
@@ -890,7 +907,20 @@ TEST(HexapodSystemWriteRead, LoopbackRoundtripsCommandThroughCalibration)
   // Loopback path: write() converts rad → pulse → stores in
   // last_command_pulse_us_; read() converts pulse → rad → stores in
   // hw_state_positions_. End-to-end the value should round-trip with
-  // sub-millisecond rounding noise (1 µs pulse step ≈ 1.6e-3 rad).
+  // sub-millisecond rounding noise of one pulse step.
+  //
+  // The per-slot tolerance has to cover the **narrowest** pulse range
+  // among the 18 servos in the committed YAML, because 1 µs of pulse
+  // rounding maps back to a larger rad-step on narrow ranges:
+  //   - Pin 0..14 (defaults, 500..2500 µs, ±1.57 rad): ~1.6e-3 rad/µs
+  //   - Pin 15    (leg_6 coxa, 1280..1860 µs, Phase 10 Stage B):
+  //                  positive side (1860-1550)/1.57 ≈ 197 µs/rad
+  //                  → 1 µs ≈ 5.1e-3 rad   ← narrowest
+  //   - Pin 16/17 (leg_6 femur/tibia, ~840..~2170 µs, ±1.57/±1.50 rad):
+  //                  ~2.4e-3 rad/µs
+  // We allow 6e-3 rad (≈ 1.2 µs at the narrowest range) as a generous
+  // band that still catches off-by-one-frame slot mismatches.
+  constexpr double kRoundtripTol = 6e-3;
   HexapodSystemHardware plugin;
   auto info = make_valid_info();
   ASSERT_EQ(
@@ -921,7 +951,7 @@ TEST(HexapodSystemWriteRead, LoopbackRoundtripsCommandThroughCalibration)
 
     for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
       const double got = read_handle(state_ifs[i]);
-      EXPECT_NEAR(got, v, 2e-3)
+      EXPECT_NEAR(got, v, kRoundtripTol)
         << "joint slot " << i << " (rad=" << v << ", got=" << got << ")";
     }
   }
@@ -1097,7 +1127,8 @@ TEST(HexapodSystemWriteRead, LoopbackClampsAbsurdRadInsteadOfUB)
 TEST(HexapodSystemWriteRead, PtyWriteSendsSetTargetsFrameWithNeutralPulses)
 {
   // Send rad=0 from all joints → write() must emit one SET_TARGETS frame
-  // whose 18 int16-LE pulses are all 1500 µs (pulse_zero from YAML).
+  // whose 18 int16-LE pulses match the per-pin pulse_zero from YAML
+  // (kExpectedPulseZero; pin 15/16/17 carry Phase 10 Stage B pre-cal values).
   int master_fd;
   std::string slave_name;
   open_pty_for_serial_port(&master_fd, &slave_name);
@@ -1131,7 +1162,7 @@ TEST(HexapodSystemWriteRead, PtyWriteSendsSetTargetsFrameWithNeutralPulses)
     const uint8_t hi = frames[0].payload[2 * pin + 1];
     const int16_t pulse = static_cast<int16_t>(
       static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
-    EXPECT_EQ(pulse, 1500) << "pin " << pin;
+    EXPECT_EQ(pulse, kExpectedPulseZero[pin]) << "pin " << pin;
   }
 
   EXPECT_EQ(

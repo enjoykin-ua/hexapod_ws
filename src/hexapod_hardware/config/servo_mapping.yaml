@@ -106,6 +106,25 @@ servo2040_output_to_joint:
   14: { joint: leg_5_tibia_joint }
 
   # ---- Leg 6 — front-left ----
-  15: { joint: leg_6_coxa_joint  }
-  16: { joint: leg_6_femur_joint }
-  17: { joint: leg_6_tibia_joint }
+  # Phase 10 Stage B pre-calibration via HJ-Tester (2026-05-17).
+  # See docs_raspi/phase_10_stage_b_calibration_log.md for the audit trail and
+  # docs_raspi/phase_10_stage_b_calibration_log.md §4.1 for the Femur/Tibia
+  # range > URDF-limit note (mech. stop lies outside HJ-Tester 800–2200 µs
+  # range; Phase 12 SW-Auto-Cal can refine).
+  # `direction` stays at default (+1) — Phase 10 Stages C/D/E set the final
+  # value per joint based on stack-observation tests.
+  15:
+    joint: leg_6_coxa_joint
+    pulse_min:  1280   # 5° before self-collision with leg_5 (Strategy B')
+    pulse_zero: 1550   # visual joint center, leg radial outward
+    pulse_max:  1860   # mech. single-leg end stop, leg pointing forward
+  16:
+    joint: leg_6_femur_joint
+    pulse_min:  840    # HJ-Tester range limit (mech. stop < 800 µs)
+    pulse_zero: 1533   # femur horizontal to ground
+    pulse_max:  2170   # HJ-Tester range limit (mech. stop > 2200 µs)
+  17:
+    joint: leg_6_tibia_joint
+    pulse_min:  840    # HJ-Tester range limit (tibia pointing away from body)
+    pulse_zero: 1539   # knee straight, tibia in femur extension
+    pulse_max:  2172   # HJ-Tester range limit (tibia toward body)
