@@ -261,13 +261,68 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ## Stufe C — Stack-Validation leg_6_coxa (1 Servo)
 
-> Wird mit Stage-C-Plan-Doku aufgefüllt sobald Stage B abgeschlossen ist.
+> **Vorab-Plan:** [`phase_10_stage_c_plan.md`](phase_10_stage_c_plan.md) —
+> Logik-Skizze (C.0 Bench-Setup, C.1 Plugin-Bringup, C.2 direction-Test
+> +0.1 rad, C.3 optional Flip auf -1, C.4 Endlagen ±1.0 rad, C.5 Shutdown,
+> C.6 Build/Test/Self-Review), Tests-Liste C-T1 bis C-T8, 15 Progress-Bullets.
+>
+> **User-Entscheidungen vom 2026-05-17 (alle Variante A):**
+> - **C-Q1** Trajectory-Mechanismus → **A** (`ros2 action send_goal`). Echo-State macht `status=SUCCEEDED` trivial → visuelle Beobachtung am Bein bleibt einzige Wahrheit. Phase 12 Walking nutzt später Topic-Streaming.
+> - **C-Q2** Endlagen-Schritte → **A** (5-stufig: +0.5/+1.0/0/-0.5/-1.0/0)
+> - **C-Q3** RViz separat vs. Launch-Extension → **A** (separat starten, Plan-Korrektur ggü. Mutter-Plan §F)
+> - **C-Q4** User-Hand-Position → **A** (Bein nahe Coxa-Mitte, Femur/Tibia passiv hängend)
+> - **C-Q5** Bei Stall-Brumm bei -1.0 rad → **A** (pulse_min im YAML auf 1300 erhöhen, retest)
+>
+> **Begleit-Datei:**
+> - [`phase_10_stage_c_test_commands.md`](phase_10_stage_c_test_commands.md) — User-Smoke-Anleitung mit C-T3..C-T7
+>
+> Done-Kriterium C: Coxa `direction` final im YAML (mit oder ohne Flip), Endlagen ±1.0 rad gefahren ohne Stall, kein Firmware-Trip, RViz und echtes Bein synchron, Build+Test regression-frei.
 
-**Stages-C-Output (Erwartung):**
-- C.1 Coxa-Servo am Pin 15 angeschlossen, PSU-AUS-→-AN-Sequenz
-- C.2 Plugin Bringup, erste Trajectory ±0.1 rad
-- C.3 direction final in YAML
-- C.4 Endlagen-Test ±1.0 rad, kein Stall
+- [x] C.1 phase_10_stage_c_plan.md (Plan-Doku) finalisiert + User-Freigabe (2026-05-17)
+- [x] C.2 phase_10_stage_c_test_commands.md angelegt mit operativer Anleitung (C-T3 Plugin-Bringup, C-T4 direction-Test, C-T4.5 optional Flip, C-T5 RViz-Sync, C-T6 Endlagen ±1.0 rad, C-T7 Shutdown) (2026-05-17)
+- [x] C.3 C.0 Bench-Setup-Check ausgeführt vom User (PSU 7.0 V / 3 A, Coxa-Servo an Pin 15, Femur/Tibia abgeklemmt, leg_5 in ruhiger Pose) (2026-05-17)
+- [x] C.4 C.1 Plugin-Bringup grün: `on_init`/`on_configure`/`on_activate` ohne Errors, 18× ENABLE_SERVO im Log (2026-05-17)
+- [x] C.5 C.2 direction-Test gefahren: User-Beobachtung „RViz Bein → leg_5, echtes Bein weg von leg_5" — **gegenläufig** → direction-Flip nötig (2026-05-17)
+- [x] C.6 C.3 direction-Flip auf -1 via User-YAML-Edit + colcon build + relaunch; Bein dreht jetzt korrekt synchron mit RViz (2026-05-17)
+- [x] C.7 C.4 Endlagen-Test: User hat ±0.5 rad und ±1.0 rad gefahren, alle 4 Goals erreicht, **kein Stall, kein Brumm, keine Warnsignale** (Trip-Errors, Self-Collision o.ä.) (2026-05-17)
+- [x] C.8 C.5 PSU AUS, Coxa-Servo abgeklemmt (User vor Commit) (2026-05-17)
+- [x] C.9 C.6 colcon build grün, hexapod_hardware 1 package finished, 0 errors (regression-frei nach YAML-Edit direction=-1) (2026-05-17)
+- [x] C.10 C.6 colcon test grün **208/0/20 + 18/0/0 wiederhergestellt** (1× transienter xmllint-Failure beim ersten Lauf wegen Resource temporarily unavailable beim XSD-Schema-Download — kein code-bedingter Fehler, beim Re-run grün) (2026-05-17)
+- [x] C.11 C-T3 + C-T4 + C-T5 + C-T6 + C-T7 User-Bestätigung (über AskUserQuestion am 2026-05-17 explizit bestätigt: alle Goals erreicht, keine Warnsignale, Stage C aus User-Sicht done)
+- [x] C.12 C-T8 YAML-Inspektion: direction=-1 für Pin 15 sichtbar in `servo_mapping.yaml`, Kommentar Stage-C-Kontext gesetzt (2026-05-17)
+- [x] C.13 Kritischer Self-Review-Tabelle (siehe unten)
+- [x] C.14 Post-Review-Fixes: YAML-Kommentar aufgewertet von „NEU: Flip von default +1" auf vollständige Stage-C-Kontext-Notiz (2026-05-17)
+- [x] C.15 Stage-C-Notizen + Plan-Korrektur (test_commands Position-Wert ad-hoc-Edit, siehe unten) (2026-05-17)
+
+**Done-Kriterium C erreicht (CI-Anteil + User-Smoke):** ✅ am 2026-05-17.
+
+### Stage-C-Post-Review (kritische Punkte, 2026-05-17)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Plan-Doku-Vollständigkeit (4 Pflichtinhalte CLAUDE.md §4) | ✅ verifiziert | Logik-Skizze (C.0–C.6), Tests-Liste (C-T1 bis C-T8 + Was-NICHT), Progress-Checkliste (C.1–C.15), User-Antworten C-Q1..C-Q5 mit Begründungen |
+| direction-Flip auf -1 funktional verifiziert | ✅ verifiziert | User-Beobachtung RViz vs. echtes Bein vor Flip eindeutig gegenläufig (RViz → leg_5, echtes Bein → von leg_5 weg); nach Flip synchron. ±1.0 rad Endlagen sauber erreicht ohne Stall. |
+| Self-Collision-Schutz mit direction=-1 weiter aktiv | ✅ verifiziert | pulse_min=1280 bleibt Hardware-Hard-Stop. Mit direction=-1 wird er bei URDF +1.57 rad getriggert statt -1.57 rad (Vorzeichen-Zuordnung geflippt, Pulse-Wert unverändert). Bein hat in Endlagen-Test leg_5 NICHT berührt (User-Bestätigung). |
+| `real.launch.py` ohne `rviz:=true`-Arg (Mutter-Plan §F Drift) | ✅ Plan-Korrektur dokumentiert | User startete RViz separat in Terminal 2; klappte sauber. Phase-12-Kandidat falls Voll-Bringup das integrieren will. |
+| YAML-Diff minimal (nur direction-Wert für Pin 15) | ✅ verifiziert | `git diff src/hexapod_hardware/config/servo_mapping.yaml`: nur Coxa direction-Zeile + Kommentar-Block verändert; pulse_min/zero/max und alle anderen 17 Pins unverändert |
+| Regression-Frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 identisch Phase-9-Stage-J-Endstand. 1× transienter xmllint-Failure beim ersten Lauf (netzwerk-bedingt, XSD-Schema-Download „Resource temporarily unavailable") — kein Code-Issue, beim Re-run grün. |
+| Test-Commands-Doc reflektiert User-Workflow | 🟡 Plan-Korrektur | User hat im C-T4-Goal-Snippet `+0.1` auf `-0.5` geändert während des Tests (in der test_commands.md Datei selber, IDE-Edit). Bewegung war groß genug zur direction-Diagnose. Test-Commands-Doc behält den User-Wert (-0.5) als gelaufene Realität — Plan-Korrektur unten. |
+| Echo-State-Konsequenz dokumentiert | ✅ in Plan-Doku C-Q1-Antwort | „Bewegung minimal/schwer zu beziffern mit Auge" ist erwartet — JTC + Plugin echo'n den Soll-Wert, real-vs-Echo-Drift gibt es nur am echten Bein und ist visuell schwer messbar ohne Goniometer. Stage F nutzt Strom-CSV als objektives Korrelat. |
+| Selbst-Beschädigungs-Risiko nach Stage C | ✅ unverändert | Coxa-Servo nach Test abgeklemmt, Bench-PSU AUS. Setup bereit für Stage D (Coxa + Femur). |
+| Memory-Einträge nach Stage C | ✅ unverändert | Keine neue persistent-relevante Erkenntnis. direction=-1 für leg_6-Coxa ist im YAML committed, nicht Memory-Sache. |
+
+### Stage-C-Plan-Korrektur (Drifts während Implementation)
+
+| # | Punkt | Begründung |
+|---|---|---|
+| 1 | **C-T4 Goal-Wert `+0.1` → `-0.5` rad** | User hat während der Live-Test-Session den Wert in `phase_10_stage_c_test_commands.md` direkt im Editor angepasst auf `-0.5` rad. Originaler `+0.1` rad war als kleiner Diagnose-Schritt geplant (sicher), aber visuell schwer zu beurteilen (5.7° Schwenk). User-Anpassung auf -0.5 rad (~29°) war pragmatisch besser zur direction-Diagnose — und mit der bereits validierten Stage-B-pulse_min-Marge (1280 µs = 5° vor leg_5) auch sicher. Im Test-Commands-Doc als gelaufene Realität gelassen, kein Revert. |
+| 2 | **C-T6 Endlagen-Test verkürzt: 4 Goals statt 5 Schritte mit Zurücksetzungen** | User fuhr `+0.5, -0.5, +1.0, -1.0` rad (4 Goals), nicht das geplante 6-Schritte-Schema mit Zwischen-Rückkehrungen zu 0. Done-Kriterium C2 „Bewegung in beide Richtungen ohne Stall" voll erfüllt — die Zwischen-0-Goals waren operational, kein Test-Kriterium. Bei späterer Stage-D/E könnte das gleiche Muster gefahren werden, weniger Goals = weniger Tipparbeit. |
+
+### Stage-C-Notizen
+
+- **direction-Konvention bestätigt:** für leg_6 (front-left, yaw +π/4) hat der reale Coxa-Servo eine **invertierte** mechanische Drehrichtung gegenüber der URDF-Konvention. Phase-12-Voll-Calibration der anderen 5 Beine muss das pro Bein erneut prüfen — links/rechts-Spiegelung im Chassis macht keine direction-Vorhersage zuverlässig (jeder Servo individuell gemessen). Auto-Cal-Tool aus Phase-12-Stufe-B kann den direction-Test automatisieren (Tool bewegt Bein +0.1 rad, Tool fragt User „in URDF-positive Richtung? y/n", flippt direction im YAML wenn n).
+- **Echo-State-Realität:** Plugin liefert keine echte Servo-Position, daher gibt JTC immer `status=SUCCEEDED`. Diagnose-Methodik bei Stalls oder schiefen Posen muss visuell + Strom-Profil-basiert sein (Stage F). User-Beobachtung „minimal" für 0.5-rad-Bewegung ist *normal*, weil Augenmaß für ±5° schwer ist — der Servo hat aber den vollen geometrischen Winkel gefahren laut User-Sicht-Check.
+- **Stage-A-Plan-Korrektur-Pattern reflektiert:** wie in Stage B (Plan-Annahme Tests-Fixtures vs. committed YAML) gibt's auch in Stage C kleine Drifts (Goal-Wert-Change, Endlagen-Schritt-Zahl). Beide unkritisch fürs Done-Kriterium, beide in der Plan-Korrektur-Tabelle transparent. Plan-First-Workflow funktioniert weiterhin — der Plan ist Anker, nicht starres Skript.
 
 ---
 

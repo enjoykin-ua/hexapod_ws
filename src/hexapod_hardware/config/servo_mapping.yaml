@@ -111,13 +111,18 @@ servo2040_output_to_joint:
   # docs_raspi/phase_10_stage_b_calibration_log.md §4.1 for the Femur/Tibia
   # range > URDF-limit note (mech. stop lies outside HJ-Tester 800–2200 µs
   # range; Phase 12 SW-Auto-Cal can refine).
-  # `direction` stays at default (+1) — Phase 10 Stages C/D/E set the final
-  # value per joint based on stack-observation tests.
+  # Per-joint `direction` is determined by stack observation in Stages C/D/E:
+  #   - Coxa (Pin 15): direction=-1 confirmed in Stage C (2026-05-17, user
+  #     observed RViz vs. real leg mismatch with default +1, flipped to -1,
+  #     full ±1.0 rad endpoint test passed without stall).
+  #   - Femur (Pin 16) + Tibia (Pin 17): direction still at default (+1) —
+  #     Stages D/E pending.
   15:
     joint: leg_6_coxa_joint
     pulse_min:  1280   # 5° before self-collision with leg_5 (Strategy B')
     pulse_zero: 1550   # visual joint center, leg radial outward
     pulse_max:  1860   # mech. single-leg end stop, leg pointing forward
+    direction:  -1     # Phase 10 Stage C: stack-observed inversion vs. URDF
   16:
     joint: leg_6_femur_joint
     pulse_min:  840    # HJ-Tester range limit (mech. stop < 800 µs)
