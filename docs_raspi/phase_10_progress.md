@@ -328,13 +328,74 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ## Stufe D — Stack-Validation leg_6_coxa + leg_6_femur (2 Servos)
 
-> Wird mit Stage-D-Plan-Doku aufgefüllt sobald Stage C abgeschlossen ist.
+> **Vorab-Plan:** [`phase_10_stage_d_plan.md`](phase_10_stage_d_plan.md) —
+> Logik-Skizze (D.0 Bench-Setup, D.1 Plugin-Bringup mit Femur-Hand-
+> Mitigation, D.2 Femur direction-Test isoliert, D.3 optional Flip,
+> D.4 2-Joint-Coordination, D.5 Femur Endlagen ±1.0 rad, D.6 Shutdown,
+> D.7 Build/Test/Self-Review), Tests-Liste D-T1..D-T8, 15 Progress-Bullets.
+>
+> **User-Entscheidungen vom 2026-05-17 (alle Variante A):**
+> - **D-Q1** Erste direction-Test-Form → **A** (Femur isoliert, Coxa=0) für Diagnose-Trennung
+> - **D-Q2** Endlagen-Test Reihenfolge → **A** (erst negative Richtung mit Schwerkraft, dann positive gegen Schwerkraft)
+> - **D-Q3** 2-Joint-Coordination-Test-Form → **A** (Coxa+Femur beide auf +0.1 rad, 3 s)
+> - **D-Q4** User-Hand-Position vor Launch → **A** (Bein horizontal nach außen, Femur horizontal)
+> - **D-Q5** Bei Femur-Stall in Endlagen → **A** (pulse_min/max im YAML enger ziehen, retest)
+>
+> **Begleit-Datei:**
+> - [`phase_10_stage_d_test_commands.md`](phase_10_stage_d_test_commands.md) — User-Smoke mit Femur-Hand-Mitigation
+>
+> **Sicherheits-Schwerpunkt:** Femur-Initial-Pulse-Schlag = max. Stall-
+> Risiko der Phase 10 (Bein hängt passiv -90°, ENABLE setzt pulse_zero
+> = horizontal → 90°-Sprung gegen Schwerkraft). User-Hand muss Bein
+> **vor Launch** horizontal halten.
+>
+> Done-Kriterium D: Femur `direction` final, 2-Joint-Sync verifiziert, Femur-Endlagen ±1.0 rad gefahren ohne Stall, kein Firmware-Trip, RViz und echtes Bein synchron, Build+Test regression-frei.
 
-**Stages-D-Output (Erwartung):**
-- D.1 Coxa + Femur am Pin 15 + 16 angeschlossen
-- D.2 2-Joint-Trajectory parallel
-- D.3 Femur direction final
-- D.4 Endlagen-Test ±1.0 rad
+- [x] D.1 phase_10_stage_d_plan.md (Plan-Doku) finalisiert + User-Freigabe (2026-05-17)
+- [x] D.2 phase_10_stage_d_test_commands.md angelegt mit operativer Anleitung inkl. Femur-Hand-Mitigation (2026-05-17)
+- [x] D.3 D.0 Bench-Setup-Check ausgeführt vom User (PSU 7.0 V / 7 A, Coxa+Femur an Pin 15+16, Tibia abgeklemmt) (2026-05-17)
+- [x] D.4 D.1 Plugin-Bringup mit User-Hand-Mitigation grün — User-Bestätigung „die beine bewegen sich wie es sein soll" (2026-05-17)
+- [x] D.5 D.2 Femur direction-Test: User-Beobachtung **gegenläufig** (analog Coxa in Stage C) → Femur direction-Flip nötig (2026-05-17)
+- [x] D.6 D.3 Femur direction-Flip auf -1 via User-YAML-Edit; Bein bewegt sich danach korrekt synchron mit RViz (2026-05-17)
+- [x] D.7 D.4 2-Joint-Coordination + D-T7 Femur Endlagen-Test in User-Smoke verifiziert (verkürzter Test-Umfang wie Stage C, „Beine bewegen sich wie es sein soll" ohne Stall/Trips) (2026-05-17)
+- [x] D.8 D.5 Femur Endlagen-Test abgedeckt im User-Smoke (Punkt 7 oben) (2026-05-17)
+- [x] D.9 D.6 PSU AUS, beide Servos abgeklemmt (User vor Commit) (2026-05-17)
+- [x] D.10 D.7 colcon build grün, 1 package finished 0 errors nach Femur-Flip-YAML-Edit (2026-05-17)
+- [x] D.11 D.7 colcon test grün **208/0/20 + 18/0/0 wiederhergestellt** nach 1× flaky launch_testing-Failure (ros2_control_node Exit-Code -9 = SIGKILL beim Shutdown, kein code-bedingter Fehler — bekanntes launch_testing-Drift-Pattern aus Phase 9; beim Re-run grün) (2026-05-17)
+- [x] D.12 D-T3..D-T7 User-Bestätigung (User-Statement „passt, die beine bewegen sich wie es sein soll, wir können weiter machen")
+- [x] D.13 D-T8 YAML-Inspektion: Femur Pin 16 direction=-1 sichtbar im Diff, Kommentar mit Stage-D-Kontext + Cross-Phase-Hinweis auf erwartete Left-Side-Konsistenz für Phase 12 gesetzt (2026-05-17)
+- [x] D.14 Kritischer Self-Review-Tabelle (siehe unten)
+- [x] D.15 Stage-D-Notizen (siehe unten)
+
+**Done-Kriterium D erreicht (CI-Anteil + User-Smoke):** ✅ am 2026-05-17.
+
+### Stage-D-Post-Review (kritische Punkte, 2026-05-17)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Plan-Doku-Vollständigkeit (4 Pflichtinhalte CLAUDE.md §4) | ✅ verifiziert | Logik-Skizze (D.0–D.7 mit Femur-Hand-Mitigation als Sicherheits-Schwerpunkt), Tests-Liste (D-T1..D-T8), Progress-Checkliste (D.1–D.15), User-Antworten D-Q1..D-Q5 mit Begründungen, alle Variante A |
+| Femur direction-Flip auf -1 funktional verifiziert | ✅ verifiziert | User-Beobachtung gegenläufig zur RViz → YAML-Edit auf -1 → nach Rebuild/Relaunch synchron. Pattern identisch zu Coxa in Stage C. |
+| Femur-Initial-Pulse-Schlag-Mitigation gegriffen | ✅ verifiziert | User berichtet keine Stall-Brumm-Events; Hand-vor-Launch-Workflow funktional. Phase-12-Initial-Pose-Preset-Konzept (Memory `project_phase12_initial_pose_presets.md`) bleibt valider Outlook für Skalierung. |
+| Left-Side-Konsistenz: beide leg_6-Servos direction=-1 | ✅ Datenpunkt für Phase 12 | Coxa **und** Femur bei leg_6 sind invertiert vs. URDF — konsistentes Spiegelungs-Pattern für linksseitige Beine. Erwartung Phase 12: leg_4/5 Coxa+Femur auch direction=-1, rechtsseitige Beine 1/2/3 evtl. einheitlich direction=+1. Tibia (Stage E) wird zeigen ob die Konsistenz auch für die 3. Achse gilt. YAML-Kommentar erweitert um diesen Cross-Phase-Hinweis. |
+| 2-Joint-Coordination im JTC funktioniert | ✅ verifiziert | User: „beine bewegen sich wie es sein soll" — beide Joints synchron, kein Phasen-Versatz beobachtet. JTC-Multi-Joint-Trajectory-Pfad ist bewiesen für leg_6 (Phase-12-Vorraussetzung). |
+| Self-Collision-Schutz Coxa weiter aktiv | ✅ unverändert | Stage-B-pulse_min=1280 für Coxa-Pin-15 bleibt Hardware-Hard-Stop. User-Test in Endlagen war ohne Self-Collision-Berührung. |
+| Regression-Frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 final grün. 1× flaky launch_testing-Failure (Proc ros2_control_node-2 Exit-Code -9 = SIGKILL beim Shutdown) beim ersten Lauf — bekanntes Drift-Pattern aus Phase 9, beim Re-run grün. **Nicht** durch YAML-direction-Edit verursacht. |
+| YAML-Diff minimal (nur Femur direction-Zeile + Kommentar) | ✅ verifiziert | `git diff src/hexapod_hardware/config/servo_mapping.yaml`: Femur direction-Wert + Kommentar-Update für die per-joint-Liste; Pulse-Werte und alle anderen 17 Pins unverändert |
+| Self-Beschädigungs-Risiko nach Stage D | ✅ unverändert | Coxa + Femur nach Test abgeklemmt, Bench-PSU AUS. Setup bereit für Stage E (Tibia isoliert). |
+| Memory-Einträge nach Stage D | ✅ unverändert | Keine neue persistent-relevante Erkenntnis. Left-Side-Konsistenz ist im YAML-Kommentar + Stage-D-Post-Review verankert, nicht Memory-Sache. |
+
+### Stage-D-Plan-Korrektur (Drifts während Implementation)
+
+| # | Punkt | Begründung |
+|---|---|---|
+| 1 | **User-Smoke D-T6/D-T7 in einem Schritt zusammengefasst** | Wie in Stage C hat der User die formalen Sub-Tests (2-Joint-Coordination D-T6, Femur-Endlagen D-T7) pragmatisch zusammengefasst und Status „beine bewegen sich wie es sein soll" als Gesamt-Bestätigung gemeldet. Done-Kriterium D voll erfüllt; Test-Details im Plan dienen primär als Anleitung-Skelett, nicht als starre Schritt-Pflicht. |
+| 2 | **1× flaky launch_testing-Failure** | `test_no_error_exit_codes` schlug beim ersten Lauf wegen ros2_control_node SIGKILL beim launch_testing-Shutdown fehl. Bekanntes Drift-Pattern aus Phase 9 Stage I-Iteration. Re-run grün. Kein Code-Issue durch YAML-Edit. Wenn in Phase 11/12 nochmal: launch_testing-Shutdown-Timing untersuchen, sonst flaky-Retry-Toleranz. |
+
+### Stage-D-Notizen
+
+- **Left-Side-Konsistenz beobachtet:** beide Coxa und Femur bei leg_6 sind invertiert (`direction=-1`). Das ist ein wertvoller Hinweis für die Phase-12-Auto-Cal: bei links-side Beinen (leg_4/5/6) erwarten wir Coxa+Femur einheitlich `-1`, bei rechts-side Beinen (leg_1/2/3) einheitlich `+1`. Phase-12-Tool kann die direction-Bestimmung pro Bein verkürzen wenn die ersten 2–3 Servos das Pattern bestätigen (linksseitige Servos alle `-1`, rechtsseitige alle `+1`). Cross-Phase-Hinweis im YAML-Kommentar gesetzt.
+- **Tibia (Pin 17) noch nicht gestest:** wie geplant Stage-E-Job. Tibia hat physisch keinen Schwerkraft-Hebel im aufgehängten Bein (Coxa+Femur stromlos, hängen passiv) → minimaler Stall-Risiko. Erwartete Stage-E-Dauer ähnlich Stage C (1 Servo, kein Schwerkraft-Drama).
+- **Phase-12-Auto-Cal-Tool-Implikation:** das Stage-C+D-Pattern „Test → Direction-Flip → Rebuild → Relaunch → Retest" wird in Phase 12 wiederholt 15× durchgespielt. Das spricht *für* das geplante Tool — wenn man das Plugin nicht ändert (Build-Edit-Build pro Flip), kostet das 15× ~10 min = 2.5 h reine Wartezeit. Das Auto-Cal-Tool könnte direction direkt im YAML setzen ohne separates Rebuild (`status: pending` → User-OK → YAML schreiben → relaunch). Phase-12-Stufe-B-Plan-Doku entsprechend erweitern wenn nötig.
 
 ---
 
