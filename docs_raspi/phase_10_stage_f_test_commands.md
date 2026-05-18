@@ -68,7 +68,7 @@ horizontal, Tibia gestreckt). Pro Segment Lineal/Schieblehre anlegen:
 |---|---|---|---|
 | Coxa | 43.6 | Coxa-Joint-Welle → Femur-Joint-Welle | ±5 mm |
 | Femur | 79.94 | Femur-Joint-Welle → Tibia-Joint-Welle | ±5 mm |
-| Tibia | 178.7 | Tibia-Joint-Welle → Fuß-Spitze | ±5 mm |
+| Tibia | 200.0 | Tibia-Joint-Welle → Fuß-Spitze | ±5 mm |
 
 **Bei Abweichung > 5 mm:**
 - STOP, gemeinsam überlegen ob URDF angepasst wird
@@ -79,7 +79,7 @@ horizontal, Tibia gestreckt). Pro Segment Lineal/Schieblehre anlegen:
 **User-Bestätigung F-T3:**
 - [ ] Coxa-Länge: ___ mm (URDF 43.6 mm, ±5 mm OK?)
 - [ ] Femur-Länge: ___ mm (URDF 79.94 mm)
-- [ ] Tibia-Länge: ___ mm (URDF 178.7 mm)
+- [ ] Tibia-Länge: ___ mm (URDF 200.0 mm)
 - [ ] Alle 3 innerhalb ±5 mm → F-T4 starten
 
 ---
@@ -119,16 +119,97 @@ Tibia gestreckt).
 
 ---
 
-## F-T5 — F.2 IK-Probe-Test (~10 min)
+## F-T5 — F.2 IK-Probe-Test (~15 min, **Loopback first, dann real**)
 
-### Schritt 1: RViz starten (Terminal 2)
+> **Zwei-Phasen-Strategie zur IK-Validation** (User-Vorschlag 2026-05-17):
+> 1. **Loopback-Test** zuerst — Plugin echo't Goals ohne USB, RViz zeigt
+>    simulierte Bewegung. Keine Bench-PSU, kein Servo-Risiko. Validiert
+>    nur die IK-Mathematik + Trajectory-Generierung.
+> 2. **Real-Test** danach — Plugin mit echter Servo2040-Verbindung,
+>    Bench-PSU an, Bein bewegt sich physisch.
+>
+> Hintergrund: nach dem Tibia-Update (0.1787→0.200 m) hat sich der
+> erreichbare Workspace für leg_6 verschoben. Default-Punkte im
+> IK-Probe-Skript wurden auf Phase-5-Stand-Pose-Geometrie umgestellt
+> (`(0.278, 0.256, -0.047)` → `(0.278, 0.256, -0.017)`). Loopback-Test
+> zeigt ob die IK auflöst, bevor wir echte Servos riskieren.
+
+### Phase-A: Loopback-Test (~7 min)
+
+Wenn F-T4 schon `loopback_mode:=false` läuft, erst stoppen:
 
 ```bash
-source ~/hexapod_ws/install/setup.bash
+# Terminal 1: Ctrl-C → real.launch.py shutdown
+# Bench-PSU OUTPUT AUS (kein Strom-Risiko während Loopback)
+```
+
+Loopback starten:
+
+```bash
+# Terminal 1
+cd ~/hexapod_ws
+source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
+```
+
+**Wichtig:** im Loopback-Modus spricht das Plugin NICHT mit der
+Servo2040. Es echo't `command_state == current_state` zurück. Das
+heißt:
+- Plugin braucht keine USB-Verbindung
+- Bench-PSU darf AUS bleiben
+- Servos bewegen sich **nicht physisch**
+- RViz zeigt die simulierte Bewegung (echo-state → tf2 → RobotModel)
+
+RViz starten (Terminal 2):
+
+```bash
 rviz2  # Add RobotModel + TF (base_link)
 ```
 
-### Schritt 2: Strom-Logger starten (Terminal 3)
+IK-Probe ausführen (Terminal 3):
+
+```bash
+source ~/hexapod_ws/install/setup.bash
+python3 ~/hexapod_ws/tools/phase_10_f2_ik_probe.py
+```
+
+**Erwartung im Loopback:**
+- Skript loggt 2 IK-Ergebnisse (angles_a, angles_b)
+- Action-Goal an `/leg_6_controller/follow_joint_trajectory` mit `status=SUCCEEDED`
+- **RViz:** leg_6 bewegt sich sichtbar zu Goal A (Stand-Pose), dann
+  3 cm vertikal hoch zu Goal B, in ~4 s
+- **Echtes Bein:** bewegt sich **nicht** (Servos stromlos)
+
+**Bei IKError im Loopback:**
+- Punkte sind geometrisch nicht erreichbar → Default-Werte im Skript
+  anpassen
+- Kein Risiko, Plugin läuft weiter, einfach Skript modifizieren und neu
+  starten
+
+**Bei `status=SUCCEEDED` + saubere RViz-Bewegung:** → Loopback OK,
+weiter zu Phase-B.
+
+**Loopback shutdown:**
+
+```bash
+# Terminal 1: Ctrl-C
+```
+
+### Phase-B: Real-Test (~8 min)
+
+> Erst nach erfolgreichem Loopback-Test!
+
+User-Hand am Bein in Phase-5-Stand-Position vorhalten, dann:
+
+```bash
+# Bench-PSU OUTPUT AN (wieder)
+# Terminal 1: real launch
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=false
+```
+
+Hand wegnehmen sobald Servos stabil halten.
+
+Strom-Logger starten (Terminal 3):
 
 ```bash
 python3 ~/hexapod_servo_driver/tools/log_state.py \
@@ -137,37 +218,36 @@ python3 ~/hexapod_servo_driver/tools/log_state.py \
 
 Logger schreibt CSV mit `t_s, voltage_mv, current_ma, flags, p0..p17`.
 
-### Schritt 3: IK-Probe ausführen (Terminal 4)
+IK-Probe ausführen (Terminal 4):
 
 ```bash
 source ~/hexapod_ws/install/setup.bash
 python3 ~/hexapod_ws/tools/phase_10_f2_ik_probe.py
 ```
 
-**Erwartung:**
-- Skript loggt 2 IK-Ergebnisse (angles_a, angles_b)
-- Action-Goal an `/leg_6_controller/follow_joint_trajectory`
-- **Echtes Bein:** Fuß bewegt sich linear **vertikal um ~3 cm hoch**
-  (von Body-Höhe -10 cm zu -7 cm) in ~4 s
+**Erwartung im Real-Modus:**
+- Wie Loopback **plus** echte Servo-Bewegung
+- **Echtes Bein:** Fuß bewegt sich linear vertikal um ~3 cm hoch in ~4 s
 - **RViz:** synchron zur echten Bewegung
 - Strom-Peak < 4 A
-- Action-Result: `status=SUCCEEDED` (oder ähnlich)
+- Kein Stall-Brumm
 
 **Bei Fehler:**
-- IK wirft `IKError` → Zielpunkt geometrisch nicht erreichbar.
-  Wahrscheinlich URDF-Geometrie ≠ Realität. F.1 nochmal prüfen.
-- Servo brummt → pulse_min/max zu eng, oder direction-Fehler.
-  Stages-C/D/E-Werte nochmal prüfen.
-- Goal abgelehnt → joint_names oder Position-Range falsch im Skript.
+- IK-Error sollte nach Loopback-Phase nicht mehr auftreten
+- Servo brummt → pulse_min/max zu eng (Stages-C/D/E-Werte überprüfen)
+  oder direction-Fehler
+- Bein bewegt sich nicht trotz „SUCCEEDED" → Servo-Verkabelung oder
+  Plugin-USB-Issue prüfen
 
-### Schritt 4: Logger stoppen
+Logger stoppen:
 
 ```bash
 # Terminal 3: Ctrl-C
 ```
 
 **User-Bestätigung F-T5:**
-- [ ] Fuß bewegt sich linear vertikal ~3 cm (Sichtkontrolle, Lineal optional)
+- [ ] Phase-A Loopback: IK ohne IKError, RViz zeigt 3 cm vertikale Bewegung
+- [ ] Phase-B Real: Fuß bewegt sich linear vertikal ~3 cm
 - [ ] RViz und echtes Bein synchron
 - [ ] Kein Stall-Brumm
 - [ ] CSV `leg6_F2_*.csv` aufgezeichnet

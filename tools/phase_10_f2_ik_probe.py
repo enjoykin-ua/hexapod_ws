@@ -35,10 +35,19 @@ from hexapod_kinematics.leg_ik import IKError, leg_ik
 
 
 # Foot target points in base_link frame (meters).
-# Phase 10 Stage F.2 default targets — adjust if the leg geometry can't
-# reach them. Range chosen to keep all 3 joints comfortably within ±1.0 rad.
-GOAL_A_BASE = (0.15, 0.10, -0.10)   # start
-GOAL_B_BASE = (0.15, 0.10, -0.07)   # +3 cm up
+#
+# Phase 10 Stage F.2 targets — picked to land in the middle of leg_6's
+# reachable workspace with the post-2026-05-17 leg geometry
+# (L_TIBIA = 0.200 m). The first set of defaults from the parent plan
+# (0.15, 0.10, -0.10) was too close to the leg root after the tibia
+# update — IK rejected it as below the |L_t - L_f| = 0.120 m lower
+# reach bound.
+#
+# These values mirror the Phase-5/HW gait stand pose geometry
+# (radial_distance=0.27 m in leg frame, body_height=-0.047 m) projected
+# back into base_link via leg_6's mount transform (yaw=+pi/4).
+GOAL_A_BASE = (0.278, 0.256, -0.047)  # Stand pose for leg_6
+GOAL_B_BASE = (0.278, 0.256, -0.017)  # +3 cm vertical (tripod foot lift)
 
 
 def main() -> int:

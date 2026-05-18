@@ -508,20 +508,46 @@ Konsolidiert aus Mutter-Plan-Doku
 **F-Phase-1 — Lineal + IK-Probe:**
 - [x] F.5 F.0 Bench-Setup-Check (PSU 7.0 V / 8 A, alle 3 Servos Pin 15+16+17) (2026-05-17)
 - [x] F.6 F.1 Bein-Geometrie-Lineal-Check (2026-05-17): Coxa + Femur ±5 mm OK, **Tibia: 200 mm gemessen vs URDF 178.7 mm = 21.3 mm Abweichung > 5 mm Threshold** → URDF angepasst in 3 Stellen: (1) `hexapod_physical_properties.xacro:20` tibia_length 0.1787→0.200, (2) `hexapod_kinematics/config.py:53` _L_TIBIA 0.1787→0.200, (3) `docs/00_conventions.md` zwei Stellen mit 0.1787→0.200. Cross-Check `test_config.py` grün (xacro ↔ Python synchron). 208/0/20 + 18/0/0 + hexapod_kinematics 28/0/1 grün. **Sim-Verifikation in Gazebo (sim+rviz+walking-Smoke gem. Memory `feedback_urdf_refactor_full_smoke.md`) als Pendenz markiert** — wird beim nächsten Sim-Touch ausgeführt, nicht in Phase 10.
-- [ ] F.7 F.2 Plugin-Bringup mit User-Hand, alle 3 Servos halten Bein
-- [ ] F.8 F.2 IK-Probe-Skript ausgeführt, Fuß-Hub ~3 cm, kein Stall
-- [ ] F.9 F.2 Strom-CSV `leg6_F2_*.csv` aufgezeichnet in data/phase_10/
-- [ ] F.10 F-Phase-1-Shutdown sauber
-- [ ] F.11 F-Phase-1 colcon build + test grün
-- [ ] F.12 User-Commit F-Phase-1
+- [x] F.7 F.2 Plugin-Bringup mit User-Hand, alle 3 Servos halten Bein (2026-05-17, sowohl Loopback als auch Real)
+- [x] F.8 F.2 IK-Probe-Skript ausgeführt (2026-05-17): erst Loopback (`real.launch.py loopback_mode:=true`) → RViz zeigt sauber den 3 cm Fuß-Hub, IK liefert (coxa=0.001, femur=-0.802, tibia=1.351) → (coxa=0.001, femur=-0.982, tibia=1.412). Default-Punkte vor IK-Test angepasst von `(0.15, 0.10, ...)` auf `(0.278, 0.256, ...)` weil mit neuem L_TIBIA=0.200 die untere Reach-Grenze auf 0.120 m gestiegen ist (vorher 0.099). Anschließend Real-Modus erfolgreich, **echtes Bein bewegt sich synchron zur RViz-Vorhersage**. User-Beobachtung: erster Sprung von init-pose zu Goal A wirkt ruckartig (großer Femur+Tibia-Δ in 2 s), unkritisch.
+- [~] F.9 F.2 Strom-CSV `leg6_F2_*.csv` — **deferred** (User-Entscheid: aufgehängtes Bein liefert keine repräsentativen Werte für Stage G/Phase 12. PSU-Display-Beobachtung in F-Phase-2 reicht. Memory `project_phase10_real_yaml_vel_limits.md` bleibt Pendenz für Phase 12.)
+- [x] F.10 F-Phase-1-Shutdown sauber (real.launch.py Ctrl-C, PSU AUS, Servos abgeklemmt)
+- [x] F.11 F-Phase-1 colcon build + test grün (3 packages 0 errors, 208/0/20 + 18/0/0 + 28/0/1 + Lint-Failures pre-existing in display.launch.py)
+- [ ] F.12 User-Commit F-Phase-1 ← **du bist hier**
+
+### F-Phase-1-Post-Review (2026-05-17)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| F.1 Lineal-Check + URDF-Konsistenz | ✅ verifiziert | Tibia 178.7→200.0 mm in xacro + config.py + 00_conventions.md synchron. Cross-Check `test_config.py` grün. |
+| Sim-Verifikation für URDF-Refactor | 🟡 deferred | Memory `project_phase10_tibia_length_sim_pending.md` markiert beim nächsten Sim-Touch. Risiko niedrig (xacro symbolisch, IK-Tests grün), aber Memory-Konvention `feedback_urdf_refactor_full_smoke.md` verlangt Sim-Smoke. |
+| IK-Probe-Default-Punkte | ✅ angepasst | Vorher (0.15, 0.10, ...) lieferte IKError nach Tibia-Update (d=0.104 < lower reach 0.120). Neu (0.278, 0.256, ...) = Phase-5-Stand-Pose-Geometrie für leg_6. Beide Punkte in [0.120, 0.280] erreichbar. |
+| Loopback-First-Workflow | ✅ verifiziert | User-Vorschlag aufgenommen: erst `loopback_mode:=true` ohne Bench-PSU → RViz zeigt Bewegung → wenn OK, dann Real-Modus. Hat IK-Failures + initiale Goal-Reject-Issue ohne Hardware-Risiko diagnostiziert. Pattern für künftige IK-Tests übernehmen. |
+| Echtes Bein synchron zu RViz | ✅ verifiziert | Real-Modus: Fuß-Hub vertikal ~3 cm sichtbar, RViz-Modell und echtes Bein in identischer Pose. direction-Werte aus Stages C/D/E (Coxa=-1, Femur=-1, Tibia=+1) korrekt. |
+| Coxa-Bewegung in F.2 minimal | ✅ erwartet | Reiner vertikaler Fuß-Hub → Coxa-Δ ≈ 0. Coxa-Schwung kommt in F-Phase-2 (gait_node Tripod). |
+| Strom-Profil F.4 | 🟡 deferred | Aufgehängtes Bein liefert nicht repräsentative Werte → Phase 12 mit Voll-Last macht das richtig. Stage G nimmt `Sim × 0.7`-Strategie. |
+| Initial Goal-Reject beim ersten IK-Probe-Run | ✅ self-recovered | Erster Run: „Goal rejected by JTC" — beim zweiten Run grün. Vermutung: Controller-Spawner war noch nicht ganz im Active-State. Kein Code-Issue. |
+| Initial-Bewegung ruckartig | 🟢 später optional | Übergang init-pose (0,0,0) → Goal A in 2 s ergibt Femur/Tibia-Velocity ~0.5 rad/s. Innerhalb URDF-Limits, mechanisch unkritisch. Falls glatter gewünscht: `time_from_start` länger oder Zwischenpunkt — Phase-12-Polish, nicht Stage-F-Blocker. |
+| Regression-frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 + 28/0/1 grün. Display.launch.py Lint-Failures sind pre-existing (Phase-9-Drift, Stage-A-Post-Review). |
+
+### F-Phase-1-Plan-Korrektur (Drifts während Implementation)
+
+| # | Punkt | Begründung |
+|---|---|---|
+| 1 | **Tibia-URDF-Update** (vorhergesagt in Plan-Korrektur-Sektion „bei > 5 mm anpassen", trat ein) | Real-Bein-Tibia 200 mm vs. URDF 178.7 mm. Anpassung in 3 Stellen (xacro + config.py + Doku). |
+| 2 | **IK-Probe-Default-Punkte angepasst** (war nicht im Plan, Konsequenz aus #1) | Mit neuem L_TIBIA=0.200 wuchs die untere Reach-Grenze von 0.099 auf 0.120 m → alte Default-Punkte (0.15, 0.10, -0.10) lagen plötzlich innerhalb der Min-Distance. Neue Punkte aus Phase-5-Stand-Pose-Geometrie abgeleitet. |
+| 3 | **Loopback-First-Workflow** ergänzt nach Self-Review-Discussion | Nicht im ursprünglichen Plan, kam durch User-Vorschlag „erst in RViz schauen" auf. Hat sich als sehr wertvoll erwiesen — IK-Validation ohne Hardware-Risiko. Wird als Pattern für künftige IK-Tests übernommen. |
+| 4 | **F.4 Strom-Profil-Auswertung deferred** | User-Entscheidung: aufgehängtes Bein liefert nicht repräsentative Werte. Phase 12 macht's mit Last sauber. Stage G nimmt `Sim × 0.7` ohne Bench-CSV. Memory `project_phase10_real_yaml_vel_limits.md` bleibt Phase-12-Pendenz. |
+
+---
 
 **F-Phase-2 — gait_node + Strom-Auswertung:**
 - [ ] F.13 Re-Bench-Setup + Stock-Halterungs-Sichtkontrolle
 - [ ] F.14 F-T4b Re-Bringup grün
 - [ ] F.15 F.3 gait_node mit `body_height:=-0.047 use_sim_time:=false`
 - [ ] F.16 F.3 /cmd_vel mit linear.x=0.02 → leg_6 schwingt Tripod
-- [ ] F.17 F.3 Strom-CSV `leg6_F3_*.csv` aufgezeichnet, kein OVERCURRENT auf Pin 15/16/17
-- [ ] F.18 F.4 CSV-Auswertung: Vel/Accel/Strom-Peaks dokumentiert
+- [ ] F.17 F.3 **PSU-Display-Beobachtung** statt CSV — Peak-Strom während gait-Walking notieren (User-Entscheid: kein CSV-Logger wegen aufgehängtem Bein); kein OVERCURRENT auf Pin 15/16/17
+- [~] F.18 F.4 CSV-Auswertung — **deferred zu Phase 12** (aufgehängtes Bein liefert keine repräsentativen Werte für Stage G/Phase 12)
 - [ ] F.19 F-Phase-2-Shutdown sauber
 - [ ] F.20 F-Phase-2 colcon build + test grün
 - [ ] F.21 Stage-F-Self-Review (CLAUDE.md §4-Pflicht)

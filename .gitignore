@@ -4,3 +4,8 @@ log/
 __pycache__/
 *.pyc
 .vscode/
+
+# Strom-/Telemetrie-CSVs aus log_state.py — werden in data/phase_*/ lokal
+# generiert, gehören nicht ins Repo (User-Entscheid 2026-05-18 in Phase 10
+# Stage F-Phase-1).
+data/phase_*/*.csv
