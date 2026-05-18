@@ -17,7 +17,7 @@
   <xacro:property name="femur_width"  value="0.059"/>
   <xacro:property name="femur_height" value="0.020"/>
 
-  <xacro:property name="tibia_length" value="0.1787"/>
+  <xacro:property name="tibia_length" value="0.200"/>
   <xacro:property name="tibia_width"  value="0.012"/>
   <xacro:property name="tibia_height" value="0.012"/>
 

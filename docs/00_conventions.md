@@ -75,7 +75,7 @@ Pro Bein:
   2. Definiert den TCP-Frame für IK-Targets (Phase 5).
 
 > **Designentscheidung Foot-Link:** Da Beinsegmente als dünne Boxen
-> modelliert sind (Tibia: 0.1787 × 0.012 × 0.012 m), würde ein direkter
+> modelliert sind (Tibia: 0.200 × 0.012 × 0.012 m), würde ein direkter
 > Bodenkontakt der Tibia-Box auf einer Kante stattfinden — physikalisch
 > instabil, im Gazebo-Solver vibrationsanfällig. Eine kleine Kugel
 > (r ≈ 0.008 m) am Tibia-Ende erzeugt einen sauberen Punktkontakt und
@@ -192,7 +192,7 @@ und sind die einzige Stelle, an der sie geändert werden dürfen.
 |---|---|---|
 | Coxa  | 0.0436 × 0.0254 × 0.0582 m | 0.1167 kg |
 | Femur | 0.07994 × 0.059 × 0.020 m | 0.1167 kg |
-| Tibia | 0.1787 × 0.012 × 0.012 m | 0.1167 kg |
+| Tibia | 0.200 × 0.012 × 0.012 m | 0.1167 kg |
 | Foot  | Kugel, r = 0.008 m | 0.005 kg |
 
 ### 11.3 Mountpunkte der Beine (relativ zu `base_link`)

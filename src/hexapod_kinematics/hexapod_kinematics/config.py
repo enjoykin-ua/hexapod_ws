@@ -50,7 +50,7 @@ class HexapodConfig:
 # Mechanical constants (mirrored from hexapod_physical_properties.xacro).
 _L_COXA = 0.0436
 _L_FEMUR = 0.07994
-_L_TIBIA = 0.1787
+_L_TIBIA = 0.200
 _FOOT_RADIUS = 0.008
 
 _COXA_LIMITS = (-1.57, 1.57)

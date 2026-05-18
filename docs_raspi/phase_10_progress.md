@@ -506,8 +506,8 @@ Konsolidiert aus Mutter-Plan-Doku
 - [x] F.4 data/phase_10/ Verzeichnis angelegt für CSV-Ablage (2026-05-17)
 
 **F-Phase-1 — Lineal + IK-Probe:**
-- [ ] F.5 F.0 Bench-Setup-Check (PSU 7.0 V / 8 A, alle 3 Servos Pin 15+16+17)
-- [ ] F.6 F.1 Bein-Geometrie-Lineal-Check (Coxa/Femur/Tibia ±5 mm OK ODER URDF angepasst)
+- [x] F.5 F.0 Bench-Setup-Check (PSU 7.0 V / 8 A, alle 3 Servos Pin 15+16+17) (2026-05-17)
+- [x] F.6 F.1 Bein-Geometrie-Lineal-Check (2026-05-17): Coxa + Femur ±5 mm OK, **Tibia: 200 mm gemessen vs URDF 178.7 mm = 21.3 mm Abweichung > 5 mm Threshold** → URDF angepasst in 3 Stellen: (1) `hexapod_physical_properties.xacro:20` tibia_length 0.1787→0.200, (2) `hexapod_kinematics/config.py:53` _L_TIBIA 0.1787→0.200, (3) `docs/00_conventions.md` zwei Stellen mit 0.1787→0.200. Cross-Check `test_config.py` grün (xacro ↔ Python synchron). 208/0/20 + 18/0/0 + hexapod_kinematics 28/0/1 grün. **Sim-Verifikation in Gazebo (sim+rviz+walking-Smoke gem. Memory `feedback_urdf_refactor_full_smoke.md`) als Pendenz markiert** — wird beim nächsten Sim-Touch ausgeführt, nicht in Phase 10.
 - [ ] F.7 F.2 Plugin-Bringup mit User-Hand, alle 3 Servos halten Bein
 - [ ] F.8 F.2 IK-Probe-Skript ausgeführt, Fuß-Hub ~3 cm, kein Stall
 - [ ] F.9 F.2 Strom-CSV `leg6_F2_*.csv` aufgezeichnet in data/phase_10/
