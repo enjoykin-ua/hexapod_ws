@@ -4,6 +4,22 @@
 **Plan:** [phase_11_param_gui.md](phase_11_param_gui.md)
 **Aktiv seit:** 2026-05-19
 
+> **Session-Continuity-Hinweis (für neue Chat-Session):**
+>
+> Aktueller Stand: **Stage A wartet auf User-Freigabe**.
+> Plan-Doku ist in [`phase_11_stage_a_plan.md`](phase_11_stage_a_plan.md).
+> Vor Code-Beginn: **Pre-Implementation Code-Inspection** lesen (im
+> Plan-Doc Abschnitt „🔍 Pre-Implementation Code-Inspection") — das
+> klärt gait_node-Struktur, GaitEngine-State-Machine, existing
+> `cmd_body_height`-Topic-Handler als Vorbild.
+>
+> **8 offene Fragen (A-Q1..A-Q8)** stehen unter „User-Antworten" in der
+> Plan-Doku — User muss freigeben. Wichtigste Anpassung gegenüber dem
+> ursprünglichen Plan: `gait_pattern`, `body_height`, `tick_rate`,
+> `cycle_time` werden **nur in STANDING-State** live tunbar (analog
+> bestehender `/cmd_body_height`-Topic-Pattern, gait_node.py line 168-171).
+> Sicherer als ursprünglich vorgeschlagen — kein Mid-Walk-Kipp-Risiko.
+
 > Pro erledigtem Bullet `[ ]` → `[x]` umstellen, **nicht batchen**
 > (Memory `feedback_phase_progress_tracking.md`).
 

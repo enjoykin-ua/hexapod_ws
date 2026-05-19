@@ -30,6 +30,168 @@ den internen State aktualisiert.
 
 ---
 
+## 🔍 Pre-Implementation Code-Inspection (für nächste Session)
+
+> **Wichtig für Continuity** (z.B. Chat-Reset): bevor Code-Edit anfängt,
+> diese Files lesen damit Stage A nicht erfindet was schon existiert.
+
+### Existierende gait_node-Struktur (Stand 2026-05-19)
+
+**File:** `src/hexapod_gait/hexapod_gait/gait_node.py` (~277 Zeilen)
+
+- **14 Parameter** schon deklariert in `__init__` (line 44-57):
+  `gait_pattern`, `step_height`, `cycle_time`, `tick_rate`, `body_height`,
+  `radial_distance`, `time_from_start_factor`, `step_length_max`,
+  `default_linear_x/y`, `default_angular_z`, `cmd_vel_timeout`,
+  `body_height_min`, `body_height_max` — **plus `use_sim_time`**
+  von rclpy automatisch
+- **Member-Variablen** als `self._<param_name>` gesetzt (line 67-90)
+- **State-Machine** lebt in `GaitEngine` (line 101) — eigenes Objekt,
+  hat `state` Property mit `STATE_STANDING` / `STATE_WALKING` etc.
+- **Timer** mit `self._timer = self.create_timer(1.0 / self._tick_rate, self._tick)`
+  (line 134) — bei `tick_rate`-Update muss Timer destroyed + neu erstellt werden
+- **GAIT_PRESETS** in `hexapod_gait/gait_patterns.py` — Dict
+  mit Pattern-Konfig pro Pattern-Name
+- **Engine-Init** mit `self._pattern = GAIT_PRESETS[pattern_name]` (line 65)
+  + `self._engine = GaitEngine(pattern=self._pattern, ...)` —
+  Pattern-Wechsel braucht Engine-Reset oder Pattern-Swap-Methode
+
+### Bestehende Live-Update-Patterns (= Vorbild)
+
+**`/cmd_body_height` Topic-Handler** (line 159-188) zeigt **wie
+body_height live geändert wird**:
+
+- **Sicherheits-Constraint:** nur in `STATE_STANDING` akzeptieren
+  (Body-Pose-Wechsel mitten im Walk-Cycle würde Roboter zum Kippen
+  bringen, line 168-171)
+- **Clamping:** auf `[body_height_min, body_height_max]`
+- **Engine-Update:** `self._engine.body_height = clamped` (line 188)
+
+**Implikation für Stage A:** der Param-Callback für `body_height` muss
+**dasselbe Pattern** nutzen — nur in STANDING akzeptieren ODER
+SetParametersResult(False) mit reason. Sonst inkonsistent zum
+bestehenden Topic-Handler. **Empfehlung:** Param-Update lehnt
+während WALKING ab (sauberer als silent-ignore).
+
+### Existierende Tests
+
+**File:** `src/hexapod_gait/test/`
+
+- `test_copyright.py`, `test_flake8.py`, `test_pep257.py` — **Linter-Only**
+- **KEINE Unit-Tests für gait_node selber existieren!**
+
+**Implikation für Stage A:** wir führen die **ersten echten Unit-Tests**
+für gait_node ein. Pattern aus hexapod_kinematics (`test_*.py` mit
+pytest-Style) übernehmen.
+
+---
+
+## ⚠️ Kritische Punkte (Self-Review der Plan-Doku, vor Code-Beginn)
+
+### 1. Threading / Race-Conditions
+
+ROS2 Param-Callback läuft im Service-Thread, Timer-Callback (`_tick`)
+im Timer-Thread. Beide können gleichzeitig auf `self._engine.body_height`,
+`self._tick_rate`, etc. schreiben/lesen.
+
+**Mitigation:**
+
+- **Option A:** `MutuallyExclusiveCallbackGroup` für beide Callbacks
+  → seriealisierte Ausführung, keine Races
+- **Option B:** atomare Member-Updates (Python GIL hilft für simple
+  Assignments, aber `self._engine = ...` oder Timer-Restart nicht atomic)
+- **Empfehlung:** Option A. Plus: bei `_restart_timer()` zuerst
+  `self._timer.cancel()` warten lassen, dann neuen erstellen.
+
+### 2. `gait_pattern` mid-WALKING
+
+**Problem:** Pattern-Wechsel während Roboter läuft = Beine wären
+plötzlich in falscher Tripod-Phase → potentieller Kipp-Crash.
+
+**Empfehlung:**
+
+- Param-Callback **lehnt** `gait_pattern`-Update während WALKING ab
+  (analog `cmd_body_height`)
+- Nur in STANDING-State erlaubt
+- User muss erst stoppen (`cmd_vel.linear.x = 0`), dann Pattern wechseln
+
+Das ist **wichtige Anpassung** zu der ursprünglichen User-Antwort A-Q2
+(gait_pattern live wechselbar) — die war zu optimistisch.
+
+### 3. `tick_rate` Live-Update
+
+**Problem:** Timer-Restart während aktivem Tick → Race-Condition,
+verlorene Frames.
+
+**Empfehlung:**
+
+- Timer in STANDING-State neu erstellen (sicher)
+- Während WALKING: ablehnen oder bis zum nächsten STANDING-State warten
+- **Sichere Variante:** read-only während WALKING
+
+### 4. `cycle_time` Live-Update
+
+**Problem:** Engine berechnet Stride basierend auf `cycle_time`.
+Wechsel mid-cycle würde Stride-Länge inkonsistent machen.
+
+**Empfehlung:**
+
+- Engine-Internal-Variable updaten, **nächster Cycle** nutzt neuen Wert
+- aktueller Cycle läuft erst zu Ende
+- Edge-Case: was wenn `cycle_time` von 4.0 auf 0.5 sinkt während aktivem
+  4-Sekunden-Cycle? → Engine muss das sauber handeln
+
+### 5. Cross-Param-Constraints (`body_height_min` vs. `body_height_max`)
+
+**Problem:** wenn User `body_height_min` auf -0.030 setzt während
+`body_height_max` noch bei -0.080 ist → min > max, ungültig.
+
+**Empfehlung:**
+
+- Pre-Validate: für **alle** Params in der Callback-Liste zusammen
+  prüfen, nicht einzeln
+- Bei Inkonsistenz: SetParametersResult(False) zurück, **keine** Updates
+  durchführen (atomic-all-or-nothing)
+
+### 6. `use_sim_time` als read-only
+
+Clock-Mode-Wechsel zur Laufzeit ist tricky in rclpy. Stage A markiert
+das als `read_only=true` im Descriptor.
+
+### 7. Regression-Schutz für bestehenden `/cmd_body_height` Topic-Handler
+
+Phase 6 hat den Topic-Handler getuned (PS4 L2/R2-Trigger). Stage A darf
+das nicht brechen — beide Pfade (Topic + Param) sollten denselben
+Effekt haben.
+
+**Test-Empfehlung:** existierender PS4-Workflow (sim-only) sollte nach
+Stage A weiter funktionieren.
+
+### 8. rqt_reconfigure mit String-Param (`gait_pattern`)
+
+`gait_pattern` ist string-typed. ROS2 ParameterDescriptor unterstützt
+keine native Enum-Dropdown — rqt_reconfigure würde Text-Eingabe zeigen,
+User muss exakt `tripod`, `single_leg_1`, etc. tippen.
+
+**Workaround:** `additional_constraints` im Descriptor als Hinweis-Text
+(„valid values: tripod | single_leg_1..6"). Plus: Validation lehnt
+unbekannte Patterns ab.
+
+### 9. Stage A muss in Sim laufen — Tibia-Update-Verifikation mitnehmen?
+
+Stage A entwickelt + testet Param-Callback in **Sim** (Gazebo + RViz).
+Das ist faktisch eine Sim-Session = passt zur Pendenz
+`project_phase10_tibia_length_sim_pending.md`.
+
+**Empfehlung:**
+
+- **Stage A** kann den Sim-Smoke-Walk mit alter cmd_vel-Methodik abdecken
+  → Tibia-Update verifiziert „nebenbei"
+- **Stage E** macht es offiziell + Memory-Eintrag schließen
+- → User-Sichtkontrolle in Stage A reicht für Konfidenz
+
+---
+
 ## Strategie / Architektur-Entscheidungen
 
 ### A. Welche Parameter sollen live tunbar sein?
@@ -44,19 +206,18 @@ welche Params live sind und welche nicht.
 
 | Param | Live-Update wirkt | Erklärung |
 |---|---|---|
-| `body_height` | **sofort** (nächster Tick) | Stand-Pose-Höhe wird neu berechnet, sanft anfahren |
-| `radial_distance` | **sofort** | analog body_height |
-| `step_height` | **nächster Swing** | aktueller Swing läuft erst zu Ende |
-| `step_length_max` | **nächster Cycle** | clampt cmd_vel im nächsten Cycle |
-| `default_linear_x/y` | **sofort** | Fallback-Wert ändert sich |
-| `default_angular_z` | **sofort** | dito |
-| `cmd_vel_timeout` | **sofort** | Timer-Threshold |
-| `body_height_min/max` | **sofort** als Clamp | bestehender body_height wird ggf. geclampt |
-| `cycle_time` | **nächster Cycle** | aktueller Cycle läuft erst zu Ende, dann neue Periode |
-| `tick_rate` | **kompletter Timer-Restart** | aktueller Timer abbrechen, neuer mit neuer Frequenz |
-| `time_from_start_factor` | **sofort** | Lookahead-Berechnung |
-| `gait_pattern` | **kompletter Pattern-Restart** | aktuelle Trajectory abbrechen, neuer Pattern laden |
-| `use_sim_time` | **NICHT live** | Clock-Mode-Wechsel zur Laufzeit ist tricky, Restart nötig |
+| `body_height` | **nur in STANDING** (analog `cmd_body_height`-Topic-Handler) | in WALKING ablehnen mit SetParametersResult(False) — Kipp-Risiko |
+| `radial_distance` | **nur in STANDING** | analog body_height, Stand-Pose-Reset |
+| `step_height` | **sofort** (nächster Swing nutzt neuen Wert) | unkritisch |
+| `step_length_max` | **sofort** (clampt cmd_vel im nächsten Cycle) | unkritisch |
+| `default_linear_x/y/angular_z` | **sofort** | Fallback-Werte, keine Auswirkung auf aktive Trajectory |
+| `cmd_vel_timeout` | **sofort** | nur Timer-Threshold-Vergleich |
+| `body_height_min/max` | **atomic mit body_height** | Cross-Constraint, nur in STANDING ändern wenn body_height außerhalb käme |
+| `cycle_time` | **nur in STANDING** | sonst Stride-Inkonsistenz mid-cycle |
+| `tick_rate` | **nur in STANDING** (Timer-Restart-Risiko) | in WALKING ablehnen |
+| `time_from_start_factor` | **sofort** | nur Lookahead-Math |
+| `gait_pattern` | **nur in STANDING** (Engine-Reset-Risiko) | analog cmd_body_height |
+| `use_sim_time` | **read_only=true** | Clock-Mode-Wechsel zur Laufzeit broken in rclpy |
 
 ### C. ParameterDescriptor mit Range
 
@@ -105,11 +266,14 @@ def on_param_change(self, params):
 
 | # | Frage | Empfehlung |
 |---|---|---|
-| **A-Q1** Alle gait_node-Params live machen oder Subset? | **A** — alle (~13 Params) für Konsistenz | (B) nur Walking-Pose-Params (body_height, step_height, radial_distance) |
-| **A-Q2** `gait_pattern` live wechselbar? | **A** — ja, mit kompletter Pattern-Reload-Logik | (B) read-only, Restart nötig |
-| **A-Q3** Validation bei Cross-Param-Constraints | **A** — strikt im Callback ablehnen (Setparameters returned False) | (B) Wert clampen statt ablehnen (silently) |
-| **A-Q4** `use_sim_time` live tunbar? | **B** — read-only (Clock-Mode-Wechsel zur Laufzeit ist tricky) | (A) versuchen, aber riskant |
-| **A-Q5** Implementation-Stil | **A** — Python (gait_node ist eh Python) | (B) C++ wäre nur bei Plugin-Stage-B relevant |
+| **A-Q1** Alle gait_node-Params live machen oder Subset? | **A** — alle 14 Params (gait_node deklariert die schon, siehe Inspection) | (B) nur Walking-Pose-Params |
+| **A-Q2** `gait_pattern` live wechselbar während WALKING? | **B (geändert!)** — nur in STANDING erlaubt, in WALKING ablehnen (analog `cmd_body_height`-Topic-Handler line 168-171). Sicherer als ursprünglich vorgeschlagen | (A) Mid-WALKING-Wechsel mit Engine-Reset (kipp-Risiko) |
+| **A-Q3** Validation bei Cross-Param-Constraints | **A** — atomic-all-or-nothing: alle Param-Updates zusammen validieren, bei Inkonsistenz ablehnen | (B) Wert clampen silently |
+| **A-Q4** `use_sim_time` live tunbar? | **B** — `read_only=true` im Descriptor | (A) versuchen (riskant) |
+| **A-Q5** Threading / Race-Conditions | **A** — `MutuallyExclusiveCallbackGroup` für Timer + Param-Callback | (B) Atomic-Member-Assignments (riskanter) |
+| **A-Q6** `body_height`-Param-Update während WALKING | **A** — analog `/cmd_body_height`-Topic-Handler: nur in STANDING akzeptieren | (B) immer akzeptieren (Kipp-Risiko) |
+| **A-Q7** `tick_rate` Live-Update während WALKING | **B** — nur in STANDING (Timer-Restart mid-Tick = Race-Condition) | (A) versuchen mit Timer-Cancel-Wait |
+| **A-Q8** Tibia-Update-Sim-Verifikation in Stage A nebenbei? | **A** — User-Sichtkontrolle in Stage A reicht; offizielle Memory-Eintrag-Schließung in Stage E | (B) separat in Stage E erst |
 
 ---
 
