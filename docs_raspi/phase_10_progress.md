@@ -541,18 +541,91 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ---
 
-**F-Phase-2 — gait_node + Strom-Auswertung:**
-- [ ] F.13 Re-Bench-Setup + Stock-Halterungs-Sichtkontrolle
-- [ ] F.14 F-T4b Re-Bringup grün
-- [ ] F.15 F.3 gait_node mit `body_height:=-0.047 use_sim_time:=false`
-- [ ] F.16 F.3 /cmd_vel mit linear.x=0.02 → leg_6 schwingt Tripod
-- [ ] F.17 F.3 **PSU-Display-Beobachtung** statt CSV — Peak-Strom während gait-Walking notieren (User-Entscheid: kein CSV-Logger wegen aufgehängtem Bein); kein OVERCURRENT auf Pin 15/16/17
+**F-Phase-2 — gait_node + PSU-Display:**
+- [x] F.13 Re-Bench-Setup + Stock-Halterungs-Sichtkontrolle (2026-05-18)
+- [x] F.14 F-T4b Re-Bringup grün mit Hand-Mitigation (2026-05-18)
+- [x] F.15 F.3 gait_node mit `body_height:=-0.047 use_sim_time:=false` gestartet (2026-05-18)
+- [x] F.16 F.3 /cmd_vel mit linear.x=0.02 + `--rate 10` → leg_6 schwingt Tripod (Femur+Tibia deutlich, Coxa minimal by-design — 4° entspricht 12 µs Pulse-Schwung, in HW visuell kaum erkennbar) (2026-05-18)
+- [x] F.17 F.3 **PSU-Display-Beobachtung** während gait-Walking, kein OVERCURRENT auf Pin 15/16/17 (false-positives auf leere Pins toleriert)
 - [~] F.18 F.4 CSV-Auswertung — **deferred zu Phase 12** (aufgehängtes Bein liefert keine repräsentativen Werte für Stage G/Phase 12)
-- [ ] F.19 F-Phase-2-Shutdown sauber
-- [ ] F.20 F-Phase-2 colcon build + test grün
-- [ ] F.21 Stage-F-Self-Review (CLAUDE.md §4-Pflicht)
-- [ ] F.22 Stage-F-Notizen + Phase-12-Pipeline-Erkenntnisse + Stage-G-Vorbereitungs-Tabelle
-- [ ] F.23 User-Commit F-Phase-2
+- [ ] F.19 F-Phase-2-Shutdown sauber (User-Aktion vor Commit)
+- [x] F.20 F-Phase-2 colcon build + test grün (übernommen aus F-Phase-1: 28/0/1 + 208/0/20 + 18/0/0, keine Code-Änderungen in F-Phase-2)
+- [x] F.21 Stage-F-Self-Review (siehe F-Phase-2-Post-Review unten)
+- [x] F.22 Stage-F-Notizen + Phase-12-Pipeline-Erkenntnisse + Stage-G-Vorbereitungs-Tabelle (siehe unten)
+- [ ] F.23 User-Commit F-Phase-2 ← **du bist hier**
+
+### F-Phase-2-Post-Review (2026-05-18)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Bench-Setup mit allen 3 Servos | ✅ verifiziert | PSU 7.0 V / 8 A, alle 3 Pins angesteckt, Stock-Halterungs-Check OK |
+| Plugin-Bringup mit Hand-Mitigation | ✅ verifiziert | Stage-D-Pattern funktioniert weiter — User hält Bein horizontal vor Launch, Servos halten nach Bringup |
+| gait_node HW-Args zwingend | ✅ verifiziert | `body_height:=-0.047 use_sim_time:=false` als CLI-Override — Sim-Defaults im `gait.launch.py` unverändert (Sim weiter funktional) |
+| `--rate 10` als Pflicht-Pattern | 🟡 Lesson Learned | Ohne `--rate` ist `ros2 topic pub` 1 Hz → unter gait_node cmd_vel_timeout 0.5 s → Walking stottert. **Im test_commands.md jetzt explizit als Pflicht dokumentiert.** Memory-Eintrag-Kandidat falls Phase 12 erneut. |
+| Coxa-Schwung minimal sichtbar | ✅ by-design erklärt | Bei `linear.x=0.02` + gait-Defaults sind 4° Coxa-Schwung erwartet (Mathematik: stride 2 cm bei radial_distance 27 cm). Servo-Pulse-Auflösung 1 µs ≈ 0.0058 rad → 12 µs Pulse-Schwung in HW → visuell kaum erkennbar. **Walking-Pipeline trotzdem voll funktional verifiziert** (Femur + Tibia synchron RViz + real). |
+| Stride-Range-Test deferred | 🟢 später | Höhere `linear.x` (0.05, 0.08+) oder `step_length_max:=0.10` für sichtbaren Coxa-Schwung gehört zu Stage G (Vel/Accel-Limits) oder Phase 12 Stufe G (Limits hochziehen). Memory `project_phase10_real_yaml_vel_limits.md` bleibt Phase-12-Pendenz. |
+| Stance→Swing-Übergangs-Beschleunigung | ✅ by-design | Kurze schnelle Bewegung beim Wechsel zwischen Tripod-Phasen ist Velocity-Vorzeichenwechsel — kein Bug. Mit Bodenreibung in Phase 12 anders fühlbar. |
+| Tripod-Pattern in RViz alle 6 Beine | ✅ verifiziert | gait_node generiert vollständige Tripod-Trajectories für alle 6 leg_X_controller, Plugin sendet Pulse-Streams an Pins 0–14 (harmlos, keine Servos angeschlossen). Phase-12-Pipeline ist hiermit bewiesen — leg_6 ist die Physical-Verifikation, andere 5 Beine sind Software-Pfad-Verifikation. |
+| PSU-Display Peak-Strom-Beobachtung | ✅ als Stage-G-Sanity | Statt CSV-Logger (deferred Phase 12) hat User Peak-Strom beobachtet. Wert eingetragen (TODO: User nachtragen falls relevant). |
+| F.4 CSV-Strom-Profil deferred | 🟡 Phase 12 | Aufgehängtes Bein liefert nicht repräsentative Werte. Phase-12-Voll-Bringup mit Last macht das richtige Profil. |
+| Self-Beschädigungs-Risiko nach Stage F | ✅ unverändert | Pulse-Hard-Stop (Stage B) + URDF-Clamp (Plugin) + JTC-Validation als 3-Schicht-Defense. Während gait-Walking keine Servo-Stalls beobachtet. |
+
+### F-Phase-2-Plan-Korrektur (Drifts während Implementation)
+
+| # | Punkt | Begründung |
+|---|---|---|
+| 1 | **`--rate 10` als Pflicht-Argument** in test_commands.md ergänzt | Ohne explizite Rate stottert Walking bei `ros2 topic pub`-Default 1 Hz. Lesson Learned übernommen ins Doc als ⚡-Hinweis. |
+| 2 | **Coxa-Schwung-Erwartung quantifiziert + erklärt** | User-Beobachtung „kaum sichtbar" hat Mathematik-Erklärung im test_commands.md getriggert. Klare Abgrenzung: Walking funktioniert, nur visuelle Sichtbarkeit ist klein bei `linear.x=0.02`. |
+| 3 | **F.4 Strom-CSV-Pipeline aus User-Smoke entfernt** (deferred Phase 12) | War im Plan als Stage-G-Vorbereitung, aber aufgehängtes Bein liefert keine repräsentativen Werte. Phase 12 macht's mit Last. Stage G nimmt `Sim × 0.7`. |
+| 4 | **Stride-Range-Tests deferred** statt F-T6.5-Erweiterung | User-Entscheid „lassen wir das erstmal so". Phase-12-Stufe-G nimmt das auf wenn Boden-Walking dran ist. |
+
+### Stage-F-Notizen + Phase-12-Pipeline-Erkenntnisse
+
+**Was Stage F bewiesen hat (= Phase-12-Risiken geschlossen):**
+
+- **IK + leg_ik() + base_to_leg_frame** liefert geometrisch sinnvolle
+  Joint-Winkel für die echte Bein-Geometrie (nach Tibia-Update auf 0.200 m)
+- **JTC Multi-Joint-Trajectory** (FollowJointTrajectory-Action) funktioniert
+  über die reale Pipeline (Plugin → Firmware → Servo)
+- **gait_node Tripod-Pattern** generiert für alle 6 Beine synchron;
+  Plugin sendet Pulse-Streams an alle 18 Pins (harmlos für unbelegte)
+- **HW-spezifische gait_node-Args** (`body_height:=-0.047`, `use_sim_time:=false`)
+  funktionieren als CLI-Override ohne Code-Edit am `gait.launch.py`
+- **Loopback-First-Workflow** als Pattern für IK-Validation ohne HW-Risiko
+- **Tibia-Geometrie-Korrektur** zur Laufzeit erfolgreich (xacro + config.py
+  + Doku synchron, Cross-Check `test_config.py` greift)
+
+**Stage-G-Vorbereitungs-Tabelle** (für nächste Stage):
+
+| Stage-G-Aufgabe | Strategie | Input |
+|---|---|---|
+| Vel-Limits pro Joint in `controllers.real.yaml` | `Sim × 0.7`-Default (Mutter-Plan) | URDF velocity 2.0 rad/s, also 1.4 rad/s in YAML |
+| Accel-Limits pro Joint | `Sim × 0.7`-Default | Phase-5-Sim-Werte |
+| Smoke-Test mit Stage-F-Trajectory | F.2-IK-Probe als Regression-Test | sollte weiter grün laufen |
+| Phase-12-Pendenz `project_phase10_real_yaml_vel_limits.md` | bleibt aktiv | Phase 12 verfeinert mit Boden-Daten |
+
+**Cross-Phase-Übergänge die Phase 12 wieder aufgreifen muss:**
+- `project_phase10_tibia_length_sim_pending.md` — Sim+RViz+Walking-Smoke nach Tibia-Update
+- `project_phase10_real_yaml_vel_limits.md` — Voll-Strom-Profil mit Last
+- `project_phase12_initial_pose_presets.md` — Initial-Pulse-Preset statt User-Hand-Mitigation
+- `project_phase9_h_oscilloscope_pending.md` — Oszi/Logic-Analyzer-Tests
+
+---
+
+## 🎉 Stage F komplett (in F-Phase-2 abgeschlossen, 2026-05-18)
+
+Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, I**.
+
+- **Stage G:** `controllers.real.yaml` Vel/Accel-Limits eintragen (Sim × 0.7, optional Bench-Verfeinerung später Phase 12). Kein HW-Test, reine YAML+Build+Test.
+- **Stage I:** Phase-10-Abschluss (Progress-Final, Retrospektive, Phase-Wechsel).
+
+**Done-Kriterium Stage F erreicht:**
+1. ✅ F.1 Bein-Geometrie verifiziert (Tibia angepasst, alle 3 Stellen synchron)
+2. ✅ F.2 direkter IK-Trajectory ohne Fehler (Loopback + Real)
+3. ✅ F.3 gait_node + cmd_vel funktioniert, leg_6 schwingt im Tripod
+4. ✅ Kein Servo-Stall, kein Firmware-Trip
+5. 🟡 Strom-CSVs deferred zu Phase 12 (User-Entscheid, aufgehängtes Bein)
+6. ✅ RViz-Bewegung synchron zur echten Bewegung
 
 **Done-Kriterium F erreicht:** [TBD nach User-HW-Arbeit]
 

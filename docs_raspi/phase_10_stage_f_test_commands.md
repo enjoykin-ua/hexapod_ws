@@ -12,7 +12,7 @@ verifiziert.
 - **F-Phase-1:** F-T3 Lineal-Check (stromlos) + F-T4 Plugin-Bringup +
   F-T5 IK-Probe → Shutdown → Commit
 - **F-Phase-2:** Bench-Setup wieder + F-T6 gait_node + cmd_vel +
-  F-T8 Strom-Auswertung → Shutdown → Commit
+  PSU-Display-Beobachtung (F-T8 CSV deferred zu Phase 12) → Shutdown → Commit
 
 Doppelter Bringup-Aufwand für mehr Sicherheits-Anker zwischen IK-Test
 und Walking-Test.
@@ -209,16 +209,11 @@ ros2 launch hexapod_bringup real.launch.py loopback_mode:=false
 
 Hand wegnehmen sobald Servos stabil halten.
 
-Strom-Logger starten (Terminal 3):
+> **Kein Strom-Logger** (F.4 deferred zu Phase 12). Stattdessen
+> **PSU-Display beobachten** während IK-Probe läuft — Peak-Strom-Wert
+> merken (informativer Sanity-Check, kein CSV).
 
-```bash
-python3 ~/hexapod_servo_driver/tools/log_state.py \
-  --out ~/hexapod_ws/data/phase_10/leg6_F2_$(date +%Y%m%dT%H%M).csv
-```
-
-Logger schreibt CSV mit `t_s, voltage_mv, current_ma, flags, p0..p17`.
-
-IK-Probe ausführen (Terminal 4):
+IK-Probe ausführen (Terminal 3):
 
 ```bash
 source ~/hexapod_ws/install/setup.bash
@@ -229,7 +224,7 @@ python3 ~/hexapod_ws/tools/phase_10_f2_ik_probe.py
 - Wie Loopback **plus** echte Servo-Bewegung
 - **Echtes Bein:** Fuß bewegt sich linear vertikal um ~3 cm hoch in ~4 s
 - **RViz:** synchron zur echten Bewegung
-- Strom-Peak < 4 A
+- **PSU-Display:** Strom-Peak < 4 A erwartet
 - Kein Stall-Brumm
 
 **Bei Fehler:**
@@ -239,18 +234,12 @@ python3 ~/hexapod_ws/tools/phase_10_f2_ik_probe.py
 - Bein bewegt sich nicht trotz „SUCCEEDED" → Servo-Verkabelung oder
   Plugin-USB-Issue prüfen
 
-Logger stoppen:
-
-```bash
-# Terminal 3: Ctrl-C
-```
-
 **User-Bestätigung F-T5:**
 - [ ] Phase-A Loopback: IK ohne IKError, RViz zeigt 3 cm vertikale Bewegung
 - [ ] Phase-B Real: Fuß bewegt sich linear vertikal ~3 cm
 - [ ] RViz und echtes Bein synchron
 - [ ] Kein Stall-Brumm
-- [ ] CSV `leg6_F2_*.csv` aufgezeichnet
+- (F.4 CSV-Logging deferred zu Phase 12 — kein CSV für F.2 nötig)
 
 ---
 
@@ -316,20 +305,19 @@ Hand wegnehmen sobald Servos halten. Plugin bleibt für F-T6 + F-T8 an.
 
 > **Plugin (Terminal 1) läuft.** Wir bauen drüber den gait-Layer auf.
 
-### Schritt 1: Strom-Logger starten (Terminal 3)
+> **F.4-Strom-Profil deferred** (User-Entscheid F-Phase-1-Self-Review):
+> kein CSV-Logger — aufgehängtes Bein liefert keine repräsentativen
+> Werte für Stage G/Phase 12. **Stattdessen:** PSU-Display während
+> Walking beobachten, Peak-Strom merken (z.B. „~2.3 A" in progress.md
+> als Stage-G-Sanity-Datenpunkt notieren).
 
-```bash
-python3 ~/hexapod_servo_driver/tools/log_state.py \
-  --out ~/hexapod_ws/data/phase_10/leg6_F3_$(date +%Y%m%dT%H%M).csv
-```
-
-### Schritt 2: RViz starten (Terminal 2, falls noch nicht offen)
+### Schritt 1: RViz starten (Terminal 2, falls noch nicht offen)
 
 ```bash
 rviz2  # Add RobotModel + TF (base_link)
 ```
 
-### Schritt 3: gait_node mit HW-Args starten (Terminal 5)
+### Schritt 2: gait_node mit HW-Args starten (Terminal 3)
 
 > ⚡ **HW-Args zwingend** — `gait.launch.py` Default ist für Sim
 > (`body_height=-0.052`, `use_sim_time=true`). Ohne Override:
@@ -348,27 +336,35 @@ ros2 launch hexapod_gait gait.launch.py \
 - gait_node spawned
 - State-Machine in STANDING-Default
 - /cmd_body_height und andere Topics publiziert
+- **PSU-Display:** Stand-Strom-Verbrauch stabil, typisch < 1 A
 
 **Sim-Sicherheit:** dieser CLI-Override ändert **nichts** an
 `gait.launch.py` selbst. Beim nächsten Sim-Aufruf
 (`ros2 launch hexapod_gait gait.launch.py` ohne Args) lädt der
 Sim-Default (-0.052) automatisch wieder.
 
-### Schritt 3: cmd_vel füttern (Terminal 6)
+### Schritt 3: cmd_vel füttern (Terminal 4)
+
+> ⚡ **`--rate 10` ist Pflicht!** Ohne explizite Rate defaultet
+> `ros2 topic pub` auf 1 Hz, was unter dem gait_node `cmd_vel_timeout=0.5 s`
+> liegt → gait_node fällt nach jedem Pub auf `default_linear_x=0`
+> zurück, Walking stottert nur Bruchteile.
 
 ```bash
 source ~/hexapod_ws/install/setup.bash
-ros2 topic pub /cmd_vel geometry_msgs/Twist '{linear: {x: 0.02}}'
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.02}}'
 ```
 
 **Erwartung:**
 - gait_node schaltet auf WALKING-State
 - Generiert Tripod-Pattern für alle 6 Beine
-- **leg_6:** schwingt physisch vor/zurück im Tripod, Fuß-Hub ~3 cm
+- **leg_6:** schwingt physisch vor/zurück im Tripod, Fuß-Hub ~3 cm —
+  **hier wird Coxa stark schwingen** (Tripod-Vorwärts = Coxa-Hub)
 - **RViz:** alle 6 Beine im Tripod-Pattern visualisiert
-- Strom-Peaks korrelieren mit leg_6-Schwingphase
+- **PSU-Display:** Peak-Strom merken (typische Erwartung 1–3 A bei
+  `linear.x=0.02`, aufgehängtes Bein ohne Bodenlast)
 
-### Schritt 5b: Stock-Halterungs-Sichtkontrolle (Self-Review-Punkt #12)
+### Schritt 4: Stock-Halterungs-Sichtkontrolle (Self-Review-Punkt #12)
 
 Während des Walking-Tests **periodisch** visuell prüfen:
 - Schlägt leg_6 in Aufhängung beim Hochschwung an?
@@ -377,7 +373,7 @@ Während des Walking-Tests **periodisch** visuell prüfen:
 Falls Kontakt mit Halterung: PSU sofort AUS, Stand-Pose-Punkt anpassen
 (`body_height` weiter nach unten setzen oder Aufhängung neu justieren).
 
-### Schritt 5c: ANY_SERVO_OVERCURRENT-Toleranz-Regel (Self-Review-Punkt #6)
+### Schritt 5: ANY_SERVO_OVERCURRENT-Toleranz-Regel (Self-Review-Punkt #6)
 
 > ⚠️ **Wichtig:** im Log werden wahrscheinlich `ANY_SERVO_OVERCURRENT`-
 > Frames für leere Pins 0-14 auftauchen (Phase-9-Stolperfalle: Firmware
@@ -394,12 +390,11 @@ Cross-Phase-Anmerkung: in Phase 12 mit allen 18 Servos angeschlossen wird
 dieses false-positive von selbst verschwinden. Firmware-Fix optional in
 Phase 13+ (Pin-Maske für aktive Servos).
 
-### Schritt 4: ~10 s laufen lassen, dann Ctrl-C alle Terminals
+### Schritt 6: ~10 s laufen lassen, dann Ctrl-C alle Terminals
 
 ```
-Terminal 6: Ctrl-C (cmd_vel pub stoppen)
-Terminal 5: Ctrl-C (gait.launch.py stoppen) — leg_6 fährt zurück in Stand-Pose
-Terminal 3: Ctrl-C (Logger)
+Terminal 4: Ctrl-C (cmd_vel pub stoppen)
+Terminal 3: Ctrl-C (gait.launch.py stoppen) — leg_6 fährt zurück in Stand-Pose
 ```
 
 **Plugin (Terminal 1) bleibt an** für eventuelle Re-Tests.
@@ -411,22 +406,44 @@ Terminal 3: Ctrl-C (Logger)
 
 **User-Bestätigung F-T6:**
 - [ ] gait_node startet ohne Fehler (mit `body_height:=-0.047 use_sim_time:=false`)
-- [ ] /cmd_vel wird angenommen, gait wechselt zu WALKING-State
-- [ ] leg_6 schwingt physisch im Tripod-Pattern
+- [ ] `cmd_vel` mit `--rate 10` wird angenommen, gait wechselt zu WALKING-State
+- [ ] leg_6 schwingt physisch im Tripod-Pattern (Femur+Tibia deutlich, Coxa minimal — siehe Hinweis unten)
 - [ ] Alle 6 Beine in RViz zeigen Tripod
 - [ ] Kein Stall, kein WATCHDOG_TRIPPED
 - [ ] **Stock-Halterungs-Check OK** (leg_6 schlägt nicht in Aufhängung)
 - [ ] Kein OVERCURRENT auf Pin 15/16/17 (false-positives auf 0-14 toleriert)
-- [ ] CSV `leg6_F3_*.csv` aufgezeichnet
+- [ ] **PSU-Peak-Strom notiert** (in progress.md als Stage-G-Sanity-Datenpunkt)
+
+### Hinweis: Coxa-Schwung bei `linear.x=0.02` ist by-design klein
+
+Erwartete Coxa-Drehung mit gait_node-Defaults (cycle_time=2.0,
+step_length_max=0.05):
+- Stride = `linear.x × stance_duration = 0.02 × 1.0 = 2 cm`
+- Coxa-Schwung = `atan2(2 cm, 27 cm) ≈ 4.2°`
+- Servo-Pulse-Auflösung 1 µs ≈ 0.0058 rad → 12 µs Pulse-Schwung total
+  → in echter Hardware visuell **nicht erkennbar** (Servo-Eigen-Toleranz
+  + Mechanik-Spiel verdeckt es)
+
+**Walking funktioniert** trotzdem korrekt — gait_node sendet die
+Tripod-Trajectories, Plugin echo't im Loopback bzw. fährt im Real
+die Servos. Die Stride-Größe ist Stage-G/Phase-12-Polish:
+- Stage G: `controllers.real.yaml` Vel/Accel-Limits → mit Bench-Daten
+  (oder Sim × 0.7) bestimmen, ggf. höhere `step_length_max` ableiten
+- Phase 12 Stufe G „Limits hochziehen": schrittweise `linear.x` von
+  0.02 → 0.05 → Phase-5-Werte (Mutter-Plan-Phase-12-Plan)
+
+**Beobachtung Stance→Swing-Übergang:** kurze schnelle Bewegung beim
+Wechsel zwischen den beiden Tripod-Phasen ist by-design (Velocity-
+Vorzeichenwechsel im Cycle). Mit Bodenreibung in Phase 12 anders
+fühlbar (Bein zieht den Body), aufgehängt sieht's etwas abrupt aus.
 
 ---
 
 ## F-T7 — F-Phase-2 Shutdown (~3 min)
 
 ```bash
-Terminal 6: Ctrl-C (cmd_vel pub stoppen)
-Terminal 5: Ctrl-C (gait.launch.py)
-Terminal 3: Ctrl-C (Logger)
+Terminal 4: Ctrl-C (cmd_vel pub stoppen)
+Terminal 3: Ctrl-C (gait.launch.py)
 Terminal 1: Ctrl-C (real.launch.py → 18× DISABLE_SERVO)
 ```
 
@@ -441,45 +458,28 @@ Dann:
 
 ---
 
-## F-T8 — F.4 Strom-Profil-Auswertung (Claude + User)
+## F-T8 — F.4 Strom-Profil-Auswertung — **deferred zu Phase 12**
 
-CSV in Pandas laden + plotten:
+> **User-Entscheid F-Phase-1-Self-Review:** F.4 CSV-Auswertung in
+> Phase 10 entfällt, weil aufgehängtes Bein keine repräsentativen
+> Werte für Stage G / Phase 12 liefert. Memory-Pendenz
+> `project_phase10_real_yaml_vel_limits.md` bleibt aktiv für Phase 12
+> (Voll-Bringup mit Last + Bodenkontakt).
 
-```python
-import pandas as pd
-import matplotlib.pyplot as plt
+**Statt CSV-Auswertung in Phase 10:**
 
-# F.2-CSV (direkter IK, kurze Bewegung)
-df_f2 = pd.read_csv("leg6_F2_*.csv")
-print("F.2 max current:", df_f2["current_ma"].max(), "mA")
+- PSU-Display-Beobachtung während F-T6: Peak-Strom-Wert (z.B. „~2.3 A")
+  im `phase_10_progress.md` F-Phase-2-Block als Sanity-Datenpunkt
+  notieren
+- **Stage G nutzt `Sim × 0.7`-Strategie** für Vel/Accel-Limits in
+  `controllers.real.yaml` (Mutter-Plan-Empfehlung)
+- **Phase 12** macht die echte Strom-Profil-Auswertung mit 18 Servos
+  unter Last → dann werden die `controllers.real.yaml`-Limits nachfein
+  verfeinert (Stage G ist konservativer Erst-Wurf)
 
-# F.3-CSV (gait_node, längere Bewegung)
-df_f3 = pd.read_csv("leg6_F3_*.csv")
-print("F.3 max current:", df_f3["current_ma"].max(), "mA")
-
-# Vel-Peaks pro Joint (delta-pulse / delta-t)
-for pin in ["p15", "p16", "p17"]:
-    dp_dt = df_f3[pin].diff() / df_f3["t_s"].diff()
-    print(f"{pin} max |dp/dt|: {dp_dt.abs().max():.1f} µs/s")
-
-# Plot zur Visualisierung
-df_f3.plot(x="t_s", y=["p15", "p16", "p17", "current_ma"], subplots=True)
-plt.show()
-```
-
-**Was wir extrahieren für Stage G:**
-
-| Metrik | Wert (TBD nach F-T8) | Stage-G-Verwendung |
-|---|---|---|
-| F.3 max current (Rail-Total) | ___ mA | Sanity: < 8000 (CC-Limit) |
-| F.3 max \|dp/dt\| Pin 15 (Coxa) | ___ µs/s | → rad/s via slope → Vel-Limit |
-| F.3 max \|dp/dt\| Pin 16 (Femur) | ___ µs/s | → rad/s |
-| F.3 max \|dp/dt\| Pin 17 (Tibia) | ___ µs/s | → rad/s |
-| Idle vs. Walking-Strom Differenz | ___ mA | Phase-8-PSU-Sizing |
-
-**User-Bestätigung F-T8:**
-- [ ] CSVs in Pandas geladen
-- [ ] Plot zeigt klare Korrelation zwischen p15/16/17 und current_ma
+**User-Bestätigung F-T8 (verschlankt):**
+- [ ] PSU-Peak-Strom während F-T6 notiert in progress.md
+- [ ] Verständnis: Phase 12 macht echtes Strom-Profil mit Last
 - [ ] Werte in Stage-F-Notizen (`phase_10_progress.md` Stage-F-Sektion) übernommen
 
 ---
