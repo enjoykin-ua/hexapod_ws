@@ -1333,6 +1333,85 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 
 - Phase-9-Plan: [`docs_raspi/phase_9_hexapod_hardware.md`](../../docs_raspi/phase_9_hexapod_hardware.md)
 - Phase-9-Progress: [`docs_raspi/phase_9_progress.md`](../../docs_raspi/phase_9_progress.md)
+- Phase-10-Plan: [`docs_raspi/phase_10_single_leg.md`](../../docs_raspi/phase_10_single_leg.md)
+- Phase-10-Progress: [`docs_raspi/phase_10_progress.md`](../../docs_raspi/phase_10_progress.md)
 - Firmware-Repo: `~/hexapod_servo_driver/`
 - Wire-Protokoll: `~/hexapod_servo_driver/PROTOCOL.md`
 - Servo-Mapping-Quelle: `~/hexapod_servo_driver/contrib/servo_mapping.yaml`
+
+---
+
+## Phase 10 Quick-Start — Single-Leg-Bringup (leg_6 kalibriert)
+
+**Status nach Phase 10 (2026-05-19):**
+
+- **leg_6 (Pin 15/16/17) voll kalibriert** in `config/servo_mapping.yaml`
+  mit `status: calibrated`, pulse_min/zero/max + direction final
+- **leg_1..5** = Platzhalter (kommen in Phase 12 via Auto-Cal-Tool)
+- **Tibia-Länge** im URDF korrigiert auf 0.200 m (Real-Messung +21.3 mm
+  vs. ursprüngliches 0.1787 m)
+- **IK + JTC + gait_node-Pipeline** voll verifiziert mit leg_6 aufgehängt
+
+### Bench-Setup (für Single-Leg-Tests)
+
+```text
+PSU 7.0 V, CC-Limit 8 A (3-Servo-Bein), Setpoint stabil
+leg_6: Coxa → Pin 15, Femur → Pin 16, Tibia → Pin 17
+leg_5: ruhige Default-Pose (Self-Collision-Schutz via pulse_min aktiv)
+Hexapod aufgebockt an Stock-Halterung
+```
+
+### Plugin-Bringup im Real-Modus
+
+```bash
+# Hand am Bein in Phase-5-Stand-Pose vorhalten (Initial-Pulse-Mitigation)
+cd ~/hexapod_ws && source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=false
+# Nach on_activate complete: Hand langsam wegnehmen, Servos halten
+```
+
+### IK-Probe-Skript (Stage F.2)
+
+```bash
+# Terminal 2 für RViz
+rviz2  # RobotModel + TF (base_link)
+
+# Terminal 3 für IK-Probe
+python3 ~/hexapod_ws/tools/phase_10_f2_ik_probe.py
+# Erwartung: Fuß bewegt sich 3 cm vertikal in ~4 s
+```
+
+### Walking mit gait_node (Stage F.3) — HW-Args zwingend
+
+```bash
+# Terminal 4: gait_node mit HW-Args
+ros2 launch hexapod_gait gait.launch.py \
+  body_height:=-0.047 \
+  use_sim_time:=false
+
+# Terminal 5: cmd_vel mit --rate 10 (Pflicht!)
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.02}}'
+```
+
+> ⚡ **Wichtig:** `--rate 10` nicht vergessen! Ohne explizite Rate
+> defaultet `ros2 topic pub` auf 1 Hz → unter gait_node-Timeout 0.5 s
+> → Walking stottert nur Bruchteile.
+
+### Loopback-Modus (sicheres Software-Testing ohne Bench-PSU)
+
+```bash
+# Plugin echo't Goals zurück, keine echte Servo-Bewegung
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
+# IK-Probe + gait_node funktionieren wie im Real-Modus, nur in RViz sichtbar
+```
+
+### Bekannte Cross-Phase-Pendenzen für Phase 12
+
+- **Sim-Verifikation Tibia-Update** — sim+rviz+walking-Smoke in Gazebo
+  beim nächsten Sim-Touch (Memory `project_phase10_tibia_length_sim_pending.md`)
+- **Vel/Accel-Limits** in `controllers.real.yaml` mit Bench-Last-Daten
+  verfeinern (Memory `project_phase10_real_yaml_vel_limits.md`)
+- **Auto-Cal-Tool** für die 15 Restservos in Phase 12 Stufe B
+- **Initial-Pulse-Presets** statt User-Hand-Mitigation (Memory
+  `project_phase12_initial_pose_presets.md`)
+- **Stride-Range-Tests** (Phase 12 Stufe G „Limits hochziehen")

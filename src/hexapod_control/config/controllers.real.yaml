@@ -16,12 +16,38 @@
 #    vom Servo2040). Ein 'velocity' in der yaml + nicht-exportiert vom
 #    Plugin = JTC-Spawner-Failure (Resource not available).
 #
-# TODO Phase 10: Vel/Accel-Limits (constraints-Block) aus Bench-
-# Trajektorie ableiten und hier einsetzen. Aktuell limit-frei wie in
-# controllers.yaml, weil ohne Bench-Daten jeder Wert arbiträr waere.
-# Bringup in Stage H + Phase 10 muss daher mit reduzierter Joystick-
-# Geschwindigkeit + aufgebocktem Roboter (CLAUDE.md §9) durchgefuehrt
-# werden, bis konservative Limits hier eingetragen sind.
+# Phase 10 Stage G — Vel/Accel/Constraint-Entscheidung (2026-05-18):
+#
+# Diese Datei bleibt limit-frei wegen Echo-State-Realitaet:
+# - Plugin liefert kein echtes Servo-Position-Feedback (current_state ==
+#   command_state immer), und User-Entscheidung 2026-05-18 schliesst
+#   einen Wechsel zu Feedback-Servos aus.
+# - Daher sind alle JTC-Toleranz-Constraints (goal_position_tolerance,
+#   trajectory, stopped_velocity_tolerance) faktisch wertlos -- sie
+#   pruefen Soll gegen Echo-von-Soll, Differenz ist immer 0.
+# - Vel/Accel-Limits via YAML-Override haetten zwar echten Effekt (sie
+#   clampen die Trajectory-Spline), aber:
+#     1. URDF-Velocity-Hard-Cap (2.0 rad/s) ist bereits aktiv und
+#        ausreichend konservativ aus Servo-Spec.
+#     2. Phase 10 hat keine Bench-CSV (F.4 deferred, aufgehaengtes Bein
+#        liefert nicht repraesentative Werte fuer Voll-Last-Walking).
+#     3. Konservative Erst-Werte ohne Bench-Daten waeren rein arbitraer.
+#
+# Stage-G-Done-Kriterium G1 ("Vel/Accel-Limits in YAML") wird hier
+# pragmatisch als "URDF-Hard-Cap reicht + Phase-12-Verfeinerung ist
+# Cross-Phase-Pendenz" interpretiert. Memory-Eintrag
+# project_phase10_real_yaml_vel_limits.md bleibt aktiv fuer Phase 12.
+#
+# Walking-Sicherheit in Phase 12 ist durch drei Hardware-Schichten gegeben:
+#   1. URDF <limit velocity="2.0" effort="5.0"/> (JTC-Cap)
+#   2. servo_mapping.yaml pulse_min/max (Firmware-Hard-Clamp pro Servo)
+#   3. URDF Position-Limits +-1.57/+-1.50 rad (JTC-Goal-Validation)
+#
+# Diese Schichten greifen Echo-State-unabhaengig und sind in Phase 10
+# bereits aktiv verifiziert.
+#
+# Phase-12-Stufe-G "Limits hochziehen" kann hier spaeter Vel/Accel-
+# Limits ergaenzen wenn Voll-Last-Walking neue Daten liefert.
 
 controller_manager:
   ros__parameters:

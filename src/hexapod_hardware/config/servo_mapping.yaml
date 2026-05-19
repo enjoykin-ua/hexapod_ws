@@ -124,18 +124,24 @@ servo2040_output_to_joint:
   # leg side or joint type.
   15:
     joint: leg_6_coxa_joint
+    status: calibrated         # Phase 10 Stage I (2026-05-19)
+    calibrated_at: "2026-05-17"
     pulse_min:  1280   # 5° before self-collision with leg_5 (Strategy B')
     pulse_zero: 1550   # visual joint center, leg radial outward
     pulse_max:  1860   # mech. single-leg end stop, leg pointing forward
     direction:  -1     # Phase 10 Stage C: stack-observed inversion vs. URDF
   16:
     joint: leg_6_femur_joint
+    status: calibrated         # Phase 10 Stage I (2026-05-19)
+    calibrated_at: "2026-05-17"
     pulse_min:  840    # HJ-Tester range limit (mech. stop < 800 µs)
     pulse_zero: 1533   # femur horizontal to ground
     pulse_max:  2170   # HJ-Tester range limit (mech. stop > 2200 µs)
     direction:  -1     # Phase 10 Stage D: stack-observed inversion vs. URDF
   17:
     joint: leg_6_tibia_joint
+    status: calibrated         # Phase 10 Stage I (2026-05-19)
+    calibrated_at: "2026-05-17"
     pulse_min:  840    # HJ-Tester range limit (tibia pointing away from body)
     pulse_zero: 1539   # knee straight, tibia in femur extension
     pulse_max:  2172   # HJ-Tester range limit (tibia toward body)

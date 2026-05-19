@@ -1,9 +1,44 @@
 # Aktive Phase
 
-**Aktuell:** Phase 10 — Single-Leg Bring-up + Kalibrierung
-**Datei:** `docs_raspi/phase_10_single_leg.md`
-**Progress-Tracker:** `docs_raspi/phase_10_progress.md`
-**Sicherheits-Setup:** `docs_raspi/phase_10_safety_setup.md`
+**Aktuell:** Phase 11 — Pi-Plattform & Portierung
+**Datei:** `docs_raspi/phase_11_pi_platform.md`
+
+> **Phase 10 (Single-Leg Bring-up + Kalibrierung):** ✅ abgeschlossen am 2026-05-19.
+> Alle 8 Stages A–G + I durchgelaufen (Stage H war eh gestrichen).
+> leg_6 (Pin 15/16/17) ist voll kalibriert; IK + gait_node-Walking auf
+> echter Hardware verifiziert (aufgehängt, ohne Bodenkontakt).
+>
+> **Phase-10-Retro (kurz):**
+> - **Was gut lief:** Strikter Plan-First-Workflow pro Stage (4 Pflichtinhalte
+>   + offene Fragen) hat substantielle Diskussionen produziert — z.B. Strategie B'
+>   für Coxa-Self-Collision-Schutz in Stage B, Loopback-First-Workflow in Stage F.2.
+>   Memory-Konvention `feedback_urdf_refactor_full_smoke.md` hat in Stage F1
+>   (Tibia-Update) direkt gegriffen — Sim-Verifikation als Phase-12-Pendenz markiert
+>   statt vergessen. User-Pattern „Commit zwischen Sub-Stages" (Stages C+D+E+F-Phase-1)
+>   hat Iterations-Anker geliefert. Self-Reviews haben in jeder Stage echte Drifts
+>   gefunden (Plan-Annahme Test-Fixtures in Stage B → Reality committed YAML; Stride-
+>   Range-Test deferred in F-T6 etc.).
+> - **Was länger gedauert hat als geplant:** Stage B 0.5 d → 1 d wegen User-Strategie-
+>   Wechsel C→B' (Self-Collision-Sicherheit über Range-Maximierung). Stage F war
+>   1.5 d Wildcard → ~2 d wegen Tibia-Update mit IK-Probe-Default-Anpassung +
+>   Loopback-First-Discovery + Coxa-Sichtbarkeits-Discussion. Stage G war als
+>   ~1 h geplant, hat ~1.5 h gebraucht wegen Echo-State-Klarstellung-Discussion
+>   die Strategie auf Option C reduziert hat.
+> - **Was offen ist:** Cross-Phase-Pendenzen für Phase 12:
+>   - `project_phase10_tibia_length_sim_pending.md` (Sim-Verifikation nach Tibia-Update)
+>   - `project_phase10_real_yaml_vel_limits.md` (Vel/Accel mit Bench-Last)
+>   - `project_phase12_initial_pose_presets.md` (Initial-Pulse-Preset statt Hand)
+>   - `project_phase9_h_oscilloscope_pending.md` (Oszi/Logic-Analyzer-Tests)
+>   - Plus: Auto-Cal-Tool für 15 verbleibende Servos in Phase 12 Stufe B
+> - **Echo-State-Klarstellung als Schlüssel-Insight:** User-Realität (Servos
+>   liefern niemals Position-Feedback, kein Wechsel zu Feedback-Servos geplant)
+>   hat Stage-G-Strategie fundamental geändert (Option C statt Option B).
+>   Phase 12 + 13 müssen mit dieser Realität planen — JTC-Toleranz-Constraints
+>   sind faktisch wertlos in unserem System; Schutz kommt aus den drei
+>   Hardware-Schichten (URDF-Cap + Pulse-Clamp + Position-Limits).
+>
+> **Git-Aktionen zum Phasenwechsel** (`phase-10-done`-Tag im hexapod_ws,
+> Commit der phase_10-Stage-I-Docs) macht der User selbst.
 
 > **Phase 9 (ROS2-Plugin `hexapod_hardware`):** ✅ abgeschlossen am 2026-05-16.
 > Alle 10 Stufen A–J durchgelaufen. CI-Anteil voll grün (208 Plugin-Tests +
@@ -85,8 +120,8 @@
 | 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | ⏸️ pausiert (deadline: vor Phase 11) |
 | 8b | Sim+HW Visual-Mirror (optional) | `docs_raspi/phase_8b_sim_hw_mirror.md` | ⚪ optional |
 | 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | 🟢 abgeschlossen (2026-05-16; Oszi-Verifikation H-T8/H-T9 pending bei Hardware-Verfügbarkeit) |
-| 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟡 aktiv |
-| 11 | Pi-Plattform & Portierung | `docs_raspi/phase_11_pi_platform.md` | ⚪ offen |
+| 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟢 abgeschlossen (2026-05-19; leg_6 voll kalibriert, IK + Walking verifiziert, Cross-Phase-Pendenzen für Phase 12 in Memory) |
+| 11 | Pi-Plattform & Portierung | `docs_raspi/phase_11_pi_platform.md` | 🟡 aktiv |
 | 12 | Voll-Bringup mit echtem Roboter | `docs_raspi/phase_12_full_bringup.md` | ⚪ offen |
 
 ### Querschnitts-Docs (`docs_raspi/`, kein eigenes Phasen-Done-Kriterium)

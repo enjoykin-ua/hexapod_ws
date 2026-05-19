@@ -631,16 +631,96 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, 
 
 ---
 
-## Stufe G — `controllers.real.yaml` Vel/Accel-Limits
+## Stufe G — `controllers.real.yaml` Constraints + Vel/Accel-Outlook
 
-> Wird mit Stage-G-Plan-Doku aufgefüllt sobald Stage F abgeschlossen ist.
+> **Vorab-Plan:** [`phase_10_stage_g_plan.md`](phase_10_stage_g_plan.md) —
+> Logik-Skizze (G.0 YAML-Lesen, G.1 JTC `constraints`-Block pro 6
+> leg_X_controller, G.2 Vel/Accel-Limit-Strategie via URDF-Hard-Cap,
+> G.3 Loopback-Smoke F.2 IK-Probe, G.4 Build+Test, G.5 Self-Review),
+> Tests-Liste G-T1..G-T4, 9 Progress-Bullets.
+>
+> **Plan-Korrektur ggü. Mutter-Plan-§Stage-G:** F.4 Strom-CSV ist
+> deferred zu Phase 12 (User-Entscheid Stage-F-Self-Review). Vel/Accel-
+> Limit-Strategie wird nicht aus Bench-CSV abgeleitet, sondern aus
+> URDF-Defaults × 0.7 als konservativer Erst-Wurf. Memory
+> `project_phase10_real_yaml_vel_limits.md` bleibt aktiv für
+> Phase-12-Stufe-G-Verfeinerung („Limits hochziehen").
+>
+> **User-Entscheidung 2026-05-18: Option C (komplett deferren)**.
+> Begründung: User-Klarstellung dass Echo-State permanent ist (Servos
+> liefern niemals echtes Position-Feedback, kein Wechsel zu Feedback-
+> Servos geplant). Damit sind JTC-Toleranz-Constraints faktisch wertlos
+> (alle Vergleiche Soll vs. Echo-von-Soll → Differenz 0). Vel/Accel-
+> YAML-Override hätte zwar echten Effekt, aber URDF-Hard-Cap reicht und
+> Bench-Daten fehlen (F.4 deferred).
+>
+> **Was gemacht wird (statt YAML-Werte-Änderung):**
+> - `controllers.real.yaml` TODO-Kommentar erweitert mit:
+>   - Echo-State-Erklärung als Stage-G-Plan-Korrektur
+>   - drei aktive Sicherheits-Schichten (URDF-Vel-Cap + Pulse-Clamp + Position-Limits)
+>   - Phase-12-Verfeinerungs-Verweis
+> - Memory `project_phase10_real_yaml_vel_limits.md` bleibt aktiv
+> - Stage-G-Done-Kriterium G1 pragmatisch interpretiert als „URDF-Cap aktiv, YAML-Override Phase-12-Pendenz"
+>
+> **Test-Commands-Datei entfällt** für Option C — keine User-Smoke-Steps nötig.
 
-**Stages-G-Output (Erwartung):**
-- G.1 Vel/Accel-Werte aus Stage-F-CSV ableiten
-- G.2 `controllers.real.yaml` per-Joint-Limits eingetragen
-- G.3 Smoke-Test mit Stage-F-Trajectory
-- G.4 launch_testing weiter 18/0
-- Memory-Pendenz `project_phase10_real_yaml_vel_limits.md` abgehakt
+- [x] G.1 phase_10_stage_g_plan.md (Plan-Doku) finalisiert mit Option-C-Entscheidung + User-Freigabe (2026-05-18)
+- [x] G.2 phase_10_stage_g_test_commands.md entfernt (entfällt für Option C, keine User-Smoke-Steps)
+- [x] G.3 `controllers.real.yaml` TODO-Kommentar mit Echo-State-Erklärung + 3-Schicht-Sicherheits-Argument + Phase-12-Verweis aktualisiert (2026-05-18)
+- [x] G.4 colcon build grün (3 packages, 0 errors)
+- [x] G.5 colcon test grün **208/0/20 + 18/0/0 + 5/0/0** (1× flaky launch_testing-Failure beim ersten Lauf: 5/7 Controller geladen statt 7 = timing-bedingt, **nicht** durch Kommentar-Änderung verursacht; beim Re-run grün)
+- [x] G.6 G-T3 YAML-Inspektion (nur Kommentar geändert, keine Werte berührt)
+- [x] G.7 Kritischer Self-Review-Tabelle (siehe unten)
+- [x] G.8 Stage-G-Notizen + Phase-12-Pendenz-Verweis (siehe unten)
+
+**Done-Kriterium G erreicht (pragmatisch interpretiert):** ✅ am 2026-05-18.
+
+### Stage-G-Post-Review (2026-05-18)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| Mutter-Plan-Done-Kriterium G1 strikt erfüllt | 🟡 pragmatisch | Mutter-Plan-Wording „Vel/Accel-Limits in YAML" wurde mit User-Echo-State-Klarstellung als „URDF-Hard-Cap reicht, YAML-Override Phase-12-Pendenz" interpretiert. Plan-Korrektur ist transparent im YAML-Kommentar dokumentiert. Memory-Pendenz aktiv. |
+| Echo-State-User-Klarstellung als kritischer Input | ✅ wertvoll | Vor dieser Klarstellung war Stage-G-Plan auf JTC-constraints + Vel/Accel ausgelegt. Nach Klarstellung: constraints faktisch wertlos → Option C entschieden. **Lesson:** User-Realität (kein Position-Feedback-Pfad geplant) ändert Stage-Strategie fundamental — wichtig in Phase 12 + 13 mit zu fragen wenn neue Sensor-Themen kommen. |
+| YAML-Kommentar dokumentiert die drei aktiven Sicherheits-Schichten | ✅ verifiziert | URDF velocity 2.0 rad/s + Pulse-Clamp pulse_min/max + URDF Position-Limits. Alle drei sind Echo-State-unabhängig und greifen vor jedem Servo-Befehl. |
+| Build + Test regression-frei | ✅ verifiziert | 208/0/20 + 18/0/0 + 5/0/0 final grün. 1× flaky launch_testing-Failure (test_all_controllers_active: 2/7 Controller geladen) beim ersten Lauf — bekanntes timing-Drift bei Spawnern (Phase-9 + Stage F bekannt), beim Re-run grün. Nicht durch Stage-G verursacht. |
+| YAML-Diff nur Kommentar | ✅ verifiziert | `git diff controllers.real.yaml` zeigt nur den Kopf-Kommentar-Block ersetzt. Keine YAML-Werte berührt. Plugin-Verhalten unverändert. |
+| Self-Beschädigungs-Risiko nach Stage G | ✅ unverändert | Stage G ist Doku-only. PSU AUS, keine HW-Interaktion. Setup-Status: identisch nach Stage F. |
+| Memory-Pendenz Phase 12 | ✅ aktiv | `project_phase10_real_yaml_vel_limits.md` bleibt unverändert. Plus YAML-Kommentar erinnert daran. |
+
+### Stage-G-Plan-Korrektur (Drifts während Implementation)
+
+| # | Punkt | Begründung |
+|---|---|---|
+| 1 | **Stage-G-Umfang von B → C** | User-Klarstellung 2026-05-18 dass Echo-State permanent ist (kein Feedback-Servo-Wechsel geplant). Damit sind JTC-Constraints faktisch wertlos. Option C (komplett deferren) ist die ehrlichste Antwort. |
+| 2 | **`phase_10_stage_g_test_commands.md` entfernt** | Option C braucht keine User-Smoke-Anleitung (keine HW-Aktion, keine Test-Commands). Datei wurde nach Erstellung wieder entfernt. |
+| 3 | **TODO-Kommentar im YAML statt Vel/Accel-Werte** | Was Mutter-Plan als „YAML-Werte einfügen" sah, wird in Phase 10 als „Kommentar mit Architektur-Erklärung + Phase-12-Verweis" umgesetzt. Plugin-Verhalten unverändert. |
+
+### Stage-G-Notizen + Phase-12-Pendenz
+
+**Was Phase 12 mit Stage-G machen wird (Stufe G „Limits hochziehen"):**
+- Bench-Strom-Profil unter Voll-Last (alle 18 Servos, Bodenkontakt)
+- Daraus Vel-Limit pro Joint ableiten (z.B. via max gemessene rad/s)
+- Falls relevant: Accel-Limit aus Δrad/s pro Δt
+- `controllers.real.yaml` mit Werten füllen (entweder per-Joint
+  in `joint_limits.yaml` separat oder URDF überschreiben)
+- Memory `project_phase10_real_yaml_vel_limits.md` schließen wenn done
+
+**Cross-Phase-Hinweis:** Auch Phase 13 (Fußkontakt-Sensoren) würde
+einen erneuten Stage-G-Touch triggern — mit Bodenkontakt-Feedback
+werden JTC-Constraints relevant. User hat 2026-05-18 angedeutet dass
+solche Sensoren später optional sein könnten; das ist nicht in
+Phase 10/12/etc geplant.
+
+---
+
+## 🎉 Stage G komplett (2026-05-18)
+
+Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅, G ✅**. Verbleibend: **I** (Phase-10-Abschluss).
+
+**Done-Kriterium G (Mutter-Plan-Interpretation):**
+1. ✅ `controllers.real.yaml` dokumentiert die Vel/Accel-Strategie (URDF-Hard-Cap aktiv, YAML-Override Phase-12-Pendenz)
+2. 🟡 Stage-F-Trajectory-Smoke deferred (kein YAML-Wert-Wechsel, kein Smoke nötig)
+3. ✅ launch_testing weiter 18/0 (nach flaky-Retry)
 
 ---
 
@@ -655,12 +735,107 @@ Pendenz ohne Phasen-Verankerung.
 
 ## Stufe I — Phase-10-Abschluss
 
-> Wird mit Stage-I-Plan-Doku aufgefüllt sobald Stage G abgeschlossen ist.
+> **Vorab-Plan:** [`phase_10_stage_i_plan.md`](phase_10_stage_i_plan.md) —
+> Doku-only-Stage, 4 Hauptpunkte (YAML status-Felder, README-Snippet,
+> PHASE.md-Update, progress.md-Retro). User-Commit + Git-Tag durch User.
 
-**Stages-I-Output (Erwartung):**
-- I.1 phase_10_progress.md final
-- I.2 servo_mapping.yaml Status pro leg_6-Eintrag: `calibrated`
-- I.3 README hexapod_hardware Phase-10-Quick-Start-Snippet
-- I.4 PHASE.md: Phase 10 → 🟢, Phase 11 → 🟡
-- I.5 Git-Commit + Tag `phase-10-done` (durch User)
-- I.6 Retrospektive
+- [x] I.1 phase_10_stage_i_plan.md angelegt (2026-05-19)
+- [x] I.2 servo_mapping.yaml Pin 15/16/17 mit `status: calibrated` + `calibrated_at: "2026-05-17"` als per-Eintrag-Felder (Top-Level `placeholder` unverändert wegen Pin 0-14)
+- [x] I.3 README hexapod_hardware um Phase-10-Quick-Start-Block erweitert (Bench-Setup, Plugin-Bringup, IK-Probe, gait_node mit HW-Args, Loopback-Modus, Cross-Phase-Pendenzen)
+- [x] I.4 PHASE.md: Phase 10 → 🟢 abgeschlossen, Phase 11 → 🟡 aktiv, Phase-10-Retro-Block am Anfang
+- [x] I.5 phase_10_progress.md Stage-I-Sektion + Phase-10-Retrospektive + Phasenabschluss-Checkliste konsolidiert (diese Sektion)
+- [x] I.6 Build + Test regression-frei (208/0/20 + 18/0/0 + 5/0/0 grün)
+- [ ] I.7 User-Commit + Git-Tag `phase-10-done` ← **du bist hier**
+
+**Done-Kriterium I erreicht:** ✅ am 2026-05-19 (CI-Anteil komplett, User-Tag pending).
+
+### Stage-I-Post-Review (2026-05-19)
+
+| Punkt | Status | Detail |
+|---|---|---|
+| servo_mapping.yaml Pin 15/16/17 als `calibrated` markiert | ✅ verifiziert | Per-Eintrag-Felder `status` + `calibrated_at`, Top-Level bleibt `placeholder` solange andere 15 Pins nicht kalibriert sind (kommt in Phase 12) |
+| README hexapod_hardware Phase-10-Quick-Start | ✅ verifiziert | Bench-Setup, Bringup, IK-Probe, gait_node mit HW-Args + `--rate 10` Lesson Learned, Loopback-Modus, Cross-Phase-Pendenzen |
+| PHASE.md Phase-Übergang sauber | ✅ verifiziert | Phase 10 → 🟢 mit Retro-Block, Phase 11 → 🟡 aktiv, „Aktuell"-Header auf Phase 11 + `docs_raspi/phase_11_pi_platform.md` |
+| Build + Test regression-frei | ✅ verifiziert | hexapod_hardware 208/0/20, hexapod_bringup 18/0/0, hexapod_control 5/0/0 unverändert |
+| Cross-Phase-Pendenzen dokumentiert | ✅ in Memory + README + PHASE.md | 4 aktive Memory-Einträge für Phase 12, plus Quick-Start-README-Sektion erinnert daran |
+
+---
+
+## 🎉 Phase 10 komplett abgeschlossen (2026-05-19)
+
+Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅, G ✅, I ✅** (Stage H war gestrichen).
+
+### Phase-10-Retrospektive
+
+**Was gut lief:**
+
+- **Plan-First-Workflow pro Stage** (4 Pflichtinhalte CLAUDE.md §4 + offene
+  Fragen) hat in jeder Stage substantielle Design-Diskussionen produziert.
+  Beispiele:
+  - Stage B: Strategie B' (Coxa-Self-Collision via leg_5-Worst-Case-Pose)
+    statt ursprünglicher Strategie C (leg_5 demontieren)
+  - Stage F.2: Loopback-First-Workflow als IK-Validation ohne HW-Risiko
+  - Stage G: Echo-State-Klarstellung hat Strategie auf Option C reduziert
+- **Self-Review pro Stage** hat echte Drifts gefunden:
+  - Stage B: Plan-Annahme „Tests nutzen Fixtures, nicht committed YAML"
+    war falsch — 3 Tests in test_hexapod_system.cpp brachen nach
+    YAML-Edit, gefixt durch per-Pin-Konstante
+  - Stage F.1: Tibia 21 mm daneben → URDF + Python synchron korrigiert
+  - Stage F-T6: `--rate 10` als gait_node-Pub-Requirement entdeckt
+- **Cross-Phase-Pendenz-Pattern via Memory-Einträge** hat Phase 12
+  klar vorbereitet — kein Punkt versehentlich verloren
+- **User-Workflow „Commit zwischen Sub-Stages"** (Stages C+D+E+F-Phase-1)
+  hat Iterations-Anker geliefert; bei Problemen leichter rollback
+- **Strategie B' (Self-Collision-sichere Hardware-Hard-Stops)** hat sich
+  bewährt — Pulse-Hard-Stop pulse_min=1280 für Coxa schützt unabhängig
+  von Software-Bugs gegen Bein-zu-leg_5-Berührung
+
+**Was länger gedauert hat als geplant:**
+
+- **Stage B** (0.5 d → 1 d): User-Strategie-Wechsel C→B' mid-Stage hat
+  Plan-Doku-Re-Write erfordert
+- **Stage F** (1.5 d → ~2 d): Tibia-Update mit IK-Probe-Default-Anpassung
+  + Loopback-First-Discovery + Coxa-Sichtbarkeits-Discussion. Mehr
+  Real-World-Lessons als antizipiert
+- **Stage G** (~1 h → ~1.5 h): Echo-State-Klarstellung-Discussion hat
+  Strategie auf Option C reduziert; ursprünglicher Vel/Accel-Limits-Plan
+  ist Phase-12-Pendenz geworden
+
+**Was offen ist (Phase-12-Cross-Phase-Pendenzen):**
+
+- **`project_phase10_tibia_length_sim_pending.md`** — Sim+RViz+Walking-
+  Smoke nach Tibia-Update beim nächsten Sim-Touch
+- **`project_phase10_real_yaml_vel_limits.md`** — Vel/Accel-Limits in
+  `controllers.real.yaml` mit Bench-Last-Daten verfeinern (Phase 12)
+- **`project_phase12_initial_pose_presets.md`** — Initial-Pulse-Presets
+  statt User-Hand-Mitigation
+- **`project_phase9_h_oscilloscope_pending.md`** — Oszi/Logic-Analyzer-
+  Tests aus Phase 9 H-T8/T9
+- **Auto-Cal-Tool** für 15 verbleibende Servos in Phase 12 Stufe B
+
+**Echo-State-Insight als Phase-Übergreifende Lesson:**
+
+User-Klarstellung in Stage G dass Servos **niemals** Position-Feedback
+liefern (kein Wechsel zu Feedback-Servos geplant) ist ein
+Grundsatz-Insight für alle künftigen Phasen:
+
+- **JTC-Toleranz-Constraints** (goal_position_tolerance, trajectory,
+  goal_time) sind in unserem System **faktisch wertlos** — wird immer
+  trivial erfüllt
+- **Walking-Sicherheit kommt aus drei Hardware-Schichten**:
+  URDF-Vel-Cap + Pulse-Clamp + URDF-Position-Limits
+- **Phase-12-Walking-Tuning** muss diese Realität reflektieren
+- **Phase 13+ wenn Fußkontakt-Schalter dazukommen** könnten Constraints
+  relevant werden, ist aber nicht geplant
+
+### Phasenabschluss-Checkliste (Mutter-Plan §Phasenabschluss-Checkliste)
+
+- [x] Stages A–G Done-Kriterien erfüllt (Stage H war gestrichen)
+- [x] `servo_mapping.yaml` leg_6 (Pin 15/16/17) `status: calibrated`
+- [~] `controllers.real.yaml` mit Vel/Accel-Limits — **pragmatisch interpretiert** als „URDF-Hard-Cap aktiv, YAML-Override Phase-12-Pendenz" (Echo-State-Konsequenz)
+- [x] CI weiterhin grün (208/0/20 + 18/0/0 + 5/0/0)
+- [x] User-Smoke F (3-Servo + IK + gait_node) grün dokumentiert
+- [~] Strom-CSV aus Stage F im Repo — **deferred** zu Phase 12 (aufgehängtes Bein nicht repräsentativ)
+- [ ] Git-Commit + Tag `phase-10-done` (durch User)
+- [x] `PHASE.md` auf Phase 11 (Pi-Plattform) aktualisiert
+- [x] Retrospektive in `phase_10_progress.md`
