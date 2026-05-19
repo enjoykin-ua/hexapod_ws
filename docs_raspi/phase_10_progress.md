@@ -24,11 +24,11 @@ Konsolidiert aus Mutter-Plan-Doku
 - **Final:** HJ-Tester für Pre-Calibration (mech. Mitte + sicherer Endlagen-Bereich)
   in Stage B, dann Stack-Validation pro Servo (Stages C/D/E) für `direction`
   + Stack-Pipeline-Verifikation. Nur leg_6 (Pin 15/16/17), andere 15 Servos
-  bleiben Platzhalter bis Phase 12.
+  bleiben Platzhalter bis Phase 13.
 - **Verworfen:**
   - Tester-only: findet `direction` nicht.
   - Stack-only manuelles Jog: höheres Anschlag-Brumm-Risiko.
-  - Voll-Calibration aller 18 Servos: out-of-scope, Phase-12-Job.
+  - Voll-Calibration aller 18 Servos: out-of-scope, Phase-13-Job.
   - `pulse_per_rad`-Feld: Phase-9-Design-Entscheidung hat 3-Punkt-Schema
     festgelegt (siehe `project_phase9_decisions.md`).
 
@@ -52,7 +52,7 @@ Konsolidiert aus Mutter-Plan-Doku
 - **Verworfen:**
   - Soft-Start im Plugin (= Position-Feedback nötig, haben wir nicht
     wegen Echo-State).
-  - Ramped-Enable in der Firmware (= Firmware-Change, Phase-12-Kandidat).
+  - Ramped-Enable in der Firmware (= Firmware-Change, Phase-13-Kandidat).
 - Details: [`phase_10_safety_setup.md`](phase_10_safety_setup.md) §6.
 
 ### D. Verkabelungs-Sequenz: PSU-AUS → Stecken → Sichtprüfung → PSU-AN
@@ -95,16 +95,16 @@ Konsolidiert aus Mutter-Plan-Doku
   Flip × 3 Servos = ~30 min worst case.
 - **Verworfen:** Plugin-Erweiterung mit `direction` als ROS-Live-Param —
   2–3 d Entwicklungszeit, nicht amortisierbar bei 3 Servos.
-  Phase-12-Entscheidung wenn 18 Servos durchgegangen werden.
+  Phase-13-Entscheidung wenn 18 Servos durchgegangen werden.
 
 ### J. IK-Trajectory-Source in Stage F: Hybrid F.2 + F.3
 
 - **Final:** Stage F macht zwei Sub-Steps:
   - F.2 direkter IK-Aufruf (Diagnose-Probe, ~30-Zeilen-Python-Skript)
   - F.3 gait_node mit `/cmd_vel`-Stub (Voll-Pipeline-Test, gleicher
-    Pfad wie Phase 12)
+    Pfad wie Phase 13)
 - **Verworfen:** Pure F.2 oder Pure F.3 — Hybrid bietet bessere
-  Diagnose-Trennung (IK vs. gait_node) und beweist Phase-12-Pipeline.
+  Diagnose-Trennung (IK vs. gait_node) und beweist Phase-13-Pipeline.
 
 ---
 
@@ -145,9 +145,9 @@ Konsolidiert aus Mutter-Plan-Doku
 | Cross-Links zwischen Mutter-Plan-Doku ↔ Progress ↔ Safety-Setup | ✅ verifiziert | Mutter-Plan-Doku §B/§C/§D verweisen jetzt auf safety_setup.md §2/§6/§3+§4. Progress.md verweist auf Mutter-Plan-Doku + safety_setup.md. PHASE.md verlinkt beide Top-Level. |
 | Build + Test regression-frei | ✅ verifiziert | hexapod_hardware 208/0/20, hexapod_bringup 18/0/0 — identisch zu Phase-9-Stage-J-Endstand. Stage A hat keinen Code/CMake/package.xml angefasst. |
 | Stage-D-CC-Limit-Konsistenz Mutter-Plan-Doku ↔ Safety-Setup | 🔴 → ✅ gefixt | Mutter-Plan-Doku Tabelle hatte nur 1-Servo + 3-Servo-Werte; safety_setup.md §2 listet auch 2-Servo (Stage D) = 7 A. Mutter-Plan-Doku ergänzt in A.10 (Post-Review-Fix). |
-| Pre-Existing Lint-Failures in `hexapod_description/launch/display.launch.py` | 🟡 vormerk Phase 11/12 | Stale Test-Results im build-Dir zeigen Copyright + pep257 D213 für display.launch.py. **Stage A hat diese Datei nicht angefasst**, das ist Phase-9-Drift (sim.launch.py + real.launch.py wurden in Stage-I-Linter-Iterationen gefixt, display.launch.py möglicherweise übersehen weil hexapod_description nicht im I-T3 dabei war). Kein Stage-A-Issue. Bei Phase 11/12 oder ad-hoc fixen (1-Zeilen-Copyright-Header + Multi-Line-Docstring-Anpassung). |
+| Pre-Existing Lint-Failures in `hexapod_description/launch/display.launch.py` | 🟡 vormerk Phase 12/12 | Stale Test-Results im build-Dir zeigen Copyright + pep257 D213 für display.launch.py. **Stage A hat diese Datei nicht angefasst**, das ist Phase-9-Drift (sim.launch.py + real.launch.py wurden in Stage-I-Linter-Iterationen gefixt, display.launch.py möglicherweise übersehen weil hexapod_description nicht im I-T3 dabei war). Kein Stage-A-Issue. Bei Phase 12/12 oder ad-hoc fixen (1-Zeilen-Copyright-Header + Multi-Line-Docstring-Anpassung). |
 | PHASE.md Cleanup-Edit war ungeplant | 🟢 dokumentiert | Plan sagte „Status-Check, kein Edit erwartet" → obsolete „legen wir zu Phase-10-Start an"-Notiz war aber durch Stage A überholt. Cleanup-Edit als Plan-Korrektur drin. Keine Funktions-Änderung. |
-| Memory-Einträge nach Stage A | ✅ +1 neu | Phase-10-relevante Memory-Einträge bereits da (project_hexapod_servo_models, project_phase10_real_yaml_vel_limits, project_phase9_h_oscilloscope_pending). **Neu in Stage A: project_phase12_initial_pose_presets.md** (durch User-Rückmeldung 2026-05-16 entstanden, siehe Plan-Korrektur #4). |
+| Memory-Einträge nach Stage A | ✅ +1 neu | Phase-10-relevante Memory-Einträge bereits da (project_hexapod_servo_models, project_phase10_real_yaml_vel_limits, project_phase9_h_oscilloscope_pending). **Neu in Stage A: project_phase13_initial_pose_presets.md** (durch User-Rückmeldung 2026-05-16 entstanden, siehe Plan-Korrektur #4). |
 | Doku-Konsistenz Sprache (deutsch durchgehend) | ✅ verifiziert | Alle drei Stage-A-Output-Dateien sind in deutscher Fachsprache, analog Phase-9-Pattern. |
 | Selbst-Beschädigungs-Risiko nach Stage A | ✅ unverändert | Stage A hat keine HW-Bewegung, keine PSU-Aktion, kein Code-Edit der HW-relevant wäre. Setup-Status: Servos abgeklemmt, PSU AUS. |
 
@@ -158,7 +158,7 @@ Konsolidiert aus Mutter-Plan-Doku
 | 1 | `safety_setup.md` hat 8 Abschnitte statt 6 wie geplant | Beim Schreiben der 6 Pflicht-Abschnitte (Aufbockung, PSU, Polarität, Anschluss-Sequenz, Kill-Switch, Initial-Pulse) entstanden zwei zusätzliche Querschnitts-Themen die nicht in einen der 6 reinpassten: §7 Pre-Stage-Checkliste (operative Compile aller 6 Hauptpunkte als Pre-Run-Liste) und §8 Eskalations-Pfad bei Anomalien (CLAUDE.md §6 Diagnose-Workflow auf Phase-10-Kontext spezialisiert). Beide haben hohen praktischen Nutzen, kein Grund sie zu streichen. |
 | 2 | Mutter-Plan-Doku Stage-D-CC-Limit (7 A) ergänzt | Im ersten Wurf der Mutter-Plan-Doku waren CC-Limits nur für 1-Servo + 3-Servo-Bein notiert. Beim Schreiben von safety_setup.md §2 (PSU-Tabelle pro Stage) fiel auf dass Stage D = 2 Servos einen eigenen Wert braucht. 7 A = 3 + 4 als Summe der 1-Servo-Limits. Korrigiert in A.10. |
 | 3 | PHASE.md kleiner Cleanup-Edit ungeplant | Plan sagte A.5 = „kein Edit erwartet". Obsoleten Notiz-Text „(legen wir zu Phase-10-Start an)" entfernt, Safety-Setup-Verweis hinzugefügt. Status (🟡 aktiv) selbst war schon korrekt. Kosmetisch, keine Funktionsänderung. |
-| 4 | Initial-Pose-Preset-Architektur-Idee aufgegriffen (User-Rückmeldung 2026-05-16) | Beim User-Review von safety_setup.md §6 brachte der User die Architektur-Idee „Initial-Pulse je nach Setup-Variante" ein. Phase 10 bleibt unverändert (User-Hand-Mitigation), aber Cross-Phase-Reminder erstellt: (1) neuer Memory-Eintrag `project_phase12_initial_pose_presets.md`, (2) Mutter-Plan-Doku Architektur-Entscheidung C erweitert um die Preset-Variante als 3. Alternative (neben Soft-Start und Ramped-Enable), (3) safety_setup.md §6 erweitert um Schwerkraft-Konflikt-Joint-Erklärung (Femur ist der einzige Schwerkraft-Konflikt-Joint, Coxa+Tibia haben kein Gap zwischen passiver und Joint-Mitte-Position) + Phase-12-Outlook-Block mit 2-Preset-Tabelle. Wichtige User-Korrektur: nur 2 Presets sinnvoll (`suspended` + `resting`), kein `stand`-Preset weil Stand eine Ziel-Pose ist, keine Start-Pose. |
+| 4 | Initial-Pose-Preset-Architektur-Idee aufgegriffen (User-Rückmeldung 2026-05-16) | Beim User-Review von safety_setup.md §6 brachte der User die Architektur-Idee „Initial-Pulse je nach Setup-Variante" ein. Phase 10 bleibt unverändert (User-Hand-Mitigation), aber Cross-Phase-Reminder erstellt: (1) neuer Memory-Eintrag `project_phase13_initial_pose_presets.md`, (2) Mutter-Plan-Doku Architektur-Entscheidung C erweitert um die Preset-Variante als 3. Alternative (neben Soft-Start und Ramped-Enable), (3) safety_setup.md §6 erweitert um Schwerkraft-Konflikt-Joint-Erklärung (Femur ist der einzige Schwerkraft-Konflikt-Joint, Coxa+Tibia haben kein Gap zwischen passiver und Joint-Mitte-Position) + Phase-13-Outlook-Block mit 2-Preset-Tabelle. Wichtige User-Korrektur: nur 2 Presets sinnvoll (`suspended` + `resting`), kein `stand`-Preset weil Stand eine Ziel-Pose ist, keine Start-Pose. |
 
 ### Stage-A-Notizen
 
@@ -176,7 +176,7 @@ Konsolidiert aus Mutter-Plan-Doku
 - **Kein neuer Memory-Eintrag** — keine neue Erkenntnis die persistent sein müsste.
 - **Kein hexapod_description-Lint-Fix** (display.launch.py Phase-9-Drift) — out-of-scope Stage A, ad-hoc fixbar wenn jemand drüber stolpert.
 
-**Done-Kriterium A erreicht (CI-Anteil):** ✅ am 2026-05-16 (A.1–A.10 alle abgeschlossen, Build + Test regression-frei, Self-Review-Tabelle ohne offene 🔴, eine 🟡 vormerk Phase 11/12).
+**Done-Kriterium A erreicht (CI-Anteil):** ✅ am 2026-05-16 (A.1–A.10 alle abgeschlossen, Build + Test regression-frei, Self-Review-Tabelle ohne offene 🔴, eine 🟡 vormerk Phase 12/12).
 
 **Done-Kriterium A (User-Smoke-Anteil):** pending — A.11 (User-Review der safety_setup.md) wartet auf User.
 
@@ -239,23 +239,23 @@ Konsolidiert aus Mutter-Plan-Doku
 | Plan-Korrektur dokumentiert | ✅ in Stage-B-Plan-Korrektur-Sektion | Plan-Annahme B-T2 „208/0/20 unverändert ... `calibration.yaml`-spezifische Unit-Tests verwenden Test-Fixtures, nicht das committed YAML" muss für künftige Stages umformuliert werden. Tests im Pfad ENABLE→SET_TARGETS lesen das committed YAML implicit als Default-Fixture via `make_valid_info()`. |
 | `direction` für Pin 15/16/17 bleibt `+1` Platzhalter | ✅ wie geplant | Stages C/D/E entscheiden direction per Beobachtungs-Test, kein Stage-B-Job |
 | Top-Level YAML-Status bleibt `placeholder` | ✅ wie geplant | 15 andere Pins sind weiter Defaults; Stage I setzt pro-Eintrag-Feld `status: calibrated` für Pin 15/16/17 |
-| Mech.-Anschlag außerhalb Tester-Range (Femur/Tibia) | ✅ dokumentiert + Phase-12-Verweis | §4.1 Audit-Notiz erklärt: Pulse-Hard-Stop für Femur/Tibia in Phase 10 nicht aktiv (URDF-Software-Clamp greift früher), Phase 12 SW-Auto-Cal verfeinert. Phase-12-Stufe-B-Plan-Doku passend erweitert. |
+| Mech.-Anschlag außerhalb Tester-Range (Femur/Tibia) | ✅ dokumentiert + Phase-13-Verweis | §4.1 Audit-Notiz erklärt: Pulse-Hard-Stop für Femur/Tibia in Phase 10 nicht aktiv (URDF-Software-Clamp greift früher), Phase 13 SW-Auto-Cal verfeinert. Phase-13-Stufe-B-Plan-Doku passend erweitert. |
 | Self-Beschädigungs-Risiko nach Stage B | ✅ unverändert | Stage B hat **stromlos + Tester-PSU** gearbeitet — Bench-PSU blieb AUS, kein Servo2040-Bringup, kein Code-Lauf gegen echte HW. Setup-Status: Servos abgeklemmt, Bench-PSU AUS. |
-| Memory-Einträge nach Stage B | ✅ unverändert | Keine neue Cross-Session-Erkenntnis — Stage B war reine Vor-Kalibrierung. Phase-12-Stufe-B (SW-Auto-Cal) ist im Plan-Doc verankert, nicht in Memory. |
+| Memory-Einträge nach Stage B | ✅ unverändert | Keine neue Cross-Session-Erkenntnis — Stage B war reine Vor-Kalibrierung. Phase-13-Stufe-B (SW-Auto-Cal) ist im Plan-Doc verankert, nicht in Memory. |
 
 ### Stage-B-Plan-Korrektur (Drifts während Implementation)
 
 | # | Punkt | Begründung |
 |---|---|---|
 | 1 | **Plan-Annahme B-T2 zu Test-Fixtures war falsch** | Plan-Doku sagte „`calibration.yaml`-spezifische Unit-Tests verwenden Test-Fixtures, nicht das committed YAML". Realität: 3 Tests in `test_hexapod_system.cpp` (Boot-Sequence, Neutral-Pulses, Loopback-Roundtrip) lesen das committed YAML implizit via `make_valid_info()`. Stage-B-YAML-Edit hat hardcoded `1500`-Erwartungen brechen. **Fix:** Tests an committed YAML angepasst (per-Pin-Konstanten + gelockerte Toleranz). |
-| 2 | **Phase 12 um neue Stufe B (SW-Auto-Kalibrierung der 15 Restservos) erweitert** | Auf User-Wunsch 2026-05-17. Phase 12 hatte 8 Stufen A–H, jetzt 9 Stufen A–I. Neue Stufe B nutzt Plugin als Black Box (kein Plugin-Code-Edit), Tool wird neues Python-Paket `hexapod_calibration` mit Terminal-UI. Ziel: bessere Auto-Cal als HJ-Tester durch echte Stack-Pipeline + beidseitige Self-Collision-Tests für Mittel-Beine. Cross-Phase-Verweis in `calibration_log.md` §4.1. |
+| 2 | **Phase 13 um neue Stufe B (SW-Auto-Kalibrierung der 15 Restservos) erweitert** | Auf User-Wunsch 2026-05-17. Phase 13 hatte 8 Stufen A–H, jetzt 9 Stufen A–I. Neue Stufe B nutzt Plugin als Black Box (kein Plugin-Code-Edit), Tool wird neues Python-Paket `hexapod_calibration` mit Terminal-UI. Ziel: bessere Auto-Cal als HJ-Tester durch echte Stack-Pipeline + beidseitige Self-Collision-Tests für Mittel-Beine. Cross-Phase-Verweis in `calibration_log.md` §4.1. |
 | 3 | **B.1 und B.2 in einem Schritt zusammen am Tester gemessen** | Plan sah vor: B.1 stromlos End-Stop-Check, dann B.2 Tester-Pre-Cal. Realität: User hat beides am Tester gemacht — Anschlags-Ursachen identifiziert während Tester-Drehung, µs-Werte direkt abgelesen. Methodik im Log §1 als „Tester-basiert, kein Goniometer" transparent vermerkt. Sinnvoller pragmatischer Workflow ohne Funktionsverlust. |
 
 ### Stage-B-Notizen
 
-- **Mech. Anschlag-Range > URDF (Femur/Tibia):** beim Tester ist klar geworden, dass beide Miuzei-MS61-Servos mechanisch deutlich mehr als ±90° können — Tester-Range (800–2200 µs) hat noch keinen Anschlag-Brumm erzeugt. Effektive Joint-Begrenzung kommt aus URDF-Software-Clamp. Phase 12 SW-Auto-Cal kann das verfeinern.
+- **Mech. Anschlag-Range > URDF (Femur/Tibia):** beim Tester ist klar geworden, dass beide Miuzei-MS61-Servos mechanisch deutlich mehr als ±90° können — Tester-Range (800–2200 µs) hat noch keinen Anschlag-Brumm erzeugt. Effektive Joint-Begrenzung kommt aus URDF-Software-Clamp. Phase 13 SW-Auto-Cal kann das verfeinern.
 - **Strategie B' war für Coxa bindend, für Femur/Tibia rein zur Inspirational-Doku-Konsistenz:** Bei leg_6 als Eck-Bein gibt's nur leg_5 als Nachbar, und nur die Coxa kann leg_5 erreichen. Femur und Tibia haben mit Self-Collision nichts zu tun — Werte stammen von mech. Servo-Range (jenseits Tester-Limit).
-- **Test-Fix war 30 Min Aufwand:** Stage-B-Plan hatte das nicht antizipiert. Lehre für künftige YAML-Stages: vor dem Edit grep nach Hardcodes der zu ändernden Werte. Memory-Eintrag wäre overkill (zu spezifisch), aber gut für die Phase-12-Stufe-B-Plan-Doku mitzunehmen (Auto-Cal-Tool wird `servo_mapping.yaml` ähnlich editieren).
+- **Test-Fix war 30 Min Aufwand:** Stage-B-Plan hatte das nicht antizipiert. Lehre für künftige YAML-Stages: vor dem Edit grep nach Hardcodes der zu ändernden Werte. Memory-Eintrag wäre overkill (zu spezifisch), aber gut für die Phase-13-Stufe-B-Plan-Doku mitzunehmen (Auto-Cal-Tool wird `servo_mapping.yaml` ähnlich editieren).
 
 ---
 
@@ -267,7 +267,7 @@ Konsolidiert aus Mutter-Plan-Doku
 > C.6 Build/Test/Self-Review), Tests-Liste C-T1 bis C-T8, 15 Progress-Bullets.
 >
 > **User-Entscheidungen vom 2026-05-17 (alle Variante A):**
-> - **C-Q1** Trajectory-Mechanismus → **A** (`ros2 action send_goal`). Echo-State macht `status=SUCCEEDED` trivial → visuelle Beobachtung am Bein bleibt einzige Wahrheit. Phase 12 Walking nutzt später Topic-Streaming.
+> - **C-Q1** Trajectory-Mechanismus → **A** (`ros2 action send_goal`). Echo-State macht `status=SUCCEEDED` trivial → visuelle Beobachtung am Bein bleibt einzige Wahrheit. Phase 13 Walking nutzt später Topic-Streaming.
 > - **C-Q2** Endlagen-Schritte → **A** (5-stufig: +0.5/+1.0/0/-0.5/-1.0/0)
 > - **C-Q3** RViz separat vs. Launch-Extension → **A** (separat starten, Plan-Korrektur ggü. Mutter-Plan §F)
 > - **C-Q4** User-Hand-Position → **A** (Bein nahe Coxa-Mitte, Femur/Tibia passiv hängend)
@@ -303,7 +303,7 @@ Konsolidiert aus Mutter-Plan-Doku
 | Plan-Doku-Vollständigkeit (4 Pflichtinhalte CLAUDE.md §4) | ✅ verifiziert | Logik-Skizze (C.0–C.6), Tests-Liste (C-T1 bis C-T8 + Was-NICHT), Progress-Checkliste (C.1–C.15), User-Antworten C-Q1..C-Q5 mit Begründungen |
 | direction-Flip auf -1 funktional verifiziert | ✅ verifiziert | User-Beobachtung RViz vs. echtes Bein vor Flip eindeutig gegenläufig (RViz → leg_5, echtes Bein → von leg_5 weg); nach Flip synchron. ±1.0 rad Endlagen sauber erreicht ohne Stall. |
 | Self-Collision-Schutz mit direction=-1 weiter aktiv | ✅ verifiziert | pulse_min=1280 bleibt Hardware-Hard-Stop. Mit direction=-1 wird er bei URDF +1.57 rad getriggert statt -1.57 rad (Vorzeichen-Zuordnung geflippt, Pulse-Wert unverändert). Bein hat in Endlagen-Test leg_5 NICHT berührt (User-Bestätigung). |
-| `real.launch.py` ohne `rviz:=true`-Arg (Mutter-Plan §F Drift) | ✅ Plan-Korrektur dokumentiert | User startete RViz separat in Terminal 2; klappte sauber. Phase-12-Kandidat falls Voll-Bringup das integrieren will. |
+| `real.launch.py` ohne `rviz:=true`-Arg (Mutter-Plan §F Drift) | ✅ Plan-Korrektur dokumentiert | User startete RViz separat in Terminal 2; klappte sauber. Phase-13-Kandidat falls Voll-Bringup das integrieren will. |
 | YAML-Diff minimal (nur direction-Wert für Pin 15) | ✅ verifiziert | `git diff src/hexapod_hardware/config/servo_mapping.yaml`: nur Coxa direction-Zeile + Kommentar-Block verändert; pulse_min/zero/max und alle anderen 17 Pins unverändert |
 | Regression-Frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 identisch Phase-9-Stage-J-Endstand. 1× transienter xmllint-Failure beim ersten Lauf (netzwerk-bedingt, XSD-Schema-Download „Resource temporarily unavailable") — kein Code-Issue, beim Re-run grün. |
 | Test-Commands-Doc reflektiert User-Workflow | 🟡 Plan-Korrektur | User hat im C-T4-Goal-Snippet `+0.1` auf `-0.5` geändert während des Tests (in der test_commands.md Datei selber, IDE-Edit). Bewegung war groß genug zur direction-Diagnose. Test-Commands-Doc behält den User-Wert (-0.5) als gelaufene Realität — Plan-Korrektur unten. |
@@ -320,7 +320,7 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ### Stage-C-Notizen
 
-- **direction-Konvention bestätigt:** für leg_6 (front-left, yaw +π/4) hat der reale Coxa-Servo eine **invertierte** mechanische Drehrichtung gegenüber der URDF-Konvention. Phase-12-Voll-Calibration der anderen 5 Beine muss das pro Bein erneut prüfen — links/rechts-Spiegelung im Chassis macht keine direction-Vorhersage zuverlässig (jeder Servo individuell gemessen). Auto-Cal-Tool aus Phase-12-Stufe-B kann den direction-Test automatisieren (Tool bewegt Bein +0.1 rad, Tool fragt User „in URDF-positive Richtung? y/n", flippt direction im YAML wenn n).
+- **direction-Konvention bestätigt:** für leg_6 (front-left, yaw +π/4) hat der reale Coxa-Servo eine **invertierte** mechanische Drehrichtung gegenüber der URDF-Konvention. Phase-13-Voll-Calibration der anderen 5 Beine muss das pro Bein erneut prüfen — links/rechts-Spiegelung im Chassis macht keine direction-Vorhersage zuverlässig (jeder Servo individuell gemessen). Auto-Cal-Tool aus Phase-13-Stufe-B kann den direction-Test automatisieren (Tool bewegt Bein +0.1 rad, Tool fragt User „in URDF-positive Richtung? y/n", flippt direction im YAML wenn n).
 - **Echo-State-Realität:** Plugin liefert keine echte Servo-Position, daher gibt JTC immer `status=SUCCEEDED`. Diagnose-Methodik bei Stalls oder schiefen Posen muss visuell + Strom-Profil-basiert sein (Stage F). User-Beobachtung „minimal" für 0.5-rad-Bewegung ist *normal*, weil Augenmaß für ±5° schwer ist — der Servo hat aber den vollen geometrischen Winkel gefahren laut User-Sicht-Check.
 - **Stage-A-Plan-Korrektur-Pattern reflektiert:** wie in Stage B (Plan-Annahme Tests-Fixtures vs. committed YAML) gibt's auch in Stage C kleine Drifts (Goal-Wert-Change, Endlagen-Schritt-Zahl). Beide unkritisch fürs Done-Kriterium, beide in der Plan-Korrektur-Tabelle transparent. Plan-First-Workflow funktioniert weiterhin — der Plan ist Anker, nicht starres Skript.
 
@@ -363,7 +363,7 @@ Konsolidiert aus Mutter-Plan-Doku
 - [x] D.10 D.7 colcon build grün, 1 package finished 0 errors nach Femur-Flip-YAML-Edit (2026-05-17)
 - [x] D.11 D.7 colcon test grün **208/0/20 + 18/0/0 wiederhergestellt** nach 1× flaky launch_testing-Failure (ros2_control_node Exit-Code -9 = SIGKILL beim Shutdown, kein code-bedingter Fehler — bekanntes launch_testing-Drift-Pattern aus Phase 9; beim Re-run grün) (2026-05-17)
 - [x] D.12 D-T3..D-T7 User-Bestätigung (User-Statement „passt, die beine bewegen sich wie es sein soll, wir können weiter machen")
-- [x] D.13 D-T8 YAML-Inspektion: Femur Pin 16 direction=-1 sichtbar im Diff, Kommentar mit Stage-D-Kontext + Cross-Phase-Hinweis auf erwartete Left-Side-Konsistenz für Phase 12 gesetzt (2026-05-17)
+- [x] D.13 D-T8 YAML-Inspektion: Femur Pin 16 direction=-1 sichtbar im Diff, Kommentar mit Stage-D-Kontext + Cross-Phase-Hinweis auf erwartete Left-Side-Konsistenz für Phase 13 gesetzt (2026-05-17)
 - [x] D.14 Kritischer Self-Review-Tabelle (siehe unten)
 - [x] D.15 Stage-D-Notizen (siehe unten)
 
@@ -375,9 +375,9 @@ Konsolidiert aus Mutter-Plan-Doku
 |---|---|---|
 | Plan-Doku-Vollständigkeit (4 Pflichtinhalte CLAUDE.md §4) | ✅ verifiziert | Logik-Skizze (D.0–D.7 mit Femur-Hand-Mitigation als Sicherheits-Schwerpunkt), Tests-Liste (D-T1..D-T8), Progress-Checkliste (D.1–D.15), User-Antworten D-Q1..D-Q5 mit Begründungen, alle Variante A |
 | Femur direction-Flip auf -1 funktional verifiziert | ✅ verifiziert | User-Beobachtung gegenläufig zur RViz → YAML-Edit auf -1 → nach Rebuild/Relaunch synchron. Pattern identisch zu Coxa in Stage C. |
-| Femur-Initial-Pulse-Schlag-Mitigation gegriffen | ✅ verifiziert | User berichtet keine Stall-Brumm-Events; Hand-vor-Launch-Workflow funktional. Phase-12-Initial-Pose-Preset-Konzept (Memory `project_phase12_initial_pose_presets.md`) bleibt valider Outlook für Skalierung. |
-| Left-Side-Konsistenz: beide leg_6-Servos direction=-1 | ✅ Datenpunkt für Phase 12 | Coxa **und** Femur bei leg_6 sind invertiert vs. URDF — konsistentes Spiegelungs-Pattern für linksseitige Beine. Erwartung Phase 12: leg_4/5 Coxa+Femur auch direction=-1, rechtsseitige Beine 1/2/3 evtl. einheitlich direction=+1. Tibia (Stage E) wird zeigen ob die Konsistenz auch für die 3. Achse gilt. YAML-Kommentar erweitert um diesen Cross-Phase-Hinweis. |
-| 2-Joint-Coordination im JTC funktioniert | ✅ verifiziert | User: „beine bewegen sich wie es sein soll" — beide Joints synchron, kein Phasen-Versatz beobachtet. JTC-Multi-Joint-Trajectory-Pfad ist bewiesen für leg_6 (Phase-12-Vorraussetzung). |
+| Femur-Initial-Pulse-Schlag-Mitigation gegriffen | ✅ verifiziert | User berichtet keine Stall-Brumm-Events; Hand-vor-Launch-Workflow funktional. Phase-13-Initial-Pose-Preset-Konzept (Memory `project_phase13_initial_pose_presets.md`) bleibt valider Outlook für Skalierung. |
+| Left-Side-Konsistenz: beide leg_6-Servos direction=-1 | ✅ Datenpunkt für Phase 13 | Coxa **und** Femur bei leg_6 sind invertiert vs. URDF — konsistentes Spiegelungs-Pattern für linksseitige Beine. Erwartung Phase 13: leg_4/5 Coxa+Femur auch direction=-1, rechtsseitige Beine 1/2/3 evtl. einheitlich direction=+1. Tibia (Stage E) wird zeigen ob die Konsistenz auch für die 3. Achse gilt. YAML-Kommentar erweitert um diesen Cross-Phase-Hinweis. |
+| 2-Joint-Coordination im JTC funktioniert | ✅ verifiziert | User: „beine bewegen sich wie es sein soll" — beide Joints synchron, kein Phasen-Versatz beobachtet. JTC-Multi-Joint-Trajectory-Pfad ist bewiesen für leg_6 (Phase-13-Vorraussetzung). |
 | Self-Collision-Schutz Coxa weiter aktiv | ✅ unverändert | Stage-B-pulse_min=1280 für Coxa-Pin-15 bleibt Hardware-Hard-Stop. User-Test in Endlagen war ohne Self-Collision-Berührung. |
 | Regression-Frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 final grün. 1× flaky launch_testing-Failure (Proc ros2_control_node-2 Exit-Code -9 = SIGKILL beim Shutdown) beim ersten Lauf — bekanntes Drift-Pattern aus Phase 9, beim Re-run grün. **Nicht** durch YAML-direction-Edit verursacht. |
 | YAML-Diff minimal (nur Femur direction-Zeile + Kommentar) | ✅ verifiziert | `git diff src/hexapod_hardware/config/servo_mapping.yaml`: Femur direction-Wert + Kommentar-Update für die per-joint-Liste; Pulse-Werte und alle anderen 17 Pins unverändert |
@@ -389,13 +389,13 @@ Konsolidiert aus Mutter-Plan-Doku
 | # | Punkt | Begründung |
 |---|---|---|
 | 1 | **User-Smoke D-T6/D-T7 in einem Schritt zusammengefasst** | Wie in Stage C hat der User die formalen Sub-Tests (2-Joint-Coordination D-T6, Femur-Endlagen D-T7) pragmatisch zusammengefasst und Status „beine bewegen sich wie es sein soll" als Gesamt-Bestätigung gemeldet. Done-Kriterium D voll erfüllt; Test-Details im Plan dienen primär als Anleitung-Skelett, nicht als starre Schritt-Pflicht. |
-| 2 | **1× flaky launch_testing-Failure** | `test_no_error_exit_codes` schlug beim ersten Lauf wegen ros2_control_node SIGKILL beim launch_testing-Shutdown fehl. Bekanntes Drift-Pattern aus Phase 9 Stage I-Iteration. Re-run grün. Kein Code-Issue durch YAML-Edit. Wenn in Phase 11/12 nochmal: launch_testing-Shutdown-Timing untersuchen, sonst flaky-Retry-Toleranz. |
+| 2 | **1× flaky launch_testing-Failure** | `test_no_error_exit_codes` schlug beim ersten Lauf wegen ros2_control_node SIGKILL beim launch_testing-Shutdown fehl. Bekanntes Drift-Pattern aus Phase 9 Stage I-Iteration. Re-run grün. Kein Code-Issue durch YAML-Edit. Wenn in Phase 12/12 nochmal: launch_testing-Shutdown-Timing untersuchen, sonst flaky-Retry-Toleranz. |
 
 ### Stage-D-Notizen
 
-- **Left-Side-Konsistenz beobachtet:** beide Coxa und Femur bei leg_6 sind invertiert (`direction=-1`). Das ist ein wertvoller Hinweis für die Phase-12-Auto-Cal: bei links-side Beinen (leg_4/5/6) erwarten wir Coxa+Femur einheitlich `-1`, bei rechts-side Beinen (leg_1/2/3) einheitlich `+1`. Phase-12-Tool kann die direction-Bestimmung pro Bein verkürzen wenn die ersten 2–3 Servos das Pattern bestätigen (linksseitige Servos alle `-1`, rechtsseitige alle `+1`). Cross-Phase-Hinweis im YAML-Kommentar gesetzt.
+- **Left-Side-Konsistenz beobachtet:** beide Coxa und Femur bei leg_6 sind invertiert (`direction=-1`). Das ist ein wertvoller Hinweis für die Phase-13-Auto-Cal: bei links-side Beinen (leg_4/5/6) erwarten wir Coxa+Femur einheitlich `-1`, bei rechts-side Beinen (leg_1/2/3) einheitlich `+1`. Phase-13-Tool kann die direction-Bestimmung pro Bein verkürzen wenn die ersten 2–3 Servos das Pattern bestätigen (linksseitige Servos alle `-1`, rechtsseitige alle `+1`). Cross-Phase-Hinweis im YAML-Kommentar gesetzt.
 - **Tibia (Pin 17) noch nicht gestest:** wie geplant Stage-E-Job. Tibia hat physisch keinen Schwerkraft-Hebel im aufgehängten Bein (Coxa+Femur stromlos, hängen passiv) → minimaler Stall-Risiko. Erwartete Stage-E-Dauer ähnlich Stage C (1 Servo, kein Schwerkraft-Drama).
-- **Phase-12-Auto-Cal-Tool-Implikation:** das Stage-C+D-Pattern „Test → Direction-Flip → Rebuild → Relaunch → Retest" wird in Phase 12 wiederholt 15× durchgespielt. Das spricht *für* das geplante Tool — wenn man das Plugin nicht ändert (Build-Edit-Build pro Flip), kostet das 15× ~10 min = 2.5 h reine Wartezeit. Das Auto-Cal-Tool könnte direction direkt im YAML setzen ohne separates Rebuild (`status: pending` → User-OK → YAML schreiben → relaunch). Phase-12-Stufe-B-Plan-Doku entsprechend erweitern wenn nötig.
+- **Phase-13-Auto-Cal-Tool-Implikation:** das Stage-C+D-Pattern „Test → Direction-Flip → Rebuild → Relaunch → Retest" wird in Phase 13 wiederholt 15× durchgespielt. Das spricht *für* das geplante Tool — wenn man das Plugin nicht ändert (Build-Edit-Build pro Flip), kostet das 15× ~10 min = 2.5 h reine Wartezeit. Das Auto-Cal-Tool könnte direction direkt im YAML setzen ohne separates Rebuild (`status: pending` → User-OK → YAML schreiben → relaunch). Phase-13-Stufe-B-Plan-Doku entsprechend erweitern wenn nötig.
 
 ---
 
@@ -441,14 +441,14 @@ Konsolidiert aus Mutter-Plan-Doku
 |---|---|---|
 | Plan-Doku-Vollständigkeit (4 Pflichtinhalte CLAUDE.md §4) | ✅ verifiziert | Logik-Skizze (E.0–E.6), Tests-Liste (E-T1..E-T7), Progress-Checkliste (E.1–E.14), User-Antworten E-Q1..E-Q4 alle Variante A |
 | Tibia direction=+1 funktional verifiziert | ✅ verifiziert | User-Beobachtung „die richtungen drehen sich wie in rviz" — direction=+1 (default) ist korrekt für Tibia. **Kein YAML-Wert geändert** für Pin 17. |
-| **Left-Side-Konsistenz-Hypothese WIDERLEGT** | 🟡 wichtiger Cross-Phase-Datenpunkt | Stage D Notiz hatte vermutet: alle linksseitigen Servos invertiert. Stage E zeigt: leg_6 Tibia ist `+1`, also Hypothese falsch. **Konsequenz für Phase-12-Auto-Cal:** Tool muss **jeden** Servo individuell testen, keine Vorhersage aus Bein-Seite oder Joint-Typ möglich. YAML-Kommentar entsprechend erweitert. |
+| **Left-Side-Konsistenz-Hypothese WIDERLEGT** | 🟡 wichtiger Cross-Phase-Datenpunkt | Stage D Notiz hatte vermutet: alle linksseitigen Servos invertiert. Stage E zeigt: leg_6 Tibia ist `+1`, also Hypothese falsch. **Konsequenz für Phase-13-Auto-Cal:** Tool muss **jeden** Servo individuell testen, keine Vorhersage aus Bein-Seite oder Joint-Typ möglich. YAML-Kommentar entsprechend erweitert. |
 | Tibia Endlagen-Test ohne Stall | ✅ verifiziert | User-Bestätigung „passt alles" — keine Stall-Brumm-Events, kein Trip. Tibia isoliert war wie erwartet entspannt (kein Bein-Gewicht-Hebel). |
 | Self-Collision-Schutz Coxa weiter aktiv | ✅ unverändert | Coxa stromlos abgeklemmt in Stage E, kein Test-Risiko. pulse_min=1280 bleibt für spätere Stages. |
 | Regression-Frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 im ersten Lauf grün. Kein flaky-Retry nötig (im Gegensatz zu Stages C+D). Erwartet, weil Stage E nur YAML-Kommentar geändert hat (keinen direction-Wert). |
 | YAML-Diff minimal | ✅ verifiziert | `git diff src/hexapod_hardware/config/servo_mapping.yaml`: nur Kommentar-Block in der Pin-15-17-Sektion erweitert um Stage-E-Bestätigung + Cross-Phase-Hinweis. **Keine Werte geändert.** |
 | Alle 3 leg_6-Joints direction final | ✅ verifiziert | Pin 15 (Coxa): -1, Pin 16 (Femur): -1, Pin 17 (Tibia): +1 (default). Stage F kann mit den vollständig kalibrierten Werten starten. |
 | Selbst-Beschädigungs-Risiko nach Stage E | ✅ unverändert | Tibia nach Test abgeklemmt, Bench-PSU AUS. Setup bereit für Stage F (alle 3 Servos + IK). |
-| Memory-Einträge nach Stage E | ✅ unverändert | Left-Side-Konsistenz-Widerlegung ist im YAML-Kommentar + Stage-E-Post-Review verankert. Phase-12-Auto-Cal-Plan kann das beim Implementieren aufgreifen — kein separater Memory-Eintrag nötig (zu spezifisch, Cross-Phase-Verweis genügt). |
+| Memory-Einträge nach Stage E | ✅ unverändert | Left-Side-Konsistenz-Widerlegung ist im YAML-Kommentar + Stage-E-Post-Review verankert. Phase-13-Auto-Cal-Plan kann das beim Implementieren aufgreifen — kein separater Memory-Eintrag nötig (zu spezifisch, Cross-Phase-Verweis genügt). |
 
 ### Stage-E-Plan-Korrektur (Drifts während Implementation)
 
@@ -459,7 +459,7 @@ Konsolidiert aus Mutter-Plan-Doku
 
 ### Stage-E-Notizen
 
-- **Tibia direction-Pattern bricht Left-Side-Hypothese:** Stage-D-Notiz spekulierte: "linksseitige Beine → alle Servos direction=-1". Stage E zeigt: leg_6 Tibia ist `+1`, also kein einheitliches Muster pro Bein-Seite. Phase-12-Auto-Cal-Tool muss jeden der verbleibenden 15 Servos individuell testen. Spart keine Test-Iterationen.
+- **Tibia direction-Pattern bricht Left-Side-Hypothese:** Stage-D-Notiz spekulierte: "linksseitige Beine → alle Servos direction=-1". Stage E zeigt: leg_6 Tibia ist `+1`, also kein einheitliches Muster pro Bein-Seite. Phase-13-Auto-Cal-Tool muss jeden der verbleibenden 15 Servos individuell testen. Spart keine Test-Iterationen.
 - **Stage E war wie geplant der entspannteste direction-Test:** kein Schwerkraft-Hebel, Tibia passive ≈ pulse_zero, einfacher Bringup ohne Hand-Mitigation. Bestätigt das Mutter-Plan-Design (Tibia isoliert vor Stage F Voll-Integration).
 - **Phase 10 direction-Tests komplett:** alle 3 leg_6-Joints individuell verifiziert. Stage F kann sofort mit IK-Roundtrip starten ohne weitere direction-Diagnose.
 - **CI war im ersten Lauf grün:** kein flaky-Retry nötig wie in Stages C+D (wo direction-Flip eine echte YAML-Wert-Änderung auslöste). Stage E hat nur YAML-Kommentar erweitert, der von keinem Test geprüft wird — Konsistenz mit der Test-Suite ist trivial.
@@ -510,7 +510,7 @@ Konsolidiert aus Mutter-Plan-Doku
 - [x] F.6 F.1 Bein-Geometrie-Lineal-Check (2026-05-17): Coxa + Femur ±5 mm OK, **Tibia: 200 mm gemessen vs URDF 178.7 mm = 21.3 mm Abweichung > 5 mm Threshold** → URDF angepasst in 3 Stellen: (1) `hexapod_physical_properties.xacro:20` tibia_length 0.1787→0.200, (2) `hexapod_kinematics/config.py:53` _L_TIBIA 0.1787→0.200, (3) `docs/00_conventions.md` zwei Stellen mit 0.1787→0.200. Cross-Check `test_config.py` grün (xacro ↔ Python synchron). 208/0/20 + 18/0/0 + hexapod_kinematics 28/0/1 grün. **Sim-Verifikation in Gazebo (sim+rviz+walking-Smoke gem. Memory `feedback_urdf_refactor_full_smoke.md`) als Pendenz markiert** — wird beim nächsten Sim-Touch ausgeführt, nicht in Phase 10.
 - [x] F.7 F.2 Plugin-Bringup mit User-Hand, alle 3 Servos halten Bein (2026-05-17, sowohl Loopback als auch Real)
 - [x] F.8 F.2 IK-Probe-Skript ausgeführt (2026-05-17): erst Loopback (`real.launch.py loopback_mode:=true`) → RViz zeigt sauber den 3 cm Fuß-Hub, IK liefert (coxa=0.001, femur=-0.802, tibia=1.351) → (coxa=0.001, femur=-0.982, tibia=1.412). Default-Punkte vor IK-Test angepasst von `(0.15, 0.10, ...)` auf `(0.278, 0.256, ...)` weil mit neuem L_TIBIA=0.200 die untere Reach-Grenze auf 0.120 m gestiegen ist (vorher 0.099). Anschließend Real-Modus erfolgreich, **echtes Bein bewegt sich synchron zur RViz-Vorhersage**. User-Beobachtung: erster Sprung von init-pose zu Goal A wirkt ruckartig (großer Femur+Tibia-Δ in 2 s), unkritisch.
-- [~] F.9 F.2 Strom-CSV `leg6_F2_*.csv` — **deferred** (User-Entscheid: aufgehängtes Bein liefert keine repräsentativen Werte für Stage G/Phase 12. PSU-Display-Beobachtung in F-Phase-2 reicht. Memory `project_phase10_real_yaml_vel_limits.md` bleibt Pendenz für Phase 12.)
+- [~] F.9 F.2 Strom-CSV `leg6_F2_*.csv` — **deferred** (User-Entscheid: aufgehängtes Bein liefert keine repräsentativen Werte für Stage G/Phase 13. PSU-Display-Beobachtung in F-Phase-2 reicht. Memory `project_phase10_real_yaml_vel_limits.md` bleibt Pendenz für Phase 13.)
 - [x] F.10 F-Phase-1-Shutdown sauber (real.launch.py Ctrl-C, PSU AUS, Servos abgeklemmt)
 - [x] F.11 F-Phase-1 colcon build + test grün (3 packages 0 errors, 208/0/20 + 18/0/0 + 28/0/1 + Lint-Failures pre-existing in display.launch.py)
 - [ ] F.12 User-Commit F-Phase-1 ← **du bist hier**
@@ -525,9 +525,9 @@ Konsolidiert aus Mutter-Plan-Doku
 | Loopback-First-Workflow | ✅ verifiziert | User-Vorschlag aufgenommen: erst `loopback_mode:=true` ohne Bench-PSU → RViz zeigt Bewegung → wenn OK, dann Real-Modus. Hat IK-Failures + initiale Goal-Reject-Issue ohne Hardware-Risiko diagnostiziert. Pattern für künftige IK-Tests übernehmen. |
 | Echtes Bein synchron zu RViz | ✅ verifiziert | Real-Modus: Fuß-Hub vertikal ~3 cm sichtbar, RViz-Modell und echtes Bein in identischer Pose. direction-Werte aus Stages C/D/E (Coxa=-1, Femur=-1, Tibia=+1) korrekt. |
 | Coxa-Bewegung in F.2 minimal | ✅ erwartet | Reiner vertikaler Fuß-Hub → Coxa-Δ ≈ 0. Coxa-Schwung kommt in F-Phase-2 (gait_node Tripod). |
-| Strom-Profil F.4 | 🟡 deferred | Aufgehängtes Bein liefert nicht repräsentative Werte → Phase 12 mit Voll-Last macht das richtig. Stage G nimmt `Sim × 0.7`-Strategie. |
+| Strom-Profil F.4 | 🟡 deferred | Aufgehängtes Bein liefert nicht repräsentative Werte → Phase 13 mit Voll-Last macht das richtig. Stage G nimmt `Sim × 0.7`-Strategie. |
 | Initial Goal-Reject beim ersten IK-Probe-Run | ✅ self-recovered | Erster Run: „Goal rejected by JTC" — beim zweiten Run grün. Vermutung: Controller-Spawner war noch nicht ganz im Active-State. Kein Code-Issue. |
-| Initial-Bewegung ruckartig | 🟢 später optional | Übergang init-pose (0,0,0) → Goal A in 2 s ergibt Femur/Tibia-Velocity ~0.5 rad/s. Innerhalb URDF-Limits, mechanisch unkritisch. Falls glatter gewünscht: `time_from_start` länger oder Zwischenpunkt — Phase-12-Polish, nicht Stage-F-Blocker. |
+| Initial-Bewegung ruckartig | 🟢 später optional | Übergang init-pose (0,0,0) → Goal A in 2 s ergibt Femur/Tibia-Velocity ~0.5 rad/s. Innerhalb URDF-Limits, mechanisch unkritisch. Falls glatter gewünscht: `time_from_start` länger oder Zwischenpunkt — Phase-13-Polish, nicht Stage-F-Blocker. |
 | Regression-frei colcon test | ✅ verifiziert | 208/0/20 + 18/0/0 + 28/0/1 grün. Display.launch.py Lint-Failures sind pre-existing (Phase-9-Drift, Stage-A-Post-Review). |
 
 ### F-Phase-1-Plan-Korrektur (Drifts während Implementation)
@@ -537,7 +537,7 @@ Konsolidiert aus Mutter-Plan-Doku
 | 1 | **Tibia-URDF-Update** (vorhergesagt in Plan-Korrektur-Sektion „bei > 5 mm anpassen", trat ein) | Real-Bein-Tibia 200 mm vs. URDF 178.7 mm. Anpassung in 3 Stellen (xacro + config.py + Doku). |
 | 2 | **IK-Probe-Default-Punkte angepasst** (war nicht im Plan, Konsequenz aus #1) | Mit neuem L_TIBIA=0.200 wuchs die untere Reach-Grenze von 0.099 auf 0.120 m → alte Default-Punkte (0.15, 0.10, -0.10) lagen plötzlich innerhalb der Min-Distance. Neue Punkte aus Phase-5-Stand-Pose-Geometrie abgeleitet. |
 | 3 | **Loopback-First-Workflow** ergänzt nach Self-Review-Discussion | Nicht im ursprünglichen Plan, kam durch User-Vorschlag „erst in RViz schauen" auf. Hat sich als sehr wertvoll erwiesen — IK-Validation ohne Hardware-Risiko. Wird als Pattern für künftige IK-Tests übernommen. |
-| 4 | **F.4 Strom-Profil-Auswertung deferred** | User-Entscheidung: aufgehängtes Bein liefert nicht repräsentative Werte. Phase 12 macht's mit Last sauber. Stage G nimmt `Sim × 0.7` ohne Bench-CSV. Memory `project_phase10_real_yaml_vel_limits.md` bleibt Phase-12-Pendenz. |
+| 4 | **F.4 Strom-Profil-Auswertung deferred** | User-Entscheidung: aufgehängtes Bein liefert nicht repräsentative Werte. Phase 13 macht's mit Last sauber. Stage G nimmt `Sim × 0.7` ohne Bench-CSV. Memory `project_phase10_real_yaml_vel_limits.md` bleibt Phase-13-Pendenz. |
 
 ---
 
@@ -547,11 +547,11 @@ Konsolidiert aus Mutter-Plan-Doku
 - [x] F.15 F.3 gait_node mit `body_height:=-0.047 use_sim_time:=false` gestartet (2026-05-18)
 - [x] F.16 F.3 /cmd_vel mit linear.x=0.02 + `--rate 10` → leg_6 schwingt Tripod (Femur+Tibia deutlich, Coxa minimal by-design — 4° entspricht 12 µs Pulse-Schwung, in HW visuell kaum erkennbar) (2026-05-18)
 - [x] F.17 F.3 **PSU-Display-Beobachtung** während gait-Walking, kein OVERCURRENT auf Pin 15/16/17 (false-positives auf leere Pins toleriert)
-- [~] F.18 F.4 CSV-Auswertung — **deferred zu Phase 12** (aufgehängtes Bein liefert keine repräsentativen Werte für Stage G/Phase 12)
+- [~] F.18 F.4 CSV-Auswertung — **deferred zu Phase 13** (aufgehängtes Bein liefert keine repräsentativen Werte für Stage G/Phase 13)
 - [ ] F.19 F-Phase-2-Shutdown sauber (User-Aktion vor Commit)
 - [x] F.20 F-Phase-2 colcon build + test grün (übernommen aus F-Phase-1: 28/0/1 + 208/0/20 + 18/0/0, keine Code-Änderungen in F-Phase-2)
 - [x] F.21 Stage-F-Self-Review (siehe F-Phase-2-Post-Review unten)
-- [x] F.22 Stage-F-Notizen + Phase-12-Pipeline-Erkenntnisse + Stage-G-Vorbereitungs-Tabelle (siehe unten)
+- [x] F.22 Stage-F-Notizen + Phase-13-Pipeline-Erkenntnisse + Stage-G-Vorbereitungs-Tabelle (siehe unten)
 - [ ] F.23 User-Commit F-Phase-2 ← **du bist hier**
 
 ### F-Phase-2-Post-Review (2026-05-18)
@@ -561,13 +561,13 @@ Konsolidiert aus Mutter-Plan-Doku
 | Bench-Setup mit allen 3 Servos | ✅ verifiziert | PSU 7.0 V / 8 A, alle 3 Pins angesteckt, Stock-Halterungs-Check OK |
 | Plugin-Bringup mit Hand-Mitigation | ✅ verifiziert | Stage-D-Pattern funktioniert weiter — User hält Bein horizontal vor Launch, Servos halten nach Bringup |
 | gait_node HW-Args zwingend | ✅ verifiziert | `body_height:=-0.047 use_sim_time:=false` als CLI-Override — Sim-Defaults im `gait.launch.py` unverändert (Sim weiter funktional) |
-| `--rate 10` als Pflicht-Pattern | 🟡 Lesson Learned | Ohne `--rate` ist `ros2 topic pub` 1 Hz → unter gait_node cmd_vel_timeout 0.5 s → Walking stottert. **Im test_commands.md jetzt explizit als Pflicht dokumentiert.** Memory-Eintrag-Kandidat falls Phase 12 erneut. |
+| `--rate 10` als Pflicht-Pattern | 🟡 Lesson Learned | Ohne `--rate` ist `ros2 topic pub` 1 Hz → unter gait_node cmd_vel_timeout 0.5 s → Walking stottert. **Im test_commands.md jetzt explizit als Pflicht dokumentiert.** Memory-Eintrag-Kandidat falls Phase 13 erneut. |
 | Coxa-Schwung minimal sichtbar | ✅ by-design erklärt | Bei `linear.x=0.02` + gait-Defaults sind 4° Coxa-Schwung erwartet (Mathematik: stride 2 cm bei radial_distance 27 cm). Servo-Pulse-Auflösung 1 µs ≈ 0.0058 rad → 12 µs Pulse-Schwung in HW → visuell kaum erkennbar. **Walking-Pipeline trotzdem voll funktional verifiziert** (Femur + Tibia synchron RViz + real). |
-| Stride-Range-Test deferred | 🟢 später | Höhere `linear.x` (0.05, 0.08+) oder `step_length_max:=0.10` für sichtbaren Coxa-Schwung gehört zu Stage G (Vel/Accel-Limits) oder Phase 12 Stufe G (Limits hochziehen). Memory `project_phase10_real_yaml_vel_limits.md` bleibt Phase-12-Pendenz. |
-| Stance→Swing-Übergangs-Beschleunigung | ✅ by-design | Kurze schnelle Bewegung beim Wechsel zwischen Tripod-Phasen ist Velocity-Vorzeichenwechsel — kein Bug. Mit Bodenreibung in Phase 12 anders fühlbar. |
-| Tripod-Pattern in RViz alle 6 Beine | ✅ verifiziert | gait_node generiert vollständige Tripod-Trajectories für alle 6 leg_X_controller, Plugin sendet Pulse-Streams an Pins 0–14 (harmlos, keine Servos angeschlossen). Phase-12-Pipeline ist hiermit bewiesen — leg_6 ist die Physical-Verifikation, andere 5 Beine sind Software-Pfad-Verifikation. |
-| PSU-Display Peak-Strom-Beobachtung | ✅ als Stage-G-Sanity | Statt CSV-Logger (deferred Phase 12) hat User Peak-Strom beobachtet. Wert eingetragen (TODO: User nachtragen falls relevant). |
-| F.4 CSV-Strom-Profil deferred | 🟡 Phase 12 | Aufgehängtes Bein liefert nicht repräsentative Werte. Phase-12-Voll-Bringup mit Last macht das richtige Profil. |
+| Stride-Range-Test deferred | 🟢 später | Höhere `linear.x` (0.05, 0.08+) oder `step_length_max:=0.10` für sichtbaren Coxa-Schwung gehört zu Stage G (Vel/Accel-Limits) oder Phase 13 Stufe G (Limits hochziehen). Memory `project_phase10_real_yaml_vel_limits.md` bleibt Phase-13-Pendenz. |
+| Stance→Swing-Übergangs-Beschleunigung | ✅ by-design | Kurze schnelle Bewegung beim Wechsel zwischen Tripod-Phasen ist Velocity-Vorzeichenwechsel — kein Bug. Mit Bodenreibung in Phase 13 anders fühlbar. |
+| Tripod-Pattern in RViz alle 6 Beine | ✅ verifiziert | gait_node generiert vollständige Tripod-Trajectories für alle 6 leg_X_controller, Plugin sendet Pulse-Streams an Pins 0–14 (harmlos, keine Servos angeschlossen). Phase-13-Pipeline ist hiermit bewiesen — leg_6 ist die Physical-Verifikation, andere 5 Beine sind Software-Pfad-Verifikation. |
+| PSU-Display Peak-Strom-Beobachtung | ✅ als Stage-G-Sanity | Statt CSV-Logger (deferred Phase 13) hat User Peak-Strom beobachtet. Wert eingetragen (TODO: User nachtragen falls relevant). |
+| F.4 CSV-Strom-Profil deferred | 🟡 Phase 13 | Aufgehängtes Bein liefert nicht repräsentative Werte. Phase-13-Voll-Bringup mit Last macht das richtige Profil. |
 | Self-Beschädigungs-Risiko nach Stage F | ✅ unverändert | Pulse-Hard-Stop (Stage B) + URDF-Clamp (Plugin) + JTC-Validation als 3-Schicht-Defense. Während gait-Walking keine Servo-Stalls beobachtet. |
 
 ### F-Phase-2-Plan-Korrektur (Drifts während Implementation)
@@ -576,12 +576,12 @@ Konsolidiert aus Mutter-Plan-Doku
 |---|---|---|
 | 1 | **`--rate 10` als Pflicht-Argument** in test_commands.md ergänzt | Ohne explizite Rate stottert Walking bei `ros2 topic pub`-Default 1 Hz. Lesson Learned übernommen ins Doc als ⚡-Hinweis. |
 | 2 | **Coxa-Schwung-Erwartung quantifiziert + erklärt** | User-Beobachtung „kaum sichtbar" hat Mathematik-Erklärung im test_commands.md getriggert. Klare Abgrenzung: Walking funktioniert, nur visuelle Sichtbarkeit ist klein bei `linear.x=0.02`. |
-| 3 | **F.4 Strom-CSV-Pipeline aus User-Smoke entfernt** (deferred Phase 12) | War im Plan als Stage-G-Vorbereitung, aber aufgehängtes Bein liefert keine repräsentativen Werte. Phase 12 macht's mit Last. Stage G nimmt `Sim × 0.7`. |
-| 4 | **Stride-Range-Tests deferred** statt F-T6.5-Erweiterung | User-Entscheid „lassen wir das erstmal so". Phase-12-Stufe-G nimmt das auf wenn Boden-Walking dran ist. |
+| 3 | **F.4 Strom-CSV-Pipeline aus User-Smoke entfernt** (deferred Phase 13) | War im Plan als Stage-G-Vorbereitung, aber aufgehängtes Bein liefert keine repräsentativen Werte. Phase 13 macht's mit Last. Stage G nimmt `Sim × 0.7`. |
+| 4 | **Stride-Range-Tests deferred** statt F-T6.5-Erweiterung | User-Entscheid „lassen wir das erstmal so". Phase-13-Stufe-G nimmt das auf wenn Boden-Walking dran ist. |
 
-### Stage-F-Notizen + Phase-12-Pipeline-Erkenntnisse
+### Stage-F-Notizen + Phase-13-Pipeline-Erkenntnisse
 
-**Was Stage F bewiesen hat (= Phase-12-Risiken geschlossen):**
+**Was Stage F bewiesen hat (= Phase-13-Risiken geschlossen):**
 
 - **IK + leg_ik() + base_to_leg_frame** liefert geometrisch sinnvolle
   Joint-Winkel für die echte Bein-Geometrie (nach Tibia-Update auf 0.200 m)
@@ -602,12 +602,12 @@ Konsolidiert aus Mutter-Plan-Doku
 | Vel-Limits pro Joint in `controllers.real.yaml` | `Sim × 0.7`-Default (Mutter-Plan) | URDF velocity 2.0 rad/s, also 1.4 rad/s in YAML |
 | Accel-Limits pro Joint | `Sim × 0.7`-Default | Phase-5-Sim-Werte |
 | Smoke-Test mit Stage-F-Trajectory | F.2-IK-Probe als Regression-Test | sollte weiter grün laufen |
-| Phase-12-Pendenz `project_phase10_real_yaml_vel_limits.md` | bleibt aktiv | Phase 12 verfeinert mit Boden-Daten |
+| Phase-13-Pendenz `project_phase10_real_yaml_vel_limits.md` | bleibt aktiv | Phase 13 verfeinert mit Boden-Daten |
 
-**Cross-Phase-Übergänge die Phase 12 wieder aufgreifen muss:**
+**Cross-Phase-Übergänge die Phase 13 wieder aufgreifen muss:**
 - `project_phase10_tibia_length_sim_pending.md` — Sim+RViz+Walking-Smoke nach Tibia-Update
 - `project_phase10_real_yaml_vel_limits.md` — Voll-Strom-Profil mit Last
-- `project_phase12_initial_pose_presets.md` — Initial-Pulse-Preset statt User-Hand-Mitigation
+- `project_phase13_initial_pose_presets.md` — Initial-Pulse-Preset statt User-Hand-Mitigation
 - `project_phase9_h_oscilloscope_pending.md` — Oszi/Logic-Analyzer-Tests
 
 ---
@@ -616,7 +616,7 @@ Konsolidiert aus Mutter-Plan-Doku
 
 Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, I**.
 
-- **Stage G:** `controllers.real.yaml` Vel/Accel-Limits eintragen (Sim × 0.7, optional Bench-Verfeinerung später Phase 12). Kein HW-Test, reine YAML+Build+Test.
+- **Stage G:** `controllers.real.yaml` Vel/Accel-Limits eintragen (Sim × 0.7, optional Bench-Verfeinerung später Phase 13). Kein HW-Test, reine YAML+Build+Test.
 - **Stage I:** Phase-10-Abschluss (Progress-Final, Retrospektive, Phase-Wechsel).
 
 **Done-Kriterium Stage F erreicht:**
@@ -624,7 +624,7 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, 
 2. ✅ F.2 direkter IK-Trajectory ohne Fehler (Loopback + Real)
 3. ✅ F.3 gait_node + cmd_vel funktioniert, leg_6 schwingt im Tripod
 4. ✅ Kein Servo-Stall, kein Firmware-Trip
-5. 🟡 Strom-CSVs deferred zu Phase 12 (User-Entscheid, aufgehängtes Bein)
+5. 🟡 Strom-CSVs deferred zu Phase 13 (User-Entscheid, aufgehängtes Bein)
 6. ✅ RViz-Bewegung synchron zur echten Bewegung
 
 **Done-Kriterium F erreicht:** [TBD nach User-HW-Arbeit]
@@ -640,11 +640,11 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, 
 > Tests-Liste G-T1..G-T4, 9 Progress-Bullets.
 >
 > **Plan-Korrektur ggü. Mutter-Plan-§Stage-G:** F.4 Strom-CSV ist
-> deferred zu Phase 12 (User-Entscheid Stage-F-Self-Review). Vel/Accel-
+> deferred zu Phase 13 (User-Entscheid Stage-F-Self-Review). Vel/Accel-
 > Limit-Strategie wird nicht aus Bench-CSV abgeleitet, sondern aus
 > URDF-Defaults × 0.7 als konservativer Erst-Wurf. Memory
 > `project_phase10_real_yaml_vel_limits.md` bleibt aktiv für
-> Phase-12-Stufe-G-Verfeinerung („Limits hochziehen").
+> Phase-13-Stufe-G-Verfeinerung („Limits hochziehen").
 >
 > **User-Entscheidung 2026-05-18: Option C (komplett deferren)**.
 > Begründung: User-Klarstellung dass Echo-State permanent ist (Servos
@@ -658,20 +658,20 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, 
 > - `controllers.real.yaml` TODO-Kommentar erweitert mit:
 >   - Echo-State-Erklärung als Stage-G-Plan-Korrektur
 >   - drei aktive Sicherheits-Schichten (URDF-Vel-Cap + Pulse-Clamp + Position-Limits)
->   - Phase-12-Verfeinerungs-Verweis
+>   - Phase-13-Verfeinerungs-Verweis
 > - Memory `project_phase10_real_yaml_vel_limits.md` bleibt aktiv
-> - Stage-G-Done-Kriterium G1 pragmatisch interpretiert als „URDF-Cap aktiv, YAML-Override Phase-12-Pendenz"
+> - Stage-G-Done-Kriterium G1 pragmatisch interpretiert als „URDF-Cap aktiv, YAML-Override Phase-13-Pendenz"
 >
 > **Test-Commands-Datei entfällt** für Option C — keine User-Smoke-Steps nötig.
 
 - [x] G.1 phase_10_stage_g_plan.md (Plan-Doku) finalisiert mit Option-C-Entscheidung + User-Freigabe (2026-05-18)
 - [x] G.2 phase_10_stage_g_test_commands.md entfernt (entfällt für Option C, keine User-Smoke-Steps)
-- [x] G.3 `controllers.real.yaml` TODO-Kommentar mit Echo-State-Erklärung + 3-Schicht-Sicherheits-Argument + Phase-12-Verweis aktualisiert (2026-05-18)
+- [x] G.3 `controllers.real.yaml` TODO-Kommentar mit Echo-State-Erklärung + 3-Schicht-Sicherheits-Argument + Phase-13-Verweis aktualisiert (2026-05-18)
 - [x] G.4 colcon build grün (3 packages, 0 errors)
 - [x] G.5 colcon test grün **208/0/20 + 18/0/0 + 5/0/0** (1× flaky launch_testing-Failure beim ersten Lauf: 5/7 Controller geladen statt 7 = timing-bedingt, **nicht** durch Kommentar-Änderung verursacht; beim Re-run grün)
 - [x] G.6 G-T3 YAML-Inspektion (nur Kommentar geändert, keine Werte berührt)
 - [x] G.7 Kritischer Self-Review-Tabelle (siehe unten)
-- [x] G.8 Stage-G-Notizen + Phase-12-Pendenz-Verweis (siehe unten)
+- [x] G.8 Stage-G-Notizen + Phase-13-Pendenz-Verweis (siehe unten)
 
 **Done-Kriterium G erreicht (pragmatisch interpretiert):** ✅ am 2026-05-18.
 
@@ -679,13 +679,13 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, 
 
 | Punkt | Status | Detail |
 |---|---|---|
-| Mutter-Plan-Done-Kriterium G1 strikt erfüllt | 🟡 pragmatisch | Mutter-Plan-Wording „Vel/Accel-Limits in YAML" wurde mit User-Echo-State-Klarstellung als „URDF-Hard-Cap reicht, YAML-Override Phase-12-Pendenz" interpretiert. Plan-Korrektur ist transparent im YAML-Kommentar dokumentiert. Memory-Pendenz aktiv. |
-| Echo-State-User-Klarstellung als kritischer Input | ✅ wertvoll | Vor dieser Klarstellung war Stage-G-Plan auf JTC-constraints + Vel/Accel ausgelegt. Nach Klarstellung: constraints faktisch wertlos → Option C entschieden. **Lesson:** User-Realität (kein Position-Feedback-Pfad geplant) ändert Stage-Strategie fundamental — wichtig in Phase 12 + 13 mit zu fragen wenn neue Sensor-Themen kommen. |
+| Mutter-Plan-Done-Kriterium G1 strikt erfüllt | 🟡 pragmatisch | Mutter-Plan-Wording „Vel/Accel-Limits in YAML" wurde mit User-Echo-State-Klarstellung als „URDF-Hard-Cap reicht, YAML-Override Phase-13-Pendenz" interpretiert. Plan-Korrektur ist transparent im YAML-Kommentar dokumentiert. Memory-Pendenz aktiv. |
+| Echo-State-User-Klarstellung als kritischer Input | ✅ wertvoll | Vor dieser Klarstellung war Stage-G-Plan auf JTC-constraints + Vel/Accel ausgelegt. Nach Klarstellung: constraints faktisch wertlos → Option C entschieden. **Lesson:** User-Realität (kein Position-Feedback-Pfad geplant) ändert Stage-Strategie fundamental — wichtig in Phase 13 + 13 mit zu fragen wenn neue Sensor-Themen kommen. |
 | YAML-Kommentar dokumentiert die drei aktiven Sicherheits-Schichten | ✅ verifiziert | URDF velocity 2.0 rad/s + Pulse-Clamp pulse_min/max + URDF Position-Limits. Alle drei sind Echo-State-unabhängig und greifen vor jedem Servo-Befehl. |
 | Build + Test regression-frei | ✅ verifiziert | 208/0/20 + 18/0/0 + 5/0/0 final grün. 1× flaky launch_testing-Failure (test_all_controllers_active: 2/7 Controller geladen) beim ersten Lauf — bekanntes timing-Drift bei Spawnern (Phase-9 + Stage F bekannt), beim Re-run grün. Nicht durch Stage-G verursacht. |
 | YAML-Diff nur Kommentar | ✅ verifiziert | `git diff controllers.real.yaml` zeigt nur den Kopf-Kommentar-Block ersetzt. Keine YAML-Werte berührt. Plugin-Verhalten unverändert. |
 | Self-Beschädigungs-Risiko nach Stage G | ✅ unverändert | Stage G ist Doku-only. PSU AUS, keine HW-Interaktion. Setup-Status: identisch nach Stage F. |
-| Memory-Pendenz Phase 12 | ✅ aktiv | `project_phase10_real_yaml_vel_limits.md` bleibt unverändert. Plus YAML-Kommentar erinnert daran. |
+| Memory-Pendenz Phase 13 | ✅ aktiv | `project_phase10_real_yaml_vel_limits.md` bleibt unverändert. Plus YAML-Kommentar erinnert daran. |
 
 ### Stage-G-Plan-Korrektur (Drifts während Implementation)
 
@@ -693,11 +693,11 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅**. Verbleibend: **G, 
 |---|---|---|
 | 1 | **Stage-G-Umfang von B → C** | User-Klarstellung 2026-05-18 dass Echo-State permanent ist (kein Feedback-Servo-Wechsel geplant). Damit sind JTC-Constraints faktisch wertlos. Option C (komplett deferren) ist die ehrlichste Antwort. |
 | 2 | **`phase_10_stage_g_test_commands.md` entfernt** | Option C braucht keine User-Smoke-Anleitung (keine HW-Aktion, keine Test-Commands). Datei wurde nach Erstellung wieder entfernt. |
-| 3 | **TODO-Kommentar im YAML statt Vel/Accel-Werte** | Was Mutter-Plan als „YAML-Werte einfügen" sah, wird in Phase 10 als „Kommentar mit Architektur-Erklärung + Phase-12-Verweis" umgesetzt. Plugin-Verhalten unverändert. |
+| 3 | **TODO-Kommentar im YAML statt Vel/Accel-Werte** | Was Mutter-Plan als „YAML-Werte einfügen" sah, wird in Phase 10 als „Kommentar mit Architektur-Erklärung + Phase-13-Verweis" umgesetzt. Plugin-Verhalten unverändert. |
 
-### Stage-G-Notizen + Phase-12-Pendenz
+### Stage-G-Notizen + Phase-13-Pendenz
 
-**Was Phase 12 mit Stage-G machen wird (Stufe G „Limits hochziehen"):**
+**Was Phase 13 mit Stage-G machen wird (Stufe G „Limits hochziehen"):**
 - Bench-Strom-Profil unter Voll-Last (alle 18 Servos, Bodenkontakt)
 - Daraus Vel-Limit pro Joint ableiten (z.B. via max gemessene rad/s)
 - Falls relevant: Accel-Limit aus Δrad/s pro Δt
@@ -718,7 +718,7 @@ Phase 10/12/etc geplant.
 Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅, G ✅**. Verbleibend: **I** (Phase-10-Abschluss).
 
 **Done-Kriterium G (Mutter-Plan-Interpretation):**
-1. ✅ `controllers.real.yaml` dokumentiert die Vel/Accel-Strategie (URDF-Hard-Cap aktiv, YAML-Override Phase-12-Pendenz)
+1. ✅ `controllers.real.yaml` dokumentiert die Vel/Accel-Strategie (URDF-Hard-Cap aktiv, YAML-Override Phase-13-Pendenz)
 2. 🟡 Stage-F-Trajectory-Smoke deferred (kein YAML-Wert-Wechsel, kein Smoke nötig)
 3. ✅ launch_testing weiter 18/0 (nach flaky-Retry)
 
@@ -742,7 +742,7 @@ Pendenz ohne Phasen-Verankerung.
 - [x] I.1 phase_10_stage_i_plan.md angelegt (2026-05-19)
 - [x] I.2 servo_mapping.yaml Pin 15/16/17 mit `status: calibrated` + `calibrated_at: "2026-05-17"` als per-Eintrag-Felder (Top-Level `placeholder` unverändert wegen Pin 0-14)
 - [x] I.3 README hexapod_hardware um Phase-10-Quick-Start-Block erweitert (Bench-Setup, Plugin-Bringup, IK-Probe, gait_node mit HW-Args, Loopback-Modus, Cross-Phase-Pendenzen)
-- [x] I.4 PHASE.md: Phase 10 → 🟢 abgeschlossen, Phase 11 → 🟡 aktiv, Phase-10-Retro-Block am Anfang
+- [x] I.4 PHASE.md: Phase 10 → 🟢 abgeschlossen, Phase 12 → 🟡 aktiv, Phase-10-Retro-Block am Anfang
 - [x] I.5 phase_10_progress.md Stage-I-Sektion + Phase-10-Retrospektive + Phasenabschluss-Checkliste konsolidiert (diese Sektion)
 - [x] I.6 Build + Test regression-frei (208/0/20 + 18/0/0 + 5/0/0 grün)
 - [ ] I.7 User-Commit + Git-Tag `phase-10-done` ← **du bist hier**
@@ -753,15 +753,23 @@ Pendenz ohne Phasen-Verankerung.
 
 | Punkt | Status | Detail |
 |---|---|---|
-| servo_mapping.yaml Pin 15/16/17 als `calibrated` markiert | ✅ verifiziert | Per-Eintrag-Felder `status` + `calibrated_at`, Top-Level bleibt `placeholder` solange andere 15 Pins nicht kalibriert sind (kommt in Phase 12) |
+| servo_mapping.yaml Pin 15/16/17 als `calibrated` markiert | ✅ verifiziert | Per-Eintrag-Felder `status` + `calibrated_at`, Top-Level bleibt `placeholder` solange andere 15 Pins nicht kalibriert sind (kommt in Phase 13) |
 | README hexapod_hardware Phase-10-Quick-Start | ✅ verifiziert | Bench-Setup, Bringup, IK-Probe, gait_node mit HW-Args + `--rate 10` Lesson Learned, Loopback-Modus, Cross-Phase-Pendenzen |
-| PHASE.md Phase-Übergang sauber | ✅ verifiziert | Phase 10 → 🟢 mit Retro-Block, Phase 11 → 🟡 aktiv, „Aktuell"-Header auf Phase 11 + `docs_raspi/phase_11_pi_platform.md` |
+| PHASE.md Phase-Übergang sauber | ✅ verifiziert | Phase 10 → 🟢 mit Retro-Block, Phase 11 (Param-GUI, NEU) → 🟡 aktiv, „Aktuell"-Header auf Phase 11 + `docs_raspi/phase_11_param_gui.md` |
 | Build + Test regression-frei | ✅ verifiziert | hexapod_hardware 208/0/20, hexapod_bringup 18/0/0, hexapod_control 5/0/0 unverändert |
-| Cross-Phase-Pendenzen dokumentiert | ✅ in Memory + README + PHASE.md | 4 aktive Memory-Einträge für Phase 12, plus Quick-Start-README-Sektion erinnert daran |
+| Cross-Phase-Pendenzen dokumentiert | ✅ in Memory + README + PHASE.md | 4 aktive Memory-Einträge für Phase 13, plus Quick-Start-README-Sektion erinnert daran |
 
 ---
 
 ## 🎉 Phase 10 komplett abgeschlossen (2026-05-19)
+
+> **Hinweis nachträglich 2026-05-19 (Phase-11-Renumbering):** alle Refs
+> auf „Phase 12" oben in dieser Sektion und in der Retrospektive wurden
+> nach Renumbering aktualisiert: was vorher „Phase 12 — Voll-Bringup"
+> hieß, ist jetzt **Phase 13**. Was vorher „Phase 11 — Pi-Plattform"
+> war, ist jetzt **Phase 12**. Phase 11 (NEU) ist Param-GUI mit
+> Live-Tuning via `rqt_reconfigure` (siehe `phase_11_param_gui.md`).
+> Cross-Phase-Pendenzen verweisen jetzt auf Phase 13.
 
 Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅, G ✅, I ✅** (Stage H war gestrichen).
 
@@ -782,7 +790,7 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅, G ✅, I ✅** (Stag
     YAML-Edit, gefixt durch per-Pin-Konstante
   - Stage F.1: Tibia 21 mm daneben → URDF + Python synchron korrigiert
   - Stage F-T6: `--rate 10` als gait_node-Pub-Requirement entdeckt
-- **Cross-Phase-Pendenz-Pattern via Memory-Einträge** hat Phase 12
+- **Cross-Phase-Pendenz-Pattern via Memory-Einträge** hat Phase 13
   klar vorbereitet — kein Punkt versehentlich verloren
 - **User-Workflow „Commit zwischen Sub-Stages"** (Stages C+D+E+F-Phase-1)
   hat Iterations-Anker geliefert; bei Problemen leichter rollback
@@ -799,19 +807,19 @@ Phase 10 Stand: **A ✅, B ✅, C ✅, D ✅, E ✅, F ✅, G ✅, I ✅** (Stag
   Real-World-Lessons als antizipiert
 - **Stage G** (~1 h → ~1.5 h): Echo-State-Klarstellung-Discussion hat
   Strategie auf Option C reduziert; ursprünglicher Vel/Accel-Limits-Plan
-  ist Phase-12-Pendenz geworden
+  ist Phase-13-Pendenz geworden
 
-**Was offen ist (Phase-12-Cross-Phase-Pendenzen):**
+**Was offen ist (Phase-13-Cross-Phase-Pendenzen):**
 
 - **`project_phase10_tibia_length_sim_pending.md`** — Sim+RViz+Walking-
   Smoke nach Tibia-Update beim nächsten Sim-Touch
 - **`project_phase10_real_yaml_vel_limits.md`** — Vel/Accel-Limits in
-  `controllers.real.yaml` mit Bench-Last-Daten verfeinern (Phase 12)
-- **`project_phase12_initial_pose_presets.md`** — Initial-Pulse-Presets
+  `controllers.real.yaml` mit Bench-Last-Daten verfeinern (Phase 13)
+- **`project_phase13_initial_pose_presets.md`** — Initial-Pulse-Presets
   statt User-Hand-Mitigation
 - **`project_phase9_h_oscilloscope_pending.md`** — Oszi/Logic-Analyzer-
   Tests aus Phase 9 H-T8/T9
-- **Auto-Cal-Tool** für 15 verbleibende Servos in Phase 12 Stufe B
+- **Auto-Cal-Tool** für 15 verbleibende Servos in Phase 13 Stufe B
 
 **Echo-State-Insight als Phase-Übergreifende Lesson:**
 
@@ -824,7 +832,7 @@ Grundsatz-Insight für alle künftigen Phasen:
   trivial erfüllt
 - **Walking-Sicherheit kommt aus drei Hardware-Schichten**:
   URDF-Vel-Cap + Pulse-Clamp + URDF-Position-Limits
-- **Phase-12-Walking-Tuning** muss diese Realität reflektieren
+- **Phase-13-Walking-Tuning** muss diese Realität reflektieren
 - **Phase 13+ wenn Fußkontakt-Schalter dazukommen** könnten Constraints
   relevant werden, ist aber nicht geplant
 
@@ -832,10 +840,10 @@ Grundsatz-Insight für alle künftigen Phasen:
 
 - [x] Stages A–G Done-Kriterien erfüllt (Stage H war gestrichen)
 - [x] `servo_mapping.yaml` leg_6 (Pin 15/16/17) `status: calibrated`
-- [~] `controllers.real.yaml` mit Vel/Accel-Limits — **pragmatisch interpretiert** als „URDF-Hard-Cap aktiv, YAML-Override Phase-12-Pendenz" (Echo-State-Konsequenz)
+- [~] `controllers.real.yaml` mit Vel/Accel-Limits — **pragmatisch interpretiert** als „URDF-Hard-Cap aktiv, YAML-Override Phase-13-Pendenz" (Echo-State-Konsequenz)
 - [x] CI weiterhin grün (208/0/20 + 18/0/0 + 5/0/0)
 - [x] User-Smoke F (3-Servo + IK + gait_node) grün dokumentiert
-- [~] Strom-CSV aus Stage F im Repo — **deferred** zu Phase 12 (aufgehängtes Bein nicht repräsentativ)
+- [~] Strom-CSV aus Stage F im Repo — **deferred** zu Phase 13 (aufgehängtes Bein nicht repräsentativ)
 - [ ] Git-Commit + Tag `phase-10-done` (durch User)
-- [x] `PHASE.md` auf Phase 11 (Pi-Plattform) aktualisiert
+- [x] `PHASE.md` auf Phase 12 (Pi-Plattform) aktualisiert
 - [x] Retrospektive in `phase_10_progress.md`

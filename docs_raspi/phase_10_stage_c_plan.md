@@ -331,7 +331,7 @@ Diese Punkte wurden vor Stage-C-Implementation geklärt:
 
 | Frage | Antwort | Konsequenz |
 |---|---|---|
-| **C-Q1** Trajectory-Mechanismus | **A** — `ros2 action send_goal` | Goal-Akzeptanz-Check + Trajectory-Validation gegen URDF-Limits explizit beim Senden. **Wichtig:** wegen Echo-State (kein echtes Servo-Feedback) ist `status=SUCCEEDED` **immer** erfüllt — visuelle Beobachtung am echten Bein bleibt einzige Wahrheit. Phase 12 Walking nutzt später Topic-Streaming für 50-Hz-Updates aus gait_node; Action ist Stage-C/D/E/F.2-spezifisch zum Debuggen. |
+| **C-Q1** Trajectory-Mechanismus | **A** — `ros2 action send_goal` | Goal-Akzeptanz-Check + Trajectory-Validation gegen URDF-Limits explizit beim Senden. **Wichtig:** wegen Echo-State (kein echtes Servo-Feedback) ist `status=SUCCEEDED` **immer** erfüllt — visuelle Beobachtung am echten Bein bleibt einzige Wahrheit. Phase 13 Walking nutzt später Topic-Streaming für 50-Hz-Updates aus gait_node; Action ist Stage-C/D/E/F.2-spezifisch zum Debuggen. |
 | **C-Q2** Anzahl Endlagen-Test-Schritte | **A** — 5-stufig (+0.5, +1.0, 0, -0.5, -1.0, 0) | Graduelle Steigerung; Diagnose-Wert bei Stall (= „letzte gute Pose" identifizierbar) |
 | **C-Q3** RViz separat oder Launch-Extension | **A** — separat starten (`rviz2` Terminal 2) | Plan-Korrektur ggü. Mutter-Plan §F. Kein Code-Change in Phase 10. |
 | **C-Q4** User-Hand-Position während Bringup | **A** — Bein nahe Coxa-Mitte, Femur/Tibia passiv hängend | Femur/Tibia sind stromlos in Stage C (Pins 16/17 abgeklemmt) → pendeln stört Coxa-Beobachtung praktisch nicht |

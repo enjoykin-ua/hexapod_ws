@@ -738,7 +738,7 @@ Fehler-Diagnose direkt aus den ROS-Logs machbar — kein Hex-Look-up in
 **Hinweis zum fehlenden `0x20 SERVO_OVERCURRENT`:** Die Servo2040-
 Hardware hat nur einen **Gesamt-Stromsensor**, kein Per-Servo-Sensing.
 Die Firmware kann diesen Code physikalisch nicht senden. Falls jemand in
-Phase 11+ eine Hardware-Revision mit Per-Servo-Stromsensoren baut und
+Phase 12+ eine Hardware-Revision mit Per-Servo-Stromsensoren baut und
 die Firmware das beibringt: sauber im `error_report_log.cpp`-switch
 ergänzen, plus zwei Tests.
 
@@ -1347,7 +1347,7 @@ wird, wenn `SystemInterface::on_init(params)` aufgerufen wird.
 
 - **leg_6 (Pin 15/16/17) voll kalibriert** in `config/servo_mapping.yaml`
   mit `status: calibrated`, pulse_min/zero/max + direction final
-- **leg_1..5** = Platzhalter (kommen in Phase 12 via Auto-Cal-Tool)
+- **leg_1..5** = Platzhalter (kommen in Phase 13 via Auto-Cal-Tool)
 - **Tibia-Länge** im URDF korrigiert auf 0.200 m (Real-Messung +21.3 mm
   vs. ursprüngliches 0.1787 m)
 - **IK + JTC + gait_node-Pipeline** voll verifiziert mit leg_6 aufgehängt
@@ -1405,13 +1405,13 @@ ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
 # IK-Probe + gait_node funktionieren wie im Real-Modus, nur in RViz sichtbar
 ```
 
-### Bekannte Cross-Phase-Pendenzen für Phase 12
+### Bekannte Cross-Phase-Pendenzen für Phase 13
 
 - **Sim-Verifikation Tibia-Update** — sim+rviz+walking-Smoke in Gazebo
   beim nächsten Sim-Touch (Memory `project_phase10_tibia_length_sim_pending.md`)
 - **Vel/Accel-Limits** in `controllers.real.yaml` mit Bench-Last-Daten
   verfeinern (Memory `project_phase10_real_yaml_vel_limits.md`)
-- **Auto-Cal-Tool** für die 15 Restservos in Phase 12 Stufe B
+- **Auto-Cal-Tool** für die 15 Restservos in Phase 13 Stufe B
 - **Initial-Pulse-Presets** statt User-Hand-Mitigation (Memory
-  `project_phase12_initial_pose_presets.md`)
-- **Stride-Range-Tests** (Phase 12 Stufe G „Limits hochziehen")
+  `project_phase13_initial_pose_presets.md`)
+- **Stride-Range-Tests** (Phase 13 Stufe G „Limits hochziehen")

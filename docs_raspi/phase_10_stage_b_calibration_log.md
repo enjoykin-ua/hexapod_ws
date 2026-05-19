@@ -46,14 +46,14 @@ Single-Leg-Mechanik.
 - **Anschlag negativ (−):** µs-Wert: 840 (siehe §2.2). Beobachtung: „Bein hängt nach unten". Servo dort **ruhig**, kein Stall-Brumm → mech. Anschlag liegt **außerhalb des HJ-Tester-Range (< 800 µs)**, 840 ist das Tester-Range-Limit, nicht der echte mech. Anschlag.
 - **Anschlag positiv (+):** µs-Wert: 2170 (siehe §2.2). Beobachtung: „Bein zeigt nach oben". Servo ruhig → mech. Anschlag liegt **außerhalb Tester-Range (> 2200 µs)**, 2170 ist Tester-Range-Limit.
 - **URDF-Limit:** ±1.57 rad ≈ ±90°
-- **Bindend für `pulse_min`/`max`:** **URDF-Software-Clamp** im Plugin (rad-Goal → pulse) und in JTC (rad-Goal in URDF-Range geclampt). Tester-gemessene Pulse-Grenzen (840/2170) sind deutlich **weiter als URDF-Limit** → effektive Begrenzung kommt aus Software-Schicht, nicht aus Pulse-Hard-Stop. Phase 12 SW-Auto-Cal kann den echten mech. Anschlag jenseits 800/2200 µs ermitteln.
+- **Bindend für `pulse_min`/`max`:** **URDF-Software-Clamp** im Plugin (rad-Goal → pulse) und in JTC (rad-Goal in URDF-Range geclampt). Tester-gemessene Pulse-Grenzen (840/2170) sind deutlich **weiter als URDF-Limit** → effektive Begrenzung kommt aus Software-Schicht, nicht aus Pulse-Hard-Stop. Phase 13 SW-Auto-Cal kann den echten mech. Anschlag jenseits 800/2200 µs ermitteln.
 
 ### §1.3 — leg_6_tibia_joint (Pin 17)
 
 - **Anschlag negativ (−):** µs-Wert: 840 (siehe §2.3). Beobachtung: „Tibia zeigt vom Körper weg" (gemessen mit Femur passive Pose ~unten). Servo ruhig → Tester-Range-Limit (< 800 µs liegt mech. Anschlag).
 - **Anschlag positiv (+):** µs-Wert: 2172 (siehe §2.3). Beobachtung: „Tibia zeigt zum Körper" (Knie zuklappen). Servo ruhig → Tester-Range-Limit (> 2200 µs liegt mech. Anschlag).
 - **URDF-Limit:** ±1.50 rad ≈ ±86°
-- **Bindend für `pulse_min`/`max`:** **URDF-Software-Clamp** im Plugin und JTC. Tester-gemessene Pulse-Grenzen sind weiter als URDF-Limit → effektive Begrenzung kommt aus Software. Phase 12 SW-Auto-Cal kann mech. Anschlag jenseits Tester-Range ermitteln.
+- **Bindend für `pulse_min`/`max`:** **URDF-Software-Clamp** im Plugin und JTC. Tester-gemessene Pulse-Grenzen sind weiter als URDF-Limit → effektive Begrenzung kommt aus Software. Phase 13 SW-Auto-Cal kann mech. Anschlag jenseits Tester-Range ermitteln.
 
 ---
 
@@ -192,12 +192,12 @@ Self-Collision mit leg_5, nicht die Servo-Mechanik.
   Beobachtung. Praktisch unkritisch, weil Femur/Tibia bei leg_6
   geometrisch nicht in leg_5-Reichweite kommen (anders als Coxa).
 
-**Konsequenz für Phase 12 (SW-Auto-Cal, neue Stufe B):**
+**Konsequenz für Phase 13 (SW-Auto-Cal, neue Stufe B):**
 - Phase-12-Tool kann den echten mech. Servo-Anschlag jenseits
   Tester-Range ermitteln (sendet kontrolliert Pulse < 800 oder > 2200
   und beobachtet Stall).
 - Dadurch werden `pulse_min`/`max` enger gesetzt, näher am echten
-  Anschlag — Defense-in-Depth für Phase 12 Voll-Stand + Walking
+  Anschlag — Defense-in-Depth für Phase 13 Voll-Stand + Walking
   mit allen 6 Beinen.
 - Beim Mittel-Bein-Coxa (leg_2, leg_5) wird das Tool zusätzlich
   beidseitig die Self-Collision-Grenze prüfen (Phase 10 leg_6 hat
@@ -205,7 +205,7 @@ Self-Collision mit leg_5, nicht die Servo-Mechanik.
 
 **Audit-Status:** Werte verbleiben so wie gemessen — Abweichung
 transparent dokumentiert, Phase-12-Verfeinerung als Cross-Phase-
-Pendenz vermerkt (siehe `phase_12_full_bringup.md` Stufe B).
+Pendenz vermerkt (siehe `phase_13_full_bringup.md` Stufe B).
 
 ---
 

@@ -1,7 +1,8 @@
 # Aktive Phase
 
-**Aktuell:** Phase 11 — Pi-Plattform & Portierung
-**Datei:** `docs_raspi/phase_11_pi_platform.md`
+**Aktuell:** Phase 11 — Param-GUI mit Live-Tuning (rqt_reconfigure)
+**Datei:** `docs_raspi/phase_11_param_gui.md`
+**Progress-Tracker:** `docs_raspi/phase_11_progress.md`
 
 > **Phase 10 (Single-Leg Bring-up + Kalibrierung):** ✅ abgeschlossen am 2026-05-19.
 > Alle 8 Stages A–G + I durchgelaufen (Stage H war eh gestrichen).
@@ -24,16 +25,16 @@
 >   Loopback-First-Discovery + Coxa-Sichtbarkeits-Discussion. Stage G war als
 >   ~1 h geplant, hat ~1.5 h gebraucht wegen Echo-State-Klarstellung-Discussion
 >   die Strategie auf Option C reduziert hat.
-> - **Was offen ist:** Cross-Phase-Pendenzen für Phase 12:
->   - `project_phase10_tibia_length_sim_pending.md` (Sim-Verifikation nach Tibia-Update)
->   - `project_phase10_real_yaml_vel_limits.md` (Vel/Accel mit Bench-Last)
->   - `project_phase12_initial_pose_presets.md` (Initial-Pulse-Preset statt Hand)
+> - **Was offen ist:** Cross-Phase-Pendenzen (nach Phase-11-Renumbering 2026-05-19 zeigen Refs auf **Phase 13** statt vorheriger Phase 12):
+>   - `project_phase10_tibia_length_sim_pending.md` (Sim-Verifikation nach Tibia-Update — könnte in Phase 11 mit Sim-Tuning erledigt werden)
+>   - `project_phase10_real_yaml_vel_limits.md` (Vel/Accel mit Bench-Last — Phase 13)
+>   - `project_phase13_initial_pose_presets.md` (Initial-Pulse-Preset statt Hand — Phase 13)
 >   - `project_phase9_h_oscilloscope_pending.md` (Oszi/Logic-Analyzer-Tests)
->   - Plus: Auto-Cal-Tool für 15 verbleibende Servos in Phase 12 Stufe B
+>   - Plus: Auto-Cal-Tool für 15 verbleibende Servos in Phase 13 Stufe B
 > - **Echo-State-Klarstellung als Schlüssel-Insight:** User-Realität (Servos
 >   liefern niemals Position-Feedback, kein Wechsel zu Feedback-Servos geplant)
 >   hat Stage-G-Strategie fundamental geändert (Option C statt Option B).
->   Phase 12 + 13 müssen mit dieser Realität planen — JTC-Toleranz-Constraints
+>   Phase 13 muss mit dieser Realität planen — JTC-Toleranz-Constraints
 >   sind faktisch wertlos in unserem System; Schutz kommt aus den drei
 >   Hardware-Schichten (URDF-Cap + Pulse-Clamp + Position-Limits).
 >
@@ -81,7 +82,7 @@
 > Inhalt (DCDC-Wandler für Pi, GND-Stern, Bulk-Caps) wird erst gebraucht wenn
 > der Pi ins Spiel kommt. Phase 9 + 10 laufen weiterhin am Desktop mit der
 > bestehenden Bench-PSU-Verkabelung aus Phase 7. **Harte Deadline: vor Beginn
-> Phase 11 (Pi-Plattform) muss Phase 8 durch sein.**
+> Phase 12 (Pi-Plattform) muss Phase 8 durch sein.**
 >
 > **Phase 8b (Sim+HW-Mirror) ⚪ bleibt optional:** Architektur-Abgrenzung
 > macht den Mirror unabhängig — kann jederzeit ergänzend gebaut werden,
@@ -117,12 +118,13 @@
 | # | Name | Datei | Status |
 |---|---|---|---|
 | 7 | Servo2040 Firmware | `docs_raspi/phase_7_servo2040_fw.md` | 🟢 abgeschlossen (2026-05-14) |
-| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | ⏸️ pausiert (deadline: vor Phase 11) |
+| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | ⏸️ pausiert (deadline: vor Phase 12) |
 | 8b | Sim+HW Visual-Mirror (optional) | `docs_raspi/phase_8b_sim_hw_mirror.md` | ⚪ optional |
 | 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | 🟢 abgeschlossen (2026-05-16; Oszi-Verifikation H-T8/H-T9 pending bei Hardware-Verfügbarkeit) |
-| 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟢 abgeschlossen (2026-05-19; leg_6 voll kalibriert, IK + Walking verifiziert, Cross-Phase-Pendenzen für Phase 12 in Memory) |
-| 11 | Pi-Plattform & Portierung | `docs_raspi/phase_11_pi_platform.md` | 🟡 aktiv |
-| 12 | Voll-Bringup mit echtem Roboter | `docs_raspi/phase_12_full_bringup.md` | ⚪ offen |
+| 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟢 abgeschlossen (2026-05-19; leg_6 voll kalibriert, IK + Walking verifiziert, Cross-Phase-Pendenzen für Phase 13 in Memory) |
+| **11** | **Param-GUI mit Live-Tuning (rqt_reconfigure) — NEU 2026-05-19** | `docs_raspi/phase_11_param_gui.md` | 🟡 aktiv |
+| 12 | Pi-Plattform & Portierung | `docs_raspi/phase_12_pi_platform.md` | ⚪ offen |
+| 13 | Voll-Bringup mit echtem Roboter | `docs_raspi/phase_13_full_bringup.md` | ⚪ offen |
 
 ### Querschnitts-Docs (`docs_raspi/`, kein eigenes Phasen-Done-Kriterium)
 

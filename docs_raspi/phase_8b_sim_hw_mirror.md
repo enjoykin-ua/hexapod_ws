@@ -4,7 +4,7 @@
 **Maschine:** Desktop
 **Vorbedingung:** Phase 7 abgeschlossen (Servo2040-Firmware läuft),
 Phase 8 nicht zwingend (Mirror funktioniert auch ohne komplettes Bench)
-**Status:** **OPTIONAL** — kein Done-Kriterium für Phase 12 oder spätere
+**Status:** **OPTIONAL** — kein Done-Kriterium für Phase 13 oder spätere
 Phasen
 
 ---

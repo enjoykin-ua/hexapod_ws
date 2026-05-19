@@ -29,7 +29,7 @@ gefahrlos Tests gemacht werden können.
   Phase ausgewählt und beschafft, falls nicht schon vorhanden
 - Servo2040 (aus Phase 7) — Trace-Cut erledigt, USB nur Daten
 - Raspberry Pi 4 (8 GB) — wird hier nur stromseitig integriert, OS-Setup
-  kommt in Phase 11
+  kommt in Phase 12
 - XT60-Kabel 3 m (vom User vorhanden)
 - Bulk-Caps am Servo-Rail (1000 µF Elko + 100 nF Keramik)
 - Multimeter
@@ -113,7 +113,7 @@ Wichtige Punkte:
 - USB-Kabel Servo2040 ↔ Desktop ist **nur Datenverbindung**, **keine**
   Stromversorgung — der Trace-Cut auf dem Servo2040 trennt das bereits
 - Pi 5V kommt aus dem DCDC, nicht aus dem Desktop-USB
-- USB-Kabel Servo2040 ↔ Pi (später in Phase 11) ist ebenfalls nur Daten
+- USB-Kabel Servo2040 ↔ Pi (später in Phase 12) ist ebenfalls nur Daten
 
 Skizze in `phase_8_progress.md` ergänzen (ASCII reicht, oder Foto einer
 Handzeichnung).
@@ -200,7 +200,7 @@ Für Phase 8 reicht es, wenn der Servo2040 weiter am Desktop hängt:
 11. `ls -l /dev/ttyACM*` am Desktop → Servo2040 sichtbar.
 12. Vom Desktop aus die Firmware-Test-Tools aus Phase 7 ausführen können.
 
-> **Hinweis:** Das Umstecken auf den Pi passiert in Phase 11. In Phase 8
+> **Hinweis:** Das Umstecken auf den Pi passiert in Phase 12. In Phase 8
 > und 9 bleibt Servo2040 am Desktop.
 
 **Done-Kriterium D:**
@@ -274,7 +274,7 @@ misst.
 - Keine echten Hexapod-Servos (nur 1 Test-Servo aus Phase-7-Pool für Stufe E)
 - Kein ROS2-Stack (Servo2040 wird per Python-Test-Skript aus Phase 7
   angesprochen)
-- Keine Pi-OS-Installation (kommt in Phase 11)
+- Keine Pi-OS-Installation (kommt in Phase 12)
 - Kein Mainline-Mounting im Roboter (Bench bleibt Bench)
 
 ---

@@ -17,7 +17,7 @@ auf bein-eigene Mechanik.
 > `pulse_per_rad` zugunsten eines 3-Punkt-Schemas
 > (`pulse_min`/`pulse_zero`/`pulse_max`) ersetzt, und User-Entscheidung
 > 2026-05-16 reduziert Phase 10 auf leg_6 (single-leg-Bring-up).
-> Die anderen 5 Beine + 15 Servos kommen in Phase 12 (Voll-Bringup).
+> Die anderen 5 Beine + 15 Servos kommen in Phase 13 (Voll-Bringup).
 
 ---
 
@@ -25,7 +25,7 @@ auf bein-eigene Mechanik.
 
 **Erste echte Servo-Bewegung am Hexapod.** Phase 10 schließt die Lücke
 zwischen Phase 9 (Plugin spricht mit Servo2040-Firmware, aber ohne Hexapod-
-Servos) und Phase 12 (Voll-Bringup mit allen 6 Beinen). Konkret:
+Servos) und Phase 13 (Voll-Bringup mit allen 6 Beinen). Konkret:
 
 1. **Drei Servos** des Beines **leg_6** (vorne-links, Pin 15/16/17) werden:
    - mit dem HJ-Tester pre-kalibriert (mechanische Mitte, sicherer Endlagen-Bereich)
@@ -37,7 +37,7 @@ Servos) und Phase 12 (Voll-Bringup mit allen 6 Beinen). Konkret:
    (Memory-Pendenz `project_phase10_real_yaml_vel_limits.md`).
 3. **`servo_mapping.yaml` für leg_6** geht von `status: placeholder` auf
    `status: calibrated` mit ISO-Timestamp. Die anderen 15 Servos
-   (leg_1..5) bleiben Platzhalter — Phase 12 macht die voll-Kalibrierung
+   (leg_1..5) bleiben Platzhalter — Phase 13 macht die voll-Kalibrierung
    wenn alle Beine montiert + verkabelt sind.
 
 > **Echo-State-Erinnerung:** Die Servos liefern **kein** echtes Position-Feedback.
@@ -48,11 +48,11 @@ Servos) und Phase 12 (Voll-Bringup mit allen 6 Beinen). Konkret:
 
 **Was Phase 10 NICHT macht:**
 
-- Keine 6-Bein-Koordination (Phase 12).
-- Kein Gait-Engine am echten Roboter (Phase 12).
-- Kein Pi (Phase 11).
+- Keine 6-Bein-Koordination (Phase 13).
+- Kein Gait-Engine am echten Roboter (Phase 13).
+- Kein Pi (Phase 12).
 - Kein Akku-Betrieb — Phase 10 läuft ausschließlich mit Bench-PSU.
-- Keine Cable-Management-Endmontage (Phase 12 wenn alle 18 Servos angeschlossen sind).
+- Keine Cable-Management-Endmontage (Phase 13 wenn alle 18 Servos angeschlossen sind).
 - Keine Oszi/Logic-Analyzer-Tests (User-Entscheidung 2026-05-16: aus
   Phase-9-Pendenz nicht in Phase 10 nachgeholt). Memory-Eintrag
   `project_phase9_h_oscilloscope_pending.md` bleibt Cross-Session-Pendenz.
@@ -95,7 +95,7 @@ Body-Kollisionen.
 **Warum kompakt (nur leg_6, nicht alle 18):** User-Setup hat nur 4 Beine
 montiert (leg_1/3/5/6), und leg_6 (vorne-links) ist mechanisch am besten
 zugänglich. Phase 10 ist Single-Leg-Bring-up — die anderen Servos
-brauchen wir erst in Phase 12 wenn der Hexapod voll montiert + verkabelt
+brauchen wir erst in Phase 13 wenn der Hexapod voll montiert + verkabelt
 ist.
 
 **Strategie für `pulse_min`/`pulse_max` — Konservativ-Pragmatisch (Strategie B', User-Entscheid 2026-05-17):**
@@ -114,10 +114,10 @@ Single-Leg-Range:
   Software-Vollbug, IK-Fehler, falscher Trajectory etc. Plugin-Konversion
   + Firmware-Hard-Clamp setzen die Pulse-Werte durch.
 - **Range-Verlust:** voraussichtlich ~20–30 % für leg_6-Coxa (einseitiger
-  Nachbar leg_5). Mittel-Beine in Phase 12 (leg_2/leg_5) werden ~50 %
+  Nachbar leg_5). Mittel-Beine in Phase 13 (leg_2/leg_5) werden ~50 %
   Range-Verlust haben (zwei Nachbarn). Akzeptiert für maximale Hardware-
   Sicherheit.
-- **Defense in Depth:** Phase 12 setzt Workspace-Boxes (`hexapod_kinematics`)
+- **Defense in Depth:** Phase 13 setzt Workspace-Boxes (`hexapod_kinematics`)
   **innerhalb** dieser Pulse-Hard-Stops. Beide Schichten zusammen
   garantieren Self-Collision-Vermeidung sowohl in Software (Workspace)
   als auch in Hardware (Pulse-Clamp).
@@ -136,7 +136,7 @@ Single-Leg-Range:
   geht in Theorie, aber ohne Tester-Pre-Cal müsste man am Stack die mech.
   Endlagen suchen → höheres Risiko von Anschlag-Brumm.
 - **Voll-Calibration aller 18 Servos in Phase 10 (Original-Skizze vom 14. Mai):**
-  out-of-scope, weil nur leg_6 in dieser Phase bewegt wird. Phase-12-Job.
+  out-of-scope, weil nur leg_6 in dieser Phase bewegt wird. Phase-13-Job.
 - **`pulse_per_rad`-Feld als Kalibrierungs-Parameter (Original-Skizze):**
   Phase-9-Design-Entscheidung hat das zugunsten 3-Punkt-Schema verworfen
   — siehe `project_phase9_decisions.md`.
@@ -196,9 +196,9 @@ Bein-Gewicht → möglicher Stall-Brumm beim ersten Hochfahren.
   2 Presets nötig — `suspended` (Testbench aufgebockt) und `resting`
   (Bauch-liegend); kein `stand`-Preset, weil Stand eine **Ziel-Pose**
   ist, keine Start-Pose. Aufwand: ~2–3 d Plugin-Code-Change + YAML-
-  Migration + Tests + Cal-Tool für Preset-Werte. **Phase-12-Kandidat**
+  Migration + Tests + Cal-Tool für Preset-Werte. **Phase-13-Kandidat**
   — skaliert besser als User-Hand-Mitigation bei 18 Servos.
-  Cross-Phase-Reminder: Memory `project_phase12_initial_pose_presets.md`.
+  Cross-Phase-Reminder: Memory `project_phase13_initial_pose_presets.md`.
 
 ### D. Verkabelungs-Sequenz und -Polarität
 
@@ -301,7 +301,7 @@ YAML editieren → colcon build --packages-select hexapod_hardware
 
 **Verworfen:** Plugin-Erweiterung mit `direction` als ROS-Live-Parameter —
 Aufwand 2–3 Tage Entwicklungszeit (Code + Tests + Doku), nicht
-amortisierbar bei 3 Servos. Phase 12 kann das als separate
+amortisierbar bei 3 Servos. Phase 13 kann das als separate
 Architektur-Frage evaluieren (18 Servos → ~3 h worst case → Plugin-Change
 lohnt sich dort eher).
 
@@ -315,7 +315,7 @@ Stage F testet die IK + leg_6-Mechanik in **zwei Sub-Steps** nacheinander:
   `leg_6_controller`. Eine klar definierte Bewegung (3 cm Fuß-Hub
   vertikal), andere 5 Beine ruhig (keine Goals an sie).
 - **F.3 — gait_node mit `/cmd_vel`-Stub:** voller Walking-Pfad wie in
-  Phase 12. gait_node generiert Tripod-Pattern für alle 6 Beine,
+  Phase 13. gait_node generiert Tripod-Pattern für alle 6 Beine,
   publisht JTC-Goals an alle 6 `leg_X_controller`. leg_6 bewegt sich
   physisch entsprechend, andere 5 Beine bekommen Pulse-Streams an
   Pins 0–14 ohne angeschlossene Servos (harmlos).
@@ -323,7 +323,7 @@ Stage F testet die IK + leg_6-Mechanik in **zwei Sub-Steps** nacheinander:
 **Diagnose-Trennung:**
 - F.2 hängt → Problem in IK selbst oder in Kalibrierung
 - F.2 grün und F.3 hängt → Problem in gait_node oder cmd_vel-Mapping
-- Beide grün → Phase-12-ROS-Pipeline ist bewiesen; Phase 12 hat nur
+- Beide grün → Phase-13-ROS-Pipeline ist bewiesen; Phase 13 hat nur
   noch HW-Punkte (Servo-Cal anderer 15, Stand-Belastung, Cable-Mgmt,
   Boden-Walking).
 
@@ -333,7 +333,7 @@ liegt. F.2 ist 30 Zeilen Python, kostet 30 min, kann diese Trennung machen.
 
 **Was Variante B in Phase 10 mit nur leg_6 physisch beweist (User-Frage 2026-05-16):**
 der **volle ROS-Software-Stack-Pfad** ist verifiziert (gait_node → JTC →
-Plugin → Firmware → Servos). Was Phase 12 noch leistet: Kalibrierung der
+Plugin → Firmware → Servos). Was Phase 13 noch leistet: Kalibrierung der
 15 anderen Servos, Bein-Längen-Check aller 6 Beine, 6-Bein-Stand-Belastung
 (Roboter trägt sich selbst auf Beinen → echte Stall-Profile), PSU-Strom-
 Budget mit 18-Servo-Last, Cable-Management, Walking auf Boden mit echter
@@ -341,7 +341,7 @@ Reibung. **Software-Pipeline-Risiken sind nach Stage F.3 weitestgehend
 geschlossen.**
 
 **Verworfen:** Pure Variante A oder Pure Variante B — A allein deckt
-Phase-12-Pfad nicht ab, B allein hat schlechtere Diagnose-Trennung.
+Phase-13-Pfad nicht ab, B allein hat schlechtere Diagnose-Trennung.
 
 ---
 
@@ -553,7 +553,7 @@ Bein-Geometrie nochmal messen, direction-Werte verifizieren).
 
 #### F.3 — gait_node mit `/cmd_vel`-Stub (Voll-Pipeline-Test)
 
-**Ziel:** gleicher Software-Pfad wie Phase 12. gait_node + JTC + Plugin +
+**Ziel:** gleicher Software-Pfad wie Phase 13. gait_node + JTC + Plugin +
 Firmware + Servos koordiniert testen.
 
 Setup bleibt wie F.2 (Servos angeschlossen, PSU an).
@@ -655,7 +655,7 @@ Pendenz ohne Phasen-Verankerung.
     `placeholder` solange andere 15 Pins nicht kalibriert sind)
 - README hexapod_hardware: Phase-10-Quick-Start-Snippet ergänzen
   (leg_6 verifizierten Status)
-- PHASE.md: Phase 10 → 🟢, Phase 11 → 🟡 aktiv
+- PHASE.md: Phase 10 → 🟢, Phase 12 → 🟡 aktiv
 - Git-Commit + Tag `phase-10-done` (durch User)
 
 **Done-Kriterium I:**
@@ -673,8 +673,8 @@ Drei Punkte wurden beim Stage-A-Plan-Review am 2026-05-16 geklärt
 | Frage | Entscheidung | Verworfen | Begründung |
 |---|---|---|---|
 | Bein-Geometrie-Check Timing | **F.1** (Stage-F-Sub-Step) | Stage A | Stages B–E sind längen-unabhängig; Check nur vor IK nötig |
-| `direction`-Flip-Mechanismus | **Build-Edit-Build pro Flip** | Plugin-Live-Parameter | Bei 3 Servos in Phase 10 nicht amortisierbar; Phase 12 kann separat entscheiden |
-| IK-Trajectory-Source in F | **Hybrid F.2 (direkter IK) + F.3 (gait_node)** | reine F.2 oder reine F.3 | Diagnose-Trennung IK vs. gait_node; Voll-Pipeline-Verifikation für Phase 12 |
+| `direction`-Flip-Mechanismus | **Build-Edit-Build pro Flip** | Plugin-Live-Parameter | Bei 3 Servos in Phase 10 nicht amortisierbar; Phase 13 kann separat entscheiden |
+| IK-Trajectory-Source in F | **Hybrid F.2 (direkter IK) + F.3 (gait_node)** | reine F.2 oder reine F.3 | Diagnose-Trennung IK vs. gait_node; Voll-Pipeline-Verifikation für Phase 13 |
 
 ---
 
@@ -701,12 +701,12 @@ Drei Punkte wurden beim Stage-A-Plan-Review am 2026-05-16 geklärt
 
 ## Was in dieser Phase **NICHT** gemacht wird
 
-- Kein Walken auf dem Boden (Phase 12)
-- Kein Pi (Phase 11)
-- Keine PS4-Vollbetrieb-Tests (Phase 12)
+- Kein Walken auf dem Boden (Phase 13)
+- Kein Pi (Phase 12)
+- Keine PS4-Vollbetrieb-Tests (Phase 13)
 - Kein Akku (Phase 13+)
-- Keine Cable-Management-Endmontage (Phase 12)
-- Keine voll-6-Bein-Kalibrierung (Phase 12)
+- Keine Cable-Management-Endmontage (Phase 13)
+- Keine voll-6-Bein-Kalibrierung (Phase 13)
 - Keine Oszi/Logic-Analyzer-Tests (User-Entscheidung 2026-05-16)
 
 ---
@@ -718,7 +718,7 @@ Drei Punkte wurden beim Stage-A-Plan-Review am 2026-05-16 geklärt
 - [ ] `controllers.real.yaml` mit Vel/Accel-Limits aus Bench-Daten
 - [ ] CI weiterhin grün (hexapod_hardware 208/0, hexapod_bringup 18/0)
 - [ ] User-Smoke F (3-Servo + IK) grün dokumentiert
-- [ ] Strom-CSV aus Stage F im Repo (für Phase-12-Referenz)
+- [ ] Strom-CSV aus Stage F im Repo (für Phase-13-Referenz)
 - [ ] Git-Commit + Tag `phase-10-done` (durch User)
-- [ ] `PHASE.md` auf Phase 11 (Pi-Plattform) aktualisiert
+- [ ] `PHASE.md` auf Phase 12 (Pi-Plattform) aktualisiert
 - [ ] Retrospektive in `phase_10_progress.md`

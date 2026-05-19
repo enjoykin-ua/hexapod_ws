@@ -58,7 +58,7 @@ gesamten `on_activate`-Vorgangs (~1.5 s Boot-Sequenz). Hand bleibt am
 Femur-Segment, hebt es passiv auf horizontale Position **vor** Launch-
 Start und hält es dort bis Boot-Sequenz durch.
 
-Cross-Phase: Memory `project_phase12_initial_pose_presets.md` ist die
+Cross-Phase: Memory `project_phase13_initial_pose_presets.md` ist die
 elegantere Lösung (preset-spezifischer Initial-Pulse statt User-Hand) —
 Phase-12-Kandidat, nicht Phase-10.
 

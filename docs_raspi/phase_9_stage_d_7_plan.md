@@ -317,7 +317,7 @@ Done-Vertrag — alle `[x]` = Sub-Stage fertig:
 | 4 | Logging-Level | **Vorschlag A (laut)** — ERROR (Disconnect erkannt) → WARN (pro Backoff-Iter) → INFO (Reconnect-Erfolg mit Recovery-Befehl) | Seltene Events soll man umso lauter sehen; User WILL Disconnect-Logs sehen weil sie auf System-/Power-/Firmware-Probleme hinweisen |
 | 5 | `assembly.clear()` nach Reconnect | **clear** + DEBUG-Log | Mid-frame-Bytes vom alten Stream sind nutzlos; clean restart einfacher und robuster |
 | 6 | `port.path_`-Lifetime im reconnect_loop | **explizit `const std::string path = port.path();`** | Wertkopie auf Reader-Stack, unabhängig vom `path_`-Member im SerialPort; defensiver gegen `auto`-Refactoring später |
-| Neu | Scope: D.7 voll, minimal, oder skip? | **X — Voller Plan (Backoff-Loop)** | Phase 11 (Pi-Boot/Re-Enumerate) braucht Auto-Recovery, ~80 Zeilen Code günstig; Variante Y (1× Retry) wäre auch ok aber inkonsistent bei längeren Hängern |
+| Neu | Scope: D.7 voll, minimal, oder skip? | **X — Voller Plan (Backoff-Loop)** | Phase 12 (Pi-Boot/Re-Enumerate) braucht Auto-Recovery, ~80 Zeilen Code günstig; Variante Y (1× Retry) wäre auch ok aber inkonsistent bei längeren Hängern |
 
 **Konsequenzen für die Implementation:**
 - `adopt_fd`-Pfad: kein `path_` gesetzt → reconnect_loop muss früh prüfen

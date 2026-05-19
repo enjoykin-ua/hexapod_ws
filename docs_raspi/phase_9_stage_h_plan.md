@@ -245,7 +245,7 @@ fehlt") = Stage fertig:
 |---|---|---|
 | H-Q1 Bench-Setup | **A** (modifiziert) — Servo2040 per USB verbunden, **Servo-Netzteil wird vor H-T4 angeschlossen** (User-Entscheidung nach Diskussion). Phase-7-Firmware geflasht; dialout-Gruppe OK. | H-T4 voll aussagekräftig (kein UNDERVOLTAGE-Sturm), H-T5 Trajectory-Smoke voll testbar. Setup-Block im test_commands.md vor H-T4 muss explizit auf Netzteil-Anschluss + 6.0 V + CC-Limit hinweisen. |
 | H-Q2 Trajectory-Tiefe | **A** — minimale Trajectory an leg_1_controller, 0.1 rad | Kompakter End-to-End-Beweis, niedriges Failure-Surface. |
-| H-Q3 USB-Reconnect-Smoke | **A** — jetzt schon | Stage-D.7-Verhalten real-world im kontrollierten Desktop-Setup verifizieren bevor Phase 11/12 zusätzliche Faktoren reinbringt. |
+| H-Q3 USB-Reconnect-Smoke | **A** — jetzt schon | Stage-D.7-Verhalten real-world im kontrollierten Desktop-Setup verifizieren bevor Phase 12/13 zusätzliche Faktoren reinbringt. |
 | H-Q4 Oszi/Logic-Analyzer-Doku | **A** — ausführliche Schritt-für-Schritt-Anleitung | H-T8 + H-T9 als „OPTIONAL — braucht Hardware" markiert mit konkreten Pin-Nummern, erwarteten Werten, Tools-Empfehlungen. Memory-Eintrag für Cross-Session-Pendenz. |
 
 **Zentrale Setup-Anweisung (aus H-Q1-Diskussion):** Bench-PSU vor H-T4
@@ -282,9 +282,9 @@ Falls etwas davon nicht zutrifft: erstmal das nachholen, dann Stage H.
   implementiert + Unit-getestet (5 Tests in test_hexapod_system.cpp),
   aber real-world ist anders (USB-Stack-Race, Pi-USB-Hotplug-Latenz).
   Hier am Desktop mit kontrolliertem Kabelziehen ist die ideale
-  Gelegenheit, das Verhalten zu sehen bevor es in Phase 11/12 im
+  Gelegenheit, das Verhalten zu sehen bevor es in Phase 12/13 im
   Roboter mit zusätzlichen Vibrations-Faktoren passiert.
-- B: erst in Phase 11/12 wenn der Pi im Spiel ist. Aber dort ist das
+- B: erst in Phase 12/13 wenn der Pi im Spiel ist. Aber dort ist das
   Setup komplexer, Diagnose schwieriger.
 
 ### Frage 4 — Oszi/Logic-Analyzer-Doku-Tiefe (H-T8 + H-T9)?

@@ -1,4 +1,4 @@
-# Phase 11 — Pi-Plattform & Portierung
+# Phase 12 — Pi-Plattform & Portierung
 
 **Dauer-Schätzung:** 1–2 Tage (OS + ROS2 + Workspace + DDS-Konnektivität)
 **Maschine:** Raspberry Pi 4 (8 GB) **und** Desktop (für SSH/Deployment)
@@ -14,8 +14,8 @@ headless Ubuntu Server 24.04 LTS, ROS2 Jazzy, Workspace baut, DDS-Discovery
 zum Desktop funktioniert, Deployment-Workflow Desktop → Pi steht.
 
 **In dieser Phase wird noch nicht** der echte Roboter am Pi getestet —
-Servo2040 hängt weiter am Desktop. Phase 11 ist reine Plattform-Vorbereitung.
-Erst Phase 12 schließt den Roboter an den Pi an.
+Servo2040 hängt weiter am Desktop. Phase 12 ist reine Plattform-Vorbereitung.
+Erst Phase 13 schließt den Roboter an den Pi an.
 
 ---
 
@@ -28,7 +28,7 @@ Erst Phase 12 schließt den Roboter an den Pi an.
   via Imager + WLAN-Config)
 - DCDC-Wandler + Bench-PSU aus Phase 8 als Stromversorgung des Pi (optional,
   zunächst kann auch ein normales 5V-USB-C-Netzteil benutzt werden, der
-  DCDC-Pfad wird erst in Phase 12 verifiziert)
+  DCDC-Pfad wird erst in Phase 13 verifiziert)
 
 ---
 
@@ -348,7 +348,7 @@ In `dev_workflow_desktop_to_pi.md` festhalten:
 
 **Ziel:** Pi-Image schützen vor Korruption durch unsaubere Abschaltung.
 
-In `phase_11_progress.md` Stufe H schriftlich:
+In `phase_12_progress.md` Stufe H schriftlich:
 
 - **Immer** `sudo shutdown -h now` per SSH bevor Hauptschalter aus.
 - Warten bis grüne LED am Pi erlischt.
@@ -363,13 +363,13 @@ In `phase_11_progress.md` Stufe H schriftlich:
 
 ---
 
-### Stufe I — Phase-11-Abschluss
+### Stufe I — Phase-12-Abschluss
 
-- `phase_11_progress.md` finalisieren
+- `phase_12_progress.md` finalisieren
 - `dev_workflow_desktop_to_pi.md` final (separates Doc, kein Phasen-Done-
-  Kriterium dort, aber Voraussetzung für Phase 12)
-- Git-Commit + Tag `phase-11-done`
-- `PHASE.md` auf Phase 12 aktualisieren
+  Kriterium dort, aber Voraussetzung für Phase 13)
+- Git-Commit + Tag `phase-12-done`
+- `PHASE.md` auf Phase 13 aktualisieren
 - Retro
 
 ---
@@ -390,8 +390,8 @@ In `phase_11_progress.md` Stufe H schriftlich:
 
 ## Was in dieser Phase **NICHT** gemacht wird
 
-- Kein Anschluss von Servo2040 an Pi (Phase 12)
-- Keine Bewegungs-Tests am Pi (Phase 12)
+- Kein Anschluss von Servo2040 an Pi (Phase 13)
+- Keine Bewegungs-Tests am Pi (Phase 13)
 - Kein PREEMPT-RT-Kernel — Standard-Kernel reicht für 50 Hz Gait
 - Keine zusätzlichen Sensoren
 - Kein Bluetooth-PS4 (separates Defer)
@@ -407,6 +407,6 @@ In `phase_11_progress.md` Stufe H schriftlich:
 - [ ] `real.launch.py loopback:=true` auf Pi grün
 - [ ] `dev_workflow_desktop_to_pi.md` final
 - [ ] Shutdown-Disziplin dokumentiert
-- [ ] Git-Commit + Tag `phase-11-done`
-- [ ] `PHASE.md` auf Phase 12 aktualisiert
-- [ ] Retrospektive in `phase_11_progress.md`
+- [ ] Git-Commit + Tag `phase-12-done`
+- [ ] `PHASE.md` auf Phase 13 aktualisiert
+- [ ] Retrospektive in `phase_12_progress.md`

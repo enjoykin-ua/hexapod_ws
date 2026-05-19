@@ -1,8 +1,8 @@
 # Deployment-Workflow Desktop → Raspberry Pi
 
 **Status:** Querschnitts-Doku, kein eigenes Phasen-Done-Kriterium
-**Wird referenziert von:** Phase 11 (Pi-Plattform) und allen späteren Phasen
-**Letztes Update:** Erst-Anlage in Phase-7-Planung, finalisiert in Phase 11
+**Wird referenziert von:** Phase 12 (Pi-Plattform) und allen späteren Phasen
+**Letztes Update:** Erst-Anlage in Phase-7-Planung, finalisiert in Phase 12
 
 ---
 
@@ -12,7 +12,7 @@ Code, der am Ubuntu-Desktop entwickelt wird, muss zuverlässig und schnell
 auf dem Raspberry Pi 4 ankommen — sowohl für stabile Commits als auch für
 schnelle „eben mal testen"-Iterationen.
 
-Dieses Doc beschreibt die Werkzeuge und Konventionen dafür. Wird in Phase 11
+Dieses Doc beschreibt die Werkzeuge und Konventionen dafür. Wird in Phase 12
 Stufe G konkret durchgespielt und finalisiert.
 
 ---
@@ -193,7 +193,7 @@ alias hexapod-push-build='hexapod-sync && ssh hexapod-pi "cd ~/hexapod_ws && col
 
 ## Shutdown-Disziplin
 
-Aus Phase 11 Stufe H:
+Aus Phase 12 Stufe H:
 
 - **Immer** `sudo shutdown -h now` per SSH bevor PSU/Hauptschalter aus.
 - Warten bis grüne LED am Pi erlischt.

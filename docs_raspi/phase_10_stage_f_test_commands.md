@@ -12,7 +12,7 @@ verifiziert.
 - **F-Phase-1:** F-T3 Lineal-Check (stromlos) + F-T4 Plugin-Bringup +
   F-T5 IK-Probe → Shutdown → Commit
 - **F-Phase-2:** Bench-Setup wieder + F-T6 gait_node + cmd_vel +
-  PSU-Display-Beobachtung (F-T8 CSV deferred zu Phase 12) → Shutdown → Commit
+  PSU-Display-Beobachtung (F-T8 CSV deferred zu Phase 13) → Shutdown → Commit
 
 Doppelter Bringup-Aufwand für mehr Sicherheits-Anker zwischen IK-Test
 und Walking-Test.
@@ -22,7 +22,7 @@ und Walking-Test.
 
 **Was NICHT in Stage F ausgeführt wird:**
 - Vel/Accel-Limit-Eintrag in `controllers.real.yaml` (Stage G)
-- Boden-Walking (Phase 12)
+- Boden-Walking (Phase 13)
 
 ---
 
@@ -209,7 +209,7 @@ ros2 launch hexapod_bringup real.launch.py loopback_mode:=false
 
 Hand wegnehmen sobald Servos stabil halten.
 
-> **Kein Strom-Logger** (F.4 deferred zu Phase 12). Stattdessen
+> **Kein Strom-Logger** (F.4 deferred zu Phase 13). Stattdessen
 > **PSU-Display beobachten** während IK-Probe läuft — Peak-Strom-Wert
 > merken (informativer Sanity-Check, kein CSV).
 
@@ -239,7 +239,7 @@ python3 ~/hexapod_ws/tools/phase_10_f2_ik_probe.py
 - [ ] Phase-B Real: Fuß bewegt sich linear vertikal ~3 cm
 - [ ] RViz und echtes Bein synchron
 - [ ] Kein Stall-Brumm
-- (F.4 CSV-Logging deferred zu Phase 12 — kein CSV für F.2 nötig)
+- (F.4 CSV-Logging deferred zu Phase 13 — kein CSV für F.2 nötig)
 
 ---
 
@@ -307,7 +307,7 @@ Hand wegnehmen sobald Servos halten. Plugin bleibt für F-T6 + F-T8 an.
 
 > **F.4-Strom-Profil deferred** (User-Entscheid F-Phase-1-Self-Review):
 > kein CSV-Logger — aufgehängtes Bein liefert keine repräsentativen
-> Werte für Stage G/Phase 12. **Stattdessen:** PSU-Display während
+> Werte für Stage G/Phase 13. **Stattdessen:** PSU-Display während
 > Walking beobachten, Peak-Strom merken (z.B. „~2.3 A" in progress.md
 > als Stage-G-Sanity-Datenpunkt notieren).
 
@@ -386,7 +386,7 @@ Falls Kontakt mit Halterung: PSU sofort AUS, Stand-Pose-Punkt anpassen
   Servos, kein false-positive)
 - Plus tolerieren wenn das Bein visuell sauber läuft, ohne Brumm oder Trip
 
-Cross-Phase-Anmerkung: in Phase 12 mit allen 18 Servos angeschlossen wird
+Cross-Phase-Anmerkung: in Phase 13 mit allen 18 Servos angeschlossen wird
 dieses false-positive von selbst verschwinden. Firmware-Fix optional in
 Phase 13+ (Pin-Maske für aktive Servos).
 
@@ -429,12 +429,12 @@ Tripod-Trajectories, Plugin echo't im Loopback bzw. fährt im Real
 die Servos. Die Stride-Größe ist Stage-G/Phase-12-Polish:
 - Stage G: `controllers.real.yaml` Vel/Accel-Limits → mit Bench-Daten
   (oder Sim × 0.7) bestimmen, ggf. höhere `step_length_max` ableiten
-- Phase 12 Stufe G „Limits hochziehen": schrittweise `linear.x` von
+- Phase 13 Stufe G „Limits hochziehen": schrittweise `linear.x` von
   0.02 → 0.05 → Phase-5-Werte (Mutter-Plan-Phase-12-Plan)
 
 **Beobachtung Stance→Swing-Übergang:** kurze schnelle Bewegung beim
 Wechsel zwischen den beiden Tripod-Phasen ist by-design (Velocity-
-Vorzeichenwechsel im Cycle). Mit Bodenreibung in Phase 12 anders
+Vorzeichenwechsel im Cycle). Mit Bodenreibung in Phase 13 anders
 fühlbar (Bein zieht den Body), aufgehängt sieht's etwas abrupt aus.
 
 ---
@@ -458,12 +458,12 @@ Dann:
 
 ---
 
-## F-T8 — F.4 Strom-Profil-Auswertung — **deferred zu Phase 12**
+## F-T8 — F.4 Strom-Profil-Auswertung — **deferred zu Phase 13**
 
 > **User-Entscheid F-Phase-1-Self-Review:** F.4 CSV-Auswertung in
 > Phase 10 entfällt, weil aufgehängtes Bein keine repräsentativen
-> Werte für Stage G / Phase 12 liefert. Memory-Pendenz
-> `project_phase10_real_yaml_vel_limits.md` bleibt aktiv für Phase 12
+> Werte für Stage G / Phase 13 liefert. Memory-Pendenz
+> `project_phase10_real_yaml_vel_limits.md` bleibt aktiv für Phase 13
 > (Voll-Bringup mit Last + Bodenkontakt).
 
 **Statt CSV-Auswertung in Phase 10:**
@@ -473,13 +473,13 @@ Dann:
   notieren
 - **Stage G nutzt `Sim × 0.7`-Strategie** für Vel/Accel-Limits in
   `controllers.real.yaml` (Mutter-Plan-Empfehlung)
-- **Phase 12** macht die echte Strom-Profil-Auswertung mit 18 Servos
+- **Phase 13** macht die echte Strom-Profil-Auswertung mit 18 Servos
   unter Last → dann werden die `controllers.real.yaml`-Limits nachfein
   verfeinert (Stage G ist konservativer Erst-Wurf)
 
 **User-Bestätigung F-T8 (verschlankt):**
 - [ ] PSU-Peak-Strom während F-T6 notiert in progress.md
-- [ ] Verständnis: Phase 12 macht echtes Strom-Profil mit Last
+- [ ] Verständnis: Phase 13 macht echtes Strom-Profil mit Last
 - [ ] Werte in Stage-F-Notizen (`phase_10_progress.md` Stage-F-Sektion) übernommen
 
 ---

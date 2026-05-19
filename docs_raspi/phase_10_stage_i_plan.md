@@ -19,7 +19,7 @@ Phase 10 sauber abschließen:
    `calibrated_at: <ISO>` (per-Eintrag, Top-Level bleibt `placeholder`)
 2. **README** in `hexapod_hardware`: Phase-10-Quick-Start-Snippet
    ergänzen mit leg_6-Verifikations-Status
-3. **PHASE.md**: Phase 10 → 🟢 abgeschlossen, Phase 11 → 🟡 aktiv,
+3. **PHASE.md**: Phase 10 → 🟢 abgeschlossen, Phase 11 (Param-GUI) → 🟡 aktiv,
    kurze Phase-10-Retro
 4. **`phase_10_progress.md`**: Stage-I-Bullets, Phase-10-Retrospektive,
    Phasenabschluss-Checkliste komplett abgehakt
@@ -47,7 +47,7 @@ Pro Pin per-Eintrag-Field:
 ```
 
 Top-Level `status: placeholder` bleibt unverändert (15 andere Pins
-sind weiter nicht kalibriert, kommen in Phase 12).
+sind weiter nicht kalibriert, kommen in Phase 13).
 
 ### I.2 — README hexapod_hardware Phase-10-Quick-Start (~10 min)
 
@@ -63,12 +63,12 @@ In `src/hexapod_hardware/README.md` (am Ende oder in eigener Sektion):
 ### I.3 — PHASE.md updaten (~5 min)
 
 - Phase 10 Status von 🟡 aktiv auf 🟢 abgeschlossen
-- Phase 11 Status von ⚪ offen auf 🟡 aktiv
+- Phase 11 (Param-GUI) Status von ⚪ offen auf 🟡 aktiv
 - Phase-10-Retro-Block am Anfang (analog Phase-9-Retro-Block):
   - Was gut lief
   - Was länger gedauert hat
   - Was offen ist (Memory-Cross-Phase-Pendenzen)
-- „Aktuell"-Zeile auf Phase 11 + `docs_raspi/phase_11_pi_platform.md`
+- „Aktuell"-Zeile auf Phase 11 (Param-GUI) + `docs_raspi/phase_11_param_gui.md` (Pi-Plattform ist jetzt Phase 12)
 
 ### I.4 — `phase_10_progress.md` finalisieren (~15 min)
 
@@ -104,13 +104,13 @@ User macht selbst:
 | I-T1 | colcon build grün | 3 packages 0 errors | Claude |
 | I-T2 | colcon test grün | 208/0/20 + 18/0/0 + 5/0/0 | Claude |
 | I-T3 | servo_mapping.yaml Pin 15/16/17 `status: calibrated` sichtbar | YAML-Diff | Claude + User |
-| I-T4 | PHASE.md Phase 10 🟢, Phase 11 🟡 aktiv | User-Sichtkontrolle | User |
+| I-T4 | PHASE.md Phase 10 🟢, Phase 11 (Param-GUI) 🟡 aktiv | User-Sichtkontrolle | User |
 
 ### Was bewusst NICHT in Stage I getestet wird
 
 - **Real-Modus mit Bench-PSU + Servos** — Stage I ist Doku-only
 - **Erneuter IK-Probe-Run** — alle HW-Verifikationen schon in Stages C/D/E/F gemacht
-- **Phase 11/12 Vorbereitung** — eigene Phasen
+- **Phase 11 (Param-GUI)/12 Vorbereitung** — eigene Phasen
 
 ---
 
@@ -119,7 +119,7 @@ User macht selbst:
 - [ ] I.1 Stage-I-Plan-Doku (diese Datei) angelegt
 - [ ] I.2 servo_mapping.yaml Pin 15/16/17 mit status + calibrated_at
 - [ ] I.3 README hexapod_hardware Phase-10-Quick-Start
-- [ ] I.4 PHASE.md Phase 10 → 🟢, Phase 11 → 🟡, Retro
+- [ ] I.4 PHASE.md Phase 10 → 🟢, Phase 11 (Param-GUI) → 🟡, Retro
 - [ ] I.5 phase_10_progress.md Stage-I + Phase-10-Retrospektive + Phasenabschluss-Checkliste
 - [ ] I.6 Build + Test grün
 - [ ] I.7 User-Commit + Git-Tag `phase-10-done`

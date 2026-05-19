@@ -1,10 +1,10 @@
-# Phase 12 — Voll-Bringup mit echtem Roboter
+# Phase 13 — Voll-Bringup mit echtem Roboter
 
 **Dauer-Schätzung:** 4–6 Tage (Kalenderzeit, viele Iterationen — inkl.
 neuer Stufe B für SW-Auto-Kalibrierung der 15 in Phase 10 nicht
 kalibrierten Servos)
 **Maschine:** Raspberry Pi 4 am Roboter, Desktop für Monitoring/Teleop
-**Vorbedingung:** Phase 11 abgeschlossen (Pi-Plattform steht), Phase 10
+**Vorbedingung:** Phase 12 abgeschlossen (Pi-Plattform steht), Phase 10
 abgeschlossen (leg_6 = Pin 15/16/17 am Desktop kalibriert; die anderen
 15 Servos sind in `servo_mapping.yaml` weiter Platzhalter und werden
 **in Stufe B dieser Phase** per SW-Tool kalibriert)
@@ -215,7 +215,7 @@ Pro Bein vor dem Auto-Cal-Run:
    - Falls Servo zurückrutscht: Klebeband oder Schaumstoff temporär
 4. **PSU AN**, Plugin läuft (aus Stufe A), aktives Bein per User-Hand
    in geometrische Mitte gehalten (Initial-Pulse-Mitigation analog
-   Phase-10-Stages-C/D/E — Memory `project_phase12_initial_pose_presets.md`
+   Phase-10-Stages-C/D/E — Memory `project_phase13_initial_pose_presets.md`
    ist Cross-Phase-Outlook, in B nicht implementiert)
 
 #### B.4 Auto-Cal-Run pro Joint
@@ -269,7 +269,7 @@ Tool-Test-Strategie (vor B.3 am echten Bein):
    hat `status: calibrated`
 4. Stand-Pose-Sanity aufgebockt symmetrisch
 5. Cal-Log pro Bein (analog `phase_10_stage_b_calibration_log.md`):
-   `phase_12_stage_b_calibration_log.md` mit allen 15 Mess-Eintragungen
+   `phase_13_stage_b_calibration_log.md` mit allen 15 Mess-Eintragungen
    als Audit-Trail
 
 ---
@@ -448,7 +448,7 @@ Bei 1 m geradeaus: wie viel Grad Yaw-Drift?
 - 5–15 °: typisch bei Hexapod ohne IMU
 - > 15 °: Kalibrierungs-Verdacht, Bein-spezifischen Drift suchen
 
-Wert in `phase_12_progress.md` festhalten.
+Wert in `phase_13_progress.md` festhalten.
 
 **Done-Kriterium F:**
 1. Mindestens 1 m geradeaus ohne Eingriff
@@ -517,7 +517,7 @@ behalten, aber nicht künstlich limitieren.
 
 ### Stufe I — Phase-12-Abschluss
 
-- `phase_12_progress.md` finalisieren:
+- `phase_13_progress.md` finalisieren:
   - Strom-Profile pro Bewegungstyp
   - Yaw-Drift
   - Servo-Temperaturen
@@ -527,8 +527,8 @@ behalten, aber nicht künstlich limitieren.
   - Endgültige Velocity/Acceleration-Limits
   - Servo-Strom-Schwellen
 - Memory-Einträge für Cross-Phase-Themen
-- Git-Commit + Tag `phase-12-done` im hexapod_ws
-- `PHASE.md` markiert Phase 12 als abgeschlossen
+- Git-Commit + Tag `phase-13-done` im hexapod_ws
+- `PHASE.md` markiert Phase 13 als abgeschlossen
 - Retrospektive: was lief gut, was hat länger gedauert, was ist offen für
   Phase 13+
 
@@ -583,6 +583,6 @@ In Stufe H ergänzen:
 - [ ] Strom-Profile dokumentiert
 - [ ] Servo-Temperaturen dokumentiert
 - [ ] `00_conventions.md` ergänzt
-- [ ] Git-Commit + Tag `phase-12-done`
-- [ ] `PHASE.md` aktualisiert (Phase 12 abgeschlossen)
-- [ ] Retrospektive in `phase_12_progress.md`
+- [ ] Git-Commit + Tag `phase-13-done`
+- [ ] `PHASE.md` aktualisiert (Phase 13 abgeschlossen)
+- [ ] Retrospektive in `phase_13_progress.md`

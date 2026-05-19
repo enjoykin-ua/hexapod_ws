@@ -10,7 +10,7 @@ und surface't `reader_.died()` als `return_type::ERROR`.
 **Was NICHT in D.6 geprüft wird:**
 - Reconnect bei mid-run-Disconnect → **D.7**
 - ERROR_REPORT-Übersetzungs-Tabelle (Code → human-readable) → **D.8**
-- Performance / 50 Hz Echtzeit-Verhalten → Phase 11
+- Performance / 50 Hz Echtzeit-Verhalten → Phase 12
 
 D.6 nutzt `openpty(3)` für PTY-basierte Tests — kein echter Servo2040
 nötig.

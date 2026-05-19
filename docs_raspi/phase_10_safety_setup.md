@@ -4,7 +4,7 @@
 und Setup-Konventionen. Stage-Test-Commands-Docs (`phase_10_stage_<X>_test_commands.md`)
 **referenzieren** dieses Doc, statt die Inhalte zu duplizieren.
 
-**Geltungsbereich:** Phase 10 Stages A–I. Phase 11/12 können Teile
+**Geltungsbereich:** Phase 10 Stages A–I. Phase 12/13 können Teile
 übernehmen, müssen aber selbst entscheiden was anwendbar bleibt
 (z.B. CC-Limits skalieren bei mehr Servos).
 
@@ -26,7 +26,7 @@ unten**. Keine Bodenkontakt-Möglichkeit.
   Schwerkraft-Anschlag fallen (Femur klappt nach unten, Tibia knickt).
 - **Risiko-Domäne**: nur **Selbst-Beschädigung** möglich (Bein-Mechanik
   gegen sich selbst oder gegen Body), keine externen Kollisions-Schäden.
-- Stand-Pose-Tests, Bodenkontakt-Tests, Walking → erst Phase 12.
+- Stand-Pose-Tests, Bodenkontakt-Tests, Walking → erst Phase 13.
 
 **Aktion vor jeder Stage:** kurze Sicht-Prüfung dass die Stock-Halterung
 fest sitzt + Bauch-Befestigung intakt ist + keine Kabel sich um
@@ -210,7 +210,7 @@ Coxa und Tibia haben fast kein Gap zwischen Passiv und Joint-Mitte
 ### Phase-12-Outlook: Initial-Pulse-Presets als Plugin-Erweiterung
 
 Die User-Hand-Mitigation ist eine **Phase-10-Workflow-Lösung** für
-3 Servos. Phase 12 wird das vermutlich per Plugin-Erweiterung lösen:
+3 Servos. Phase 13 wird das vermutlich per Plugin-Erweiterung lösen:
 
 - YAML pro Servo bekommt `initial_pulse: { suspended: ..., resting: ... }`
 - Plugin-Param `initial_pose_preset` wählt das Setup
@@ -224,14 +224,14 @@ Initial-Aufbauten existieren:
 | Preset | Beschreibung | Phase | Passive Bein-Pose |
 |---|---|---|---|
 | **`suspended`** | Roboter an Stock-Halterung aufgebockt, Beine hängen frei | Phase 10 + Bench-Tests | Femur ~-90° (vertikal unten), Tibia ~0° (gestreckt), Coxa frei |
-| **`resting`** | Roboter auf Bauch liegend, Beine vom User in Liege-Pose ausgerichtet | Phase 12 Bring-up | hängt vom konkreten Layout ab; muss pro Servo gemessen werden |
+| **`resting`** | Roboter auf Bauch liegend, Beine vom User in Liege-Pose ausgerichtet | Phase 13 Bring-up | hängt vom konkreten Layout ab; muss pro Servo gemessen werden |
 
 **Kein `stand`-Preset:** Stand ist eine **Ziel-Pose**, keine Start-Pose
 — man fährt sie aus suspended oder resting an, man startet nicht aus
 ihr.
 
 **Architektur-Details:** Memory-Eintrag
-`project_phase12_initial_pose_presets.md` als Cross-Phase-Reminder, plus
+`project_phase13_initial_pose_presets.md` als Cross-Phase-Reminder, plus
 Mutter-Plan-Doku [Architektur-Entscheidung C](phase_10_single_leg.md#c-initial-pulse-schlag-mitigation-kritisch-für-erste-aktivierung-pro-servo) listet das als 3. Alternative neben Soft-Start und Ramped-Enable.
 
 ### Workflow

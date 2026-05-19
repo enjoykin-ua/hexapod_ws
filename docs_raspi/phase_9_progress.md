@@ -688,7 +688,7 @@
 
 - **Pure-function-Tests sind ein Gewinn:** Die Format-Logik direkt zu testen (statt RCLCPP-Log-Capture mit redirect-stderr-Boilerplate) ist sauberer und schneller. Alle 11 Tests laufen in < 1 ms gesamt. Empfehlung: gleiches Pattern für künftige Logging-Verfeinerungen.
 - **Severity-Differenzierung bringt operativen Wert:** Mit `[FATAL]` für all-servos-off-Codes (WATCHDOG, TOTAL_OVERCURRENT) kann der User per `ros2 log` o.ä. nach den schweren Events filtern, ohne im WARN-Geräusch zu ertrinken (FRAME_CRC, PULSE_OUT_OF_RANGE können beim Bringup öfter kommen).
-- **0x20-Auslassung dokumentiert:** Wenn jemand in Phase 11+ eine Hardware-Revision mit Per-Servo-Stromsensor baut und die Firmware den Code wirklich sendet, fällt er sauber in den unknown-Branch — User sieht eine actionable Message. Wenn dann sinnvoll: switch-case explizit ergänzen, plus 2 Tests.
+- **0x20-Auslassung dokumentiert:** Wenn jemand in Phase 12+ eine Hardware-Revision mit Per-Servo-Stromsensor baut und die Firmware den Code wirklich sendet, fällt er sauber in den unknown-Branch — User sieht eine actionable Message. Wenn dann sinnvoll: switch-case explizit ergänzen, plus 2 Tests.
 - **UNDERVOLTAGE-Vereinfachung pragmatisch:** Phase 10 wird auf der Bench tatsächlich sehen ob WARN/TRIP getrennt werden müssen. Falls ja: Firmware-Update zu zwei Codes (0x30 + 0x31), Plugin-Update zu separaten cases. Bis dahin: eine generische ERROR-Message ist ehrlicher als eine Konvention zu erfinden.
 
 ### Was Stufe D.8 explizit **nicht** macht

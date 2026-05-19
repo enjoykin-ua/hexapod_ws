@@ -33,7 +33,7 @@ Konkret in 4 Sub-Steps:
    CSV-Ablage: `~/hexapod_ws/data/phase_10/` (committed ins Repo gem.
    Mutter-Plan-Phasenabschluss-Checkliste).
 
-Nach Stage F sind die folgenden **Phase-12-Software-Pipeline-Risiken**
+Nach Stage F sind die folgenden **Phase-13-Software-Pipeline-Risiken**
 weitestgehend geschlossen:
 - gait_node ↔ JTC ↔ Plugin ↔ Firmware ↔ Servo-Pfad funktional verifiziert
 - IK liefert geometrisch sinnvolle Joint-Winkel für leg_6
@@ -44,8 +44,8 @@ weitestgehend geschlossen:
 
 - Keine 6-Bein-Koordination physisch (nur leg_6 montiert + 5 leere Pins)
 - Kein Vel/Accel-Limit-Eintrag in `controllers.real.yaml` (Stage G)
-- Kein Boden-Walking (Phase 12, Stufe F)
-- Keine 18-Servo-Kalibrierung (Phase 12, Stufe B = neue Auto-Cal)
+- Kein Boden-Walking (Phase 13, Stufe F)
+- Keine 18-Servo-Kalibrierung (Phase 13, Stufe B = neue Auto-Cal)
 
 ---
 
@@ -108,7 +108,7 @@ Klingt nach viel, ist aber bewusst separiert für Diagnose-Trennung
 (jeder Stack-Layer ein eigenes Terminal-Window).
 
 **Verworfen:** real.launch.py um `gait:=true` erweitern — gleiche
-Begründung wie für `rviz:=true` in Stage C (Phase-12-Kandidat,
+Begründung wie für `rviz:=true` in Stage C (Phase-13-Kandidat,
 Phase-10-Aufwand nicht amortisierbar).
 
 ---
@@ -409,9 +409,9 @@ der gemessenen Peaks** in `controllers.real.yaml` eingetragen.
 ### Was bewusst NICHT in Stage F getestet wird
 
 - **Vel/Accel-Limits in YAML eintragen** (Stage G)
-- **Boden-Walking** (Phase 12)
-- **PS4-Controller** (Phase 12)
-- **18-Servo-Voll-Stand** (Phase 12)
+- **Boden-Walking** (Phase 13)
+- **PS4-Controller** (Phase 13)
+- **18-Servo-Voll-Stand** (Phase 13)
 
 ---
 
@@ -433,7 +433,7 @@ der gemessenen Peaks** in `controllers.real.yaml` eingetragen.
 - [ ] F.14 colcon build + test grün
 - [ ] F.15 User-Bestätigung F-T3..F-T7
 - [ ] F.16 Kritischer Self-Review-Tabelle
-- [ ] F.17 Stage-F-Notizen (Geometrie-Abweichungen, IK-Verhalten, Phase-12-Vorbereitung)
+- [ ] F.17 Stage-F-Notizen (Geometrie-Abweichungen, IK-Verhalten, Phase-13-Vorbereitung)
 
 **Done-Kriterium F erreicht:** alle Bullets `[x]`, Self-Review ohne 🔴,
 User-Smoke F-T3..F-T7 bestätigt.

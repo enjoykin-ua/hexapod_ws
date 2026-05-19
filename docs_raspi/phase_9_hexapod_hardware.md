@@ -434,8 +434,8 @@ Smoke-Test: Node startet, alle Controller spawnen, in 10 s kein Crash.
 
 - Keine echten Hexapod-Servos angeschlossen (Phase 10)
 - Keine Bewegungs-Tests am echten Roboter
-- Kein Pi (Phase 11)
-- Kein Akku (Phase 13+)
+- Kein Pi (Phase 12)
+- Kein Akku (Phase 14+)
 
 ---
 

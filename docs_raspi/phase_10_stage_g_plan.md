@@ -14,7 +14,7 @@
 ## Ziel
 
 `controllers.real.yaml` um **Per-Joint-Vel/Accel-Limits + JTC constraints**
-erweitern, damit Phase 12 mit konservativen Walking-Geschwindigkeiten
+erweitern, damit Phase 13 mit konservativen Walking-Geschwindigkeiten
 startet und gegen Trajectory-Verletzungen abgesichert ist.
 
 Bisheriger Stand (Phase 9 Stage G + Stage F):
@@ -22,11 +22,11 @@ Bisheriger Stand (Phase 9 Stage G + Stage F):
   Goal innerhalb URDF-Limits, kein Tracking-Tolerance-Check
 - TODO-Kommentar in der Datei (Z. 19-24) sagt explizit: „aus Bench-
   Trajektorie ableiten und hier einsetzen"
-- Stage F.4 hat Strom-CSV-Pipeline **deferred zu Phase 12**
+- Stage F.4 hat Strom-CSV-Pipeline **deferred zu Phase 13**
   (User-Entscheid: aufgehängtes Bein liefert nicht repräsentative Werte)
 
 **Strategie für Stage G:** konservative URDF-Default-basierte Werte
-eintragen (statt Bench-CSV). Phase 12 verfeinert das mit echten
+eintragen (statt Bench-CSV). Phase 13 verfeinert das mit echten
 Belastungsdaten.
 
 ---
@@ -40,7 +40,7 @@ Belastungsdaten.
 | URDF Joint-Position-Limits | Coxa/Femur ±1.57, Tibia ±1.50 rad | `00_conventions.md` §11.4 |
 | Bench-Daten verfügbar? | **Nein** (F.4 deferred, Memory `project_phase10_real_yaml_vel_limits.md` aktiv) | Stage-F-Self-Review |
 | 70%-Regel | 0.7 × URDF-Velocity = 1.4 rad/s als Default | Mutter-Plan §B + Stage-G-Plan-Korrektur |
-| Phase-12-Verfeinerung | mit Voll-Stand-Belastung + Boden-Walking | Mutter-Plan §Stage-G + Phase 12 Stufe H |
+| Phase-13-Verfeinerung | mit Voll-Stand-Belastung + Boden-Walking | Mutter-Plan §Stage-G + Phase 13 Stufe H |
 
 ---
 
@@ -51,7 +51,7 @@ Mutter-Plan schreibt:
 > umgerechnet über `pulse_per_rad`-Steigung auf rad/s"
 
 **Tatsächliche Situation:** F.4 Strom-CSV ist auf User-Entscheid deferred
-zu Phase 12 — aufgehängtes Bein ohne Last liefert keine repräsentativen
+zu Phase 13 — aufgehängtes Bein ohne Last liefert keine repräsentativen
 Werte für später-Voll-Last-Walking. Memory
 `project_phase10_real_yaml_vel_limits.md` bleibt aktiv.
 
@@ -74,22 +74,22 @@ wertlos (alle Vergleiche Soll vs. Echo-von-Soll → Differenz 0).
 
 | # | Frage | Antwort |
 |---|---|---|
-| **G-Q1 (neu)** Stage-G-Umfang | **C** — komplett deferren (YAML unverändert, nur TODO-Kommentar aktualisieren). Echo-State macht Constraints trivial; URDF-Hard-Cap (2.0 rad/s) ist bereits ausreichende Sicherheits-Schicht; Bench-Daten fehlen ohnehin (F.4 deferred Phase 12) |
+| **G-Q1 (neu)** Stage-G-Umfang | **C** — komplett deferren (YAML unverändert, nur TODO-Kommentar aktualisieren). Echo-State macht Constraints trivial; URDF-Hard-Cap (2.0 rad/s) ist bereits ausreichende Sicherheits-Schicht; Bench-Daten fehlen ohnehin (F.4 deferred Phase 13) |
 
 **Was implementiert wird:**
 - TODO-Kommentar in `controllers.real.yaml` wird auf den **neuen
-  Wissensstand** aktualisiert (Echo-State + Phase-12-Verfeinerung)
+  Wissensstand** aktualisiert (Echo-State + Phase-13-Verfeinerung)
 - Stage-G-Done-Kriterium G1 wird **pragmatisch interpretiert**: „Vel/Accel-
-  Limits in YAML" ⇒ „URDF-Hard-Cap aktiv, YAML-Override deferred Phase 12"
+  Limits in YAML" ⇒ „URDF-Hard-Cap aktiv, YAML-Override deferred Phase 13"
 - Memory `project_phase10_real_yaml_vel_limits.md` bleibt aktiv
 
-**Walking-Sicherheits-Schichten in Phase 12 (alle schon aktiv):**
+**Walking-Sicherheits-Schichten in Phase 13 (alle schon aktiv):**
 1. URDF `<limit velocity="2.0" effort="5.0"/>` → JTC-Cap
 2. `servo_mapping.yaml pulse_min/max` → Firmware-Hard-Clamp pro Servo (Stages B/C/D/E)
 3. URDF Position-Limits ±1.57/±1.50 rad → JTC-Goal-Validation
 
 Diese drei Schichten greifen **Echo-State-unabhängig** und sind in
-Phase 10 voll verifiziert. Reicht für Phase-12-Stand-Walking.
+Phase 10 voll verifiziert. Reicht für Phase-13-Stand-Walking.
 
 ---
 
@@ -101,7 +101,7 @@ Statt YAML-Werte zu ändern wird der Kopf-Kommentar erweitert um:
 
 1. **Echo-State-Erklärung** als Stage-G-Plan-Korrektur-Hauptbegründung
 2. **Drei aktive Sicherheits-Schichten** auflisten (URDF + Pulse-Clamp + Position-Limits)
-3. **Phase-12-Verfeinerungs-Verweis** wenn Bench-Daten unter Voll-Last da sind
+3. **Phase-13-Verfeinerungs-Verweis** wenn Bench-Daten unter Voll-Last da sind
 
 Das ersetzt den alten TODO-Kommentar Z. 19-24 („Vel/Accel-Limits aus
 Bench-Trajektorie ableiten und hier einsetzen").
@@ -116,7 +116,7 @@ colcon test --packages-select hexapod_control hexapod_bringup hexapod_hardware
 **Erwartung:** alle grün, regression-frei. Stage G ändert keinen YAML-Wert
 sondern nur Kommentar → kein Verhalten ändert sich, Tests bleiben grün.
 
-### G.2 — Stage-G-Notizen + Phase-12-Pendenz dokumentieren (~5 min)
+### G.2 — Stage-G-Notizen + Phase-13-Pendenz dokumentieren (~5 min)
 
 In `phase_10_progress.md`:
 - Stage-G-Bullets abhaken
@@ -130,10 +130,10 @@ CLAUDE.md §4-Pflicht.
 
 ---
 
-## (Nicht implementiert — archiviert für Phase-12-Referenz) Option-B-Logik-Skizze
+## (Nicht implementiert — archiviert für Phase-13-Referenz) Option-B-Logik-Skizze
 
 > Folgende Schritte wären gemacht worden wenn G-Q1 nicht **C** gewählt
-> worden wäre. Für Phase 12 hier als Referenz.
+> worden wäre. Für Phase 13 hier als Referenz.
 
 ### G.1-alt — JTC `constraints`-Block ergänzen pro leg-Controller (~10 min)
 
@@ -192,7 +192,7 @@ joint_limits:
     has_velocity_limits: true
     max_velocity: 1.4   # 0.7 × URDF 2.0
     has_acceleration_limits: true
-    max_acceleration: 7.0   # konservativ, Phase 12 verfeinert
+    max_acceleration: 7.0   # konservativ, Phase 13 verfeinert
   # ... 18 Joints insgesamt
 ```
 
@@ -202,7 +202,7 @@ Acceleration ist nicht in URDF, würde fehlen.
 
 **Empfehlung Phase 10:** **JTC-constraints reichen für jetzt**. Vel/Accel
 Hard-Limits sind in URDF schon konservativ (2.0 rad/s aus Servo-Spec),
-zusätzlicher `joint_limits.yaml`-Block ist Phase-12-Polish wenn man
+zusätzlicher `joint_limits.yaml`-Block ist Phase-13-Polish wenn man
 fühlt die URDF-Werte sind nicht konservativ genug.
 
 ### G.3 — Smoke-Test (~5 min)
@@ -253,7 +253,7 @@ CLAUDE.md §4 Pflicht-Tabelle.
 - **Kein Smoke-Test** — Stage G ändert keinen YAML-Wert, kein Verhalten
   ändert sich. Test-Suite reicht
 - **Real-Modus mit Bench-PSU + Servos** — Stage G ist Doku-only
-- **Vel/Accel-Limits aus Bench-CSV** (Phase 12)
+- **Vel/Accel-Limits aus Bench-CSV** (Phase 13)
 - **JTC constraints-Block** (Echo-State macht das wertlos)
 
 ---
@@ -262,17 +262,17 @@ CLAUDE.md §4 Pflicht-Tabelle.
 
 - [ ] G.1 phase_10_stage_g_plan.md (Plan-Doku) finalisiert + User-Freigabe (Option C entschieden)
 - [ ] G.2 phase_10_stage_g_test_commands.md (entfällt für Option C — keine User-Smoke-Steps nötig)
-- [ ] G.3 `controllers.real.yaml` TODO-Kommentar mit Echo-State-Erklärung + 3-Schicht-Sicherheits-Argument + Phase-12-Verweis aktualisiert
+- [ ] G.3 `controllers.real.yaml` TODO-Kommentar mit Echo-State-Erklärung + 3-Schicht-Sicherheits-Argument + Phase-13-Verweis aktualisiert
 - [ ] G.4 colcon build grün (regression-frei, nur Kommentar geändert)
 - [ ] G.5 colcon test grün 208/0/20 + 18/0/0
 - [ ] G.6 G-T3 YAML-Inspektion (User): nur Kommentar geändert, keine Werte
 - [ ] G.7 Kritischer Self-Review-Tabelle (CLAUDE.md §4-Pflicht)
-- [ ] G.8 Stage-G-Notizen + Phase-12-Pendenz-Verweis
+- [ ] G.8 Stage-G-Notizen + Phase-13-Pendenz-Verweis
 
 **Done-Kriterium G (pragmatisch interpretiert mit Echo-State-Realität):**
 `controllers.real.yaml` dokumentiert die Stage-G-Entscheidung; URDF-
 Hard-Cap aktiv; Memory `project_phase10_real_yaml_vel_limits.md` bleibt
-für Phase 12.
+für Phase 13.
 
 ---
 
