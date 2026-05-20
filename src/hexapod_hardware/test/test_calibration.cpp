@@ -7,9 +7,16 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <regex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "hexapod_hardware/calibration.hpp"
 
@@ -713,6 +720,308 @@ TEST(RealConfigFile, InstalledServoMappingParses)
   EXPECT_EQ(c.output_idx_for_joint("leg_1_coxa_joint"), 0);
   EXPECT_EQ(c.output_idx_for_joint("leg_6_tibia_joint"), 17);
   EXPECT_EQ(c.at(0).pulse_zero, 1500);
+}
+
+// ============================================================================
+// Phase 11 Stage B — Live-Cal-Update API (snapshot, update_servo_cal)
+// ============================================================================
+
+TEST(StageBLiveCal, SnapshotReturnsCurrentValues)
+{
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+
+  const auto snap = c.snapshot(0);
+  EXPECT_EQ(snap.joint_name, "leg_1_coxa_joint");
+  EXPECT_EQ(snap.pulse_min, 500);
+  EXPECT_EQ(snap.pulse_zero, 1500);
+  EXPECT_EQ(snap.pulse_max, 2500);
+  EXPECT_EQ(snap.direction, 1);
+}
+
+TEST(StageBLiveCal, SnapshotOutOfRangeThrows)
+{
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  EXPECT_THROW(c.snapshot(-1), std::out_of_range);
+  EXPECT_THROW(c.snapshot(static_cast<int>(NUM_SERVOS)), std::out_of_range);
+}
+
+TEST(StageBLiveCal, UpdateServoCalHappyPath)
+{
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+
+  auto cal = c.snapshot(15);
+  cal.pulse_min = 1280;
+  cal.pulse_zero = 1550;
+  cal.pulse_max = 1860;
+  cal.direction = -1;
+  EXPECT_NO_THROW(c.update_servo_cal(15, cal));
+
+  const auto after = c.snapshot(15);
+  EXPECT_EQ(after.pulse_min, 1280);
+  EXPECT_EQ(after.pulse_zero, 1550);
+  EXPECT_EQ(after.pulse_max, 1860);
+  EXPECT_EQ(after.direction, -1);
+  EXPECT_EQ(after.joint_name, "leg_6_coxa_joint");  // preserved
+}
+
+TEST(StageBLiveCal, UpdateServoCalRejectsInvalidTriplet)
+{
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+
+  auto cal = c.snapshot(0);
+  cal.pulse_min = 1500;   // = zero, breaks min < zero
+  cal.pulse_zero = 1500;
+  cal.pulse_max = 2500;
+  EXPECT_THROW(c.update_servo_cal(0, cal), std::runtime_error);
+
+  // Original unverändert (strong exception guarantee)
+  const auto unchanged = c.snapshot(0);
+  EXPECT_EQ(unchanged.pulse_min, 500);
+}
+
+TEST(StageBLiveCal, UpdateServoCalRejectsInvalidDirection)
+{
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+
+  auto cal = c.snapshot(0);
+  cal.direction = 0;  // not ±1
+  EXPECT_THROW(c.update_servo_cal(0, cal), std::runtime_error);
+}
+
+TEST(StageBLiveCal, UpdateServoCalOutOfRangeThrows)
+{
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+
+  auto cal = c.snapshot(0);
+  EXPECT_THROW(c.update_servo_cal(-1, cal), std::out_of_range);
+  EXPECT_THROW(c.update_servo_cal(NUM_SERVOS, cal), std::out_of_range);
+}
+
+TEST(StageBLiveCal, RadiansToPulseUsesUpdatedValues)
+{
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+
+  // Vorher: pulse_zero = 1500, direction = +1 → rad=0 ergibt 1500
+  EXPECT_DOUBLE_EQ(c.radians_to_pulse_us(0, 0.0), 1500.0);
+
+  auto cal = c.snapshot(0);
+  cal.pulse_zero = 1450;
+  c.update_servo_cal(0, cal);
+
+  // Nach Update: rad=0 ergibt 1450
+  EXPECT_DOUBLE_EQ(c.radians_to_pulse_us(0, 0.0), 1450.0);
+}
+
+// ============================================================================
+// Phase 11 Stage B — save_to_file (Persistenz + Timestamp-Backup)
+// ============================================================================
+
+namespace
+{
+
+// Tmpdir-Pattern für Filesystem-Tests. Erzeugt unique-Verzeichnis pro
+// Test, cleanup beim Destructor.
+class TempDir
+{
+public:
+  TempDir()
+  {
+    namespace fs = std::filesystem;
+    auto base = fs::temp_directory_path();
+    // Mikrosekunden + Test-Process-PID-Mix für Uniqueness
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+    path_ = base / ("hexapod_test_" + std::to_string(us));
+    fs::create_directory(path_);
+  }
+  ~TempDir() {std::filesystem::remove_all(path_);}
+  std::filesystem::path operator/(const std::string & sub) const
+  {
+    return path_ / sub;
+  }
+  std::string str(const std::string & sub) const
+  {
+    return (path_ / sub).string();
+  }
+
+private:
+  std::filesystem::path path_;
+};
+
+}  // namespace
+
+TEST(StageBSaveToFile, SaveRoundTripPreservesValues)
+{
+  TempDir tmp;
+  const std::string path = tmp.str("servo_mapping.yaml");
+
+  // Setup: erstmal aus Minimal-YAML laden + ein paar Werte ändern
+  Calibration c1;
+  c1.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c1);
+
+  auto cal = c1.snapshot(15);
+  cal.pulse_min = 1280;
+  cal.pulse_zero = 1550;
+  cal.pulse_max = 1860;
+  cal.direction = -1;
+  c1.update_servo_cal(15, cal);
+
+  // Save
+  EXPECT_NO_THROW(c1.save_to_file(path));
+  EXPECT_TRUE(std::filesystem::exists(path));
+
+  // Load in neue Calibration und vergleiche
+  Calibration c2;
+  EXPECT_NO_THROW(c2.load_from_file(path));
+  const auto loaded = c2.snapshot(15);
+  EXPECT_EQ(loaded.pulse_min, 1280);
+  EXPECT_EQ(loaded.pulse_zero, 1550);
+  EXPECT_EQ(loaded.pulse_max, 1860);
+  EXPECT_EQ(loaded.direction, -1);
+  EXPECT_EQ(loaded.joint_name, "leg_6_coxa_joint");
+
+  // Andere Pins haben Defaults aus dem Save
+  const auto pin_0 = c2.snapshot(0);
+  EXPECT_EQ(pin_0.pulse_min, 500);
+  EXPECT_EQ(pin_0.pulse_zero, 1500);
+  EXPECT_EQ(pin_0.pulse_max, 2500);
+}
+
+TEST(StageBSaveToFile, FirstSaveCreatesNoBak)
+{
+  TempDir tmp;
+  const std::string path = tmp.str("first.yaml");
+
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+
+  // Erster Save — Path existiert noch nicht → kein .bak
+  c.save_to_file(path);
+  EXPECT_TRUE(std::filesystem::exists(path));
+
+  // Listing nach .bak-Files im tmpdir
+  int bak_count = 0;
+  for (const auto & entry : std::filesystem::directory_iterator(tmp / "")) {
+    if (entry.path().filename().string().find(".bak-") != std::string::npos) {
+      ++bak_count;
+    }
+  }
+  EXPECT_EQ(bak_count, 0) << "first save should not create .bak file";
+}
+
+TEST(StageBSaveToFile, RepeatedSaveCreatesUniqueTimestampBak)
+{
+  TempDir tmp;
+  const std::string path = tmp.str("evolving.yaml");
+
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+  c.save_to_file(path);  // erster Save = "original"
+
+  // Sleep 1.1s damit Timestamp-Suffix unique ist (Sekunden-Auflösung).
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+  // Modify + Re-save → erzeugt erstes .bak (= original)
+  auto cal = c.snapshot(0);
+  cal.pulse_zero = 1450;
+  c.update_servo_cal(0, cal);
+  c.save_to_file(path);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+  // Modify + Re-save → erzeugt zweites .bak (= 1. save-Inhalt)
+  cal = c.snapshot(0);
+  cal.pulse_zero = 1480;
+  c.update_servo_cal(0, cal);
+  c.save_to_file(path);
+
+  // Erwartung: 2 .bak-Files mit unterschiedlichen Timestamps
+  std::vector<std::filesystem::path> bak_files;
+  for (const auto & entry : std::filesystem::directory_iterator(tmp / "")) {
+    const std::string fname = entry.path().filename().string();
+    if (fname.find("evolving.yaml.bak-") == 0) {
+      bak_files.push_back(entry.path());
+    }
+  }
+  EXPECT_EQ(bak_files.size(), 2u)
+    << "expected 2 unique timestamp-baks after 2 re-saves";
+
+  // Beide Filenamen matchen das Timestamp-Pattern .bak-YYYY-MM-DDTHH-MM-SS
+  std::regex ts_re(R"(\.bak-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$)");
+  for (const auto & p : bak_files) {
+    EXPECT_TRUE(std::regex_search(p.filename().string(), ts_re))
+      << "filename '" << p.filename().string() << "' does not match "
+      << "timestamp pattern .bak-YYYY-MM-DDTHH-MM-SS";
+  }
+}
+
+TEST(StageBSaveToFile, SavedYamlContainsHeaderBanner)
+{
+  TempDir tmp;
+  const std::string path = tmp.str("with_header.yaml");
+
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+  c.save_to_file(path);
+
+  std::ifstream ifs(path);
+  std::stringstream ss;
+  ss << ifs.rdbuf();
+  const std::string content = ss.str();
+  EXPECT_NE(content.find("Auto-generated by /save_calibration"),
+    std::string::npos);
+  EXPECT_NE(content.find("Phase 11 Stage B"), std::string::npos);
+}
+
+TEST(StageBSaveToFile, SavedYamlIsExplicitNotInheriting)
+{
+  TempDir tmp;
+  const std::string path = tmp.str("explicit.yaml");
+
+  Calibration c;
+  c.load_from_string(MINIMAL_YAML);
+  apply_symmetric_limits(c);
+  c.save_to_file(path);
+
+  // F5: alle 18 Pins müssen ALLE 4 Cal-Felder explizit haben
+  // (keine Implicit-Inheritance vom defaults-Block).
+  Calibration c2;
+  c2.load_from_string(MINIMAL_YAML);  // load default state to compare baselines
+  c.save_to_file(path);  // overwrite
+
+  std::ifstream ifs(path);
+  std::stringstream ss;
+  ss << ifs.rdbuf();
+  const std::string content = ss.str();
+  // Pulse-Field-Counts: jeder Pin hat pulse_min/zero/max + direction
+  // = 18 × 4 = 72 explizite Cal-Field-Vorkommen
+  // (plus 4 im defaults-Block = total 76)
+  std::size_t pulse_min_count = 0;
+  std::size_t pos = 0;
+  while ((pos = content.find("pulse_min:", pos)) != std::string::npos) {
+    ++pulse_min_count;
+    ++pos;
+  }
+  EXPECT_EQ(pulse_min_count, 19u)
+    << "expected 18 explicit pulse_min entries + 1 in defaults = 19, got "
+    << pulse_min_count;
 }
 
 int main(int argc, char ** argv)

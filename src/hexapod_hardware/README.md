@@ -86,6 +86,97 @@ per xacro-Args überschreibbar:
 | `calibration_file` | `$(find hexapod_hardware)/config/servo_mapping.yaml` | Pulse-µs ↔ Joint-Winkel-Mapping pro Servo |
 | `loopback_mode` | `false` | `true` = kein seriellen Port öffnen, Echo-State auch ohne HW |
 
+### Phase 11 Stage B — Live-Cal-Params (rqt_reconfigure)
+
+Plugin deklariert nach `on_init` automatisch **72 Live-Cal-Params**
+(18 Pins × 4 Felder) — änderbar via `ros2 param set` oder
+`rqt_reconfigure`.
+
+**Node-Name in ROS:** `/hexapodsystem` (lowercase, von ros2_control aus
+dem URDF-Attribut `<ros2_control name="HexapodSystem">` für die ROS-
+Node-Name-Konvention normalisiert). `/controller_manager` ist NICHT
+der Plugin-Node und enthält die Cal-Params nicht.
+
+Pro Pin `<N>` ∈ [0, 17]:
+
+| Param | Type | Range / Constraint | Live-Update |
+|---|---|---|---|
+| `pin_<N>.pulse_min` | int | [500, 2500] µs, pulse_min < pulse_zero | always |
+| `pin_<N>.pulse_zero` | int | [500, 2500] µs | always |
+| `pin_<N>.pulse_max` | int | [500, 2500] µs, pulse_zero < pulse_max | always |
+| `pin_<N>.direction_normal` | bool | true=+1, false=-1 | nur in `inactive` Lifecycle-State |
+
+**Atomic-Validation:** Multi-Param-Updates via `set_parameters_atomically`
+(z.B. `ros2 param load`) werden als Block validiert — bei einem
+Constraint-Bruch (z.B. `pulse_min ≥ pulse_zero`) wird **kein** Update
+übernommen. Logging-Format: `cal updated: pin_15.pulse_zero = 1700`.
+
+**Direction-Restriction:** `direction_normal`-Flip im `active`-Lifecycle-
+State würde den Servo um 180° drehen → reject mit klarer reason. Erst
+`ros2 lifecycle set /controller_manager deactivate`, dann Flip, dann
+re-activate.
+
+### `/save_calibration` Service (Phase 11 Stage B)
+
+`std_srvs/Trigger`-Service der die aktuelle Live-Cal nach
+`calibration_file` zurückschreibt. Backup-Strategie:
+
+```bash
+ros2 service call /save_calibration std_srvs/srv/Trigger
+```
+
+- **Bei jedem Save** wird die existierende `servo_mapping.yaml` zu
+  `servo_mapping.yaml.bak-YYYY-MM-DDTHH-MM-SS` verschoben (eindeutiger
+  Timestamp → **nichts wird je überschrieben**, beliebig viele
+  Cal-Sessions sammeln sich als Versionsgeschichte an).
+- Output ist flacher YAML — alle 18 Pins haben alle 4 Cal-Felder
+  explizit (keine Implicit-Inheritance vom `defaults`-Block). Header-
+  Kommentar mit Auto-Gen-Banner + Timestamp.
+- `joint_lower`/`joint_upper` werden **nicht** geschrieben — URDF ist
+  die Source of Truth für Joint-Limits.
+
+### Phase 11 Stage C — `/servo_pulses` Diagnostic-Topic
+
+Plugin publisht optional die aktuellen 18 Pulse-µs-Werte auf
+`/hexapodsystem/servo_pulses` (`std_msgs/Int32MultiArray`, 50 Hz) für
+rqt_plot-Visualisierung während Cal-Sessions / Debugging.
+
+| Param | Default | Wirkung |
+|---|---|---|
+| `publish_servo_pulses` | `false` | bool, live-tunbar. Wenn `true` UND ≥1 Subscriber → 50 Hz Publish |
+
+**Default off** — im Normalbetrieb keine Topic-Last (4 KB/s gespart auf
+dem Pi). Topic-Doppel-Bedingung: Param `true` UND ≥1 Subscriber. Damit
+auch ein vergessener Toggle nicht permanent Bandbreite kostet.
+
+**Beispiel rqt_plot-Workflow:**
+
+```bash
+# Plot Pin-15-Pulse live
+ros2 run rqt_plot rqt_plot /hexapodsystem/servo_pulses/data[15]
+
+# In rqt_reconfigure: publish_servo_pulses auf true togglen → Daten fließen
+# Slider pin_15.pulse_zero verschieben → Plot-Kurve folgt 1:1
+```
+
+### Beispiel-Cal-Session
+
+```bash
+# 1. Plugin starten
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
+
+# 2. rqt + Slider verschieben
+ros2 run rqt_reconfigure rqt_reconfigure
+
+# 3. Save
+ros2 service call /save_calibration std_srvs/srv/Trigger
+
+# 4. Backup-Files inspizieren
+ls -la src/hexapod_hardware/config/servo_mapping.yaml*
+# servo_mapping.yaml                     ← aktuelle Live-Cal
+# servo_mapping.yaml.bak-2026-05-20T14-30-15  ← vor Save
+```
+
 ### Topics
 
 Das Plugin publisht **keine** ROS-Topics direkt — State + Command-

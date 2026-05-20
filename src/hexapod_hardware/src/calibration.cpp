@@ -8,8 +8,13 @@
 
 #include "hexapod_hardware/calibration.hpp"
 
+#include <chrono>
 #include <cmath>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 
@@ -142,14 +147,23 @@ void Calibration::load_from_string(const std::string & yaml_text)
   // Commit. std::array and std::unordered_map move-assignment from
   // rvalues are no-throw, so once we get here the object will be fully
   // consistent.
-  servos_ = std::move(new_servos);
-  joint_name_to_idx_ = std::move(new_joint_name_to_idx);
+  //
+  // Phase 11 Stage B: lockt mutex_ damit ein eventueller paralleler
+  // radians_to_pulse_us-Call konsistente Werte sieht. load_from_string
+  // ist zwar normal nur in on_init aufgerufen, aber defensive Lock
+  // schadet nicht (one-shot lock contention auf init).
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    servos_ = std::move(new_servos);
+    joint_name_to_idx_ = std::move(new_joint_name_to_idx);
+  }
 }
 
 void Calibration::set_joint_limits(
   const std::string & joint_name, double lower,
   double upper)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   auto it = joint_name_to_idx_.find(joint_name);
   if (it == joint_name_to_idx_.end()) {
     // URDF may have joints we don't drive; ignore silently.
@@ -167,6 +181,9 @@ double Calibration::radians_to_pulse_us(int output_idx, double rad) const
             std::to_string(output_idx) + " not in [0, " +
             std::to_string(NUM_SERVOS) + ")");
   }
+  // Phase 11 Stage B: Lock gegen parallel update_servo_cal.
+  // Hot-path-Overhead: ~50ns/lock × 18 Joints × 50 Hz = 45 µs/s. Vernachlässigbar.
+  std::lock_guard<std::mutex> lock(mutex_);
   const ServoCalibration & s = servos_[output_idx];
 
   // Two slopes meet at pulse_zero. Which one we use depends on the sign
@@ -188,6 +205,8 @@ double Calibration::pulse_us_to_radians(int output_idx, double pulse_us) const
             std::to_string(output_idx) + " not in [0, " +
             std::to_string(NUM_SERVOS) + ")");
   }
+  // Phase 11 Stage B: Lock gegen parallel update_servo_cal.
+  std::lock_guard<std::mutex> lock(mutex_);
   const ServoCalibration & s = servos_[output_idx];
   const double dp = pulse_us - static_cast<double>(s.pulse_zero);
 
@@ -217,6 +236,160 @@ int Calibration::output_idx_for_joint(const std::string & joint_name) const
     throw std::out_of_range("Calibration: joint not in calibration: " + joint_name);
   }
   return it->second;
+}
+
+// ─── Phase 11 Stage B — Live-Cal-Update + Persistenz ───────────────────
+
+ServoCalibration Calibration::snapshot(int output_idx) const
+{
+  if (output_idx < 0 || static_cast<std::size_t>(output_idx) >= servos_.size()) {
+    throw std::out_of_range(
+            "Calibration::snapshot: output_idx=" +
+            std::to_string(output_idx) + " not in [0, " +
+            std::to_string(NUM_SERVOS) + ")");
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  return servos_[output_idx];  // copy under lock
+}
+
+void Calibration::update_servo_cal(int output_idx, const ServoCalibration & c)
+{
+  if (output_idx < 0 || static_cast<std::size_t>(output_idx) >= servos_.size()) {
+    throw std::out_of_range(
+            "Calibration::update_servo_cal: output_idx=" +
+            std::to_string(output_idx) + " not in [0, " +
+            std::to_string(NUM_SERVOS) + ")");
+  }
+  // Validate BEFORE locking — strong exception guarantee: bei Fehler
+  // bleibt servos_ unverändert.
+  if (!(c.pulse_min < c.pulse_zero && c.pulse_zero < c.pulse_max)) {
+    throw std::runtime_error(
+            "Calibration::update_servo_cal: requires "
+            "pulse_min < pulse_zero < pulse_max, got " +
+            std::to_string(c.pulse_min) + "/" + std::to_string(c.pulse_zero) +
+            "/" + std::to_string(c.pulse_max));
+  }
+  if (c.direction != 1 && c.direction != -1) {
+    throw std::runtime_error(
+            "Calibration::update_servo_cal: direction must be ±1, got " +
+            std::to_string(static_cast<int>(c.direction)));
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  servos_[output_idx] = c;
+}
+
+namespace
+{
+
+// ISO-8601-style timestamp without colons (for use in filenames).
+// Returns e.g. "2026-05-20T14-30-15".
+std::string filesystem_safe_timestamp()
+{
+  const auto now = std::chrono::system_clock::now();
+  const auto tt = std::chrono::system_clock::to_time_t(now);
+  std::tm tm_local{};
+  localtime_r(&tt, &tm_local);
+  std::ostringstream oss;
+  oss << std::put_time(&tm_local, "%Y-%m-%dT%H-%M-%S");
+  return oss.str();
+}
+
+// ISO-8601 timestamp with colons (for YAML calibrated_at field).
+std::string iso8601_timestamp()
+{
+  const auto now = std::chrono::system_clock::now();
+  const auto tt = std::chrono::system_clock::to_time_t(now);
+  std::tm tm_local{};
+  localtime_r(&tt, &tm_local);
+  std::ostringstream oss;
+  oss << std::put_time(&tm_local, "%Y-%m-%dT%H:%M:%S");
+  return oss.str();
+}
+
+}  // namespace
+
+void Calibration::save_to_file(const std::string & path) const
+{
+  // 1) Snapshot der gesamten Cal unter Lock — danach kein Lock mehr
+  //    nötig für die YAML-Emission.
+  std::array<ServoCalibration, NUM_SERVOS> snap;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    snap = servos_;
+  }
+
+  // 2) Backup der existierenden Datei (wenn vorhanden) als
+  //    <path>.bak-YYYYMMDD-HHMMSS. Jeder Save = neuer eindeutiger
+  //    Backup-Filename → kein Überschreiben älterer Backups.
+  namespace fs = std::filesystem;
+  if (fs::exists(path)) {
+    const std::string bak_path = path + ".bak-" + filesystem_safe_timestamp();
+    try {
+      fs::rename(path, bak_path);
+    } catch (const fs::filesystem_error & e) {
+      throw std::runtime_error(
+              std::string("Calibration::save_to_file: could not move ") +
+              path + " → " + bak_path + ": " + e.what());
+    }
+  }
+
+  // 3) YAML emit. yaml-cpp kann keine Comments mit-emit-en — Header
+  //    schreiben wir als raw-String prepend, dann YAML-Body via Emitter.
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  out << YAML::Key << "version" << YAML::Value << 1;
+  out << YAML::Key << "phase" << YAML::Value << 11;
+  out << YAML::Key << "status" << YAML::Value << "calibrated";
+  out << YAML::Key << "calibrated_at" << YAML::Value << iso8601_timestamp();
+
+  // defaults bleibt für Schema-Compat mit existing loader. Werte
+  // entsprechen den hard-coded Defaults in load_from_string.
+  out << YAML::Key << "defaults";
+  out << YAML::Value << YAML::BeginMap
+      << YAML::Key << "pulse_min" << YAML::Value << 500
+      << YAML::Key << "pulse_max" << YAML::Value << 2500
+      << YAML::Key << "pulse_zero" << YAML::Value << 1500
+      << YAML::Key << "direction" << YAML::Value << 1
+      << YAML::EndMap;
+
+  // Pro Pin alle 4 Cal-Felder explizit (keine Implicit-Inheritance).
+  // joint_lower/joint_upper sind URDF-Source-of-Truth → nicht geschrieben.
+  out << YAML::Key << "servo2040_output_to_joint";
+  out << YAML::Value << YAML::BeginMap;
+  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    const auto & s = snap[pin];
+    out << YAML::Key << static_cast<int>(pin);
+    out << YAML::Value << YAML::BeginMap
+        << YAML::Key << "joint" << YAML::Value << s.joint_name
+        << YAML::Key << "pulse_min" << YAML::Value << s.pulse_min
+        << YAML::Key << "pulse_zero" << YAML::Value << s.pulse_zero
+        << YAML::Key << "pulse_max" << YAML::Value << s.pulse_max
+        << YAML::Key << "direction" << YAML::Value
+        << static_cast<int>(s.direction)
+        << YAML::EndMap;
+  }
+  out << YAML::EndMap;
+  out << YAML::EndMap;
+
+  // 4) Datei schreiben mit Header-Template + YAML-Body.
+  std::ofstream ofs(path);
+  if (!ofs.is_open()) {
+    throw std::runtime_error(
+            "Calibration::save_to_file: could not open for write: " + path);
+  }
+  ofs << "# =============================================================================\n"
+      << "# Auto-generated by /save_calibration (Phase 11 Stage B)\n"
+      << "# Saved at: " << iso8601_timestamp() << "\n"
+      << "# Original (pre-save) is preserved as: " << path << ".bak-<timestamp>\n"
+      << "# Schema: version 1, phase 11 — defaults-block kept for loader compat;\n"
+      << "# alle 18 Pins haben explizite Cal-Felder (keine Implicit-Inheritance).\n"
+      << "# =============================================================================\n"
+      << out.c_str() << "\n";
+  if (!ofs) {
+    throw std::runtime_error(
+            "Calibration::save_to_file: write failure on " + path);
+  }
 }
 
 }  // namespace hexapod_hardware

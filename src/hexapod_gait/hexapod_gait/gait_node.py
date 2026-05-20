@@ -22,6 +22,7 @@ mit ``time_from_start = 2 × (1/tick_rate) = 0.04 s``. JTC interpoliert
 linear zwischen Goals → smooth Bewegung.
 """
 
+from dataclasses import dataclass
 import time
 
 from builtin_interfaces.msg import Duration
@@ -29,10 +30,175 @@ from geometry_msgs.msg import Twist
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
 from hexapod_kinematics import HEXAPOD, IKError
+from rcl_interfaces.msg import (
+    FloatingPointRange,
+    ParameterDescriptor,
+    ParameterType,
+    SetParametersResult,
+)
 import rclpy
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from std_msgs.msg import Float64
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
+
+# =====================================================================
+# Phase 11 Stage A — gait_node Parameter-Specs (Single Source of Truth)
+# =====================================================================
+#
+# Alle 14 live-tunbaren gait_node-Parameter sind hier in einer Tabelle
+# definiert: Name, Default, Range/Constraint, STANDING-only-Flag.
+#
+# Vorteile:
+# - Slider-Min/Max + Step an einem Ort einstellbar
+# - _STANDING_ONLY_PARAMS-Set wird abgeleitet, nicht doppelt gepflegt
+# - declare_parameter-Loop deklariert alle einheitlich
+#
+# Was hier NICHT lebt: die ``_apply_param``-Apply-Logik. Pro Param ist
+# die wirklich unique (Engine-Attribute, Timer-Restart, Pattern-Load)
+# — bleibt als if/elif-Chain im Node.
+#
+# Stage-B-Vorbild: analoges Pattern für 72 Pin-Cal-Params.
+
+
+@dataclass(frozen=True)
+class _ParamSpec:
+    """Deklarations-Spec für einen gait_node-Parameter."""
+
+    name: str
+    default: float | str
+    description: str
+    standing_only: bool = False
+    fp_range: tuple[float, float, float] | None = None  # (min, max, step)
+    string_constraint: str | None = None  # additional_constraints für String
+
+
+_GAIT_PARAMS: tuple[_ParamSpec, ...] = (
+    _ParamSpec(
+        name='gait_pattern', default='tripod', standing_only=True,
+        string_constraint=(
+            'valid values: tripod | single_leg_1 .. single_leg_6'
+        ),
+        description=(
+            'Gait-Pattern-Name aus GAIT_PRESETS. '
+            'Live-Wechsel nur in STANDING-State (Engine-Reset-Risiko).'
+        ),
+    ),
+    _ParamSpec(
+        name='step_height', default=0.03,
+        fp_range=(0.005, 0.10, 0.001),
+        description=(
+            'Foot-Hub-Höhe im Swing (m). '
+            'Live-Update wirkt ab nächstem Swing.'
+        ),
+    ),
+    _ParamSpec(
+        name='cycle_time', default=2.0, standing_only=True,
+        fp_range=(0.5, 6.0, 0.05),
+        description=(
+            'Zeit pro Gait-Cycle (s). '
+            'Live-Update nur in STANDING (Stride-Math-Konsistenz).'
+        ),
+    ),
+    _ParamSpec(
+        name='tick_rate', default=50.0, standing_only=True,
+        fp_range=(10.0, 200.0, 1.0),
+        description=(
+            'Timer-Frequenz für gait-Tick (Hz). '
+            'Live-Update nur in STANDING (Timer-Restart-Race).'
+        ),
+    ),
+    _ParamSpec(
+        name='body_height', default=-0.052, standing_only=True,
+        fp_range=(-0.100, -0.020, 0.001),
+        description=(
+            'Stand-Pose Foot-Z im Bein-Frame (m). '
+            'HW-Default -0.047, Sim-Default -0.052. '
+            'Live-Update nur in STANDING (analog cmd_body_height).'
+        ),
+    ),
+    _ParamSpec(
+        name='radial_distance', default=0.27, standing_only=True,
+        fp_range=(0.10, 0.35, 0.001),
+        description=(
+            'Radialer Foot-Neutral-Abstand vom Coxa-Mount '
+            'im Bein-Frame (m). '
+            'Live-Update nur in STANDING (Stand-Pose-Reset).'
+        ),
+    ),
+    _ParamSpec(
+        name='time_from_start_factor', default=2.0,
+        fp_range=(1.0, 10.0, 0.1),
+        description=(
+            'JTC time_from_start = factor / tick_rate. '
+            'Lookahead-Math-Faktor. Live-Update wirkt sofort.'
+        ),
+    ),
+    _ParamSpec(
+        name='step_length_max', default=0.05,
+        fp_range=(0.01, 0.15, 0.001),
+        description=(
+            'Max Stride pro Cycle (m). Begrenzt linear_max = '
+            'step_length_max / stance_duration. Live-Update wirkt '
+            'sofort auf nächsten Cycle.'
+        ),
+    ),
+    _ParamSpec(
+        name='default_linear_x', default=0.0,
+        fp_range=(-0.1, 0.1, 0.005),
+        description=(
+            'Fallback cmd_vel.linear.x bei cmd_vel-Timeout (m/s). '
+            'Live-Update wirkt beim nächsten Timeout-Check.'
+        ),
+    ),
+    _ParamSpec(
+        name='default_linear_y', default=0.0,
+        fp_range=(-0.1, 0.1, 0.005),
+        description=(
+            'Fallback cmd_vel.linear.y bei cmd_vel-Timeout (m/s). '
+            'Live-Update wirkt beim nächsten Timeout-Check.'
+        ),
+    ),
+    _ParamSpec(
+        name='default_angular_z', default=0.0,
+        fp_range=(-1.0, 1.0, 0.05),
+        description=(
+            'Fallback cmd_vel.angular.z bei cmd_vel-Timeout (rad/s). '
+            'Live-Update wirkt beim nächsten Timeout-Check.'
+        ),
+    ),
+    _ParamSpec(
+        name='cmd_vel_timeout', default=0.5,
+        fp_range=(0.05, 5.0, 0.05),
+        description=(
+            'cmd_vel-Activity-Timeout (s). Nach Timeout greifen '
+            'default_linear_x/y/angular_z. Live-Update wirkt sofort.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_height_min', default=-0.080, standing_only=True,
+        fp_range=(-0.100, -0.020, 0.001),
+        description=(
+            'Untere Schranke body_height (m). Cross-Constraint: '
+            'min < body_height < max. STANDING-only.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_height_max', default=-0.030, standing_only=True,
+        fp_range=(-0.100, -0.020, 0.001),
+        description=(
+            'Obere Schranke body_height (m). Cross-Constraint: '
+            'min < body_height < max. STANDING-only.'
+        ),
+    ),
+)
+
+
+# Abgeleitet aus _GAIT_PARAMS — keine Doppel-Pflege.
+_STANDING_ONLY_PARAMS = frozenset(
+    p.name for p in _GAIT_PARAMS if p.standing_only
+)
 
 
 class GaitNode(Node):
@@ -41,20 +207,7 @@ class GaitNode(Node):
     def __init__(self):
         super().__init__('gait_node')
 
-        self.declare_parameter('gait_pattern', 'tripod')
-        self.declare_parameter('step_height', 0.03)
-        self.declare_parameter('cycle_time', 2.0)
-        self.declare_parameter('tick_rate', 50.0)
-        self.declare_parameter('body_height', -0.052)
-        self.declare_parameter('radial_distance', 0.27)
-        self.declare_parameter('time_from_start_factor', 2.0)
-        self.declare_parameter('step_length_max', 0.05)
-        self.declare_parameter('default_linear_x', 0.0)
-        self.declare_parameter('default_linear_y', 0.0)
-        self.declare_parameter('default_angular_z', 0.0)
-        self.declare_parameter('cmd_vel_timeout', 0.5)
-        self.declare_parameter('body_height_min', -0.080)
-        self.declare_parameter('body_height_max', -0.030)
+        self._declare_params_with_descriptors()
 
         pattern_name = str(self.get_parameter('gait_pattern').value)
         if pattern_name not in GAIT_PRESETS:
@@ -131,7 +284,20 @@ class GaitNode(Node):
         self._last_cmd_v_x = 0.0
         self._last_cmd_v_y = 0.0
         self._last_cmd_omega_z = 0.0
-        self._timer = self.create_timer(1.0 / self._tick_rate, self._tick)
+
+        # Phase 11 Stage A — Timer in MutuallyExclusiveCallbackGroup,
+        # damit _restart_timer() bei tick_rate-Update keinen Race mit
+        # einem aktiven _tick produziert (relevant für MultiThreaded-
+        # Executor; bei SingleThreaded ohnehin sequentiell).
+        self._cb_group = MutuallyExclusiveCallbackGroup()
+        self._timer = self.create_timer(
+            1.0 / self._tick_rate,
+            self._tick,
+            callback_group=self._cb_group,
+        )
+
+        # Phase 11 Stage A — Live-Param-Updates via rqt_reconfigure.
+        self.add_on_set_parameters_callback(self._on_param_change)
 
         self.get_logger().info(
             f'gait_node init: pattern={self._pattern.name}, '
@@ -148,6 +314,40 @@ class GaitNode(Node):
             f'cmd_vel_timeout={self._cmd_vel_timeout:.2f} s, '
             f'tick_rate={self._tick_rate:.0f} Hz'
         )
+
+    def _declare_params_with_descriptors(self) -> None:
+        """
+        Deklariere alle Parameter aus ``_GAIT_PARAMS`` mit Descriptors.
+
+        Range-Descriptors ermöglichen rqt_reconfigure-Slider statt
+        Text-Eingabe-Felder. Spec-Tabelle ist Single Source of Truth
+        für Defaults, Ranges und STANDING-only-Policy — siehe
+        ``_GAIT_PARAMS`` am Modul-Anfang.
+
+        Phase 11 Stage A — siehe phase_11_stage_a_plan.md.
+        """
+        for spec in _GAIT_PARAMS:
+            kwargs = {
+                'description': spec.description,
+                'type': (
+                    ParameterType.PARAMETER_STRING
+                    if isinstance(spec.default, str)
+                    else ParameterType.PARAMETER_DOUBLE
+                ),
+            }
+            if spec.fp_range is not None:
+                mn, mx, step = spec.fp_range
+                kwargs['floating_point_range'] = [
+                    FloatingPointRange(
+                        from_value=mn, to_value=mx, step=step,
+                    ),
+                ]
+            if spec.string_constraint is not None:
+                kwargs['additional_constraints'] = spec.string_constraint
+            self.declare_parameter(
+                spec.name, spec.default,
+                ParameterDescriptor(**kwargs),
+            )
 
     def _on_cmd_vel(self, msg: Twist) -> None:
         """cmd_vel-Empfang: Activity-Timestamp + 3 Komponenten cachen."""
@@ -185,6 +385,10 @@ class GaitNode(Node):
                 f'{self._body_height_max:.3f}])'
             )
 
+        # Phase 11 Stage A — Node-Member synchron halten mit Engine.
+        # Sonst würde Stage-A-Param-Callback in der Cross-Constraint-
+        # Pre-Validation einen veralteten body_height lesen.
+        self._body_height = clamped
         self._engine.body_height = clamped
         self.get_logger().info(
             f'body_height -> {clamped:.4f} m'
@@ -239,6 +443,197 @@ class GaitNode(Node):
         for leg in HEXAPOD.legs:
             traj = self._build_trajectory(leg.name, angles_per_leg[leg.name])
             self._pubs[leg.name].publish(traj)
+
+    def _on_param_change(self, params) -> SetParametersResult:
+        """
+        Live-Update-Callback für alle 14 gait-Parameter.
+
+        Phase 11 Stage A — atomic-all-or-nothing-Validation:
+
+        1. **Pre-Validation** (kein State-Change):
+           - ``use_sim_time`` read-only ablehnen
+           - STANDING-only-Params (siehe ``_STANDING_ONLY_PARAMS``) nur
+             akzeptieren wenn Engine in STATE_STANDING
+           - Cross-Constraint ``body_height_min < body_height_max``
+           - Cross-Constraint ``body_height ∈ [min, max]``
+           - ``gait_pattern`` ∈ GAIT_PRESETS
+        2. **Apply** (ab hier kein Fail mehr möglich):
+           Pro Param interne Member + ggf. Engine-Attribute updaten;
+           ``tick_rate`` triggert ``_restart_timer``; ``gait_pattern``
+           triggert ``_load_gait_pattern``.
+
+        Bei einem einzigen Validation-Fail wird KEIN Update durchgeführt
+        — rqt_reconfigure zeigt den ``reason``-String als Fehler.
+        """
+        # === 1. PRE-VALIDATION ===
+
+        # 1a. use_sim_time bleibt read-only nach Init
+        # (Clock-Mode-Wechsel zur Laufzeit ist in rclpy nicht zuverlässig).
+        for p in params:
+            if p.name == 'use_sim_time':
+                return SetParametersResult(
+                    successful=False,
+                    reason='use_sim_time is read-only after init',
+                )
+
+        # 1b. Build proposed new state für Cross-Constraint-Checks
+        proposed = {
+            'body_height': self._body_height,
+            'body_height_min': self._body_height_min,
+            'body_height_max': self._body_height_max,
+            'cycle_time': self._cycle_time,
+            'tick_rate': self._tick_rate,
+            'radial_distance': self._radial_distance,
+            'gait_pattern': self._pattern.name,
+        }
+        for p in params:
+            if p.name in proposed:
+                proposed[p.name] = p.value
+
+        # 1c. STANDING-only-Check
+        if self._engine.state != GaitEngine.STATE_STANDING:
+            rejected = []
+            for p in params:
+                if p.name not in _STANDING_ONLY_PARAMS:
+                    continue
+                current = (
+                    self._pattern.name
+                    if p.name == 'gait_pattern'
+                    else getattr(self, f'_{p.name}', None)
+                )
+                if p.value != current:
+                    rejected.append(p.name)
+            if rejected:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'params {rejected} require STATE_STANDING, '
+                        f'current state={self._engine.state}'
+                    ),
+                )
+
+        # 1d. Cross-Constraint body_height_min < body_height_max
+        if proposed['body_height_min'] >= proposed['body_height_max']:
+            return SetParametersResult(
+                successful=False,
+                reason=(
+                    f'body_height_min={proposed["body_height_min"]:.4f} '
+                    f'must be < body_height_max='
+                    f'{proposed["body_height_max"]:.4f}'
+                ),
+            )
+
+        # 1e. Cross-Constraint body_height ∈ [min, max]
+        if not (
+            proposed['body_height_min']
+            <= proposed['body_height']
+            <= proposed['body_height_max']
+        ):
+            return SetParametersResult(
+                successful=False,
+                reason=(
+                    f'body_height={proposed["body_height"]:.4f} outside '
+                    f'[{proposed["body_height_min"]:.4f}, '
+                    f'{proposed["body_height_max"]:.4f}]'
+                ),
+            )
+
+        # 1f. gait_pattern ∈ GAIT_PRESETS
+        for p in params:
+            if p.name == 'gait_pattern' and p.value not in GAIT_PRESETS:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'unknown gait_pattern {p.value!r}, '
+                        f'available: {sorted(GAIT_PRESETS.keys())}'
+                    ),
+                )
+
+        # === 2. APPLY (kein Fail mehr möglich) ===
+        for p in params:
+            self._apply_param(p.name, p.value)
+
+        # User-Feedback: bei rqt_reconfigure-Slider-Drag oder
+        # `ros2 param set` sieht User sonst keinen Beleg dass der
+        # Update angekommen ist (z.B. gait_pattern-Wechsel in STANDING
+        # ist still bis cmd_vel kommt).
+        changes = ', '.join(f'{p.name}={p.value}' for p in params)
+        self.get_logger().info(f'param updated: {changes}')
+
+        return SetParametersResult(successful=True)
+
+    def _apply_param(self, name: str, value) -> None:
+        """
+        Einen Param aufs Node- und Engine-State anwenden.
+
+        Vorausgesetzt ``_on_param_change`` hat vorher validiert. Hier
+        passieren nur Attribut-Sets + Helper-Aufrufe — kein Validation,
+        kein Fail.
+        """
+        if name == 'body_height':
+            self._body_height = value
+            self._engine.body_height = value
+        elif name == 'body_height_min':
+            self._body_height_min = value
+        elif name == 'body_height_max':
+            self._body_height_max = value
+        elif name == 'cycle_time':
+            self._cycle_time = value
+            self._engine.cycle_time = value
+        elif name == 'tick_rate':
+            self._tick_rate = value
+            self._tfs_seconds = self._tfs_factor / self._tick_rate
+            self._restart_timer()
+        elif name == 'radial_distance':
+            self._radial_distance = value
+            self._engine.radial_distance = value
+        elif name == 'step_height':
+            self._step_height = value
+            self._engine.step_height = value
+        elif name == 'step_length_max':
+            self._step_length_max = value
+            self._engine.step_length_max = value
+        elif name == 'time_from_start_factor':
+            self._tfs_factor = value
+            self._tfs_seconds = self._tfs_factor / self._tick_rate
+        elif name == 'default_linear_x':
+            self._default_linear_x = value
+        elif name == 'default_linear_y':
+            self._default_linear_y = value
+        elif name == 'default_angular_z':
+            self._default_angular_z = value
+        elif name == 'cmd_vel_timeout':
+            self._cmd_vel_timeout = value
+        elif name == 'gait_pattern':
+            self._load_gait_pattern(value)
+
+    def _restart_timer(self) -> None:
+        """
+        Timer mit aktueller ``_tick_rate`` neu erstellen.
+
+        Cancel + destroy alten Timer, dann neuen mit selber CallbackGroup
+        erzeugen. Sicher unter ``MutuallyExclusiveCallbackGroup`` —
+        kein ``_tick`` kann zwischen cancel und create_timer feuern.
+        """
+        self._timer.cancel()
+        self.destroy_timer(self._timer)
+        self._timer = self.create_timer(
+            1.0 / self._tick_rate,
+            self._tick,
+            callback_group=self._cb_group,
+        )
+
+    def _load_gait_pattern(self, name: str) -> None:
+        """
+        Pattern aus GAIT_PRESETS in Node + Engine umladen.
+
+        Pattern-Existenz wird im ``_on_param_change`` Pre-Validation
+        geprüft — hier wird vorausgesetzt dass ``name`` valide ist.
+        Engine-Properties ``stance_duration``/``linear_max`` rechnen
+        nach dem Pattern-Wechsel automatisch neu (A.2a-Refactor).
+        """
+        self._pattern = GAIT_PRESETS[name]
+        self._engine.pattern = self._pattern
 
     def _build_trajectory(
         self,

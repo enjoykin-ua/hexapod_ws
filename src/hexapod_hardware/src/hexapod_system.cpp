@@ -10,9 +10,12 @@
 #include <cmath>
 #include <cstdint>
 #include <exception>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -265,10 +268,25 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
     last_command_pulse_us_[pin] = calibration_.at(static_cast<int>(pin)).pulse_zero;
   }
 
+  // ─── 8) Phase 11 Stage B — Live-Cal-Params + Save-Service ──────────────
+  // Deklariert 72 Pin-Params (4 Felder × 18 Pins) mit ParameterDescriptor +
+  // Range, registriert Param-Callback für Live-Updates. Defaults kommen aus
+  // der gerade geladenen Calibration.
+  // get_node() ist nach Basis-Klassen on_init verfügbar (ros2_control Jazzy).
+  try {
+    register_live_cal_params();
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(
+      plugin_logger(),
+      "Phase 11 Stage B: failed to register live-cal params: %s", e.what());
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
   RCLCPP_INFO(
     plugin_logger(), "on_init complete — %zu joints mapped to 18 servo pins, "
-    "calibration loaded from %s",
-    info_.joints.size(), calibration_file_.c_str());
+    "calibration loaded from %s, %zu live-cal params registered",
+    info_.joints.size(), calibration_file_.c_str(),
+    pin_param_specs_.size());
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -277,6 +295,26 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_configure(
 {
   RCLCPP_INFO(plugin_logger(), "on_configure starting (loopback_mode=%s, serial_port=%s)",
     loopback_mode_ ? "true" : "false", serial_port_path_.c_str());
+
+  // ─── Phase 11 Stage B — /save_calibration-Service ──────────────────
+  // Vor dem loopback_mode_-Early-Return, damit auch Loopback-Pfade
+  // (CI + Tests) den Service haben. Idempotent: bei erneutem on_configure
+  // wird der alte Handle überschrieben.
+  if (auto node = get_node()) {
+    save_service_ = node->create_service<std_srvs::srv::Trigger>(
+      "save_calibration",
+      std::bind(
+        &HexapodSystemHardware::handle_save_calibration, this,
+        std::placeholders::_1, std::placeholders::_2));
+    RCLCPP_INFO(
+      plugin_logger(),
+      "Phase 11 Stage B: /save_calibration service ready");
+  } else {
+    RCLCPP_WARN(
+      plugin_logger(),
+      "Phase 11 Stage B: get_node() returned null in on_configure — "
+      "/save_calibration service not registered");
+  }
 
   if (loopback_mode_) {
     // No serial port to open; no reader thread to start. The lifecycle
@@ -452,6 +490,11 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  // Phase 11 Stage B — Lifecycle-State markieren. Set NACH erfolgreichem
+  // Activate (alle Frames gesendet), damit Param-Callback erst dann
+  // Direction-Updates ablehnt wenn der Active-State wirklich erreicht ist.
+  is_active_.store(true);
+
   RCLCPP_INFO(plugin_logger(),
     "on_activate complete — %s (seq counter advanced by 20)",
     loopback_mode_ ?
@@ -464,6 +507,12 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   RCLCPP_INFO(plugin_logger(), "on_deactivate starting");
+
+  // Phase 11 Stage B — Lifecycle-State zurücksetzen. Set zuerst (vor
+  // Disable-Frames) damit Param-Callback ab sofort Direction-Updates
+  // wieder akzeptiert (User kann während Deactivate-Sequenz schon
+  // tunen).
+  is_active_.store(false);
 
   // Unlike on_activate, on_deactivate runs WITHOUT stagger. Disable does
   // not draw inrush current (servos just go limp), and we want the robot
@@ -639,6 +688,22 @@ hardware_interface::return_type HexapodSystemHardware::write(
       static_cast<int16_t>(std::round(pulse_clamped));
   }
 
+  // ─── Phase 11 Stage C — /servo_pulses Diagnostic-Topic ──────────────
+  // Doppel-bedingt: Param `publish_servo_pulses` ON + jemand subscribed.
+  // Beides false default → Zero-Cost im Normalbetrieb. Publish VOR dem
+  // wire-Send damit auch loopback_mode_ den Topic sieht (Wire-Send
+  // returnt früh in loopback).
+  if (publish_pulses_enabled_.load() &&
+    pulses_pub_ && pulses_pub_->get_subscription_count() > 0)
+  {
+    std_msgs::msg::Int32MultiArray msg;
+    msg.data.reserve(NUM_SERVOS);
+    for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+      msg.data.push_back(static_cast<int32_t>(last_command_pulse_us_[pin]));
+    }
+    pulses_pub_->publish(msg);
+  }
+
   // ─── Send the wire frame (loopback skips) ────────────────────────────
   // One SET_TARGETS per tick = one wire frame at 50 Hz ≈ 7 kB/s, well
   // under the USB-CDC budget (~125 kB/s). encode_set_targets builds
@@ -657,6 +722,250 @@ hardware_interface::return_type HexapodSystemHardware::write(
     return hardware_interface::return_type::ERROR;
   }
   return hardware_interface::return_type::OK;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Phase 11 Stage B — Live-Cal-Params + Save-Service
+// ═════════════════════════════════════════════════════════════════════════
+
+void HexapodSystemHardware::register_live_cal_params()
+{
+  auto node = get_node();
+  if (!node) {
+    // Plugin läuft außerhalb eines vollen controller_manager-Kontexts
+    // (z.B. unit tests die das Plugin direkt instanziieren). Live-Cal
+    // funktioniert dort nicht — aber on_init darf nicht failen, sonst
+    // brechen alle Lifecycle-Tests.
+    RCLCPP_WARN(
+      plugin_logger(),
+      "Phase 11 Stage B: get_node() returned null — live-cal params "
+      "skipped (likely a unit-test context without controller_manager)");
+    return;
+  }
+
+  // 72 Param-Specs generieren (18 Pins × 4 Felder). Single Source of
+  // Truth analog Stage-A-`_GAIT_PARAMS`-Tabelle.
+  pin_param_specs_.clear();
+  pin_param_specs_.reserve(NUM_SERVOS * 4);
+  for (int pin = 0; pin < static_cast<int>(NUM_SERVOS); ++pin) {
+    const std::string prefix = "pin_" + std::to_string(pin) + ".";
+    pin_param_specs_.push_back({pin, "pulse_min", prefix + "pulse_min"});
+    pin_param_specs_.push_back({pin, "pulse_zero", prefix + "pulse_zero"});
+    pin_param_specs_.push_back({pin, "pulse_max", prefix + "pulse_max"});
+    pin_param_specs_.push_back({pin, "direction_normal",
+        prefix + "direction_normal"});
+  }
+
+  // Declare Pro Pin alle 4 Params mit Range/Descriptor.
+  // Defaults aus der gerade geladenen Calibration (snapshot read).
+  for (int pin = 0; pin < static_cast<int>(NUM_SERVOS); ++pin) {
+    const auto cal = calibration_.snapshot(pin);
+    const std::string prefix = "pin_" + std::to_string(pin) + ".";
+
+    // pulse_min/zero/max als Integer mit Range [500, 2500] —
+    // Firmware-Standard-Servo-Range. Defaults in servo_mapping.yaml
+    // sind 500/1500/2500, daher muss Range das umfassen sonst
+    // declare_parameter wirft Range-Violation. HJ-Tester-Range [800, 2200]
+    // ist Untermenge — Validation in update_servo_cal (+ Firmware-Clamp)
+    // schützt zusätzlich vor mech. Anschlag.
+    for (const auto & field_default : std::vector<std::pair<std::string, int16_t>>{
+        {"pulse_min", cal.pulse_min},
+        {"pulse_zero", cal.pulse_zero},
+        {"pulse_max", cal.pulse_max},
+      })
+    {
+      rcl_interfaces::msg::IntegerRange range;
+      range.from_value = 500;
+      range.to_value = 2500;
+      range.step = 1;
+      rcl_interfaces::msg::ParameterDescriptor desc;
+      desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_INTEGER;
+      desc.description = "Pin " + std::to_string(pin) + " " +
+        field_default.first + " (µs). Live-Cal — pulse_min < zero < max, "
+        "all ∈ [500, 2500]. HJ-Tester typischer Bereich [800, 2200].";
+      desc.integer_range = {range};
+      node->declare_parameter<int64_t>(
+        prefix + field_default.first,
+        static_cast<int64_t>(field_default.second),
+        desc);
+    }
+
+    // direction_normal: bool (true = +1, false = -1).
+    {
+      rcl_interfaces::msg::ParameterDescriptor desc;
+      desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+      desc.description = "Pin " + std::to_string(pin) + " direction. "
+        "true = +1 (URDF angle direct), false = -1 (URDF angle inverted). "
+        "Mid-active-flip = servo-sprung um 180°; nur in 'inactive' "
+        "lifecycle state änderbar.";
+      node->declare_parameter<bool>(
+        prefix + "direction_normal", cal.direction > 0, desc);
+    }
+  }
+
+  // ─── Phase 11 Stage C — Diagnostic-Topic + Toggle-Param ─────────
+  {
+    rcl_interfaces::msg::ParameterDescriptor desc;
+    desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+    desc.description =
+      "Publish current 18 pulse-µs values to ~/servo_pulses (default "
+      "off — enable only for cal sessions / debugging; ~4 KB/s overhead "
+      "when on AND a subscriber is present).";
+    node->declare_parameter<bool>("publish_servo_pulses", false, desc);
+    publish_pulses_enabled_.store(false);
+
+    // Publisher selbst lebt immer (rclcpp legt sich auch bei 0 Subscribers
+    // nicht schlafen — Cost ist nur die Existenz, kein Daten-Fluss).
+    // Topic-Name `~/servo_pulses` expandet zu `/<node-name>/servo_pulses`.
+    pulses_pub_ = node->create_publisher<std_msgs::msg::Int32MultiArray>(
+      "~/servo_pulses", rclcpp::QoS(10));
+  }
+
+  // Callback-Hook registrieren. Shared-ptr-Member hält den Hook am Leben.
+  param_cb_handle_ = node->add_on_set_parameters_callback(
+    std::bind(
+      &HexapodSystemHardware::on_param_change, this, std::placeholders::_1));
+
+  RCLCPP_INFO(
+    plugin_logger(),
+    "Phase 11 Stage B+C: %zu live-cal params + publish_servo_pulses "
+    "(default off) declared, on_set_parameters_callback registered, "
+    "~/servo_pulses publisher ready",
+    pin_param_specs_.size());
+}
+
+rcl_interfaces::msg::SetParametersResult
+HexapodSystemHardware::on_param_change(
+  const std::vector<rclcpp::Parameter> & params)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+
+  // Phase 11 Stage C — `publish_servo_pulses` Toggle.
+  // Wird vor dem PinParamSpec-Filter behandelt damit es nicht in
+  // relevant.empty() runter fällt. Atomar setzen, ein Log.
+  for (const auto & p : params) {
+    if (p.get_name() == "publish_servo_pulses") {
+      publish_pulses_enabled_.store(p.as_bool());
+      RCLCPP_INFO(
+        plugin_logger(),
+        "param updated: publish_servo_pulses = %s",
+        p.as_bool() ? "true" : "false");
+    }
+  }
+
+  // 1. Filter: nur Params die zu unseren PinParamSpecs gehören.
+  //    Andere (hardware_parameters, use_sim_time, publish_servo_pulses
+  //    etc.) immer akzeptieren — `publish_servo_pulses` ist oben schon
+  //    ge-applied, ein zweites Mal hier wäre redundant aber harmlos.
+  //    Index pair: (param-Pointer, spec-Pointer) für Schleifen-Reuse.
+  std::vector<std::pair<const rclcpp::Parameter *, const PinParamSpec *>> relevant;
+  for (const auto & p : params) {
+    for (const auto & spec : pin_param_specs_) {
+      if (spec.param_name == p.get_name()) {
+        relevant.push_back({&p, &spec});
+        break;
+      }
+    }
+  }
+  if (relevant.empty()) {
+    return result;  // accept (kein PinParam, evtl. publish_servo_pulses ohnehin done)
+  }
+
+  // 2. Active-State-Direction-Reject (B-Q4-Entscheidung A).
+  if (is_active_.load()) {
+    for (const auto & [p, spec] : relevant) {
+      if (spec->field == "direction_normal") {
+        result.successful = false;
+        result.reason =
+          spec->param_name +
+          " can only change in 'inactive' lifecycle state "
+          "(active-flip = servo-sprung um 180°)";
+        return result;
+      }
+    }
+  }
+
+  // 3. Bauen proposed cal per Pin (atomic-all-or-nothing-Strategie).
+  //    Start: aktueller Snapshot. Dann pro Param overwriten.
+  std::map<int, ServoCalibration> proposed;
+  for (const auto & [p, spec] : relevant) {
+    if (proposed.find(spec->pin) == proposed.end()) {
+      proposed[spec->pin] = calibration_.snapshot(spec->pin);
+    }
+    auto & cal = proposed[spec->pin];
+    if (spec->field == "pulse_min") {
+      cal.pulse_min = static_cast<int16_t>(p->as_int());
+    } else if (spec->field == "pulse_zero") {
+      cal.pulse_zero = static_cast<int16_t>(p->as_int());
+    } else if (spec->field == "pulse_max") {
+      cal.pulse_max = static_cast<int16_t>(p->as_int());
+    } else if (spec->field == "direction_normal") {
+      cal.direction = p->as_bool() ? 1 : -1;
+    }
+  }
+
+  // 4. Pre-Validation: pro Pin Tripel-Check.
+  for (const auto & [pin, cal] : proposed) {
+    if (!(cal.pulse_min < cal.pulse_zero && cal.pulse_zero < cal.pulse_max)) {
+      result.successful = false;
+      result.reason =
+        "pin_" + std::to_string(pin) +
+        ": requires pulse_min < pulse_zero < pulse_max, proposed " +
+        std::to_string(cal.pulse_min) + "/" +
+        std::to_string(cal.pulse_zero) + "/" +
+        std::to_string(cal.pulse_max);
+      return result;
+    }
+  }
+
+  // 5. Apply (atomic: alle oder keiner — pre-validation hat das gecheckt).
+  for (const auto & [pin, cal] : proposed) {
+    try {
+      calibration_.update_servo_cal(pin, cal);
+    } catch (const std::exception & e) {
+      // Sollte unreachable sein nach Pre-Validation, aber defensive
+      // catch damit nicht der ganze Param-Service crasht.
+      result.successful = false;
+      result.reason = std::string("apply failure: ") + e.what();
+      return result;
+    }
+  }
+
+  // 6. Logging: pro Param eine Zeile (Stage-A-Pattern `cal updated: ...`).
+  for (const auto & [p, spec] : relevant) {
+    std::string new_val;
+    if (spec->field == "direction_normal") {
+      new_val = p->as_bool() ? "true (+1)" : "false (-1)";
+    } else {
+      new_val = std::to_string(p->as_int());
+    }
+    RCLCPP_INFO(
+      plugin_logger(),
+      "cal updated: %s = %s",
+      p->get_name().c_str(), new_val.c_str());
+  }
+
+  return result;
+}
+
+void HexapodSystemHardware::handle_save_calibration(
+  std_srvs::srv::Trigger::Request::ConstSharedPtr /*request*/,
+  std_srvs::srv::Trigger::Response::SharedPtr response)
+{
+  try {
+    calibration_.save_to_file(calibration_file_);
+    response->success = true;
+    response->message =
+      "saved " + std::to_string(NUM_SERVOS) + " cals to " +
+      calibration_file_ + " (backup as .bak-<timestamp>)";
+    RCLCPP_INFO(plugin_logger(), "%s", response->message.c_str());
+  } catch (const std::exception & e) {
+    response->success = false;
+    response->message =
+      std::string("save_calibration failed: ") + e.what();
+    RCLCPP_ERROR(plugin_logger(), "%s", response->message.c_str());
+  }
 }
 
 }  // namespace hexapod_hardware

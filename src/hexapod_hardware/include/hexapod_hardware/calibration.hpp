@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -63,14 +64,58 @@ public:
   // Conversion API (piecewise-linear about pulse_zero — see
   // docs_raspi/phase_9_progress.md "Design-Entscheidung Option C").
   // Throws std::out_of_range if output_idx ∉ [0, NUM_SERVOS).
+  //
+  // Phase 11 Stage B: lockt mutex_ — diese werden parallel zu
+  // ``update_servo_cal`` aufgerufen (write() im Controller-Thread,
+  // Param-Callback im Service-Thread).
   double radians_to_pulse_us(int output_idx, double rad) const;
   double pulse_us_to_radians(int output_idx, double pulse_us) const;
 
-  // Lookup helpers.
+  // Lookup helpers. ``at`` ist NICHT thread-safe (gibt Reference zurück)
+  // — nur in single-threaded Init-Code verwenden. Für concurrent reads:
+  // ``snapshot``.
   const ServoCalibration & at(int output_idx) const;
   int output_idx_for_joint(const std::string & joint_name) const;
 
+  // ─── Phase 11 Stage B — Live-Cal-Update + Persistenz ──────────────────
+
+  // Thread-safe copy einer Servo-Cal-Zeile. Lockt mutex_.
+  // Throws std::out_of_range if output_idx ∉ [0, NUM_SERVOS).
+  ServoCalibration snapshot(int output_idx) const;
+
+  // Live-Update einer Servo-Cal-Zeile. Lockt mutex_. Überschreibt ALLE
+  // Felder von ``servos_[output_idx]`` mit ``c`` — Caller muss vorher
+  // typischerweise ``snapshot()`` machen, einzelne Felder ändern, dann
+  // diese Methode rufen, um joint_name + URDF-Limits zu erhalten.
+  //
+  // Validiert:
+  //  - output_idx ∈ [0, NUM_SERVOS)
+  //  - c.pulse_min < c.pulse_zero < c.pulse_max
+  //  - c.direction ∈ {-1, +1}
+  // Throws std::out_of_range / std::runtime_error bei Verletzung.
+  // Strong exception guarantee: bei Validation-Fail bleibt servos_
+  // unverändert.
+  void update_servo_cal(int output_idx, const ServoCalibration & c);
+
+  // Schreibt aktuelle Calibration als YAML zu ``path``. Wenn ``path``
+  // existiert: erst Backup nach ``<path>.bak-YYYYMMDD-HHMMSS``.
+  // Lockt mutex_ während Snapshot, schreibt dann ohne Lock.
+  //
+  // Output-Format (Phase 11 Stage B F5):
+  //  - Header-Template als Kommentar (Auto-Gen-Banner + Timestamp)
+  //  - Top-Level: version, phase, status, calibrated_at
+  //  - defaults-Block (Schema-Compat mit existing loader)
+  //  - servo2040_output_to_joint: alle 18 Pins explizit mit ALLEN
+  //    Cal-Feldern (keine Implicit-Inheritance mehr)
+  //  - joint_lower/joint_upper NICHT geschrieben (URDF ist Source of
+  //    Truth)
+  //
+  // Throws std::runtime_error bei Filesystem-Fehler (rename fail,
+  // open fail, write fail). Bei Rename-Fehler wird nicht überschrieben.
+  void save_to_file(const std::string & path) const;
+
 private:
+  mutable std::mutex mutex_;
   std::array<ServoCalibration, NUM_SERVOS> servos_{};
   std::unordered_map<std::string, int> joint_name_to_idx_{};
 };

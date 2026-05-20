@@ -192,6 +192,60 @@ Das ist faktisch eine Sim-Session = passt zur Pendenz
 
 ---
 
+## Plan-Korrekturen aus Code-Inspektion (2026-05-20)
+
+Zwei Findings aus der Engine-Code-Inspektion ([gait_engine.py](../src/hexapod_gait/hexapod_gait/gait_engine.py))
+nach User-Freigabe der A-Q1..A-Q8-Antworten, vor Code-Beginn. **User-bestätigt.**
+
+### Finding 1 — `_recompute_stand_pose()`-Helper überflüssig
+
+**Beobachtung:** [gait_engine.py:260-262](../src/hexapod_gait/hexapod_gait/gait_engine.py#L260-L262)
+ruft `stand_pose(self.radial_distance, self.body_height)` **jeden Tick neu**
+auf. D.h. ein einfacher Attribut-Set (`engine.body_height = neuer_wert`)
+reicht — der nächste Tick verwendet automatisch die neue Pose, JTC
+interpoliert sanft.
+
+**Konsequenz für Stage A:** Plan-Doku-A.5-Helper-Liste wird verkürzt —
+`_recompute_stand_pose()` entfällt, nur noch `_restart_timer` und
+`_load_gait_pattern` bleiben.
+
+### Finding 2 — Engine-Caches `_stance_duration` / `_linear_max`
+
+**Beobachtung:** [gait_engine.py:91-92](../src/hexapod_gait/hexapod_gait/gait_engine.py#L91-L92)
+berechnet `_stance_duration` und `_linear_max` **einmal in `__init__`** und
+cached sie. Bei Live-Update von `cycle_time`, `step_length_max` oder
+`pattern` würden die Caches divergieren — Engine würde mit alter
+Stance-Dauer / altem Stride-Limit weiterrechnen.
+
+**Auswahl der Lösungswege:**
+
+| Option | Mechanismus | Korrektheit | Code-Aufwand | Future-Proof |
+|---|---|---|---|---|
+| **A** Properties (computed) | `stance_duration`/`linear_max` als read-only Properties, live aus Source-Attributen berechnet. `_stance_duration`-/`_linear_max`-Instance-Attribute entfallen, interne Refs `self._x` → `self.x`. | ✓ kein Cache kann je veralten | klein (2 Properties + interne Ref-Anpassung) | ✓ niemand kann „vergessen" |
+| **B** Setter mit Cache-Invalidierung | `set_cycle_time` / `set_step_length_max` / `set_pattern`-Methoden, die intern Cache neu berechnen. gait_node-Callback ruft Setter statt Attribut-Set. | ✓ funktional gleich | mittel (3 Setter + Helper + Callback-Anpassung) | ⚠ Setter muss diszipliniert genutzt werden, sonst Cache-Drift |
+| **C** Status quo lassen | Engine unverändert, Live-Update für die drei Params ablehnen oder Cache-Drift in Kauf nehmen. | ✗ Done-Kriterium A „alle relevanten Params live tunbar" verletzt | keine | — |
+
+**✅ User-Entscheidung 2026-05-20: Option A (Properties).**
+
+Begründung: zero-Cache → strukturell unmöglich, dass etwas inkonsistent
+wird. Externe API (`engine.linear_max` war schon eine Property, wird in
+[gait_node.py:144,229](../src/hexapod_gait/hexapod_gait/gait_node.py)
+verwendet) bleibt unverändert. Performance-Kosten: 3 Float-Ops pro
+Property-Get bei 50 Hz Timer = irrelevant. Engine hat keine Unit-Tests
+(nur Linter), Refactor-Risiko gering.
+
+**Verworfen:**
+- Option B (Setter): mehr Boilerplate; ein vergessenes `engine.cycle_time =`
+  direkt statt `engine.set_cycle_time(...)` würde den Cache stillschweigend
+  veralten lassen.
+- Option C (Status quo): widerspricht Phase-11-Ziel.
+
+**Konsequenz für Stage A:** Neue Sub-Stage **A.0a** vor A.3 — Engine-
+Refactor `_stance_duration`/`_linear_max` zu Properties. Erst danach
+gait_node Param-Descriptors + Callback.
+
+---
+
 ## Strategie / Architektur-Entscheidungen
 
 ### A. Welche Parameter sollen live tunbar sein?
@@ -262,18 +316,18 @@ def on_param_change(self, params):
 
 ---
 
-## User-Antworten (vor Implementation — pending)
+## User-Antworten (✅ User-Bestätigung 2026-05-20)
 
-| # | Frage | Empfehlung |
-|---|---|---|
-| **A-Q1** Alle gait_node-Params live machen oder Subset? | **A** — alle 14 Params (gait_node deklariert die schon, siehe Inspection) | (B) nur Walking-Pose-Params |
-| **A-Q2** `gait_pattern` live wechselbar während WALKING? | **B (geändert!)** — nur in STANDING erlaubt, in WALKING ablehnen (analog `cmd_body_height`-Topic-Handler line 168-171). Sicherer als ursprünglich vorgeschlagen | (A) Mid-WALKING-Wechsel mit Engine-Reset (kipp-Risiko) |
-| **A-Q3** Validation bei Cross-Param-Constraints | **A** — atomic-all-or-nothing: alle Param-Updates zusammen validieren, bei Inkonsistenz ablehnen | (B) Wert clampen silently |
-| **A-Q4** `use_sim_time` live tunbar? | **B** — `read_only=true` im Descriptor | (A) versuchen (riskant) |
-| **A-Q5** Threading / Race-Conditions | **A** — `MutuallyExclusiveCallbackGroup` für Timer + Param-Callback | (B) Atomic-Member-Assignments (riskanter) |
-| **A-Q6** `body_height`-Param-Update während WALKING | **A** — analog `/cmd_body_height`-Topic-Handler: nur in STANDING akzeptieren | (B) immer akzeptieren (Kipp-Risiko) |
-| **A-Q7** `tick_rate` Live-Update während WALKING | **B** — nur in STANDING (Timer-Restart mid-Tick = Race-Condition) | (A) versuchen mit Timer-Cancel-Wait |
-| **A-Q8** Tibia-Update-Sim-Verifikation in Stage A nebenbei? | **A** — User-Sichtkontrolle in Stage A reicht; offizielle Memory-Eintrag-Schließung in Stage E | (B) separat in Stage E erst |
+| # | Frage | Entscheidung | Verworfen |
+|---|---|---|---|
+| **A-Q1** Alle gait_node-Params live machen oder Subset? | **✅ A** — alle 14 Params (gait_node deklariert die schon, siehe Inspection) | (B) nur Walking-Pose-Params |
+| **A-Q2** `gait_pattern` live wechselbar während WALKING? | **✅ B (geändert!)** — nur in STANDING erlaubt, in WALKING ablehnen (analog `cmd_body_height`-Topic-Handler line 168-171). Sicherer als ursprünglich vorgeschlagen | (A) Mid-WALKING-Wechsel mit Engine-Reset (kipp-Risiko) |
+| **A-Q3** Validation bei Cross-Param-Constraints | **✅ A** — atomic-all-or-nothing: alle Param-Updates zusammen validieren, bei Inkonsistenz ablehnen | (B) Wert clampen silently |
+| **A-Q4** `use_sim_time` live tunbar? | **✅ B** — `read_only=true` im Descriptor | (A) versuchen (riskant) |
+| **A-Q5** Threading / Race-Conditions | **✅ A** — `MutuallyExclusiveCallbackGroup` für Timer + Param-Callback | (B) Atomic-Member-Assignments (riskanter) |
+| **A-Q6** `body_height`-Param-Update während WALKING | **✅ A** — analog `/cmd_body_height`-Topic-Handler: nur in STANDING akzeptieren | (B) immer akzeptieren (Kipp-Risiko) |
+| **A-Q7** `tick_rate` Live-Update während WALKING | **✅ B** — nur in STANDING (Timer-Restart mid-Tick = Race-Condition) | (A) versuchen mit Timer-Cancel-Wait |
+| **A-Q8** Tibia-Update-Sim-Verifikation in Stage A nebenbei? | **✅ A** — User-Sichtkontrolle in Stage A reicht; offizielle Memory-Eintrag-Schließung in Stage E | (B) separat in Stage E erst |
 
 ---
 
@@ -283,6 +337,34 @@ def on_param_change(self, params):
 
 Plan-Doku finalisiert (diese Datei), User-Freigabe, test_commands.md
 Skelett. Build-Status grün bestätigt.
+
+### A.0a — Engine-Property-Refactor (~30 min)
+
+Siehe „Plan-Korrekturen aus Code-Inspektion" Finding 2 oben. Engine-
+Refactor als Vorbedingung für saubere Live-Updates auf
+`cycle_time` / `step_length_max` / `pattern`:
+
+```python
+# gait_engine.py
+@property
+def stance_duration(self) -> float:
+    return self.cycle_time * (1.0 - self.pattern.swing_duty)
+
+@property
+def linear_max(self) -> float:
+    return self.step_length_max / self.stance_duration
+```
+
+- `self._stance_duration`-Instance-Attribut entfernen (line 91)
+- `self._linear_max`-Instance-Attribut entfernen (line 92)
+- Interne Verweise: `self._stance_duration` → `self.stance_duration`
+  (line 244-245), `self._linear_max` → `self.linear_max` (line 117,
+  156-157). Line 117 (`return self._linear_max`) entfällt da
+  `linear_max` jetzt selbst die Property ist.
+- Bestehende externe `linear_max`-Property (line 107-117) durch die
+  neue 1-Zeilen-Property ersetzen.
+- Validation in `__init__` (cycle_time > 0, step_length_max > 0) bleibt
+  als Initial-Check; Live-Validation passiert im gait_node-Callback.
 
 ### A.1 — gait_node Param-Descriptors deklarieren (~2 h)
 
@@ -339,13 +421,18 @@ def _on_param_change(self, params):
     return SetParametersResult(successful=True)
 ```
 
-### A.3 — State-Update-Methoden (~2 h)
+### A.3 — State-Update-Methoden (~1 h)
 
 Implementiere die Helper-Methoden:
 
-- `_recompute_stand_pose()` — Foot-Targets für Standing-State neu berechnen
-- `_restart_timer()` — Timer mit neuer Frequenz neu starten
-- `_load_gait_pattern()` — neues Pattern-Preset laden, State-Machine zurücksetzen wenn nötig
+- ~~`_recompute_stand_pose()`~~ — **entfällt** (Finding 1 oben: Engine
+  ruft `stand_pose()` jeden Tick neu auf, einfacher Attribut-Set reicht)
+- `_restart_timer()` — `self._timer.cancel()` + `self.destroy_timer(self._timer)` +
+  `self._timer = self.create_timer(1.0/new_rate, self._tick, callback_group=self._cb_group)`
+- `_load_gait_pattern()` — `pattern_name` → `GAIT_PRESETS`-Lookup, bei
+  Unknown SetParametersResult(False); bei OK: `self._pattern = GAIT_PRESETS[name]`
+  und `self._engine.pattern = self._pattern` (Engine-Property
+  `stance_duration`/`linear_max` rechnet damit automatisch neu, dank A.0a)
 
 ### A.4 — Unit-Tests (~1.5 h)
 
@@ -410,18 +497,19 @@ CLAUDE.md §4-Pflicht-Tabelle.
 
 ## Progress-Checkliste (Done-Kriterium-Vertrag)
 
-- [ ] A.1 phase_11_stage_a_plan.md (Plan-Doku) finalisiert + User-Freigabe
-- [ ] A.2 phase_11_stage_a_test_commands.md angelegt
-- [ ] A.3 gait_node ParameterDescriptors für alle 13 Params deklariert
-- [ ] A.4 `on_set_parameters_callback` registriert
-- [ ] A.5 Helper-Methoden implementiert (_recompute_stand_pose, _restart_timer, _load_gait_pattern)
-- [ ] A.6 Edge-Case-Handling (Param-Wechsel während WALKING)
-- [ ] A.7 A-T1 colcon build grün
-- [ ] A.8 A-T2 colcon test grün (neue Param-Callback-Tests)
-- [ ] A.9 A-T3 keine Regression in hexapod_bringup / hexapod_hardware
-- [ ] A.10 A-T4..A-T7 User-Smoke
-- [ ] A.11 Self-Review-Tabelle (CLAUDE.md §4-Pflicht)
-- [ ] A.12 Stage-A-Notizen + Übergang Stage B
+- [x] A.1 phase_11_stage_a_plan.md (Plan-Doku) finalisiert + User-Freigabe (2026-05-20)
+- [x] A.2 phase_11_stage_a_test_commands.md angelegt (Skelett, 9 Tests, 2026-05-20)
+- [x] A.2a Engine-Property-Refactor (`stance_duration`/`linear_max` als Properties, Finding 2 / Option A) (2026-05-20, Build+Linter grün)
+- [x] A.3 gait_node ParameterDescriptors für alle 14 Params deklariert (2026-05-20)
+- [x] A.4 `on_set_parameters_callback` registriert (atomic-all-or-nothing) (2026-05-20)
+- [x] A.5 Helper-Methoden `_restart_timer` + `_load_gait_pattern` + `_apply_param` (2026-05-20; `_recompute_stand_pose` entfällt — Finding 1)
+- [x] A.6 Edge-Case-Handling: `_STANDING_ONLY_PARAMS`-frozenset + MutuallyExclusiveCallbackGroup (2026-05-20)
+- [x] A.7 A-T1 colcon build grün (2026-05-20)
+- [x] A.8 A-T2 colcon test grün (18 passed, 1 skipped; 2026-05-20)
+- [x] A.9 A-T3 keine Regression (hexapod_bringup 18/0/0, hexapod_hardware 208/0/20) (2026-05-20)
+- [x] A.10 User-Smoke A-T4..A-T8 ✅; T9 🟢 übersprungen (Unit-Tests-abgedeckt); Doku-Fix A-T5 + Code-Fix Log-Feedback (2026-05-20)
+- [x] A.11 Self-Review-Tabelle in phase_11_progress.md (CLAUDE.md §4-Pflicht): 1× 🔴 (Sync-Bug Phase-6-Topic-Handler) gefunden + gefixt + Regression-Test, 2× 🟡, 2× 🟢 später (2026-05-20)
+- [x] A.12 Stage-A-Notizen + Übergang Stage B in phase_11_progress.md (2026-05-20)
 
 **Done-Kriterium A erreicht:** alle Bullets `[x]`, Self-Review ohne 🔴,
 User-Smoke A-T4..A-T7 bestätigt.

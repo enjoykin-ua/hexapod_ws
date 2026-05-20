@@ -17,6 +17,8 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(controller_manager REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/servo2040_protocol.cpp
@@ -37,6 +39,8 @@ ament_target_dependencies(${PROJECT_NAME}
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  std_srvs
+  std_msgs
 )
 
 target_link_libraries(${PROJECT_NAME} yaml-cpp)
@@ -114,6 +118,8 @@ ament_export_dependencies(
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  std_srvs
+  std_msgs
 )
 
 ament_package()

@@ -88,9 +88,6 @@ class GaitEngine:
         self.body_height = body_height
         self.step_length_max = step_length_max
 
-        self._stance_duration = cycle_time * (1.0 - pattern.swing_duty)
-        self._linear_max = step_length_max / self._stance_duration
-
         self._state = self.STATE_STANDING
         self._v_body: Vec2 = (0.0, 0.0)
         self._omega: float = 0.0
@@ -105,6 +102,16 @@ class GaitEngine:
         return self._state
 
     @property
+    def stance_duration(self) -> float:
+        """
+        Zeit pro Cycle in der ein Bein am Boden steht (s).
+
+        Live aus ``cycle_time`` und ``pattern.swing_duty`` berechnet —
+        Phase-11-Live-Tuning sicher gegen Cache-Drift.
+        """
+        return self.cycle_time * (1.0 - self.pattern.swing_duty)
+
+    @property
     def linear_max(self) -> float:
         """
         Max erlaubte Bein-Geschwindigkeit (m/s) durch step_length_max.
@@ -113,8 +120,10 @@ class GaitEngine:
         Translation entspricht das ``|cmd_vel.linear| ≤ linear_max``.
         Bei Rotation gilt zusätzlich
         ``|omega·mount_xy_radius| ≤ linear_max``.
+
+        Live aus ``step_length_max`` und ``stance_duration`` berechnet.
         """
-        return self._linear_max
+        return self.step_length_max / self.stance_duration
 
     def _max_leg_speed(
         self,
@@ -153,8 +162,9 @@ class GaitEngine:
         """
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
         clamped = False
-        if max_speed > self._linear_max:
-            scale = self._linear_max / max_speed
+        linear_max = self.linear_max
+        if max_speed > linear_max:
+            scale = linear_max / max_speed
             v_body_x *= scale
             v_body_y *= scale
             omega_z *= scale
@@ -240,9 +250,10 @@ class GaitEngine:
             (vx_at_mount, vy_at_mount, 0.0),
             -leg.mount_yaw,
         )
+        stance_duration = self.stance_duration
         return (
-            v_leg_3[0] * self._stance_duration,
-            v_leg_3[1] * self._stance_duration,
+            v_leg_3[0] * stance_duration,
+            v_leg_3[1] * stance_duration,
         )
 
     def compute_foot_targets(self, t: float) -> dict:

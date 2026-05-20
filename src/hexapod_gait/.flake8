@@ -1,0 +1,6 @@
+[flake8]
+# ament_flake8 scannt cwd rekursiv. Verhindert dass versehentlich
+# generierte colcon-Artefakte (`build/`, `install/` im src-Tree)
+# als Source-Code linted werden — die enthalten z.B. lange Pfade
+# in prefix_override/sitecustomize.py die E501 triggern.
+extend-exclude = build,install

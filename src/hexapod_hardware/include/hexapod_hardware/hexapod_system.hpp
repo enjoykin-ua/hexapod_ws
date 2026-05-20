@@ -13,7 +13,11 @@
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_component_interface_params.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
+#include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "std_msgs/msg/int32_multi_array.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 #include "hexapod_hardware/calibration.hpp"
 #include "hexapod_hardware/serial_port.hpp"
@@ -52,6 +56,55 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
+  // ─── Phase 11 Stage B — Live-Cal-Params + Save-Service ──────────────────
+
+  // Param-Spec für einen Pin × Cal-Feld. Wird in
+  // ``register_live_cal_params`` für alle 18 × 4 = 72 Kombinationen
+  // generiert; Single Source of Truth analog zu Stage-A-`_GAIT_PARAMS`.
+  struct PinParamSpec
+  {
+    int pin;                 // 0..17
+    std::string field;       // "pulse_min" | "pulse_zero" | "pulse_max" | "direction_normal"
+    std::string param_name;  // e.g. "pin_15.pulse_min"
+  };
+  std::vector<PinParamSpec> pin_param_specs_{};
+
+  // Param-Callback-Handle (lifecycle-managed): hält den
+  // Param-Callback-Hook am Leben für die Plugin-Laufzeit.
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+    param_cb_handle_{};
+
+  // /save_calibration-Service (registriert in on_configure).
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_service_{};
+
+  // ─── Phase 11 Stage C — /servo_pulses Diagnostic-Topic ─────────────────
+  // Live-Toggle für Cal-Session / Debugging. Default `false` —
+  // im Normalbetrieb keine Topic-Last (4 KB/s gespart auf dem Pi).
+  // Set via on_param_change wenn Param `publish_servo_pulses` toggled.
+  std::atomic<bool> publish_pulses_enabled_{false};
+
+  // Publisher selbst lebt immer (in on_init erzeugt) — wird in `write()`
+  // nur conditional benutzt (Param-Toggle + Subscriber-Check).
+  rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr
+    pulses_pub_{};
+
+  // Helper: deklariert die 72 Live-Cal-Params + registriert Callback.
+  // Aufgerufen am Ende von on_init.
+  void register_live_cal_params();
+
+  // Param-Callback: atomic-all-or-nothing-Validation analog Stage A.
+  // Direction-Updates in active-State werden abgelehnt
+  // (siehe is_active_ + B-Q4-Entscheidung).
+  rcl_interfaces::msg::SetParametersResult on_param_change(
+    const std::vector<rclcpp::Parameter> & params);
+
+  // Service-Callback: ruft calibration_.save_to_file(calibration_file_).
+  // Stellt sicher dass <calibration_file>.bak-<timestamp> erzeugt wird.
+  void handle_save_calibration(
+    std_srvs::srv::Trigger::Request::ConstSharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response);
+
+  // ─── Hardware-State (von Stage 9 her) ─────────────────────────────────
   // ─── Configuration (set in on_init from URDF + hardware_parameters) ──────
   std::string serial_port_path_{"/dev/ttyACM0"};
   std::string calibration_file_{};
@@ -96,6 +149,13 @@ private:
   // shutdown). uint8_t wraps at 256; firmware is stateless w.r.t. SEQ
   // (echoes it in replies) so wraparound is harmless.
   std::atomic<uint8_t> seq_{0};
+
+  // Phase 11 Stage B — Lifecycle-State-Tracking für Param-Callback.
+  // `get_node()` liefert `rclcpp::Node`, nicht `LifecycleNode` — wir
+  // tracken den State daher selbst. true ab `on_activate`-Erfolg,
+  // false ab `on_deactivate`-Start. Param-Callback liest atomic load
+  // um Direction-Updates in active-State abzulehnen (Servo-Sprung 180°).
+  std::atomic<bool> is_active_{false};
 
   // ─── Hardware (opened/started in on_configure, closed in on_cleanup) ─────
   // Declaration order is INTENTIONAL: serial_port_ is constructed first
