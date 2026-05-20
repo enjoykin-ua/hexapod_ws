@@ -441,7 +441,111 @@ Phase 11 Stage C — abgeschlossen 2026-05-20.
 
 ## Stufe D — rqt-Setup-Doku + Save/Load-Workflow
 
-> Wird mit Stage-D-Plan-Doku aufgefüllt sobald Stage C fertig ist.
+**Plan-Doku:** [`phase_11_stage_d_plan.md`](phase_11_stage_d_plan.md)
+**Test-Anleitung:** [`phase_11_stage_d_test_commands.md`](phase_11_stage_d_test_commands.md)
+**Setup-Doku:** [`phase_11_rqt_setup.md`](phase_11_rqt_setup.md)
+
+Aktiv seit 2026-05-20. User-Freigabe D-Q1=A, D-Q2=A, D-Q3=A, D-Q4=B.
+
+- [x] D.1 phase_11_stage_d_plan.md finalisiert + User-Freigabe (2026-05-20)
+- [x] D.2 phase_11_stage_d_test_commands.md Skelett (2026-05-20)
+- [x] D.3 `params_file`-Arg in gait.launch.py via OpaqueFunction-Pattern (D-Q1 Option A) — Inline-Defaults werden geladen, dann Preset darüber gelegt (rclpy late-precedence) (2026-05-20)
+- [x] D.4 Preset-Verzeichnis `src/hexapod_gait/config/presets/` mit README + `defensive_walk.yaml` (manuell kuratiert, langsam-sicher) (2026-05-20)
+- [x] D.5 `current_state.yaml` mit aktuellen Stage-A-Defaults committed (statt per ros2 param dump generated — zukünftige Tuning-Sessions überschreiben das) (2026-05-20)
+- [x] D.6 `docs_raspi/phase_11_rqt_setup.md`: Multi-Plugin-Layout-Doku, 3 Save-Workflows (Gait + Cal + lokale Perspective), Load-Workflows, rqt_plot-Limitation, Convenience-Aliases-Sektion, kompletter Cal-Session-Workflow (2026-05-20)
+- [x] D.7 `tools/hexapod-shell-aliases.sh` mit 5 Bash-Funktionen + selbst-dokumentierendem Top-Kommentar (D-Q3 Option A) (2026-05-20)
+  - [x] D.7a Script mit Top-Kommentar (Use-Case, Source-Befehl, Funktions-Tabelle, Beispiel-Workflow) (2026-05-20)
+  - [x] D.7b `tools/README.md` als Tools-Verzeichnis-Index (2026-05-20)
+  - [x] D.7c „Convenience Aliases (optional)"-Sektion 5 in `phase_11_rqt_setup.md` (2026-05-20)
+  - [x] D.7d 2-Zeiler-Pointer in `src/hexapod_gait/README.md` Phase-11-Block (2026-05-20)
+  - [x] D.7e 2-Zeiler-Pointer in `src/hexapod_hardware/README.md` Phase-11-Block (2026-05-20)
+  - [x] D.7f Memory-Eintrag `project_phase11_convenience_aliases.md` + MEMORY.md-Index (2026-05-20)
+- ~~D.8 rqt-Perspective committen~~ — entfällt (D-Q4 Option B: nur Setup-Doku)
+- [x] D.9 setup.py erweitert: Preset-YAMLs + README landen im share/hexapod_gait/config/presets/ install-tree (2026-05-20)
+- [x] D.10 colcon build + Regression: hexapod_gait 20/0/1, hexapod_bringup 18/0/0, hexapod_hardware 220/0/20 — alle grün, kein Regression (2026-05-20)
+- [x] D.11 User-Smoke D-T3..D-T7 ✅ (2026-05-20): D-T3 Defaults (implicit), D-T4 params_file-Override (cycle_time=4.0 + Preset-Werte propagieren), D-T5 dump-Roundtrip (`my_test_session.yaml` korrekt erzeugt + reload), D-T6 Bash-Aliases (5 Funktionen vorhanden, `alias_test.yaml` erzeugt), D-T7 rqt-Multi-Plugin-Layout. Plus zwei Doku-Bugs in User-Smoke gefunden + gefixt: (a) `ros2 param dump` in Jazzy hat keine `--output-dir`/`--filename`-Args mehr — Redirect via `>` ist Standard, (b) rqt-Container wird direkt mit `rqt` aufgerufen statt `ros2 run rqt rqt` (Quirk: nur in /opt/ros/jazzy/bin, nicht als ros2-run-executable registriert)
+- [x] D.12 Self-Review-Tabelle (siehe unten, 2026-05-20)
+- [x] D.13 Stage-D-Notizen + Übergang Stage E (2026-05-20)
+
+### Stage-D-Notizen (für Stage E + Folge-Phasen)
+
+- **`ros2 param dump` Syntax in Jazzy:** kein `--output-dir`/`--filename`
+  mehr (gab's in Foxy/Galactic). Nur stdout → Redirect via `>` ist
+  Standard. Bei künftigen Param-Dump-Sessions daran denken.
+- **`rqt`-Container-Quirk:** Executable liegt in `/opt/ros/jazzy/bin/`,
+  nicht unter `lib/<pkg>/`. Direkt mit `rqt` aufrufen (PATH), NICHT
+  `ros2 run rqt rqt`. Standalone-Plugins (`rqt_reconfigure`, `rqt_plot`)
+  laufen weiter über `ros2 run`.
+- **OpaqueFunction-Pattern für conditional Launch-Args** hat sich
+  bewährt — saubere Trennung zwischen Plan-Zeit (LaunchArg-Deklaration)
+  und Launch-Zeit (Substitution-Evaluation). Stage E könnte das
+  Pattern für eigene optionale Test-Args wiederverwenden.
+- **Preset-File-Strategie** (Inline-Defaults + späteres params_file =
+  Override) ist ROS2-Standard. Wer das nicht weiß könnte fragen
+  „warum gewinnen meine YAML-Werte?" — Setup-Doku Sektion 3.1 erklärt
+  das explizit.
+- **5-fache Discoverability** für tools/hexapod-shell-aliases.sh hat
+  sich angefühlt wie Overkill beim Schreiben — aber genau das ist der
+  Zweck: jeder Pfad zu Phase-11-Tooling soll das Script finden.
+  Bewährt: Memory-Eintrag wird in künftigen Claude-Sessions
+  automatisch geladen.
+- **Cross-Phase-Pendenzen Stage D schließt:** keine direkt. Stage D
+  ist ein "Polish + Workflow"-Stage ohne offene Pendenzen-Liste.
+- **Cross-Phase-Pendenzen die Stage D NICHT schließt:**
+  - `project_phase10_tibia_length_sim_pending.md` — Sim-Verifikation
+    Tibia-Update bleibt für Stage E
+  - `project_phase13_initial_pose_presets.md` — Initial-Pose-Presets
+    bleiben Phase 13
+
+### Übergang Stage E
+
+**Stage E** = Sim-Tuning-Workshop-Doku + Best-Param-Preset-YAMLs
+(~0.5 d laut Mutter-Plan).
+
+**Inhalte:**
+- Workshop-Doku `docs_raspi/phase_11_sim_tuning_workshop.md` mit
+  Test-Szenarien (langsamer Vorwärts-Walk, schneller Vorwärts,
+  Drehen auf der Stelle, Kurvenfahrt, body_height-Variationen,
+  Single-Leg-Debug)
+- 2-3 weitere Preset-YAMLs in `src/hexapod_gait/config/presets/`:
+  z.B. `demo_walk.yaml`, `aggressive_walk.yaml`, evtl.
+  `single_leg_3_test.yaml`
+- **Cross-Phase-Pendenz:** Sim-Verifikation Tibia-Update aus Phase 10
+  (Memory `project_phase10_tibia_length_sim_pending.md`) — Stage E ist
+  eine Sim-Session, passt um diese zu erledigen
+
+**Done-Kriterium D:** ✅ erreicht 2026-05-20 — `params_file:=`-Arg in
+gait.launch.py funktional (Default + Preset-Override via OpaqueFunction-
+Pattern), Preset-Verzeichnis mit `defensive_walk.yaml` +
+`current_state.yaml`, vollständige Setup-Doku in
+`phase_11_rqt_setup.md` (Multi-Plugin-Layout + 3 Save-Workflows + rqt_plot-
+Limitation + Cal-Session-Workflow), Bash-Aliases mit 5 Funktionen + 5-
+facher Discoverability, alle Tests grün (20/0/1, 18/0/0, 220/0/20),
+User-Smoke D-T3..D-T7 bestätigt.
+
+Phase 11 Stage D — abgeschlossen 2026-05-20.
+
+### Stufe-D-Post-Review (Self-Review vor User-Smoke, 2026-05-20)
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | **OpaqueFunction-Pattern für conditional params_file** — Standard ROS2-Launch-Idiom für „wenn LaunchConfiguration leer, skip". Cleaner als IfCondition-Doppel-Node-Pattern | OK |
+| 2 | **Inline-Defaults werden explizit zu `float` konvertiert** vor Übergabe an Node — sonst landen sie als Strings im Param-Server und ParameterDescriptor-Validation aus Stage A schmeißt Range-Verletzung (LaunchConfiguration ist immer string) | OK |
+| 3 | **`current_state.yaml` ist manuell gepflegt statt dump-generated** — User hat Stage D ohne Live-Session committet, daher kein echter Dump. Bei nächstem Tuning-Session-Save wird die Datei automatisch aktualisiert (oder via hexapod-save-walking-params überschrieben) | 🟡 vormerken — falls Stage-A-Default später ändert, manuelle Sync nötig bis erster echter Dump |
+| 4 | **Preset-File ohne führendes `--- yaml-doc-marker`** — ros2 param dump generiert es ohne, daher konsistent | OK |
+| 5 | **Stale build/install in src/hexapod_gait** wurden während implementation versehentlich erzeugt (durch python3 -m ament_pep257 mit cd src/hexapod_gait + colcon build aus falschem cwd). Aufgeräumt + .flake8 aus Stage-A-Refactor verhindert dass es Tests bricht | OK — gefangen durch Stage-A-`.flake8`-Schutz |
+| 6 | **Bash-Aliases nutzen `${HEXAPOD_WS:-${HOME}/hexapod_ws}`** — User kann via Environment-Variable überschreiben falls anderer Pfad. Documented in Top-Kommentar | OK |
+| 7 | **5-fache Discoverability** voll implementiert: File-Top-Kommentar + tools/README.md + phase_11_rqt_setup.md Sektion 5 + 2× Paket-README-Pointer + Memory-Eintrag (D.7a-D.7f) | OK |
+| 8 | **rqt-Perspective bewusst nicht committed** (D-Q4 Option B) — Setup-Doku in phase_11_rqt_setup.md beschreibt manuellen Aufbau ausführlich. User-Smoke D-T7 verifiziert dass die Doku klar genug ist | 🟡 vormerken — wenn D-T7 zeigt dass Doku unklar, Plan-Korrektur auf Option A (Perspective doch committen) |
+| 9 | **Stage-A-`_GAIT_PARAMS`-Defaults und `current_state.yaml`-Inhalt müssen synchron bleiben** — Drift wenn Stage A erweitert wird ohne `current_state.yaml` zu updaten | 🟡 vormerken — bei Stage-A-Erweiterung beide Stellen mit-updaten |
+| 10 | **Preset-Files überschreiben Inline-Defaults durch späteres Auftreten in parameters-Liste** — ROS2-Standard-Pattern, dokumentiert. Wenn User unklar wäre wieso „seine YAML-Werte gewinnen" → README-Hinweis | OK |
+| 11 | **Convenience-Aliases nutzen hardcoded `src/hexapod_gait/config/presets/`-Pfad** — bei Repo-Layout-Änderung müsste auch das Script aktualisiert werden | OK aber 🟡 — User könnte selber `$HEXAPOD_PRESETS_DIR` env-var via Override einbauen wenn nötig |
+| 12 | **rqt_plot-Limitation Stage C wird in phase_11_rqt_setup.md erwähnt** mit drei Workarounds (CLI-echo, ohne Indexing, Toggle-Test) — User hat das Wissen, kein Setup-Fall mehr | OK |
+
+**Self-Review-Ergebnis:** 0× 🔴, 4× 🟡 (alle minor maintenance-Konsistenz-
+Punkte: current_state.yaml-Sync, Perspective-Doku-Klarheit-via-Smoke,
+Stage-A-Drift-Risiko, Preset-Pfad-Hardcoded). Stage D ready für
+User-Smoke D-T3..D-T7.
 
 ---
 

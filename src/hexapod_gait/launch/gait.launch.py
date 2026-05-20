@@ -22,7 +22,7 @@ ersten WALKING-Tick gibt.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -165,32 +165,81 @@ def generate_launch_description() -> LaunchDescription:
         description='Sim-Time aus /clock verwenden.',
     )
 
-    gait_node = Node(
-        package='hexapod_gait',
-        executable='gait_node',
-        name='gait_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[{
-            'gait_pattern': LaunchConfiguration('gait_pattern'),
-            'step_height': LaunchConfiguration('step_height'),
-            'cycle_time': LaunchConfiguration('cycle_time'),
-            'tick_rate': LaunchConfiguration('tick_rate'),
-            'body_height': LaunchConfiguration('body_height'),
-            'radial_distance': LaunchConfiguration('radial_distance'),
-            'time_from_start_factor': LaunchConfiguration(
-                'time_from_start_factor'
-            ),
-            'step_length_max': LaunchConfiguration('step_length_max'),
-            'default_linear_x': LaunchConfiguration('default_linear_x'),
-            'default_linear_y': LaunchConfiguration('default_linear_y'),
-            'default_angular_z': LaunchConfiguration('default_angular_z'),
-            'cmd_vel_timeout': LaunchConfiguration('cmd_vel_timeout'),
-            'body_height_min': LaunchConfiguration('body_height_min'),
-            'body_height_max': LaunchConfiguration('body_height_max'),
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-        }],
+    # Phase 11 Stage D — Preset-File-Loader (D-Q1 Option A).
+    # Optional: wenn nicht-leer, wird das YAML zusätzlich zur
+    # Inline-Default-Parametersliste übergeben. ROS2 priorisiert
+    # spätere Einträge → params_file überschreibt die Inline-Defaults.
+    # Bei leerem params_file: nur Inline-Defaults wirken.
+    params_file_arg = DeclareLaunchArgument(
+        'params_file',
+        default_value='',
+        description=(
+            'Optionales YAML-Preset-File mit gait_node-Parametern. '
+            'Bei nicht-leer: überschreibt die individuellen Launch-Args. '
+            'Beispiele liegen unter '
+            'src/hexapod_gait/config/presets/. '
+            'Erzeugung: ros2 param dump /gait_node --output-dir ... '
+            '--filename <name>.'
+        ),
     )
+
+    def setup_gait_node(context, *args, **kwargs):
+        """
+        Build Node-Aktion mit conditional params_file-Loading.
+
+        Standard ROS2-Launch-Pattern: LaunchConfiguration kann nicht
+        zur Plan-Zeit verglichen werden, daher OpaqueFunction die zur
+        Launch-Zeit den Substitution-Wert evaluiert.
+        """
+        params_file = LaunchConfiguration('params_file').perform(context)
+        inline_params = {
+            'gait_pattern': LaunchConfiguration('gait_pattern').perform(context),
+            'step_height': float(
+                LaunchConfiguration('step_height').perform(context)),
+            'cycle_time': float(
+                LaunchConfiguration('cycle_time').perform(context)),
+            'tick_rate': float(
+                LaunchConfiguration('tick_rate').perform(context)),
+            'body_height': float(
+                LaunchConfiguration('body_height').perform(context)),
+            'radial_distance': float(
+                LaunchConfiguration('radial_distance').perform(context)),
+            'time_from_start_factor': float(
+                LaunchConfiguration('time_from_start_factor').perform(context)),
+            'step_length_max': float(
+                LaunchConfiguration('step_length_max').perform(context)),
+            'default_linear_x': float(
+                LaunchConfiguration('default_linear_x').perform(context)),
+            'default_linear_y': float(
+                LaunchConfiguration('default_linear_y').perform(context)),
+            'default_angular_z': float(
+                LaunchConfiguration('default_angular_z').perform(context)),
+            'cmd_vel_timeout': float(
+                LaunchConfiguration('cmd_vel_timeout').perform(context)),
+            'body_height_min': float(
+                LaunchConfiguration('body_height_min').perform(context)),
+            'body_height_max': float(
+                LaunchConfiguration('body_height_max').perform(context)),
+            'use_sim_time': (
+                LaunchConfiguration('use_sim_time').perform(context).lower()
+                == 'true'),
+        }
+
+        # parameters-Liste: erst Inline-Defaults, dann (falls gegeben)
+        # das Preset-File. ROS2 wendet sie sequenziell an — letzter
+        # Eintrag gewinnt bei Kollision.
+        parameters = [inline_params]
+        if params_file:
+            parameters.append(params_file)
+
+        return [Node(
+            package='hexapod_gait',
+            executable='gait_node',
+            name='gait_node',
+            output='screen',
+            emulate_tty=True,
+            parameters=parameters,
+        )]
 
     return LaunchDescription([
         gait_pattern_arg,
@@ -208,5 +257,6 @@ def generate_launch_description() -> LaunchDescription:
         body_height_min_arg,
         body_height_max_arg,
         use_sim_time_arg,
-        gait_node,
+        params_file_arg,
+        OpaqueFunction(function=setup_gait_node),
     ])

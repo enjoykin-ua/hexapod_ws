@@ -1,0 +1,39 @@
+# =============================================================================
+# Hexapod gait_node Preset — "Current State" (Snapshot 2026-05-20)
+# =============================================================================
+#
+# Phase 11 Stage D — Snapshot der gait.launch.py-Defaults zum Stand der
+# Stage-D-Implementation. Doppelter Zweck:
+#
+# 1) Roundtrip-Sanity: zeigt User wie ein 'ros2 param dump'-Output
+#    strukturell aussieht.
+# 2) Versionierte Tuning-Baseline: "so war die Walking-Konfig am Tag
+#    der Stage-D-Implementation".
+#
+# Generiert via:
+#   ros2 param dump /gait_node > src/hexapod_gait/config/presets/current_state.yaml
+#
+# (in dieser Version manuell aus den Stage-A-Defaults
+# in hexapod_gait/gait_node.py _GAIT_PARAMS-Tabelle erstellt — bei
+# erstem echten Tuning-Session via ros2 param dump überschreiben.)
+#
+# Laden:
+#   ros2 launch hexapod_gait gait.launch.py \
+#     params_file:=src/hexapod_gait/config/presets/current_state.yaml
+# =============================================================================
+/gait_node:
+  ros__parameters:
+    gait_pattern: tripod
+    step_height: 0.03
+    cycle_time: 2.0
+    tick_rate: 50.0
+    body_height: -0.052
+    radial_distance: 0.27
+    time_from_start_factor: 2.0
+    step_length_max: 0.05
+    default_linear_x: 0.0
+    default_linear_y: 0.0
+    default_angular_z: 0.0
+    cmd_vel_timeout: 0.5
+    body_height_min: -0.080
+    body_height_max: -0.030

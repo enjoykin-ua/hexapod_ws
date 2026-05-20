@@ -42,7 +42,26 @@ ros2 launch hexapod_gait gait.launch.py \
 # Stufe-E-Backward-Compat: nur ein Bein schwingt
 ros2 launch hexapod_gait gait.launch.py \
   gait_pattern:=single_leg_1 default_linear_x:=0.05
+
+# Phase 11 Stage D: mit Preset-File starten
+ros2 launch hexapod_gait gait.launch.py \
+  params_file:=src/hexapod_gait/config/presets/defensive_walk.yaml
 ```
+
+### Phase 11 — Live-Param-Tuning + Preset-Workflow
+
+- Stage A — alle 14 gait_node-Params sind live via `ros2 param set` /
+  `rqt_reconfigure` tunbar (Range-Constraints + atomic-all-or-nothing-
+  Validation). Details in [gait_node.py](hexapod_gait/gait_node.py)
+  `_GAIT_PARAMS`-Tabelle.
+- Stage D — Preset-YAMLs unter [`config/presets/`](config/presets/),
+  ladbar via `params_file:=<path>.yaml`-Launch-Arg. Erzeugung via
+  `ros2 param dump /gait_node ...`.
+- **Convenience:** [`tools/hexapod-shell-aliases.sh`](../../tools/hexapod-shell-aliases.sh)
+  bietet `hexapod-save-walking-params`, `hexapod-load-walking-preset`,
+  `hexapod-save-cal` etc. Opt-in: in `~/.bashrc` aufnehmen.
+- **Setup-Doku:** [`docs_raspi/phase_11_rqt_setup.md`](../../docs_raspi/phase_11_rqt_setup.md)
+  beschreibt rqt-Multi-Plugin-Aufbau + Save/Load-Workflows.
 
 ### Walk steuern via cmd_vel
 

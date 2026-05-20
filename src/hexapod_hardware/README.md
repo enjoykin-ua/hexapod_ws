@@ -177,6 +177,17 @@ ls -la src/hexapod_hardware/config/servo_mapping.yaml*
 # servo_mapping.yaml.bak-2026-05-20T14-30-15  ← vor Save
 ```
 
+### Phase 11 Stage D — Convenience für Cal-Sessions
+
+- **rqt-Multi-Plugin-Setup** + Save/Load-Workflow-Doku:
+  [`docs_raspi/phase_11_rqt_setup.md`](../../docs_raspi/phase_11_rqt_setup.md)
+- **Bash-Aliases** (optional): `hexapod-save-cal`,
+  `hexapod-list-cal-backups` u.a. via
+  [`tools/hexapod-shell-aliases.sh`](../../tools/hexapod-shell-aliases.sh)
+- Gait-Preset-System (separat): siehe
+  [`src/hexapod_gait/README.md`](../hexapod_gait/README.md)
+  „Phase 11 — Live-Param-Tuning"-Sektion
+
 ### Topics
 
 Das Plugin publisht **keine** ROS-Topics direkt — State + Command-

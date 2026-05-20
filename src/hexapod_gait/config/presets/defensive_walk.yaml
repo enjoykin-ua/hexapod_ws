@@ -1,0 +1,26 @@
+# =============================================================================
+# Hexapod gait_node Preset — "Defensive Walk"
+# =============================================================================
+#
+# Phase 11 Stage D — manuell kuratiertes Preset für langsam-sicheres Walking.
+# Geeignet für Erstinbetriebnahme, Bench-Tests, neue Cal-Sessions.
+#
+# Charakteristik:
+#   - Cycle-Time 4.0 s (doppelt so langsam wie Default 2.0 s)
+#   - kleine Stride (3 cm statt 5 cm)
+#   - niedrige Foot-Hub (2.5 cm statt 3 cm)
+#   - Body etwas höher über Boden (-0.050 statt -0.052)
+#
+# Felder die nicht angegeben sind, behalten den Default aus
+# gait.launch.py (z.B. gait_pattern: tripod).
+#
+# Laden:
+#   ros2 launch hexapod_gait gait.launch.py \
+#     params_file:=src/hexapod_gait/config/presets/defensive_walk.yaml
+# =============================================================================
+/gait_node:
+  ros__parameters:
+    cycle_time: 4.0
+    step_length_max: 0.03
+    step_height: 0.025
+    body_height: -0.050

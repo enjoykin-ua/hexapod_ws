@@ -155,7 +155,7 @@ Gait-Presets aus YAML lädt. `real.launch.py` bleibt unverändert —
 Plugin-Cal-Persistenz läuft weiter über den Stage-B-Save-Service.
 
 **Workflow:**
-- **Gait:** `ros2 param dump /gait_node ... --filename my_walk` zum
+- **Gait:** `ros2 param dump /gait_node > .../presets/my_walk.yaml` zum
   Speichern; `ros2 launch hexapod_gait gait.launch.py
   params_file:=.../my_walk.yaml` zum Laden
 - **Cal:** `ros2 service call /save_calibration std_srvs/srv/Trigger`
@@ -445,7 +445,7 @@ rqt_plot adden, Nodes in rqt_reconfigure auswählen).
 
 Eine **rqt-Perspective** ist ein gespeicherter Snapshot dieses Layouts
 (Plugin-Liste + Fenster-Positionen + Plugin-Settings als XML). Laden
-via `ros2 run rqt rqt --perspective-file foo.perspective` → Layout
+via `rqt --perspective-file foo.perspective` → Layout
 sofort wieder da. Speichern via rqt-Menü „Perspectives → Save
 Perspective As".
 
@@ -482,14 +482,14 @@ aufzubauen ist.
 
 **User-Workflow:**
 ```bash
-ros2 run rqt rqt
+rqt
 # Doku öffnen + den 8 Schritten folgen
 # (Optional: User speichert sich selbst eine Perspective lokal,
 #  z.B. ~/.config/ros.org/rqt_gui.ini)
 ```
 
 **Setup-Doku-Inhalt (Sektion in phase_11_rqt_setup.md):**
-1. `ros2 run rqt rqt` starten (leeres Fenster)
+1. `rqt` starten (leeres Fenster)
 2. Plugins → Configuration → Dynamic Reconfigure
 3. Plugins → Visualization → Plot
 4. Plugins → Topics → Topic Monitor
@@ -608,7 +608,7 @@ src/hexapod_gait/config/presets/
 Neue Datei `docs_raspi/phase_11_rqt_setup.md` mit:
 
 **Sektion 1 — Multi-Plugin-Layout (manueller Aufbau, D-Q4 Option B):**
-- rqt-Container starten: `ros2 run rqt rqt` (leeres Fenster)
+- rqt-Container starten: `rqt` (leeres Fenster)
 - Plugins → Configuration → Dynamic Reconfigure (für Param-Slider)
 - Plugins → Visualization → Plot (für /servo_pulses)
 - Plugins → Topics → Topic Monitor (für /joint_states etc.)
@@ -623,8 +623,8 @@ Neue Datei `docs_raspi/phase_11_rqt_setup.md` mit:
   Repo committen** — siehe D-Q4 Option B: Portability-Risk zu hoch
 
 **Sektion 2 — Save-Workflow:**
-- Gait-Params snapshot: `ros2 param dump /gait_node --output-dir
-  src/hexapod_gait/config/presets/ --filename my_preset`
+- Gait-Params snapshot: `ros2 param dump /gait_node > src/hexapod_gait/config/presets/my_preset.yaml`
+  (Hinweis: Jazzy hat kein `--output-dir`/`--filename` mehr → stdout-Redirect)
 - Plugin-Cal snapshot: via Stage-B Service `/save_calibration`
 - WICHTIG: zwei verschiedene Persistenz-Mechanismen, nicht verwechseln
 
@@ -653,12 +653,12 @@ Neue Datei `tools/hexapod-shell-aliases.sh`:
 # Or: source ~/hexapod_ws/tools/hexapod-shell-aliases.sh
 
 # Speichere aktuelle gait-Tuning-Session als Preset
+# (Jazzy: ros2 param dump nur stdout → Redirect via `>`)
 hexapod-save-walking-params() {
   local name=${1:-current_state}
-  ros2 param dump /gait_node \
-    --output-dir ~/hexapod_ws/src/hexapod_gait/config/presets/ \
-    --filename "${name}"
-  echo "Saved /gait_node params to .../presets/${name}.yaml"
+  local out=~/hexapod_ws/src/hexapod_gait/config/presets/${name}.yaml
+  ros2 param dump /gait_node > "${out}"
+  echo "Saved /gait_node params to ${out}"
 }
 
 # Lade ein Preset beim Start
@@ -677,9 +677,7 @@ hexapod-save-cal() {
 ### D.5 — `current_state.yaml` auto-generieren (~10 min)
 
 ```bash
-ros2 param dump /gait_node \
-  --output-dir src/hexapod_gait/config/presets/ \
-  --filename current_state
+ros2 param dump /gait_node > src/hexapod_gait/config/presets/current_state.yaml
 ```
 
 → Ergibt `current_state.yaml` mit den 14 Live-Params. Wird mit-committed
@@ -703,7 +701,7 @@ Perspective speichern (außerhalb des Repos).
   `presets/my_test.yaml`
 - Load Workflow: `ros2 launch hexapod_gait gait.launch.py
   params_file:=src/hexapod_gait/config/presets/defensive_walk.yaml`
-- rqt-Multi-Plugin-Layout: `ros2 run rqt rqt` + manueller Aufbau
+- rqt-Multi-Plugin-Layout: `rqt` + manueller Aufbau
   nach Setup-Doku-Schritten (D-Q4 Option B — keine Perspective-File)
 
 ### D.9 — README hexapod_gait + Self-Review
@@ -718,9 +716,9 @@ Perspective speichern (außerhalb des Repos).
 | D-T2 | `colcon test`: hexapod_gait 20/0/1, hexapod_bringup 18/0/0, hexapod_hardware 220/0/20 (alles unverändert) | Claude |
 | D-T3 (User) | `ros2 launch hexapod_gait gait.launch.py` ohne params_file → Defaults wirken | User |
 | D-T4 (User) | `ros2 launch hexapod_gait gait.launch.py params_file:=presets/defensive_walk.yaml` → cycle_time=4.0, step_length_max=0.03 sichtbar via `ros2 param get` | User |
-| D-T5 (User) | `ros2 param dump /gait_node --output-dir ...` erzeugt valides YAML, das wiederum als params_file ladbar ist (Roundtrip) | User |
+| D-T5 (User) | `ros2 param dump /gait_node > .../my_session.yaml` erzeugt valides YAML, das wiederum als params_file ladbar ist (Roundtrip) | User |
 | D-T6 (User) | Bash-Aliases (falls D-Q3 = A): `hexapod-save-walking-params test_session` erzeugt yaml | User |
-| D-T7 (User) | rqt-Multi-Plugin-Layout via `ros2 run rqt rqt` + Doku-Schritte → User baut Layout in <5 min auf, verifiziert dass Doku korrekt ist (D-Q4 Option B) | User |
+| D-T7 (User) | rqt-Multi-Plugin-Layout via `rqt` + Doku-Schritte → User baut Layout in <5 min auf, verifiziert dass Doku korrekt ist (D-Q4 Option B) | User |
 
 ### Was bewusst NICHT in Stage D getestet wird
 
