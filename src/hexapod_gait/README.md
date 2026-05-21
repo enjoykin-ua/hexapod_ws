@@ -62,6 +62,11 @@ ros2 launch hexapod_gait gait.launch.py \
   `hexapod-save-cal` etc. Opt-in: in `~/.bashrc` aufnehmen.
 - **Setup-Doku:** [`docs_raspi/phase_11_rqt_setup.md`](../../docs_raspi/phase_11_rqt_setup.md)
   beschreibt rqt-Multi-Plugin-Aufbau + Save/Load-Workflows.
+- **Workshop-Doku** (Stage E):
+  [`docs_raspi/phase_11_sim_tuning_workshop.md`](../../docs_raspi/phase_11_sim_tuning_workshop.md)
+  mit 6 Test-Szenarien (defensive/demo/aggressive Walk, Drehen,
+  Kurvenfahrt, body_height-Variation) — Sim-Manual für sinnvolles
+  Walking-Tuning.
 
 ### Walk steuern via cmd_vel
 

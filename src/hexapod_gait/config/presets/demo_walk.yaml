@@ -1,0 +1,30 @@
+# =============================================================================
+# Hexapod gait_node Preset — "Demo Walk"
+# =============================================================================
+#
+# Phase 11 Stage E — mittel-schneller Walking-Stil für Demonstrations-
+# Zwecke. Sichtbare Bein-Bewegung ohne aggressive Stride-Längen.
+#
+# Charakteristik (gegenüber gait.launch.py-Defaults):
+#   - step_height 0.035 (statt 0.03) — Beine heben etwas höher,
+#     visuell aktiveres Walking
+#   - cycle_time + step_length_max: bleiben bei Defaults (2.0 s / 0.05 m)
+#     → linear_max = 0.05 m/s wie default
+#   - body_height bleibt bei -0.052 Default
+#
+# Use-Case:
+#   - Phase-11-Doku/Workshop-Beispiel
+#   - Demo-Videos
+#   - Erst-Eindruck wie Roboter in Sim aussieht
+#
+# Verifikation (Stage E User-Smoke E-T3a, 2026-05-21):
+#   In Sim mit linear.x=0.04 m/s — Roboter läuft stabil vorwärts,
+#   sichtbare Tripod-Gangart, keine IK-Errors.
+#
+# Laden:
+#   ros2 launch hexapod_gait gait.launch.py \
+#     params_file:=src/hexapod_gait/config/presets/demo_walk.yaml
+# =============================================================================
+/gait_node:
+  ros__parameters:
+    step_height: 0.035

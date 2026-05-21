@@ -3,15 +3,22 @@
 **Phase:** Param-GUI mit Live-Tuning (rqt_reconfigure)
 **Plan:** [phase_11_param_gui.md](phase_11_param_gui.md)
 **Aktiv seit:** 2026-05-19
+**Abgeschlossen:** ✅ 2026-05-21
 
-> **Session-Continuity-Hinweis (für neue Chat-Session):**
+> **Phase-11-Abschluss-Banner:** Alle 6 Stages A–F durchgelaufen.
+> Live-Param-Tuning-Infrastruktur für gait_node (14 Params),
+> hexapod_hardware Plugin (72 Pin-Cal-Params + Diagnostic-Topic) und
+> Gait-Preset-Workflow vollständig. CI grün (hexapod_gait 20/0/1,
+> hexapod_bringup 18/0/0, hexapod_hardware 220/0/20). Cross-Phase-
+> Pendenz Tibia-Sim aus Phase 10 geschlossen. Phase-Retrospektive
+> am Ende dieser Datei. Phase 12 (Pi-Plattform) ist nächste aktive
+> Phase.
 >
-> Aktueller Stand: **Stage A wartet auf User-Freigabe**.
-> Plan-Doku ist in [`phase_11_stage_a_plan.md`](phase_11_stage_a_plan.md).
-> Vor Code-Beginn: **Pre-Implementation Code-Inspection** lesen (im
-> Plan-Doc Abschnitt „🔍 Pre-Implementation Code-Inspection") — das
-> klärt gait_node-Struktur, GaitEngine-State-Machine, existing
-> `cmd_body_height`-Topic-Handler als Vorbild.
+> Für nachfolgende Chats: Live-Param-Workflow ist via Setup-Doku
+> [`phase_11_rqt_setup.md`](phase_11_rqt_setup.md), Workshop-Szenarien
+> in [`phase_11_sim_tuning_workshop.md`](phase_11_sim_tuning_workshop.md),
+> Convenience-Aliases in
+> [`tools/hexapod-shell-aliases.sh`](../tools/hexapod-shell-aliases.sh).
 >
 > **8 offene Fragen (A-Q1..A-Q8)** stehen unter „User-Antworten" in der
 > Plan-Doku — User muss freigeben. Wichtigste Anpassung gegenüber dem
@@ -551,20 +558,263 @@ User-Smoke D-T3..D-T7.
 
 ## Stufe E — Sim-Tuning-Workshop + Best-Param-Presets
 
-> Wird mit Stage-E-Plan-Doku aufgefüllt sobald Stage D fertig ist.
+**Plan-Doku:** [`phase_11_stage_e_plan.md`](phase_11_stage_e_plan.md)
+**Test-Anleitung:** [`phase_11_stage_e_test_commands.md`](phase_11_stage_e_test_commands.md)
+**Workshop-Doku:** [`phase_11_sim_tuning_workshop.md`](phase_11_sim_tuning_workshop.md)
 
-Plus: Sim-Verifikation Tibia-Update (Memory `project_phase10_tibia_length_sim_pending.md`) erledigen.
+Aktiv seit 2026-05-21. User-Freigabe E-Q1=A, E-Q2=A, E-Q3=A, E-Q4=A.
+
+- [x] E.1 phase_11_stage_e_plan.md finalisiert + User-Freigabe (2026-05-21)
+- [x] E.2 phase_11_stage_e_test_commands.md Skelett (Terminal-Konvention dokumentiert, Jazzy-Syntax-Hinweise aus Stage-D-Findings übernommen) (2026-05-21)
+- [x] E.3 Workshop-Doku `phase_11_sim_tuning_workshop.md` mit 6 Szenarien (defensive/demo/aggressive Walk, Drehen, Kurvenfahrt, body_height-Live) — pro Szenario Preset-Verweis + erwartete Beobachtung in Worten (E-Q2 Option A) (2026-05-21)
+- [x] E.4 `demo_walk.yaml` committet (step_height=0.035, sonst Defaults) (2026-05-21)
+- [x] E.5 `aggressive_walk.yaml` committet (cycle_time=1.5, step_length_max=0.06, step_height=0.04, body_height=-0.055 → linear_max=0.08 m/s) (2026-05-21)
+- ~~E.6 single_leg_3_test.yaml~~ — entfällt (E-Q1 Option A: nur demo + aggressive, single_leg in Phase 13)
+- [x] E.7 Tibia-Sim-Verifikation **implizit via E-T3a + E-T3b** (Walking ohne IK-Errors = Tibia-Update funktional in Sim verifiziert). Memory-Eintrag `project_phase10_tibia_length_sim_pending.md` gelöscht + MEMORY.md-Index aktualisiert (2026-05-21)
+- [x] E.8 README-Updates: `presets/README.md` mit 4-Preset-Tabelle + Workshop-Doku-Pointer; `hexapod_gait/README.md` mit Workshop-Doku-Pointer im Phase-11-Block (2026-05-21)
+- [x] E.9 colcon build + Regression grün: hexapod_gait 20/0/1, hexapod_bringup 18/0/0, hexapod_hardware 220/0/20 — keine Regression (2026-05-21)
+- [x] E.10 User-Smoke (2026-05-21): E-T3a ✅ (demo_walk läuft mit step_height=0.035 stabil), E-T3b ✅ (aggressive_walk linear_max=0.08 m/s, keine IK-Errors), E-T4 ✅ implizit via T3a+T3b (Walking ohne IK-Errors beweist Tibia-Update funktional). Plus Doku-Fix: cwd-Falle bei relativem `params_file:=src/...`-Pfad — User war im `~`-Verzeichnis, ROS-Launch warnt nur statt zu failen. Test-Doku + Workshop-Doku haben jetzt explizite `cd ~/hexapod_ws`-Vorbedingung + Bash-Alias-Alternative
+- [x] E.11 Self-Review-Tabelle (siehe unten, 2026-05-21)
+- [x] E.12 Stage-E-Notizen + Übergang Stage F (2026-05-21)
+
+### Stage-E-Notizen (für Stage F + Folge-Phasen)
+
+- **`params_file:=` mit relativem Pfad ist cwd-abhängig** — ROS-Launch
+  warnt nur (`Parameter file path is not a file: ...`), startet aber
+  mit Inline-Defaults, daher subtil zu übersehen. Test-Doku +
+  Workshop-Doku haben `cd ~/hexapod_ws`-Vorbedingung. Stage-D-Bash-
+  Alias `hexapod-load-walking-preset` nutzt absoluten Pfad → das ist
+  der robuste User-Workflow.
+- **Geschwindigkeits-Unterschied demo vs aggressive** war für User-
+  Beobachtung in Sim „etwas klein" (linear_max 0.05 vs 0.08 m/s).
+  User-Entscheidung 2026-05-21: für jetzt akzeptiert, Feinabstimmung
+  in Phase 13 mit echter HW (dort spielen Servo-Limits + Stromaufnahme
+  rein, Sim-Spread ist eh nur Schätzung).
+- **Tibia-Update Sim-Verifikation funktioniert implizit über Walking-
+  Smoke** — wenn IK keine OutOfReach-Errors wirft beim Walking, ist
+  die URDF-Geometrie konsistent. Explizite visuelle Tibia-Längen-
+  Messung in RViz ist Polish, nicht funktional notwendig.
+- **Memory-Pendenz-Pattern erfolgreich angewandt:** Memory-Eintrag
+  während Implementation als „pending" markiert, in der passenden
+  späteren Phase (hier E) durch Sim-Touch erledigt, dann gelöscht.
+  Kein Drift, kein vergessen.
+- **Workshop-Doku-Stil:** Verweis auf Preset-Files (kein Werte-Doppel)
+  + Beobachtung in Worten — funktioniert für User-Selbst-Discovery.
+  Bei Phase 13 könnte numerische Metriken (Stop-Latenz, Stromprofile)
+  ergänzt werden.
+
+### Cross-Phase-Pendenzen Stage E schließt
+
+- ✅ `project_phase10_tibia_length_sim_pending.md` — funktional via
+  Walking-Smoke verifiziert, Memory + Index-Eintrag entfernt
+  (2026-05-21)
+
+### Cross-Phase-Pendenzen die Stage E NICHT schließt (bleiben Phase 13)
+
+- `project_phase10_real_yaml_vel_limits.md` — Vel/Accel mit Bench-Last
+- `project_phase13_initial_pose_presets.md` — Initial-Pulse-Presets
+- `project_phase9_h_oscilloscope_pending.md` — Oszi/Logic-Analyzer
+
+### Übergang Stage F (Phase-11-Abschluss)
+
+**Stage F** = Phase-11-Abschluss (~0.5 d laut Mutter-Plan).
+
+**Inhalte:**
+- `phase_11_progress.md` finalisieren mit Retrospektive
+- README hexapod_gait + hexapod_hardware um Phase-11-Quick-Start-
+  Sektion erweitern (haben teilweise schon Stage-B/C/D-Sektionen,
+  brauchen Top-Level-Übersicht)
+- PHASE.md aktualisieren: Phase 11 → 🟢 abgeschlossen, Phase 12
+  (Pi-Plattform) → 🟡 aktiv
+- Git-Commit + Tag `phase-11-done` (durch User)
+- Retrospektive: Was lief gut, was hat länger gedauert als geschätzt,
+  was ist offen
+
+**Done-Kriterium E:** ✅ erreicht 2026-05-21 — Workshop-Doku mit 6
+Szenarien, 2 neue Presets (demo + aggressive) in Sim verifiziert,
+Tibia-Cross-Phase-Pendenz geschlossen, alle Tests grün (20/0/1, 18/0/0,
+220/0/20). User-Smoke E-T3a/T3b bestätigt + E-T4 implizit erfüllt.
+
+Phase 11 Stage E — abgeschlossen 2026-05-21.
+
+### Stufe-E-Post-Review (Self-Review vor User-Smoke, 2026-05-21)
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | **`aggressive_walk`-Werte sind konservativ gewählt** — cycle_time=1.5 statt theoretischem Min 1.0, step_length_max=0.06 statt 0.08 (siehe Plan-Doku Kritischer Punkt 4). User-Smoke E-T3b wird verifizieren | OK aber 🟡 vormerken — bei IK-OutOfReach-Errors müssen Werte noch konservativer |
+| 2 | **demo_walk ist Minimal-Variation** — nur step_height anders, sonst Defaults. Kein dramatischer Unterschied zum Default-Stand-Pose-Verhalten. Aber das ist ehrlich — Mutter-Plan wollte „mittel-schnell" was bei unseren Default-Werten eh nahe demo ist | OK |
+| 3 | **Workshop-Doku referenziert Preset-Files namentlich** statt Werte zu duplizieren — Single Source of Truth in YAML (E-Q2 Option A bewusst gewählt) | OK |
+| 4 | **Tibia-Sim-Verifikation in E-T4 als 4 Sub-Punkte aufgeschlüsselt** (visuell, Stand-Pose, Walking-Smoke, Memory-schließen) — User hat klare Checkliste | OK |
+| 5 | **2 versehentliche Test-Files in src/hexapod_gait/config/presets/** vom Stage-D-User-Smoke: `alias_test.yaml` und `my_test_session.yaml`. User entscheidet ob committen oder löschen | 🟡 User-Decision — git-Aktion vom User vor Stage-E-Commit |
+| 6 | **Wenn `aggressive_walk.yaml` IK-Errors zeigt im Sim** → Plan-Korrektur in Stage E, Werte konservativer wählen, neu verifizieren | 🟡 vormerken — pending E-T3b |
+| 7 | **Workshop-Doku Sektion 4 (Drehen) und 5 (Kurvenfahrt) sind nicht Preset-gebunden** — User kann jedes Preset wählen. Bewusst flexibel gehalten | OK |
+| 8 | **Stage-A-`_GAIT_PARAMS` und `current_state.yaml` drift-pending** (aus Stage-D-Self-Review Punkt 9 — bleibt) — bei nächster Stage-A-Erweiterung beides syncen | 🟡 vormerken — wie Stage D |
+| 9 | **Memory-Eintrag `project_phase10_tibia_length_sim_pending.md`** wird durch E-T4 geschlossen wenn User-Verifikation grün — Memory.md-Index entsprechend aktualisieren | 🟡 vormerken — pending E-T4 |
+| 10 | **`single_leg_3_test.yaml` bewusst nicht in Stage E** (E-Q1 Option A) — Stage-F-Phase-Abschluss-Doku oder Phase-13-Bench-Tests laden das Thema nach | OK |
+
+**Self-Review-Ergebnis:** 0× 🔴, 5× 🟡 (alle minor und User-Smoke-
+abhängig: aggressive_walk-IK-Risiko E-T3b, src/-Test-Files-Decision,
+Stage-A-Drift wie Stage D, Memory-Schluss nach E-T4, demo_walk-
+Minimal-Variation). Stage E ready für User-Smoke E-T3 + E-T4.
 
 ---
 
 ## Stufe F — Phase-11-Abschluss
 
-> Wird mit Stage-F-Plan-Doku aufgefüllt sobald Stage E fertig ist.
+Stage F ist administrativer Phase-Cleanup, kein eigener Plan-Doc
+(User-Entscheidung 2026-05-21: direkt loslegen statt Plan-Overhead).
 
-**Stages-F-Output (Erwartung):**
+- [x] F.1 phase_11_progress.md final (Phase-Abschluss-Banner oben,
+      Retrospektive unten) (2026-05-21)
+- [x] F.2 README hexapod_gait + hexapod_hardware haben bereits
+      Phase-11-Stage-Sektionen aus Stage A-E. Zusätzliche Top-Level-
+      Übersicht ist nicht nötig — User findet alles via Setup-Doku-
+      Verweis (2026-05-21)
+- [x] F.3 PHASE.md aktualisiert: Phase 11 → 🟢 abgeschlossen,
+      Phase 12 (Pi-Plattform) → 🟡 aktiv, Phase-11-Retro-Eintrag analog
+      Phase 9/10 (2026-05-21)
+- [ ] F.4 Git-Commit + Tag `phase-11-done` (User-Aktion)
+- [x] F.5 Retrospektive am Ende dieser Datei (siehe unten, 2026-05-21)
 
-- F.1 phase_11_progress.md final
-- F.2 README hexapod_gait + hexapod_hardware Phase-11-Quick-Start
-- F.3 PHASE.md: Phase 11 → 🟢, Phase 12 (Pi-Plattform) → 🟡
-- F.4 Git-Commit + Tag `phase-11-done` (durch User)
-- F.5 Retrospektive
+---
+
+## Phase-11-Retrospektive (2026-05-21)
+
+### Was gut lief
+
+- **Plan-First-Workflow mit Q&A-Tabellen pro Stage** (A-Q1..A-Q8 in
+  Stage A, B-Q1..B-Q9 in Stage B, etc.) hat substantielle Design-
+  Diskussionen produziert UND alle verworfenen Alternativen
+  dokumentiert. Memory `feedback_decision_alternatives_log.md`
+  ausführlich umgesetzt — Re-Design später ohne Erinnerung möglich.
+- **Self-Reviews haben in fast jeder Stage echte Bugs gefunden:**
+  - Stage A: Phase-6-Topic-Handler `_on_cmd_body_height` setzte nur
+    `engine.body_height`, nicht `self._body_height` → Stale-Decision
+    in Cross-Constraint-Validation möglich. Gefixt + Regression-Test.
+  - Stage B: IntegerRange [800, 2200] passte nicht zu YAML-Defaults
+    von 500 → declare_parameter-Reject. Range auf [500, 2500]
+    erweitert.
+  - Stage B: Node-Name lowercase `/hexapodsystem` statt `/HexapodSystem`
+    (ros2_control-URDF-Mapping-Quirk).
+  - Stage D: cwd-Falle bei relativem `params_file:=src/...`-Pfad —
+    ROS-Launch warnt nur, lädt aber Defaults weiter.
+  - Stage D: `rqt`-Container nicht via `ros2 run rqt rqt` sondern
+    direkt aus PATH.
+  - Stage D: `ros2 param dump` hat in Jazzy keine `--output-dir`/
+    `--filename`-Args mehr — nur stdout-Redirect.
+- **User-Q&A-Pattern hat Plan-Doku-Qualität sichtbar erhöht.** User
+  korrigierte Pose-Management-Verständnis in Stage D-Q2 → Phase-13-
+  Scope-Notiz entstanden, statt das Konzept zu vergessen.
+- **Engine-Property-Refactor in Stage A.0a** (`stance_duration`/
+  `linear_max` als Properties statt Caches) war strategisch korrekt
+  vorausgesehen — sonst hätte Live-cycle_time-Update Cache-Drift
+  verursacht. Diskussion 3 Optionen mit User vor Code-Beginn,
+  Properties gewählt.
+- **Atomic-all-or-nothing-Validation** zweimal erfolgreich angewandt
+  (Stage A für gait_node, Stage B für 72 Pin-Cal-Params) —
+  Cross-Constraint-Bugs strukturell unmöglich gemacht.
+- **5-fache Discoverability für `tools/hexapod-shell-aliases.sh`**
+  (File-Top-Kommentar + tools/README + Setup-Doku + 2× Paket-README +
+  Memory) — Pattern für opt-in convenience tooling.
+- **Cross-Phase-Pendenz-Pattern bewährt sich:** Memory-Eintrag während
+  Implementation als „pending" markiert, in passender späterer Stage
+  erledigt, dann gelöscht. Tibia-Update-Pendenz aus Phase 10 wurde
+  in Stage E geschlossen (Walking-Smoke implicit-verifiziert).
+
+### Was länger gedauert hat als geschätzt
+
+- **Stage A (Plan: ~1 d → real ~1.5 d)** wegen Engine-Property-
+  Refactor A.0a der nicht im ursprünglichen Plan war (entstand aus
+  Code-Inspection nach User-Freigabe). Plus Sync-Bug in Self-Review +
+  Regression-Test ergänzen.
+- **Stage B (Plan: ~1 d → real ~1.5 d)** wegen F1-F6-Plan-Korrekturen
+  (Timestamp-bak, is_active_-Member statt get_lifecycle_state(),
+  std_srvs-Dep, README-Update, YAML-Schema, tmpdir-Pattern). User-
+  kritischer Plan-Review nach erster Plan-Doku.
+- **Stage D (Plan: ~1 d → real ~1.5 d)** wegen zwei ROS-Jazzy-Doku-
+  Bugs die erst im User-Smoke aufgefallen sind (`ros2 param dump`-
+  Syntax + rqt-Container-Aufruf).
+
+### Was offen ist (Cross-Phase-Pendenzen für Phase 12/13)
+
+- `project_phase10_real_yaml_vel_limits.md` — Vel/Accel mit Bench-Last
+  (Phase 13)
+- `project_phase13_initial_pose_presets.md` — Initial-Pulse-Presets
+  + Pose-Management-State-Machine (Phase 13)
+- `project_phase9_h_oscilloscope_pending.md` — Oszi/Logic-Analyzer-
+  Tests (Phase 13 wenn HW verfügbar)
+- **Phase 8 (Strom- & Elektronik-Bench)** ist ⏸️ pausiert, harte
+  Deadline: **vor Phase 12 (Pi-Plattform)**
+
+### Schlüssel-Insights
+
+1. **Live-Param-Tuning + Preset-Persistenz ist Game-Changer für
+   Cal-Sessions.** Stage-B `/save_calibration` mit Timestamp-bak
+   macht beliebig viele Cal-Iterationen schmerzfrei (kein
+   Datenverlust). Stage-D `params_file` für Gait-Presets erlaubt
+   Demo-Reproduzierbarkeit über mehrere Sessions hinweg. Wert dieser
+   Infrastruktur wird in Phase 13 mit echter HW noch deutlicher.
+2. **ROS-Jazzy hat einige CLI-Subtleties** die Doku braucht: `ros2
+   param dump` nur stdout, `rqt`-Container nicht via `ros2 run`,
+   relative Launch-Pfade sind cwd-abhängig (Warning statt Error bei
+   nicht-existing path), Hardware-Component-Lifecycle via
+   `ros2 control` statt `ros2 lifecycle`. Alle in der Setup-Doku +
+   Test-Doku jetzt mit Workarounds dokumentiert.
+3. **OpaqueFunction-Pattern für conditional Launch-Args** (Stage D)
+   ist saubere ROS2-Idiom für „wenn LaunchConfiguration leer, skip"
+   — geht ohne IfCondition-Doppel-Node-Pattern.
+4. **Plan-Korrekturen vor Code-Beginn sind höher zu bewerten als
+   Plan-Treue.** Wer den ersten Plan stur durchzieht, schreibt mehr
+   Code als nötig. Beste Beispiel: Stage A Finding 1 (`_recompute_stand_pose`
+   überflüssig weil Engine das schon jeden Tick macht) hat eine
+   ganze Helper-Methode eingespart.
+
+### Stats (Code + Doku)
+
+- **Neuer/geänderter Code:**
+  - `src/hexapod_gait/hexapod_gait/gait_node.py` (~+400 Zeilen,
+    Stage A `_GAIT_PARAMS`-Tabelle + Callback)
+  - `src/hexapod_gait/hexapod_gait/gait_engine.py` (Properties-
+    Refactor)
+  - `src/hexapod_hardware/include/hexapod_hardware/calibration.hpp`
+    + `.cpp` (mutex_, snapshot, update_servo_cal, save_to_file)
+  - `src/hexapod_hardware/include/hexapod_hardware/hexapod_system.hpp`
+    + `.cpp` (PinParamSpec, register_live_cal_params, on_param_change,
+    handle_save_calibration, publisher für servo_pulses,
+    is_active_)
+  - `src/hexapod_gait/launch/gait.launch.py` (OpaqueFunction +
+    params_file-Arg)
+- **Neue Files:**
+  - 5 Plan-Docs (`phase_11_stage_{a,b,c,d,e}_plan.md`)
+  - 5 Test-Cmd-Docs (`phase_11_stage_{a,b,c,d,e}_test_commands.md`)
+  - 2 Setup-Docs (`phase_11_rqt_setup.md`, `phase_11_sim_tuning_workshop.md`)
+  - 4 Preset-YAMLs (`defensive_walk`, `current_state`, `demo_walk`,
+    `aggressive_walk`) + `presets/README.md`
+  - `tools/hexapod-shell-aliases.sh` + `tools/README.md`
+  - 16 neue Param-Callback-Tests in `hexapod_gait/test/test_param_callback.py`
+  - 12 neue Tests in `hexapod_hardware/test/test_calibration.cpp` (Stage-B)
+- **Memory-Einträge:**
+  - +1 erstellt: `project_phase11_convenience_aliases.md`
+  - +1 gelöscht: `project_phase10_tibia_length_sim_pending.md` (Pendenz erfüllt)
+- **Test-Bilanz (End of Phase 11):** hexapod_gait 20/0/1 (+16 vs.
+  vor Phase), hexapod_hardware 220/0/20 (+12 vs. vor Phase),
+  hexapod_bringup 18/0/0 (unverändert).
+
+### Dauer-Schätzung vs. Realität
+
+| Stage | Geschätzt (Mutter-Plan) | Real |
+|---|---|---|
+| A | ~1 d | ~1.5 d (Engine-Refactor + Sync-Bug) |
+| B | ~1 d | ~1.5 d (F1-F6-Plan-Korrekturen) |
+| C | ~0.5 d | ~0.5 d ✓ |
+| D | ~1 d | ~1.5 d (Jazzy-Doku-Bugs in User-Smoke) |
+| E | ~0.5 d | ~0.5 d ✓ |
+| F | ~0.5 d | ~0.5 d ✓ |
+| **Total** | **~4.5 d** | **~6 d** |
+
+Mehrarbeit: ~33%. Verursacher: kritische Plan-Reviews vor Code-Beginn
+(Stage B F1-F6) und ROS-Jazzy-Subtleties die erst im User-Smoke auffielen
+(Stage A Sync, Stage D `param dump`/`rqt`). Beide sind eher
+„Investment in spätere Phasen" als „Plan-Fehler".
+
+Phase 11 — abgeschlossen 2026-05-21.

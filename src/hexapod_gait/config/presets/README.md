@@ -63,8 +63,13 @@ hexapod-save-walking-params my_session
 
 | Preset | Zweck | Stand |
 |---|---|---|
-| `defensive_walk.yaml` | langsam-sicher, niedrige Stride/Step-Height | manuell konfiguriert |
-| `current_state.yaml` | Snapshot der gait.launch.py-Defaults | dump-generiert 2026-05-20 |
+| `defensive_walk.yaml` | langsam-sicher, niedrige Stride/Step-Height | manuell konfiguriert (Stage D) |
+| `current_state.yaml` | Snapshot der gait.launch.py-Defaults | manuell snapshotted (Stage D, 2026-05-20) |
+| `demo_walk.yaml` | mittel-schnell, etwas höhere Foot-Hub, sonst Defaults | manuell + Sim-verifiziert (Stage E, 2026-05-21) |
+| `aggressive_walk.yaml` | schnell (1.6× linear_max), größere Stride, Body tiefer | manuell + Sim-verifiziert (Stage E, 2026-05-21) |
+
+Pro Preset Details (Beschreibung, erwartete Beobachtung in Sim, Use-Cases)
+siehe [`docs_raspi/phase_11_sim_tuning_workshop.md`](../../../../docs_raspi/phase_11_sim_tuning_workshop.md).
 
 ## Bewusst NICHT hier
 

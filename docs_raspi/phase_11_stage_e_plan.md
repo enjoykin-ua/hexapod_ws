@@ -1,6 +1,7 @@
 # Phase 11 — Stufe E — Plan
 
-> **Status:** Plan, in Vorbereitung der Implementation. **Pending User-Freigabe der 4 offenen Fragen E-Q1..E-Q4.**
+> **Status:** Plan finalisiert mit User-Freigabe aller 4 Fragen
+> (E-Q1=A, E-Q2=A, E-Q3=A, E-Q4=A; 2026-05-21). Ready für Implementation.
 >
 > **Parent-Plan:** [`phase_11_param_gui.md`](phase_11_param_gui.md)
 > Stufe E — Sim-Tuning-Workshop + Best-Param-Presets +
@@ -142,7 +143,7 @@ Aktuell vorhanden (Stage D): `defensive_walk.yaml`, `current_state.yaml`.
 
 | Option | Was kommt dazu | Tradeoff |
 |---|---|---|
-| **A** | `demo_walk.yaml` + `aggressive_walk.yaml` (Mutter-Plan-Default) | 2 zusätzliche Presets, klare Spannweite langsam-mittel-schnell; aggressive_walk muss in Sim verifiziert werden (IK-Risk) |
+| **✅ A** (User 2026-05-21) | `demo_walk.yaml` + `aggressive_walk.yaml` (Mutter-Plan-Default) | 2 zusätzliche Presets, klare Spannweite langsam-mittel-schnell; aggressive_walk muss in Sim verifiziert werden (IK-Risk) |
 | **B** | Nur `demo_walk.yaml` | 1 zusätzliches Preset, minimaler Drift-Risiko, aggressive auf Phase 13 verschoben wenn echte HW da ist |
 | **C** | `demo_walk.yaml` + `aggressive_walk.yaml` + `single_leg_3_test.yaml` | 3 zusätzliche Presets inkl. Debug-Tool, Demo-Material reicher; höherer Maintenance-Aufwand |
 | **D** | Nur `current_state.yaml` neu dumpen (nach Sim-Session) | minimaler Stage-E-Scope, nur Pendenz erledigen; keine zusätzlichen Preset-Files |
@@ -157,7 +158,7 @@ Workshop-Doku in `docs_raspi/phase_11_sim_tuning_workshop.md`:
 
 | Option | Inhalt pro Szenario | Tradeoff |
 |---|---|---|
-| **A** | Param-Kombi (verweist auf Preset-Files) + erwartete Beobachtung in Worten („Roboter läuft sichtbar schneller, größere Schritte") | balanciert, User versteht warum Werte gewählt sind ohne Schreibflut |
+| **✅ A** (User 2026-05-21) | Param-Kombi (verweist auf Preset-Files) + erwartete Beobachtung in Worten („Roboter läuft sichtbar schneller, größere Schritte") | balanciert, User versteht warum Werte gewählt sind ohne Schreibflut |
 | **B** | + numerische Metriken (Stop-Latenz aus cmd_vel=0, linear_max-Berechnung, Cycle-Frequenz) | präziser, gut für späteren Regression-Vergleich; mehr Schreibaufwand + möglicherweise out-of-date |
 | **C** | + Screenshots von Sim/RViz (z.B. seitliche Walking-Ansicht) | visuell ansprechend für Workshop-Demo; Screenshots veralten wenn URDF/Sim sich ändert |
 | **D** | Minimal — nur Tabelle „Preset → was es tut" ohne ausführliche Erklärungen | weniger Doku zu pflegen; aber User-Mehrwert niedrig (Preset-Files haben eh README) |
@@ -169,7 +170,7 @@ Polish wenn echte HW-Daten + Demo-Videos anstehen.
 
 | Option | Wann | Tradeoff |
 |---|---|---|
-| **A** | Jetzt in Stage E (= Memory-Pendenz schließen, User-Smoke E-T4 ist die Verifikation) | Sim läuft sowieso für Workshop-Presets, marginaler Mehraufwand; Memory wird aktuell |
+| **✅ A** (User 2026-05-21) | Jetzt in Stage E (= Memory-Pendenz schließen, User-Smoke E-T4 ist die Verifikation) | Sim läuft sowieso für Workshop-Presets, marginaler Mehraufwand; Memory wird aktuell |
 | **B** | Separat als Mini-Aufgabe nach Phase 11 (eigener Plan-Doc oder Phase-13-Bonus) | Stage E bleibt fokussiert auf Workshop-Doku; Memory bleibt offen |
 
 **Empfehlung: A** — Stage E ist eine Sim-Session, Tibia mit-verifizieren
@@ -181,7 +182,7 @@ User-Smoke prüft pro Preset:
 
 | Option | Was User testet | Tradeoff |
 |---|---|---|
-| **A** | Jeden Preset einmal Laden + walking via cmd_vel pub für ~10 s + visuelle Bestätigung „läuft wie beschrieben in Workshop-Doku" | gründlich, ~5-10 min User-Aktion pro Preset; deckt IK-Out-of-Reach-Risiko von aggressive_walk ab |
+| **✅ A** (User 2026-05-21) | Jeden Preset einmal Laden + walking via cmd_vel pub für ~10 s + visuelle Bestätigung „läuft wie beschrieben in Workshop-Doku" | gründlich, ~5-10 min User-Aktion pro Preset; deckt IK-Out-of-Reach-Risiko von aggressive_walk ab |
 | **B** | Nur einen Preset (z.B. demo_walk) ausführlich, andere nur Smoke „Preset-File ladbar" | weniger User-Aufwand, aber aggressive_walk wäre nicht in Sim verifiziert (Commit-Risk) |
 | **C** | Visual-only (RViz, kein walking) — nur Stand-Pose-Check | ~2 min pro Preset, aber kein Walking-Bug-Catching |
 
@@ -303,7 +304,7 @@ CLAUDE.md §4-Pflicht.
 
 ## Progress-Checkliste
 
-- [ ] E.1 phase_11_stage_e_plan.md (diese Datei) finalisiert + User-Freigabe der E-Q1..E-Q4
+- [x] E.1 phase_11_stage_e_plan.md (diese Datei) finalisiert + User-Freigabe E-Q1=A, E-Q2=A, E-Q3=A, E-Q4=A (2026-05-21)
 - [ ] E.2 phase_11_stage_e_test_commands.md Skelett
 - [ ] E.3 Workshop-Doku `docs_raspi/phase_11_sim_tuning_workshop.md` mit 6-7 Test-Szenarien
 - [ ] E.4 `demo_walk.yaml` committet + in Sim verifiziert

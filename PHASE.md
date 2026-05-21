@@ -1,8 +1,53 @@
 # Aktive Phase
 
-**Aktuell:** Phase 11 — Param-GUI mit Live-Tuning (rqt_reconfigure)
-**Datei:** `docs_raspi/phase_11_param_gui.md`
-**Progress-Tracker:** `docs_raspi/phase_11_progress.md`
+**Aktuell:** Phase 12 — Pi-Plattform & Portierung
+**Datei:** `docs_raspi/phase_12_pi_platform.md`
+
+> **Phase 11 (Param-GUI mit Live-Tuning):** ✅ abgeschlossen am 2026-05-21.
+> Alle 6 Stages A–F durchgelaufen. Live-Param-Surfaces für gait_node
+> (14 Params), Plugin-Cal (72 Params), Diagnostic-Topic + Preset-
+> Workflow + Workshop-Doku stehen. CI-Tests durchgängig grün
+> (hexapod_gait 20/0/1, hexapod_bringup 18/0/0, hexapod_hardware
+> 220/0/20).
+>
+> **Phase-11-Retro (kurz):**
+> - **Was gut lief:** Strikter Plan-First-Workflow pro Stage mit
+>   ausführlichen Q&A-Tabellen (A-Q1..A-Q8 in Stage A, B-Q1..B-Q9 in
+>   Stage B, etc.) hat substantielle Design-Diskussionen produziert
+>   und Alternativen dokumentiert. Self-Reviews haben in fast jeder
+>   Stage echte Bugs gefunden (Stage A: Phase-6-Topic-Handler-Sync-
+>   Bug; Stage B: Range-Mismatch [800,2200] vs YAML-Default 500 +
+>   Node-Name-Lowercase-Doku; Stage D: cwd-Falle bei relativem
+>   params_file). Memory-Konvention `feedback_decision_alternatives_log.md`
+>   wurde ausführlich umgesetzt. User-Q&A-Pattern hat Plan-Doku-
+>   Qualität sichtbar erhöht (User korrigierte z.B. Pose-Management-
+>   Verständnis → Phase-13-Scope-Notiz). Engine-Property-Refactor in
+>   Stage A.0a (`stance_duration`/`linear_max` als computed Properties
+>   statt Cache) war strategisch — sonst hätte Live-Cycle-Time-Update
+>   Cache-Drift verursacht.
+> - **Was länger gedauert hat:** Stage B (Plan ~1 d → ~1.5 d) wegen
+>   F1-F6-Plan-Korrekturen vor Code-Beginn (Timestamp-bak,
+>   is_active_-Member, std_srvs-Dep, README-Update, YAML-Schema,
+>   tmpdir-Pattern). Stage D wegen ROS-Jazzy-Doku-Bugs:
+>   `ros2 param dump` hat keine `--output-dir`/`--filename`-Args mehr
+>   (nur stdout-Redirect), `rqt`-Container nicht via `ros2 run`
+>   sondern direkt aus PATH. Beide entdeckt im User-Smoke.
+> - **Was offen ist:** Cross-Phase-Pendenzen die in Phase 13 landen
+>   müssen — `project_phase10_real_yaml_vel_limits.md`,
+>   `project_phase13_initial_pose_presets.md`,
+>   `project_phase9_h_oscilloscope_pending.md`, Auto-Cal-Tool für 15
+>   verbleibende Servos. Plus Phase 8 (Strom- & Elektronik-Bench) ist
+>   harte Deadline vor Phase 12-Start.
+> - **Schlüssel-Insight:** Live-Param-Tuning + Preset-Persistenz hat
+>   sich als Game-Changer für Cal-Sessions herausgestellt. Stage-B-
+>   `/save_calibration` mit Timestamp-bak macht beliebig viele
+>   Cal-Iterationen schmerzfrei (kein Datenverlust durch Überschreiben).
+>   Stage-D-`params_file`-Mechanismus für Gait-Presets erlaubt Demo-
+>   Reproduzierbarkeit über mehrere Sessions hinweg. Diese
+>   Infrastruktur wird in Phase 13 mit echter HW noch wertvoller.
+>
+> **Git-Aktionen zum Phasenwechsel** (`phase-11-done`-Tag im hexapod_ws,
+> Commit der phase_11-Stage-E/F-Docs) macht der User selbst.
 
 > **Phase 10 (Single-Leg Bring-up + Kalibrierung):** ✅ abgeschlossen am 2026-05-19.
 > Alle 8 Stages A–G + I durchgelaufen (Stage H war eh gestrichen).
@@ -122,8 +167,8 @@
 | 8b | Sim+HW Visual-Mirror (optional) | `docs_raspi/phase_8b_sim_hw_mirror.md` | ⚪ optional |
 | 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | 🟢 abgeschlossen (2026-05-16; Oszi-Verifikation H-T8/H-T9 pending bei Hardware-Verfügbarkeit) |
 | 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟢 abgeschlossen (2026-05-19; leg_6 voll kalibriert, IK + Walking verifiziert, Cross-Phase-Pendenzen für Phase 13 in Memory) |
-| **11** | **Param-GUI mit Live-Tuning (rqt_reconfigure) — NEU 2026-05-19** | `docs_raspi/phase_11_param_gui.md` | 🟡 aktiv |
-| 12 | Pi-Plattform & Portierung | `docs_raspi/phase_12_pi_platform.md` | ⚪ offen |
+| 11 | Param-GUI mit Live-Tuning (rqt_reconfigure) | `docs_raspi/phase_11_param_gui.md` | 🟢 abgeschlossen (2026-05-21; 6 Stages A–F, Live-Param für gait_node + Plugin-Cal + Diagnostic-Topic, Preset-Workflow + Workshop-Doku, Tibia-Sim-Pendenz aus Phase 10 geschlossen) |
+| **12** | **Pi-Plattform & Portierung** | `docs_raspi/phase_12_pi_platform.md` | 🟡 aktiv |
 | 13 | Voll-Bringup mit echtem Roboter | `docs_raspi/phase_13_full_bringup.md` | ⚪ offen |
 
 ### Querschnitts-Docs (`docs_raspi/`, kein eigenes Phasen-Done-Kriterium)
