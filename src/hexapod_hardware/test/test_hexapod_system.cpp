@@ -1124,6 +1124,221 @@ TEST(HexapodSystemWriteRead, LoopbackClampsAbsurdRadInsteadOfUB)
   }
 }
 
+// ============================================================================
+// HexapodSystem — Stage 0.5 safety-freeze on pulse out-of-range
+// ============================================================================
+// These tests verify that the plugin alone enforces PWM ∈ [pulse_min,
+// pulse_max] per pin (firmware stays dumb, User-Entscheidung 2026-05-24).
+// When write() computes a pulse outside the calibrated range for any pin,
+// safety_freeze_ trips: all subsequent writes hold last_command_pulse_us_
+// until clear_safety_freeze() (or the /hexapod_safety_reset service) is
+// called.
+
+TEST(HexapodSafetyFreeze, OutOfRangeAboveTriggersFreeze)
+{
+  // pulse_zero=1500 + 100 rad · slope ≈ pulse far beyond pulse_max=2500
+  // → safety_freeze must trip.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  EXPECT_FALSE(plugin.is_safety_frozen()) << "freeze should start cleared";
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  // Send rad=+10 on slot 0 (way above joint_upper=1.57). Other slots stay
+  // at NaN-default (= rad-command never set; isnan-branch skips them).
+  write_handle(cmd_ifs[0], 10.0);
+  // Also write valid rad to the other slots so isnan-skip doesn't shadow
+  // the OoR detection on slot 0.
+  for (std::size_t i = 1; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.0);
+  }
+
+  EXPECT_NO_THROW(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}));
+  EXPECT_TRUE(plugin.is_safety_frozen())
+    << "pulse > pulse_max should trigger safety_freeze";
+}
+
+TEST(HexapodSafetyFreeze, OutOfRangeBelowTriggersFreeze)
+{
+  // Mirror of above: rad=-10 → pulse far below pulse_min=500 → freeze.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], i == 0 ? -10.0 : 0.0);
+  }
+
+  EXPECT_NO_THROW(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}));
+  EXPECT_TRUE(plugin.is_safety_frozen())
+    << "pulse < pulse_min should trigger safety_freeze";
+}
+
+TEST(HexapodSafetyFreeze, InRangeRadDoesNotFreeze)
+{
+  // Normal command (rad=+0.5 on all joints): pulse stays well inside
+  // [pulse_min, pulse_max] for every pin → freeze must NOT trip.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.5);
+  }
+
+  EXPECT_NO_THROW(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}));
+  EXPECT_FALSE(plugin.is_safety_frozen())
+    << "in-range rad commands must not trip freeze";
+}
+
+TEST(HexapodSafetyFreeze, FpToleranceAtPulseMaxDoesNotTrigger)
+{
+  // rad exactly at joint_upper produces pulse=pulse_max (within FP rounding).
+  // The 1 µs tolerance in write() must absorb that drift so the joint can
+  // reach its mechanical limit without triggering freeze.
+  // For the default cal (pulse_min=500, pulse_zero=1500, pulse_max=2500,
+  // joint_upper=+1.57): slope = 1000/1.57 ≈ 636.94 µs/rad; rad=+1.57 →
+  // pulse = 1500 + 1.57 · 636.94 = 2500.0 exactly. We add a tiny offset
+  // to *also* cover the case where FP drift pushes pulse to 2500.4 µs.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  // joint_upper for slot 0 is +1.57 (from make_joint() default in helpers).
+  // Add 0.0005 rad ≈ 0.3 µs drift past pulse_max — within the 1 µs FP
+  // tolerance.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 1.5705);
+  }
+
+  EXPECT_NO_THROW(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}));
+  EXPECT_FALSE(plugin.is_safety_frozen())
+    << "FP drift ≤1 µs at pulse_max must not trip freeze";
+}
+
+TEST(HexapodSafetyFreeze, ClearWhileFrozenReturnsTrue)
+{
+  // Trigger freeze, then clear_safety_freeze() must return true (= we did
+  // clear an active flag) and is_safety_frozen() must read false after.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], i == 0 ? 10.0 : 0.0);
+  }
+  EXPECT_NO_THROW(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}));
+  ASSERT_TRUE(plugin.is_safety_frozen());
+
+  EXPECT_TRUE(plugin.clear_safety_freeze())
+    << "clear should return true when a freeze was active";
+  EXPECT_FALSE(plugin.is_safety_frozen())
+    << "freeze flag must be cleared after clear_safety_freeze()";
+}
+
+TEST(HexapodSafetyFreeze, ClearWhileNotFrozenReturnsFalse)
+{
+  // Idempotent: calling clear on an already-clear flag must succeed
+  // silently and return false.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  ASSERT_FALSE(plugin.is_safety_frozen());
+  EXPECT_FALSE(plugin.clear_safety_freeze())
+    << "clear on already-clear flag must return false";
+  EXPECT_FALSE(plugin.is_safety_frozen());
+}
+
+TEST(HexapodSafetyFreeze, WriteWhileFrozenHoldsLastGoodPulse)
+{
+  // Stage 0.5 contract: in freeze, write() must not update
+  // last_command_pulse_us_ for any pin. Observable via loopback: the
+  // state echo after a follow-up write reflects the *last good* pulse
+  // (= pulse_zero from on_init), not the new (in-range) rad command.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  auto state_ifs = plugin.export_state_interfaces();
+
+  // Step 1: trip the freeze with rad=10 on slot 0.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], i == 0 ? 10.0 : 0.0);
+  }
+  plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0});
+  ASSERT_TRUE(plugin.is_safety_frozen());
+
+  // Step 2: while frozen, command in-range rad=+0.5 to all joints, then
+  // write+read. State should still reflect rad≈0 (pulse_zero) because
+  // last_command_pulse_us_ was not updated.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.5);
+  }
+  plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0});
+  ASSERT_EQ(
+    plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+
+  // Each slot's state should be near 0.0 (the pulse_zero value, mapped
+  // back through cal). NOT near 0.5 — if the new in-range command had
+  // leaked through despite freeze, state would be ~0.5. The narrow
+  // tolerance below catches that leak.
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    const double state = read_handle(state_ifs[i]);
+    EXPECT_NEAR(state, 0.0, 0.01)
+      << "slot " << i << " state " << state
+      << " should hold near pulse_zero=0 rad while frozen "
+      "(leak suspected if state is near 0.5)";
+  }
+}
+
 TEST(HexapodSystemWriteRead, PtyWriteSendsSetTargetsFrameWithNeutralPulses)
 {
   // Send rad=0 from all joints → write() must emit one SET_TARGETS frame

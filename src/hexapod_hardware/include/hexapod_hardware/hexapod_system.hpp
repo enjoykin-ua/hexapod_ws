@@ -55,6 +55,19 @@ public:
   hardware_interface::return_type write(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
+  // ─── Stage 0.5 — Safety-Freeze Inspection + Recovery API ───────────────
+  // Public API for diagnostics and tests. The freeze flag itself is set
+  // implicitly from write() when an out-of-range pulse is detected;
+  // there is no public setter — the only way to enter freeze is the OoR
+  // detection (preserves the invariant "freeze only triggers when the
+  // plugin actually sees a dangerous command").
+  bool is_safety_frozen() const noexcept;
+
+  // Clear the safety_freeze flag. Used by both the /hexapod_safety_reset
+  // service callback AND tests. Returns true if a freeze was actually
+  // cleared, false if the flag was already clear (idempotent).
+  bool clear_safety_freeze() noexcept;
+
 private:
   // ─── Phase 11 Stage B — Live-Cal-Params + Save-Service ──────────────────
 
@@ -76,6 +89,33 @@ private:
 
   // /save_calibration-Service (registriert in on_configure).
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_service_{};
+
+  // ─── Stage 0.5 — Safety Hard-Stop bei Pulse-Out-of-Range ───────────────
+  // Wenn `radians_to_pulse_us` einen Wert außerhalb von
+  // [pulse_min, pulse_max] für irgendeinen Pin liefert, geht das Plugin
+  // in safety_freeze: alle Joints halten ihre letzte gültige PWM-Position,
+  // keine neuen Commands werden zur Firmware geschickt. Recovery nur
+  // über `/hexapod_safety_reset` (std_srvs::Trigger) — bewusst manuelle
+  // User-Aktion, da ein OoR-Trigger immer ein IK/URDF/Cal-Mismatch ist
+  // und investigated werden muss, bevor weiter gefahren wird.
+  //
+  // Firmware bleibt dumb (User-Entscheidung 2026-05-24): das hexapod_ws
+  // Plugin garantiert allein, dass kein PWM außerhalb cal-range gesendet
+  // wird. Im freeze-Zustand schreibt write() last_command_pulse_us_ zu
+  // allen Pins (= aktuell-eingenommene Position), unabhängig vom
+  // ros2_control-Command.
+  std::atomic<bool> safety_freeze_{false};
+
+  // /hexapod_safety_reset-Service (registriert in on_configure parallel
+  // zu /save_calibration).
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr safety_reset_service_{};
+
+  // Service-Callback: clared safety_freeze_-Flag, gibt Status in
+  // Response zurück (success=true wenn vorher frozen, success=true mit
+  // Hinweis-Message wenn idempotent / nicht frozen).
+  void handle_safety_reset(
+    std_srvs::srv::Trigger::Request::ConstSharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response);
 
   // ─── Phase 11 Stage C — /servo_pulses Diagnostic-Topic ─────────────────
   // Live-Toggle für Cal-Session / Debugging. Default `false` —

@@ -309,11 +309,23 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_configure(
     RCLCPP_INFO(
       plugin_logger(),
       "Phase 11 Stage B: /save_calibration service ready");
+
+    // Stage 0.5 — /hexapod_safety_reset service for recovering from
+    // the pulse-out-of-range hard-stop. See safety_freeze_ docstring
+    // in hexapod_system.hpp for the freeze semantics.
+    safety_reset_service_ = node->create_service<std_srvs::srv::Trigger>(
+      "hexapod_safety_reset",
+      std::bind(
+        &HexapodSystemHardware::handle_safety_reset, this,
+        std::placeholders::_1, std::placeholders::_2));
+    RCLCPP_INFO(
+      plugin_logger(),
+      "Stage 0.5: /hexapod_safety_reset service ready");
   } else {
     RCLCPP_WARN(
       plugin_logger(),
       "Phase 11 Stage B: get_node() returned null in on_configure — "
-      "/save_calibration service not registered");
+      "/save_calibration and /hexapod_safety_reset services not registered");
   }
 
   if (loopback_mode_) {
@@ -653,11 +665,22 @@ hardware_interface::return_type HexapodSystemHardware::write(
   }
 
   // ─── Convert each command (rad) → pulse_us, indexed by servo-pin ─────
-  // The pulse-µs side is the wire-native representation (int16, signed),
-  // so we clamp to the int16 range before casting. The firmware will
-  // hard-clamp again to per-servo pulse_min/pulse_max (Phase-7 stage C.1);
-  // this clamp here is purely to keep the cast well-defined even when
-  // the controller hands us NaN or absurd values.
+  // Stage 0.5: Plugin is the ONLY layer that guarantees PWM ∈
+  // [pulse_min, pulse_max] per pin — firmware stays dumb. If any pin's
+  // computed pulse falls outside its calibrated range, we trip the
+  // safety_freeze_: all subsequent writes hold last_command_pulse_us_
+  // (= current servo position) until the user clears the freeze via
+  // /hexapod_safety_reset. Out-of-range always indicates an IK/URDF/cal
+  // mismatch and must be investigated — silently clamping would hide
+  // the bug and allow servos to be slammed against mech stops.
+  //
+  // Two-phase pass: first detect any OoR (may flip safety_freeze_),
+  // then either write last-known PWMs (frozen) or the freshly computed
+  // values (normal). The freshly-computed value in this tick is also
+  // clamped to int16 range (defensive cast safety against NaN/inf).
+  constexpr double PULSE_FP_TOLERANCE_US = 1.0;  // accept ±1 µs FP-drift
+                                                 // at limits as legitimate
+
   for (std::size_t i = 0; i < info_.joints.size(); ++i) {
     const int output_idx = joint_to_output_idx_[i];
     const double rad = hw_command_positions_[i];
@@ -674,12 +697,41 @@ hardware_interface::return_type HexapodSystemHardware::write(
       continue;
     }
 
+    // If already frozen, hold current position — don't even compute the
+    // new pulse (avoid spamming further OoR-detection on the same tick).
+    if (safety_freeze_.load()) {
+      continue;
+    }
+
     const double pulse_d = calibration_.radians_to_pulse_us(output_idx, rad);
-    // clamp to int16 range — radians_to_pulse_us is unbounded in theory
-    // (linear extrapolation past joint_lower/joint_upper). Without this
-    // clamp, the static_cast<int16_t> below would be UB for extreme rad
-    // (e.g. rad=100 → pulse ≈ 1.3e6 µs → out of int16). Firmware-side
-    // clamp to pulse_min/pulse_max is the second line of defense.
+    const auto & cal_pin = calibration_.at(output_idx);
+
+    // Stage 0.5 — pulse-out-of-range hard-stop.
+    const bool out_of_range =
+      (pulse_d < static_cast<double>(cal_pin.pulse_min) - PULSE_FP_TOLERANCE_US) ||
+      (pulse_d > static_cast<double>(cal_pin.pulse_max) + PULSE_FP_TOLERANCE_US);
+    if (out_of_range) {
+      safety_freeze_.store(true);
+      RCLCPP_ERROR(plugin_logger(),
+        "SAFETY FREEZE: joint '%s' (pin %d): rad=%.4f produced pulse=%.1f µs, "
+        "outside cal range [%d, %d]. All joints holding last position. "
+        "Recover via: ros2 service call /hexapod_safety_reset "
+        "std_srvs/srv/Trigger",
+        info_.joints[i].name.c_str(), output_idx, rad, pulse_d,
+        cal_pin.pulse_min, cal_pin.pulse_max);
+      // Don't update last_command_pulse_us_ for this pin — keep the last
+      // good value so the wire-frame sent below uses the safe position.
+      // Continue the loop to detect other OoR pins in the same tick
+      // (more useful log info).
+      continue;
+    }
+
+    // Defensive clamp to int16 range — radians_to_pulse_us is unbounded
+    // in theory (linear extrapolation past joint_lower/joint_upper).
+    // After the OoR-check above, pulse_d is within [pulse_min, pulse_max]
+    // (typically 500..2500 µs), which is well inside int16 — but the
+    // clamp guards against any future change to that invariant and
+    // against NaN/inf surviving the isnan check above.
     const double pulse_clamped = std::clamp(
       pulse_d,
       static_cast<double>(INT16_MIN),
@@ -965,6 +1017,37 @@ void HexapodSystemHardware::handle_save_calibration(
     response->message =
       std::string("save_calibration failed: ") + e.what();
     RCLCPP_ERROR(plugin_logger(), "%s", response->message.c_str());
+  }
+}
+
+bool HexapodSystemHardware::is_safety_frozen() const noexcept
+{
+  return safety_freeze_.load();
+}
+
+bool HexapodSystemHardware::clear_safety_freeze() noexcept
+{
+  return safety_freeze_.exchange(false);
+}
+
+void HexapodSystemHardware::handle_safety_reset(
+  std_srvs::srv::Trigger::Request::ConstSharedPtr /*request*/,
+  std_srvs::srv::Trigger::Response::SharedPtr response)
+{
+  // Idempotent: caller can call this any time. Always succeeds; the
+  // message body distinguishes "freeze was active and is now cleared"
+  // from "freeze was already clear" so the user gets useful feedback.
+  const bool was_frozen = clear_safety_freeze();
+  response->success = true;
+  if (was_frozen) {
+    response->message =
+      "safety_freeze cleared — plugin will accept new commands again. "
+      "NOTE: gait_node should reconcile to a known pose (e.g. standing) "
+      "before resuming walking; that gait-side recovery is Phase-13 work.";
+    RCLCPP_WARN(plugin_logger(), "%s", response->message.c_str());
+  } else {
+    response->message = "safety_freeze was not active — nothing to clear";
+    RCLCPP_INFO(plugin_logger(), "%s", response->message.c_str());
   }
 }
 
