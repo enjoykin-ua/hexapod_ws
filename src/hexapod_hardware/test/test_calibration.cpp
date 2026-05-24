@@ -572,6 +572,62 @@ servo2040_output_to_joint:
 }
 
 // ============================================================================
+// radians_to_pulse_us — direction=-1 with asymmetric calibration
+// ============================================================================
+
+TEST(RadiansToPulse, NegativeDirectionAsymmetricUsesCorrectSide)
+{
+  // Servo with mount-offset-induced asymmetric calibration AND mirrored
+  // joint axis (direction=-1). Pre-fix this combination decoded extreme
+  // rad values to wrong PWM (slope formula applied from wrong side).
+  // Realistic case: hexapod tibia mounted on left leg.
+  //
+  // pulse_min=870, pulse_zero=1680, pulse_max=2185
+  // joint_lower=-1.92, joint_upper=+1.197 (PWM-centric URDF limits)
+  // direction=-1 (URDF rad axis mirrored vs mechanical servo rotation)
+  //
+  // With direction=-1:
+  //   slope_right(rad>=0) = (pulse_zero - pulse_min) / joint_upper
+  //                       = 810 / 1.197 ≈ 676.6917 µs/rad
+  //   slope_left (rad<0)  = (pulse_max - pulse_zero) / |joint_lower|
+  //                       = 505 / 1.92  ≈ 263.0208 µs/rad
+  const char * yaml =
+    R"yaml(
+defaults: { pulse_min: 500, pulse_max: 2500, pulse_zero: 1500, direction: 1 }
+servo2040_output_to_joint:
+  0: { joint: leg_1_coxa_joint, pulse_min: 870, pulse_zero: 1680, pulse_max: 2185, direction: -1 }
+  1:  { joint: leg_1_femur_joint }
+  2:  { joint: leg_1_tibia_joint }
+  3:  { joint: leg_2_coxa_joint  }
+  4:  { joint: leg_2_femur_joint }
+  5:  { joint: leg_2_tibia_joint }
+  6:  { joint: leg_3_coxa_joint  }
+  7:  { joint: leg_3_femur_joint }
+  8:  { joint: leg_3_tibia_joint }
+  9:  { joint: leg_4_coxa_joint  }
+  10: { joint: leg_4_femur_joint }
+  11: { joint: leg_4_tibia_joint }
+  12: { joint: leg_5_coxa_joint  }
+  13: { joint: leg_5_femur_joint }
+  14: { joint: leg_5_tibia_joint }
+  15: { joint: leg_6_coxa_joint  }
+  16: { joint: leg_6_femur_joint }
+  17: { joint: leg_6_tibia_joint }
+)yaml";
+  Calibration c;
+  c.load_from_string(yaml);
+  c.set_joint_limits("leg_1_coxa_joint", -1.92, +1.197);
+
+  // Endpoints reach mech-stops exactly (pre-fix would clamp/miss):
+  EXPECT_NEAR(c.radians_to_pulse_us(0, +1.197), 870.0, 1e-9);   // rad=+joint_upper → pulse_min
+  EXPECT_NEAR(c.radians_to_pulse_us(0, -1.92), 2185.0, 1e-9);   // rad=joint_lower  → pulse_max
+  EXPECT_NEAR(c.radians_to_pulse_us(0, 0.0), 1680.0, 1e-9);     // rad=0 → pulse_zero
+  // Intermediate values use the direction-aware slope:
+  EXPECT_NEAR(c.radians_to_pulse_us(0, +0.5), 1680.0 - 0.5 * 810.0 / 1.197, 1e-9);
+  EXPECT_NEAR(c.radians_to_pulse_us(0, -0.5), 1680.0 + 0.5 * 505.0 / 1.92, 1e-9);
+}
+
+// ============================================================================
 // pulse_us_to_radians — inverse
 // ============================================================================
 
@@ -675,6 +731,47 @@ servo2040_output_to_joint:
   c.load_from_string(yaml);
   apply_symmetric_limits(c, -1.57, +1.57);
   for (double rad = -1.5; rad <= 1.5; rad += 0.1) {
+    const double pulse = c.radians_to_pulse_us(0, rad);
+    const double recovered = c.pulse_us_to_radians(0, pulse);
+    EXPECT_NEAR(recovered, rad, 1e-9) << "rad=" << rad;
+  }
+}
+
+TEST(Roundtrip, NegativeDirectionAsymmetricRoundtrips)
+{
+  // The case that motivated the Stage-0 fix: direction=-1 AND asymmetric
+  // pulse-cal (pulse_zero off-center). Pre-fix the inverse decoded
+  // pulse_min to a rad value outside URDF [joint_lower, joint_upper].
+  // After fix, forward and inverse must be exact inverses across the
+  // full URDF range.
+  const char * yaml =
+    R"yaml(
+defaults: { pulse_min: 500, pulse_max: 2500, pulse_zero: 1500, direction: 1 }
+servo2040_output_to_joint:
+  0: { joint: leg_1_coxa_joint, pulse_min: 870, pulse_zero: 1680, pulse_max: 2185, direction: -1 }
+  1:  { joint: leg_1_femur_joint }
+  2:  { joint: leg_1_tibia_joint }
+  3:  { joint: leg_2_coxa_joint  }
+  4:  { joint: leg_2_femur_joint }
+  5:  { joint: leg_2_tibia_joint }
+  6:  { joint: leg_3_coxa_joint  }
+  7:  { joint: leg_3_femur_joint }
+  8:  { joint: leg_3_tibia_joint }
+  9:  { joint: leg_4_coxa_joint  }
+  10: { joint: leg_4_femur_joint }
+  11: { joint: leg_4_tibia_joint }
+  12: { joint: leg_5_coxa_joint  }
+  13: { joint: leg_5_femur_joint }
+  14: { joint: leg_5_tibia_joint }
+  15: { joint: leg_6_coxa_joint  }
+  16: { joint: leg_6_femur_joint }
+  17: { joint: leg_6_tibia_joint }
+)yaml";
+  Calibration c;
+  c.load_from_string(yaml);
+  c.set_joint_limits("leg_1_coxa_joint", -1.92, +1.197);
+
+  for (double rad = -1.9; rad <= 1.1; rad += 0.1) {
     const double pulse = c.radians_to_pulse_us(0, rad);
     const double recovered = c.pulse_us_to_radians(0, pulse);
     EXPECT_NEAR(recovered, rad, 1e-9) << "rad=" << rad;

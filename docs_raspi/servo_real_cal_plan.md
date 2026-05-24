@@ -36,13 +36,15 @@ keine Phase-12-Done-Kriterien-Aussagen. Dokumente unter Präfix
 | Stage | Was | Aufwand | Wer |
 |---|---|---|---|
 | **0** | Plugin-Math-Fix (Comment-Mismatch + direction-aware slope) | ~1 h | Claude |
+| **0.5** | Plugin-Hard-Stop bei Pulse-Out-of-Range + Reset-Service | ~2 h | Claude |
+| **0.6** | IK-Joint-Limit-Check + sofortiger safety_freeze bei Verletzung | ~1.5 h | Claude |
 | **A** | URDF-Macro-Refactor (pro-Joint-Limit-Args, Defaults unverändert) | ~1 h | Claude |
 | **B** | `servo_mapping.yaml` mit echten PWM-Werten (Cal-Doku Tab. 3.2) + direction=+1 Default für alle Pins | ~30 min | Claude |
 | **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude |
 | **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude |
 | **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude |
 
-**Total: ~5–6 h verteilt über ≥ 2 Sessions** (Stage C+E sind interaktiv mit HW).
+**Total: ~9–10 h verteilt über ≥ 2 Sessions** (Stage C+E sind interaktiv mit HW).
 
 ---
 
@@ -160,6 +162,216 @@ pulse=870/1680/2185, joint_lower=-1.92, joint_upper=+1.197):**
 - **0-Q2:** Test-Suite-Stelle — neue Tests neben den bestehenden
   asymm/direction-Tests einfügen? Empfehlung: ja, in Reihenfolge
   parallel zur bestehenden Struktur.
+
+---
+
+## Stage 0.5 — Plugin-Hard-Stop bei Pulse-Out-of-Range
+
+> **Hintergrund:** Firmware bleibt dumm (User-Entscheidung 2026-05-24)
+> — das ROS-Plugin im hexapod_ws ist allein verantwortlich, niemals
+> ein PWM-Signal außerhalb `[pulse_min, pulse_max]` zu senden. Stage 0.5
+> implementiert die Last-Defense gegen Servo-Schaden.
+
+### 0.5.1 Logik-Skizze
+
+**Detektion:** in `hexapod_system.cpp::write()` nach `radians_to_pulse_us`:
+wenn `pulse_raw` außerhalb `[pulse_min, pulse_max]` (mit 1 µs FP-Toleranz)
+→ Hard-Stop-Mechanismus.
+
+**Hard-Stop-Aktion:**
+1. Plugin setzt internen Flag `safety_freeze_ = true`
+2. Solange freeze aktiv: write() schreibt **letzte gültige PWM** zu allen
+   Pins (alle Beine halten letzte Position)
+3. `RCLCPP_ERROR` mit klarer Recovery-Anweisung (verweist auf
+   `/hexapod_safety_reset` Service)
+4. Optional: ein State-Topic `/hexapod_safety_state` publisht „frozen"
+   damit gait_node + UI informiert sind
+
+**Recovery via ROS-Service `/hexapod_safety_reset` (`std_srvs/Trigger`):**
+1. User-Aufruf: `ros2 service call /hexapod_safety_reset std_srvs/srv/Trigger`
+2. Plugin: `safety_freeze_ = false`, State-Topic „recovered"
+3. **gait_node-side** (siehe Phase-13-Pendenz): fährt Hexapod erst zu
+   `pose_standing` bevor cmd_vel akzeptiert wird
+
+**Pseudocode `hexapod_system.cpp::write()` Ergänzung:**
+```cpp
+const auto & cal_pin = calibration_.at(output_idx);
+const double pulse_raw = calibration_.radians_to_pulse_us(output_idx, rad);
+
+// Stage 0.5: Last-Defense Hard-Stop gegen Servo-Schaden.
+// Firmware ist dumb — Plugin garantiert PWM ∈ [pulse_min, pulse_max].
+constexpr double FP_TOLERANCE = 1.0;  // µs, gegen FP-Rundung am Limit
+const bool out_of_range =
+  (pulse_raw < cal_pin.pulse_min - FP_TOLERANCE) ||
+  (pulse_raw > cal_pin.pulse_max + FP_TOLERANCE);
+
+if (out_of_range && !safety_freeze_.load()) {
+  safety_freeze_.store(true);
+  RCLCPP_ERROR(plugin_logger(),
+    "SAFETY FREEZE: joint '%s' pulse %.1f µs outside cal range "
+    "[%d, %d] — IK/URDF/cal mismatch. Hexapod frozen, all joints "
+    "holding. Recover via: ros2 service call /hexapod_safety_reset "
+    "std_srvs/srv/Trigger",
+    info_.joints[i].name.c_str(), pulse_raw,
+    cal_pin.pulse_min, cal_pin.pulse_max);
+}
+
+// Always write last_command (in freeze) or new clamped value (normal):
+double pulse_out;
+if (safety_freeze_.load()) {
+  pulse_out = static_cast<double>(last_command_pulse_us_[output_idx]);
+} else {
+  pulse_out = std::clamp(pulse_raw,
+    static_cast<double>(cal_pin.pulse_min),
+    static_cast<double>(cal_pin.pulse_max));
+}
+last_command_pulse_us_[output_idx] = static_cast<int16_t>(std::round(pulse_out));
+```
+
+> **Warum Clamp ZUSÄTZLICH zum Hard-Stop?** Zwischen Detektion des
+> Out-of-Range im Tick T und dem nächsten write() Tick T+1 muss ETWAS
+> zur Firmware. Hard-Stop greift erst in Tick T+1. Im T-Tick selbst
+> wird das geclampte (sichere) PWM gesendet, NICHT das raw-PWM.
+
+### 0.5.2 Tests-Liste
+
+| Test | Was |
+|---|---|
+| `WriteCycle.OutOfRangeAboveTriggersFreezeAndHoldsLastGood` | rad weit über joint_upper → pulse > pulse_max → safety_freeze=true, nächste write() schreibt last_command |
+| `WriteCycle.OutOfRangeBelowTriggersFreeze` | analog untere Seite |
+| `WriteCycle.InRangeRadDoesNotFreezeAndNoLogSpam` | rad innerhalb cal-Range, kein Freeze, kein Warning |
+| `WriteCycle.FpToleranceAtPulseMaxDoesNotTrigger` | rad=joint_upper mit FP-Drift `pulse_raw = pulse_max + 0.4 µs` → kein Trigger |
+| `SafetyResetService.ClearsFreezeFlag` | Service-Call setzt safety_freeze_ auf false |
+| `SafetyResetService.WhileNotFrozenReturnsSuccess` | Idempotent (Service-Call wenn nicht frozen → ok) |
+
+**NICHT getestet (scope-out):**
+- Auto-Standing-Rampe nach Reset → Phase-13-Pendenz, siehe unten
+- gait_node-Verhalten während Freeze (= heutiges Verhalten: gait_node
+  publisht weiter Trajectorien, JTC schickt zu Plugin, Plugin verwirft
+  und hält freeze. OK für jetzt)
+
+### 0.5.3 Progress-Checkliste
+
+```
+- [ ] 0.5.1 hexapod_system.cpp::write() — safety_freeze_-Flag + Detektion
+        + Hard-Stop-Logic + ERROR-Log + Clamp-zum-sicheren-Wert
+- [ ] 0.5.2 hexapod_system.hpp — std::atomic<bool> safety_freeze_ Member
+- [ ] 0.5.3 hexapod_system.cpp — Service-Server /hexapod_safety_reset
+        (std_srvs/srv/Trigger)
+- [ ] 0.5.4 Comment Z.657-660 aktualisiert: "firmware-clamp" entfernt,
+        ersetzt durch "Plugin-side hard-clamp + safety_freeze"
+- [ ] 0.5.5 6 neue Tests in test_hexapod_system.cpp (siehe Tabelle)
+- [ ] 0.5.6 colcon test grün
+- [ ] 0.5.7 Self-Review-Tabelle
+```
+
+### 0.5.4 Offene Punkte für User-Review
+
+- **0.5-Q1:** State-Topic `/hexapod_safety_state` jetzt implementieren
+  oder Phase 13? Empfehlung: jetzt nicht — gait_node-Integration kommt
+  in Phase 13 zusammen mit Auto-Standing-Rampe.
+
+---
+
+## Stage 0.6 — IK-Joint-Limit-Check + sofortiger Freeze
+
+> **Hintergrund:** [`leg_ik.py:17-18`](../src/hexapod_kinematics/hexapod_kinematics/leg_ik.py)
+> dokumentiert explizit: „Keine Joint-Limit-Prüfung". IK kann rad-Werte
+> außerhalb URDF-Limits ausgeben — die werden dann erst im Plugin-write()
+> auf Stage 0.5 hart gestoppt. Stage 0.6 fügt die Frühwarnung in der
+> Planning-Phase hinzu.
+
+### 0.6.1 Logik-Skizze
+
+**IK-Erweiterung (`leg_ik.py`):**
+- Neue Funktion-Signatur: `leg_ik(x, y, z, leg_cfg, joint_limits=None)`
+- Nach Berechnung von `(theta_coxa, theta_femur, theta_tibia)`: wenn
+  `joint_limits` gesetzt + irgendein theta außerhalb → `IKError` werfen
+  mit Detail (welcher Joint, welcher Wert, welches Limit)
+- Backwards-Compat: ohne `joint_limits`-Arg → bisheriges lenient
+  Verhalten
+
+**Joint-Limits-Quelle:** URDF-Limits via `hexapod_kinematics.config.LegConfig`
+oder direkt aus ROS-Parameter-Server in gait_node (latter wahrscheinlich
+einfacher).
+
+**gait_engine-Reaktion (User-Entscheidung 2026-05-24: sofortiger Freeze):**
+
+Bei jedem IK-Joint-Limit-Error → gait_engine ruft sofort
+`/hexapod_safety_freeze` Service (gegenstück zu `/hexapod_safety_reset`).
+Plugin geht in Hard-Stop, alle Beine halten letzte Position. Recovery
+über `/hexapod_safety_reset` wie in Stage 0.5.
+
+**Warum N=1 statt graduierter Toleranz:** User-Wahl — Extremfall-
+Sicherheit hat Vorrang vor transient-Glitch-Toleranz. Wenn IK ein
+einziges Mal out-of-Joint-Limit rechnet, ist das ein echter
+Konfig/Cal-Mismatch und darf nicht mit Hold-Position gemuted werden.
+
+**Neuer Service `/hexapod_safety_freeze` (`std_srvs/Trigger`):** ergänzt
+das Reset-Service-Paar aus Stage 0.5. User OR gait_engine kann den
+Freeze auslösen.
+
+### 0.6.2 Tests-Liste
+
+| Test | Was |
+|---|---|
+| `LegIK.JointLimitViolationRaisesIKError` (pytest) | leg_ik mit joint_limits-Arg, rad außerhalb → IKError mit klarer Message |
+| `LegIK.WithinJointLimitsReturnsSameAsBefore` (pytest) | Backwards-Compat: gleiches Bein, kein Joint-Limit-Bruch → identisches Ergebnis |
+| `LegIK.NoJointLimitsArgIsLenient` (pytest) | Default-Verhalten unverändert |
+| `GaitEngine.IKJointLimitErrorTriggersFreezeService` (pytest) | 1 IKError → safety_freeze-Service wird sofort gerufen |
+| `SafetyFreezeService.SetsFreezeFlag` (gtest) | analog Reset-Service, setzt safety_freeze=true |
+
+**NICHT getestet (scope-out):**
+- Step-Truncate (Schritt verkürzen über ALLE Beine basierend auf
+  limitierendem Bein) → Phase-13-Pendenz
+- Auto-Recovery nach safety_freeze → Phase 13
+
+### 0.6.3 Progress-Checkliste
+
+```
+- [ ] 0.6.1 leg_ik.py: joint_limits-Arg hinzufügen, Check nach
+        rad-Berechnung, IKError mit Detail
+- [ ] 0.6.2 hexapod_kinematics.config: LegConfig um optional
+        joint_limits-Feld erweitern (joint_lower/joint_upper pro Joint)
+- [ ] 0.6.3 gait_engine.py: bei IKError catch → ruft
+        /hexapod_safety_freeze Service sofort (kein Counter)
+- [ ] 0.6.4 gait_node.py: Lese URDF-Limits aus Param-Server, übergebe an
+        gait_engine bei Init; Service-Client für /hexapod_safety_freeze
+- [ ] 0.6.5 hexapod_system.cpp: zweiter Service /hexapod_safety_freeze
+        (Pendant zu /hexapod_safety_reset aus Stage 0.5)
+- [ ] 0.6.6 3 IK pytest-Tests + 2 gait_engine pytest-Tests + 1 gtest
+- [ ] 0.6.7 colcon test grün (Sim-Tests dürfen nicht regressieren)
+- [ ] 0.6.8 Self-Review-Tabelle
+```
+
+### 0.6.4 Offene Punkte für User-Review
+
+- **0.6-Q1:** ✅ entschieden — N=1 (sofortiger Freeze beim ersten
+  IK-Joint-Limit-Error). Extremfall-Sicherheit vor transient-Toleranz.
+- **0.6-Q2:** Status-Topic `/gait_health` → Phase 13 (siehe Pendenzen).
+
+---
+
+## Phase-13-Pendenz aus Stage 0.5 + 0.6
+
+Folgende Items werden in Stage 0.5/0.6 **nicht** implementiert und
+müssen in Phase 13 (Voll-Bringup mit echtem Roboter) nachgeholt werden:
+
+1. **`pose_standing`-PWMs definieren** via RViz-IK + HW-Verifikation
+   (Cal-Doku [Sektion 3.4](servo_real_calibration_todos.md) hat Platzhalter).
+2. **Auto-Standing-Rampe** in gait_node nach `/hexapod_safety_reset`:
+   Hexapod fährt smooth zu `pose_standing` bevor cmd_vel akzeptiert
+   wird. Plugin signalisiert „recovered"-State über Topic.
+3. **Step-Truncate über alle Beine:** wenn IK an einem Bein out-of-range
+   geht, berechnet gait_engine den maximal erreichbaren Schritt pro
+   Bein, nimmt das Minimum als globalen step-scaler, alle Beine gehen
+   synchron reduziert. Ersetzt Stage-0.6 Hold-Eskalation für Extremfälle.
+4. **`/gait_health`-Topic** für Status-Sichtbarkeit (`OK`/`DEGRADED`/`FROZEN`).
+5. **Plugin State-Topic `/hexapod_safety_state`** als Read-only Status
+   für UI/Diagnose.
+
+→ Diese Liste wandert in Memory-Eintrag
+`project_phase13_safety_pendenzen.md` (anzulegen am Ende von Stage 0.6).
 
 ---
 

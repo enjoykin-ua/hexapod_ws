@@ -186,13 +186,24 @@ double Calibration::radians_to_pulse_us(int output_idx, double rad) const
   std::lock_guard<std::mutex> lock(mutex_);
   const ServoCalibration & s = servos_[output_idx];
 
-  // Two slopes meet at pulse_zero. Which one we use depends on the sign
-  // of the (mechanical, not signed-by-direction) joint side.
+  // Two slopes meet at pulse_zero. Slope is direction-aware:
+  // joint_upper/joint_lower are PWM-centric URDF limits — at
+  // direction=+1, rad=+joint_upper maps to pulse_max; at direction=-1,
+  // rad=+joint_upper maps to pulse_min (the URDF joint axis is mirrored
+  // wrt the servo's mechanical rotation). The formula picks the slope
+  // formula so that extreme rad values exactly hit pulse_min/pulse_max
+  // in both direction cases, also when the calibration is asymmetric
+  // (pulse_zero not centered between pulse_min and pulse_max).
+  // See docs_raspi/servo_real_cal_plan.md Stage 0 for the derivation.
   double slope;
   if (rad >= 0.0) {
-    slope = static_cast<double>(s.pulse_max - s.pulse_zero) / s.joint_upper;
+    slope = (s.direction > 0) ?
+      static_cast<double>(s.pulse_max - s.pulse_zero) / s.joint_upper :
+      static_cast<double>(s.pulse_zero - s.pulse_min) / s.joint_upper;
   } else {
-    slope = static_cast<double>(s.pulse_zero - s.pulse_min) / std::abs(s.joint_lower);
+    slope = (s.direction > 0) ?
+      static_cast<double>(s.pulse_zero - s.pulse_min) / std::abs(s.joint_lower) :
+      static_cast<double>(s.pulse_max - s.pulse_zero) / std::abs(s.joint_lower);
   }
   return static_cast<double>(s.pulse_zero) + s.direction * rad * slope;
 }
@@ -210,13 +221,21 @@ double Calibration::pulse_us_to_radians(int output_idx, double pulse_us) const
   const ServoCalibration & s = servos_[output_idx];
   const double dp = pulse_us - static_cast<double>(s.pulse_zero);
 
-  // Pick the slope by which side of pulse_zero we ended up on *in joint
-  // space*. direction · dp >= 0 ⇔ joint_rad >= 0 ⇔ use slope_right.
+  // Inverse of radians_to_pulse_us. Slope-side selection by joint-rad
+  // sign (direction · dp >= 0 ⇔ joint_rad >= 0), slope formula
+  // direction-aware so that pulse_min/pulse_max decode back to
+  // joint_lower/joint_upper exactly — for both direction values and
+  // also for asymmetric calibration. See servo_real_cal_plan.md
+  // Stage 0 for derivation; Roundtrip tests verify forward∘inverse.
   double slope;
   if (s.direction * dp >= 0.0) {
-    slope = static_cast<double>(s.pulse_max - s.pulse_zero) / s.joint_upper;
+    slope = (s.direction > 0) ?
+      static_cast<double>(s.pulse_max - s.pulse_zero) / s.joint_upper :
+      static_cast<double>(s.pulse_zero - s.pulse_min) / s.joint_upper;
   } else {
-    slope = static_cast<double>(s.pulse_zero - s.pulse_min) / std::abs(s.joint_lower);
+    slope = (s.direction > 0) ?
+      static_cast<double>(s.pulse_zero - s.pulse_min) / std::abs(s.joint_lower) :
+      static_cast<double>(s.pulse_max - s.pulse_zero) / std::abs(s.joint_lower);
   }
   return dp / (s.direction * slope);
 }
