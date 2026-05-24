@@ -78,17 +78,17 @@ ros2 launch hexapod_gait gait.launch.py \
   params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/sim_walk.yaml
 ```
 
-> **`sim_walk.yaml`** enthält die in Stage E (2026-05-24) manuell
-> getuneten Walking-Envelope-Werte: `radial_distance=0.30`,
-> `body_height=-0.075`, `step_length_max=0.03`, `step_height=0.02`.
-> Siehe [`walking_envelope_tool_spec.md`](walking_envelope_tool_spec.md)
-> für Math und das (geplante) Sweep-Tool das systematisch optimale
-> Werte pro Höhe findet.
+> **`sim_walk.yaml`** ist auto-generiert von
+> [`tools/walking_envelope_check.py`](../tools/walking_envelope_check.py)
+> `recommend` (2026-05-24): `radial_distance=0.295`, `body_height=-0.070`,
+> `step_length_max=0.035`, `step_height=0.020`. Alle 4 cmd_vel-Szenarien
+> (forward/sidestep/yaw/diagonal) sind grün mit 10% Safety-Margin.
+> Bottleneck: sidestep:out_of_reach für Mittel-Beine.
 
 **Erwartung — gait_node-Logs:**
 ```
 [INFO] [gait_node]: Stage 0.6: parsed joint limits for 6 legs from robot_description
-[INFO] [gait_node]: gait_node init: pattern=tripod, step_height=0.020 m, ..., body_height=-0.075 m ..., step_length_max=0.030 m (linear_max=0.015 m/s) ...
+[INFO] [gait_node]: gait_node init: pattern=tripod, step_height=0.020 m, ..., body_height=-0.070 m ..., step_length_max=0.035 m (linear_max=0.035 m/s) ...
 ```
 
 **Wenn stattdessen** `WARN: robot_description empty or unparseable — IK runs in lenient mode`:
@@ -106,12 +106,21 @@ weiter raus + tiefer als bei reinem Default.
 
 **T3:**
 ```bash
-ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.015}}'
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.03}}'
 ```
 
-> **Warum 0.015 m/s?** Mit `step_length_max=0.03 m` und `cycle_time=2.0 s`
-> ist `linear_max = 0.03/2.0 = 0.015 m/s`. Größere Werte werden geclamped
-> mit WARN-Log (siehe Schritt 5).
+> **Warum 0.03 m/s?** Mit `step_length_max=0.035 m` und `cycle_time=2.0 s`
+> ist `linear_max = 0.035/1.0 = 0.035 m/s`. 0.03 m/s ist knapp drunter,
+> nutzt fast die volle erlaubte Geschwindigkeit. Größere Werte werden
+> geclamped mit WARN-Log (siehe Schritt 5).
+>
+> **Alternativ Sidestep oder Drehung testen:**
+> ```bash
+> # Sidestep (linear.y)
+> ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {y: 0.03}}'
+> # Drehung am Stand (angular.z)
+> ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{angular: {z: 0.3}}'
+> ```
 
 **Erwartung:**
 - In Gazebo: Hexapod bewegt sich langsam vorwärts (~1.5 cm/s)
@@ -137,7 +146,7 @@ Log.
 
 > **Hinweis:** Der ursprüngliche "Extremfall" (cmd_vel=0.5 zum
 > Provozieren von IKError) funktioniert mit dem Sim-Preset NICHT mehr,
-> weil gait_engine cmd_vel auf `linear_max=0.015 m/s` clampt BEVOR IK
+> weil gait_engine cmd_vel auf `linear_max=0.035 m/s` clampt BEVOR IK
 > rechnet. Stattdessen verifizieren wir den Clamp-Mechanismus.
 
 **T3:**
@@ -147,10 +156,10 @@ ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.5}}'
 
 **Erwartung in T2 — alle 2 s eine WARN-Zeile:**
 ```
-[WARN] [gait_node]: cmd_vel clamped: input (vx=0.500, vy=0.000, omega=0.000) > max-leg-speed 0.015 m/s
+[WARN] [gait_node]: cmd_vel clamped: input (vx=0.500, vy=0.000, omega=0.000) > max-leg-speed 0.035 m/s
 ```
 
-**Erwartung in Gazebo:** Hexapod läuft mit linear_max=0.015 m/s
+**Erwartung in Gazebo:** Hexapod läuft mit linear_max=0.035 m/s
 (genauso schnell wie in Schritt 4). KEINE IKError-Logs.
 
 **Strg+C in T3.**

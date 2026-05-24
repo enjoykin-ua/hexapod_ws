@@ -294,18 +294,22 @@ Phase 4-6 (±1.57)** annehmen. In Sim-Tuning (Stage E) ermittelt:
   (leg_1) bzw. +1.185 (leg_3).
 - **Engster Bottleneck: leg_3 tibia_upper = +1.185 rad** beschränkt
   Stand-Pose-Höhe + radial_distance.
-- **Working Sim-Preset (manuell tuned):** radial=0.30, body_height=-0.075,
-  step_length_max=0.03, step_height=0.02 → linear_max=0.015 m/s
+- **Working Sim-Preset (auto-generiert mit walking_envelope_check.py recommend
+  2026-05-24):** radial=0.295, body_height=-0.070, step_length_max=0.035,
+  step_height=0.020 → linear_max=0.035 m/s, ALLE 4 cmd_vel-Szenarien
+  grün mit 10% Safety-Margin
   (siehe `src/hexapod_gait/config/presets/sim_walk.yaml`).
 - **Zweiter Bottleneck bei größeren step_length:** geometrische
-  out-of-reach `L_femur + L_tibia = 0.2799 m`. Bei radial=0.30 +
-  step_length>0.05 wird Foot-Drift > 0.2799.
+  out-of-reach `L_femur + L_tibia = 0.2799 m`, v.a. Mittel-Beine bei
+  Sidestep.
+- **Walking-Envelope-Tool implementiert:** Auto-Tuning via
+  [`tools/walking_envelope_check.py`](../tools/walking_envelope_check.py)
+  (check/sweep/recommend Modi, 11/11 pytest grün). Spec in
+  [`walking_envelope_tool_spec.md`](walking_envelope_tool_spec.md).
 
 → **Implikation:** gait_node-Param-Tuning muss zur Cal passen, nicht
-andersrum. Manuelles Try-and-Error in Sim ist ineffizient — die
-Spec für ein systematisches Auto-Tuning-Tool ist in
-[`walking_envelope_tool_spec.md`](walking_envelope_tool_spec.md)
-beschrieben (geplant, noch nicht implementiert).
+andersrum. Bei jeder Cal-Änderung (z.B. nach Stage C Direction-Cal):
+Preset neu generieren mit `recommend`.
 
 ## 4. Implementation-Plan
 
