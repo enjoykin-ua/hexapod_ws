@@ -1,10 +1,14 @@
 # Walking-Envelope-Check-Tool — Spec & Konzept
 
-> **Status:** Konzept-Spec, **noch nicht implementiert**. Wird gebaut
-> nach Stage E (Sim) abgeschlossen. Beweis-of-need ist die Sim-Tuning-
-> Erfahrung 2026-05-24: manuelles Try-and-Error für 4-dimensionalen
-> Walking-Envelope (radial × height × step_length × step_height) ist
-> ineffizient und nicht reproduzierbar.
+> **Status:** ✅ implementiert 2026-05-24 unter
+> [`tools/walking_envelope_check.py`](../tools/walking_envelope_check.py)
+> + Tests [`tools/test_walking_envelope_check.py`](../tools/test_walking_envelope_check.py)
+> (11/11 pytest grün).
+>
+> **Verwendung:** ausführliche Doku im File-Kopf
+> [`tools/walking_envelope_check.py`](../tools/walking_envelope_check.py).
+>
+> Diese Spec hier bleibt als Konzept-Beleg + Architektur-Beschreibung.
 
 ---
 
