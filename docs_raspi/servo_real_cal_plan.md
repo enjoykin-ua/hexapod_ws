@@ -33,16 +33,16 @@ keine Phase-12-Done-Kriterien-Aussagen. Dokumente unter Präfix
 
 ## 2. Stage-Übersicht
 
-| Stage | Was | Aufwand | Wer |
-|---|---|---|---|
-| **0** | Plugin-Math-Fix (Comment-Mismatch + direction-aware slope) | ~1 h | Claude |
-| **0.5** | Plugin-Hard-Stop bei Pulse-Out-of-Range + Reset-Service | ~2 h | Claude |
-| **0.6** | IK-Joint-Limit-Check + sofortiger safety_freeze bei Verletzung | ~1.5 h | Claude |
-| **A** | URDF-Macro-Refactor (pro-Joint-Limit-Args, Defaults unverändert) | ~1 h | Claude |
-| **B** | `servo_mapping.yaml` mit echten PWM-Werten (Cal-Doku Tab. 3.2) + direction=+1 Default für alle Pins | ~30 min | Claude |
-| **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude |
-| **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude |
-| **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude |
+| Stage | Was | Aufwand | Wer | Status |
+|---|---|---|---|---|
+| **0** | Plugin-Math-Fix (Comment-Mismatch + direction-aware slope) | ~1 h | Claude | ✅ 2026-05-24 |
+| **0.5** | Plugin-Hard-Stop bei Pulse-Out-of-Range + Reset-Service | ~2 h | Claude | ✅ 2026-05-24 |
+| **0.6** | IK-Joint-Limit-Check + sofortiger safety_freeze bei Verletzung | ~1.5 h | Claude | ✅ 2026-05-24 |
+| **A** | URDF-Macro-Refactor (pro-Joint-Limit-Args, Defaults unverändert) | ~1 h | Claude | ✅ 2026-05-24 |
+| **B** | `servo_mapping.yaml` mit echten PWM-Werten (Cal-Doku Tab. 3.2) + direction=+1 Default für alle Pins | ~30 min | Claude | ✅ 2026-05-24 |
+| **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude | ⏳ |
+| **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude | ⏳ |
+| **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude | ⏳ |
 
 **Total: ~9–10 h verteilt über ≥ 2 Sessions** (Stage C+E sind interaktiv mit HW).
 
@@ -139,18 +139,18 @@ pulse=870/1680/2185, joint_lower=-1.92, joint_upper=+1.197):**
 ### 0.3 Progress-Checkliste
 
 ```
-- [ ] 0.1 calibration.cpp::radians_to_pulse_us slope-Auswahl
+- [x] 0.1 calibration.cpp::radians_to_pulse_us slope-Auswahl
         direction-aware umschreiben (Pseudocode aus 0.1)
-- [ ] 0.2 calibration.cpp::pulse_us_to_radians inverse-slope-Formel
+- [x] 0.2 calibration.cpp::pulse_us_to_radians inverse-slope-Formel
         direction-aware umschreiben (analog)
-- [ ] 0.3 Code-Kommentar in calibration.cpp Z.189-190 aktualisieren
+- [x] 0.3 Code-Kommentar in calibration.cpp Z.189-190 aktualisieren
         (Comment-Mismatch beheben, neue Logik dokumentieren)
-- [ ] 0.4 Neuer Test RadiansToPulse.NegativeDirectionAsymmetricUsesCorrectSide
+- [x] 0.4 Neuer Test RadiansToPulse.NegativeDirectionAsymmetricUsesCorrectSide
         in test_calibration.cpp (Cal-Werte aus leg_1_tibia-Setup)
-- [ ] 0.5 Neuer Test Roundtrip.NegativeDirectionAsymmetricRoundtrips
-- [ ] 0.6 colcon test --packages-select hexapod_hardware grün
-        (alle alten + 2 neue Tests)
-- [ ] 0.7 Self-Review-Tabelle: Edge-Cases (rad=0, pulse_zero ist
+- [x] 0.5 Neuer Test Roundtrip.NegativeDirectionAsymmetricRoundtrips
+- [x] 0.6 colcon test --packages-select hexapod_hardware grün
+        (alle alten + 2 neue Tests; 229/0/20)
+- [x] 0.7 Self-Review-Tabelle: Edge-Cases (rad=0, pulse_zero ist
         an pulse_min/max-Grenze, joint_lower=joint_upper=0)
 ```
 
@@ -253,16 +253,18 @@ last_command_pulse_us_[output_idx] = static_cast<int16_t>(std::round(pulse_out))
 ### 0.5.3 Progress-Checkliste
 
 ```
-- [ ] 0.5.1 hexapod_system.cpp::write() — safety_freeze_-Flag + Detektion
+- [x] 0.5.1 hexapod_system.cpp::write() — safety_freeze_-Flag + Detektion
         + Hard-Stop-Logic + ERROR-Log + Clamp-zum-sicheren-Wert
-- [ ] 0.5.2 hexapod_system.hpp — std::atomic<bool> safety_freeze_ Member
-- [ ] 0.5.3 hexapod_system.cpp — Service-Server /hexapod_safety_reset
+- [x] 0.5.2 hexapod_system.hpp — std::atomic<bool> safety_freeze_ Member
+        + public is_safety_frozen()/clear_safety_freeze() für Tests
+- [x] 0.5.3 hexapod_system.cpp — Service-Server /hexapod_safety_reset
         (std_srvs/srv/Trigger)
-- [ ] 0.5.4 Comment Z.657-660 aktualisiert: "firmware-clamp" entfernt,
+- [x] 0.5.4 Comment Z.657-660 aktualisiert: "firmware-clamp" entfernt,
         ersetzt durch "Plugin-side hard-clamp + safety_freeze"
-- [ ] 0.5.5 6 neue Tests in test_hexapod_system.cpp (siehe Tabelle)
-- [ ] 0.5.6 colcon test grün
-- [ ] 0.5.7 Self-Review-Tabelle
+- [x] 0.5.5 **7** neue Tests in test_hexapod_system.cpp (Plan war 6,
+        plus WriteWhileFrozenHoldsLastGoodPulse für Hold-Verhalten)
+- [x] 0.5.6 colcon test grün (229/0/20)
+- [x] 0.5.7 Self-Review-Tabelle
 ```
 
 ### 0.5.4 Offene Punkte für User-Review
@@ -329,19 +331,26 @@ Freeze auslösen.
 ### 0.6.3 Progress-Checkliste
 
 ```
-- [ ] 0.6.1 leg_ik.py: joint_limits-Arg hinzufügen, Check nach
-        rad-Berechnung, IKError mit Detail
-- [ ] 0.6.2 hexapod_kinematics.config: LegConfig um optional
-        joint_limits-Feld erweitern (joint_lower/joint_upper pro Joint)
-- [ ] 0.6.3 gait_engine.py: bei IKError catch → ruft
-        /hexapod_safety_freeze Service sofort (kein Counter)
-- [ ] 0.6.4 gait_node.py: Lese URDF-Limits aus Param-Server, übergebe an
-        gait_engine bei Init; Service-Client für /hexapod_safety_freeze
-- [ ] 0.6.5 hexapod_system.cpp: zweiter Service /hexapod_safety_freeze
-        (Pendant zu /hexapod_safety_reset aus Stage 0.5)
-- [ ] 0.6.6 3 IK pytest-Tests + 2 gait_engine pytest-Tests + 1 gtest
-- [ ] 0.6.7 colcon test grün (Sim-Tests dürfen nicht regressieren)
-- [ ] 0.6.8 Self-Review-Tabelle
+- [x] 0.6.1 leg_ik.py: joint_limits-Arg hinzufügen, Check nach
+        rad-Berechnung, IKError mit "joint limit ..."-Prefix + Export
+        JointLimits via __init__.py
+- [x] 0.6.2 **Nicht via LegConfig**: User-Wahl Q4 = URDF-Parse in gait_node.
+        JointLimits-dataclass lebt in hexapod_kinematics.leg_ik, gait_node
+        baut den per-leg-dict aus `/robot_description`.
+- [x] 0.6.3 gait_engine.py: bei IKError catch → ruft
+        /hexapod_safety_freeze Service sofort (kein Counter); joint_limits-
+        dict per leg an leg_ik durchgereicht
+- [x] 0.6.4 gait_node.py: parse_joint_limits_from_urdf-Helper (stdlib XML),
+        robot_description-Param read-only, Service-Client async (Q3-Wahl),
+        _trigger_safety_freeze-Helper mit unreachable-Log-once
+- [x] 0.6.5 hexapod_system.cpp: zweiter Service /hexapod_safety_freeze
+        (Pendant zu /hexapod_safety_reset aus Stage 0.5) + public
+        trigger_safety_freeze() für Tests
+- [x] 0.6.6 **4 IK pytest** + **6 gait pytest** + **1 gtest** = 11 neu
+        (Plan war 3+2+1=6 — mehr Coverage geschrieben)
+- [x] 0.6.7 colcon test grün (hexapod_kinematics 32/0/1,
+        hexapod_gait 27/0/1, hexapod_hardware 230/0/20)
+- [x] 0.6.8 Self-Review-Tabelle
 ```
 
 ### 0.6.4 Offene Punkte für User-Review
@@ -487,14 +496,20 @@ gewinnt der Arg, sonst die globale Property.
 ### A.3 Progress-Checkliste
 
 ```
-- [ ] A.1 leg.xacro Macro um 6 optionale Args (coxa_lower/upper,
-        femur_lower/upper, tibia_lower/upper) erweitern mit
+- [x] A.1 leg.xacro Macro um 6 optionale Args (coxa_lower/upper,
+        femur_lower/upper, tibia_lower/upper) erweitert mit
         ^|${property}|-Default-Pattern
-- [ ] A.2 colcon build hexapod_description grün
-- [ ] A.3 xacro-Output-Diff vorher/nachher zeigt KEINE Änderung
-        an Joint-Limits (Default-Backwards-Compat verifiziert)
-- [ ] A.4 Sim-Smoke (hexapod spawnt normal in Stand-Pose)
-- [ ] A.5 Self-Review-Tabelle
+- [x] A.2 colcon build hexapod_description grün
+- [x] A.3 xacro-Output-Diff vorher/nachher zeigt KEINE Änderung
+        an Joint-Limits (Default-Backwards-Compat verifiziert per
+        `diff` → byte-identisch)
+- [ ] A.4 Sim-Smoke (hexapod spawnt normal in Stand-Pose) — **deferred
+        zu test_commands.md Test A.C** (interaktiv, optional)
+- [x] A.5 Self-Review-Tabelle
+
+**Beifang in Stage A** (nicht im ursprünglichen Plan, aber nötig für
+grünes `colcon test hexapod_description`): display.launch.py copyright-
+header + D213-docstring-fix (pre-existing Linter-Issues).
 ```
 
 ### A.4 Offene Punkte für User-Review
@@ -545,11 +560,22 @@ install-Tree → muss zurück nach `src/` kopiert werden.
 ### B.3 Progress-Checkliste
 
 ```
-- [ ] B.1 servo_mapping.yaml mit 18 PWM-Tripeln aus Cal-Doku Tab. 3.2,
-        direction=1 für alle Pins, joint_name pro Pin gesetzt
-- [ ] B.2 colcon build hexapod_hardware grün
+- [x] B.1 servo_mapping.yaml mit 18 PWM-Tripeln aus Cal-Doku Tab. 3.2,
+        direction=1 default für 15 Pins, **leg_6 direction -1/-1/+1
+        aus Phase-10-stack-verification erhalten** (Mount unverändert).
+        version/status/calibrated_at-Header aktualisiert.
+- [x] B.2 colcon build hexapod_hardware grün
 - [ ] B.3 Plugin-Init-Smoke: real.launch.py startet ohne Schema-Errors
-- [ ] B.4 Self-Review-Tabelle
+        — **deferred zu test_commands.md Test 0.5.A** (interaktiv)
+- [x] B.4 Self-Review-Tabelle
+
+**Beifang in Stage B** (Test-Konstanten an neue Cal-Werte synchen):
+- `test_hexapod_system.cpp::kExpectedPulseZero[]` — 18 Werte aus
+  YAML-Defaults (1500) auf reale Cal-Werte aktualisiert
+- `test_hexapod_system.cpp::LoopbackEchoesAreSlotCorrect...` — Echo-
+  Tolerance 2e-3 → 6e-3 (Mittel-Beine haben enge ~175-200 µs Range)
+- `test_calibration.cpp::RealConfigFile.InstalledServoMappingParses` —
+  pulse_zero-Assertion 1500 → 1460 (Pin 0 = leg_1_coxa)
 ```
 
 ### B.4 Offene Punkte für User-Review

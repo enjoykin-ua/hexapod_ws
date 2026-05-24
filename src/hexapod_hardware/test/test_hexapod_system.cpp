@@ -45,18 +45,17 @@ using hexapod_hardware_test::make_valid_info;
 using hexapod_hardware_test::make_params;
 
 // pulse_zero per servo pin, mirroring the committed servo_mapping.yaml.
-// Pin 0..14 fall back to the YAML defaults (pulse_zero = 1500). Pin 15/16/17
-// are Phase 10 Stage B pre-calibration values (HJ-Tester, 2026-05-17) — see
-// docs_raspi/phase_10_stage_b_calibration_log.md for the audit trail.
-// Tests that exercise the boot/neutral-pulse path use this table instead of
-// a hardcoded 1500 so Stage B's YAML edits don't trigger spurious failures.
+// Values from Cal-Session 2026-05-21 + leg_2/leg_5 re-cal 2026-05-24
+// (Mount-Tausch). See docs_raspi/servo_real_calibration_todos.md Tab. 3.2.
+// Tests that exercise the boot/neutral-pulse path use this table so YAML
+// edits in Stage B / future Cal-Sessions don't trigger spurious failures.
 constexpr int16_t kExpectedPulseZero[NUM_SERVOS] = {
-  1500, 1500, 1500,   // leg_1 (pins  0,  1,  2) — defaults
-  1500, 1500, 1500,   // leg_2 (pins  3,  4,  5) — defaults
-  1500, 1500, 1500,   // leg_3 (pins  6,  7,  8) — defaults
-  1500, 1500, 1500,   // leg_4 (pins  9, 10, 11) — defaults
-  1500, 1500, 1500,   // leg_5 (pins 12, 13, 14) — defaults
-  1550, 1533, 1539,   // leg_6 (pins 15, 16, 17) — Phase 10 Stage B pre-cal
+  1460, 1460, 1680,   // leg_1 (pins  0,  1,  2)
+  1575, 1550, 1680,   // leg_2 (pins  3,  4,  5) — post Mount-Tausch
+  1410, 1445, 1620,   // leg_3 (pins  6,  7,  8)
+  1520, 1560, 1320,   // leg_4 (pins  9, 10, 11)
+  1550, 1530, 1390,   // leg_5 (pins 12, 13, 14) — post Mount-Tausch
+  1530, 1540, 1340,   // leg_6 (pins 15, 16, 17)
 };
 
 // ============================================================================
@@ -999,11 +998,13 @@ TEST(HexapodSystemWriteRead, LoopbackEchoesAreSlotCorrectWithPermutedJointOrder)
     hardware_interface::return_type::OK);
 
   // Slot i's state must echo slot i's command — regardless of which
-  // physical servo pin that slot is mapped to.
+  // physical servo pin that slot is mapped to. Tolerance widened from
+  // 2e-3 to 6e-3 after Stage B re-cal (mid-leg coxas have narrow ranges
+  // ~175-200 µs; 1 µs rounding ≈ 2.4e-3 rad, ≥ old tolerance).
   for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
     const double got = read_handle(state_ifs[i]);
     const double expected = value_for_slot(i);
-    EXPECT_NEAR(got, expected, 2e-3)
+    EXPECT_NEAR(got, expected, 6e-3)
       << "slot " << i << " (URDF joint '" << info.joints[i].name <<
       "') expected echo " << expected << ", got " << got;
   }

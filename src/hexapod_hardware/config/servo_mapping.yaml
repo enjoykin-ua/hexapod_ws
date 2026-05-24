@@ -65,9 +65,15 @@
 # =============================================================================
 
 version: 1
-phase: 7
-status: placeholder        # Phase-10 calibration replaces this with `calibrated`
-calibrated_at: null        # ISO-8601 timestamp set when status = calibrated
+phase: 12
+status: calibrated         # Cal-Session 2026-05-21 + Mount-Tausch 2026-05-24
+calibrated_at: "2026-05-24"
+
+# Cal-Session-Source: docs_raspi/servo_real_calibration_todos.md Tab. 3.2
+# (all 18 servos measured 2026-05-21, leg_2/leg_5 re-cal nach Mount-Tausch
+# 2026-05-24). Direction defaults to +1 — Stage C (Direction-Cal) flips
+# per pin where stack-observation shows RViz/HW mismatch. leg_6 direction
+# values from Phase 10 are preserved (stack-verified, mount unchanged).
 
 defaults:
   pulse_min:  500
@@ -75,73 +81,42 @@ defaults:
   pulse_zero: 1500
   direction:  1
 
-# Output index 0..17 → joint mapping.
-# Any field omitted falls back to `defaults` above (Phase 9 host-side loader
-# is expected to do this merge — the firmware itself ignores this YAML).
+# Output index 0..17 → joint mapping. Per-pin values from
+# servo_real_calibration_todos.md Tab. 3.2 (Cal-Session 2026-05-21 +
+# leg_2/leg_5 re-cal 2026-05-24).
 servo2040_output_to_joint:
 
   # ---- Leg 1 — front-right ----
-  0: { joint: leg_1_coxa_joint  }
-  1: { joint: leg_1_femur_joint }
-  2: { joint: leg_1_tibia_joint }
+  0:  { joint: leg_1_coxa_joint,  pulse_min: 1145, pulse_zero: 1460, pulse_max: 1700 }
+  1:  { joint: leg_1_femur_joint, pulse_min:  815, pulse_zero: 1460, pulse_max: 2120 }
+  2:  { joint: leg_1_tibia_joint, pulse_min:  870, pulse_zero: 1680, pulse_max: 2185 }
 
-  # ---- Leg 2 — mid-right ----
-  3: { joint: leg_2_coxa_joint  }
-  4: { joint: leg_2_femur_joint }
-  5: { joint: leg_2_tibia_joint }
+  # ---- Leg 2 — mid-right (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
+  3:  { joint: leg_2_coxa_joint,  pulse_min: 1375, pulse_zero: 1575, pulse_max: 1750 }
+  4:  { joint: leg_2_femur_joint, pulse_min:  880, pulse_zero: 1550, pulse_max: 2190 }
+  5:  { joint: leg_2_tibia_joint, pulse_min:  860, pulse_zero: 1680, pulse_max: 2200 }
 
   # ---- Leg 3 — back-right ----
-  6: { joint: leg_3_coxa_joint  }
-  7: { joint: leg_3_femur_joint }
-  8: { joint: leg_3_tibia_joint }
+  6:  { joint: leg_3_coxa_joint,  pulse_min: 1200, pulse_zero: 1410, pulse_max: 1745 }
+  7:  { joint: leg_3_femur_joint, pulse_min:  800, pulse_zero: 1445, pulse_max: 2100 }
+  8:  { joint: leg_3_tibia_joint, pulse_min:  790, pulse_zero: 1620, pulse_max: 2120 }
 
   # ---- Leg 4 — back-left ----
-  9:  { joint: leg_4_coxa_joint  }
-  10: { joint: leg_4_femur_joint }
-  11: { joint: leg_4_tibia_joint }
+  9:  { joint: leg_4_coxa_joint,  pulse_min: 1200, pulse_zero: 1520, pulse_max: 1700 }
+  10: { joint: leg_4_femur_joint, pulse_min:  870, pulse_zero: 1560, pulse_max: 2190 }
+  11: { joint: leg_4_tibia_joint, pulse_min:  815, pulse_zero: 1320, pulse_max: 2140 }
 
-  # ---- Leg 5 — mid-left ----
-  12: { joint: leg_5_coxa_joint  }
-  13: { joint: leg_5_femur_joint }
-  14: { joint: leg_5_tibia_joint }
+  # ---- Leg 5 — mid-left (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
+  12: { joint: leg_5_coxa_joint,  pulse_min: 1350, pulse_zero: 1550, pulse_max: 1750 }
+  13: { joint: leg_5_femur_joint, pulse_min:  860, pulse_zero: 1530, pulse_max: 2190 }
+  14: { joint: leg_5_tibia_joint, pulse_min:  885, pulse_zero: 1390, pulse_max: 2210 }
 
-  # ---- Leg 6 — front-left ----
-  # Phase 10 Stage B pre-calibration via HJ-Tester (2026-05-17).
-  # See docs_raspi/phase_10_stage_b_calibration_log.md for the audit trail and
-  # docs_raspi/phase_10_stage_b_calibration_log.md §4.1 for the Femur/Tibia
-  # range > URDF-limit note (mech. stop lies outside HJ-Tester 800–2200 µs
-  # range; Phase 12 SW-Auto-Cal can refine).
-  # Per-joint `direction` is determined by stack observation in Stages C/D/E:
-  #   - Coxa (Pin 15): direction=-1 confirmed in Stage C (2026-05-17).
-  #   - Femur (Pin 16): direction=-1 confirmed in Stage D (2026-05-17).
-  #   - Tibia (Pin 17): direction=+1 confirmed in Stage E (2026-05-17, no flip
-  #     needed — Tibia rotates synchronously with RViz).
-  #
-  # Cross-Phase insight (relevant for Phase 12 auto-cal): the "left-side
-  # consistency" hypothesis from Stage D (all left-side servos invert) is
-  # DISPROVEN by Stage E — leg_6 has Coxa/Femur=-1 but Tibia=+1. Phase 12
-  # auto-cal must test EACH servo individually; cannot infer direction from
-  # leg side or joint type.
-  15:
-    joint: leg_6_coxa_joint
-    status: calibrated         # Phase 10 Stage I (2026-05-19)
-    calibrated_at: "2026-05-17"
-    pulse_min:  1280   # 5° before self-collision with leg_5 (Strategy B')
-    pulse_zero: 1550   # visual joint center, leg radial outward
-    pulse_max:  1860   # mech. single-leg end stop, leg pointing forward
-    direction:  -1     # Phase 10 Stage C: stack-observed inversion vs. URDF
-  16:
-    joint: leg_6_femur_joint
-    status: calibrated         # Phase 10 Stage I (2026-05-19)
-    calibrated_at: "2026-05-17"
-    pulse_min:  840    # HJ-Tester range limit (mech. stop < 800 µs)
-    pulse_zero: 1533   # femur horizontal to ground
-    pulse_max:  2170   # HJ-Tester range limit (mech. stop > 2200 µs)
-    direction:  -1     # Phase 10 Stage D: stack-observed inversion vs. URDF
-  17:
-    joint: leg_6_tibia_joint
-    status: calibrated         # Phase 10 Stage I (2026-05-19)
-    calibrated_at: "2026-05-17"
-    pulse_min:  840    # HJ-Tester range limit (tibia pointing away from body)
-    pulse_zero: 1539   # knee straight, tibia in femur extension
-    pulse_max:  2172   # HJ-Tester range limit (tibia toward body)
+  # ---- Leg 6 — front-left (Phase 10 Stage B/C/D/E direction stack-verified,
+  # PWM-Werte aus Cal-Session 2026-05-21 (überschreiben die früheren
+  # Phase-10-Werte 1280/1550/1860 etc.). Direction-Werte BEHALTEN — leg_6
+  # mount wurde nicht getauscht, Stack-Verification aus Phase 10 bleibt gültig.
+  # Cross-Phase insight: "left-side consistency" hypothesis DISPROVEN —
+  # leg_6 has Coxa/Femur=-1 but Tibia=+1. Stage C muss EACH pin verify.
+  15: { joint: leg_6_coxa_joint,  pulse_min: 1290, pulse_zero: 1530, pulse_max: 1870, direction: -1 }
+  16: { joint: leg_6_femur_joint, pulse_min:  840, pulse_zero: 1540, pulse_max: 2170, direction: -1 }
+  17: { joint: leg_6_tibia_joint, pulse_min:  850, pulse_zero: 1340, pulse_max: 2170, direction:  1 }

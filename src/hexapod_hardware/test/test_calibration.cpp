@@ -813,10 +813,12 @@ TEST(RealConfigFile, InstalledServoMappingParses)
     std::string(SOURCE_DIR_FOR_TESTS) + "/config/servo_mapping.yaml";
   Calibration c;
   EXPECT_NO_THROW(c.load_from_file(source_yaml));
-  // 18 mapped joints, all with default pulse triplet.
+  // 18 mapped joints, leg_1_coxa = pin 0, leg_6_tibia = pin 17.
   EXPECT_EQ(c.output_idx_for_joint("leg_1_coxa_joint"), 0);
   EXPECT_EQ(c.output_idx_for_joint("leg_6_tibia_joint"), 17);
-  EXPECT_EQ(c.at(0).pulse_zero, 1500);
+  // Stage B re-cal 2026-05-24: pin 0 (leg_1_coxa) pulse_zero is now
+  // 1460 (cal-session value), not the 1500 default.
+  EXPECT_EQ(c.at(0).pulse_zero, 1460);
 }
 
 // ============================================================================
