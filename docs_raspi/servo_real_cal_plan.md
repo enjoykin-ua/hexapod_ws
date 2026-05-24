@@ -756,6 +756,14 @@ der Build.
 
 ## Stage E — Sim-Verifikation + Walking aufgebockt
 
+> **Sub-Stages:**
+> - **E (Sim-Vorab):** Walking in Sim ohne HW, vor Stage C.
+>   Plan + Test-Commands in separaten Files:
+>   - [`servo_real_cal_stage_e_sim_plan.md`](servo_real_cal_stage_e_sim_plan.md)
+>   - [`servo_real_cal_stage_e_sim_test_commands.md`](servo_real_cal_stage_e_sim_test_commands.md)
+> - **E2 (HW-Walking):** aufgebockt, nach Stage C. Konzept hier unten,
+>   eigene Test-Commands-Doku entsteht nach Stage C.
+
 ### E.1 Logik-Skizze
 
 **Sim-Verifikation (Phase-4 in der Original-Doku):**

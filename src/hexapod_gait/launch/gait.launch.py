@@ -183,6 +183,22 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Stage 0.6 — URDF-File-Pfad für Joint-Limit-Parse. gait_node parsed
+    # die per-Bein-Limits beim Start und übergibt sie an gait_engine. Bei
+    # leerem Wert: gait_engine läuft lenient (= Phase-5-Verhalten). Im
+    # sim.launch.py-Stack wird der Pfad aus hexapod_description-Share
+    # genommen, manuelle Override z.B. für Tests via Launch-Argument.
+    robot_description_file_arg = DeclareLaunchArgument(
+        'robot_description_file',
+        default_value='',
+        description=(
+            'Pfad zur xacro-File. Bei nicht-leer wird das xacro evaluiert '
+            'und als robot_description-Param an gait_node übergeben, '
+            'damit Stage-0.6-IK-joint-limit-Check aktiv ist. Leer = '
+            'gait_engine läuft lenient.'
+        ),
+    )
+
     def setup_gait_node(context, *args, **kwargs):
         """
         Build Node-Aktion mit conditional params_file-Loading.
@@ -192,6 +208,23 @@ def generate_launch_description() -> LaunchDescription:
         Launch-Zeit den Substitution-Wert evaluiert.
         """
         params_file = LaunchConfiguration('params_file').perform(context)
+
+        # Stage 0.6 — robot_description aus xacro evaluieren wenn File-
+        # Pfad gegeben. Empty string → gait_engine läuft lenient (=
+        # Phase-5-Verhalten, kein joint-limit-Check).
+        urdf_xml = ''
+        urdf_file = LaunchConfiguration('robot_description_file').perform(context)
+        if urdf_file:
+            import subprocess
+            try:
+                urdf_xml = subprocess.check_output(
+                    ['xacro', urdf_file], text=True)
+            except subprocess.CalledProcessError as e:
+                # Fail loud — leerer URDF wäre weniger sicher als crashen.
+                raise RuntimeError(
+                    f'xacro evaluation failed for {urdf_file}: {e}'
+                ) from e
+
         inline_params = {
             'gait_pattern': LaunchConfiguration('gait_pattern').perform(context),
             'step_height': float(
@@ -223,6 +256,7 @@ def generate_launch_description() -> LaunchDescription:
             'use_sim_time': (
                 LaunchConfiguration('use_sim_time').perform(context).lower()
                 == 'true'),
+            'robot_description': urdf_xml,
         }
 
         # parameters-Liste: erst Inline-Defaults, dann (falls gegeben)
@@ -258,5 +292,6 @@ def generate_launch_description() -> LaunchDescription:
         body_height_max_arg,
         use_sim_time_arg,
         params_file_arg,
+        robot_description_file_arg,
         OpaqueFunction(function=setup_gait_node),
     ])
