@@ -41,7 +41,7 @@ keine Phase-12-Done-Kriterien-Aussagen. Dokumente unter Präfix
 | **A** | URDF-Macro-Refactor (pro-Joint-Limit-Args, Defaults unverändert) | ~1 h | Claude | ✅ 2026-05-24 |
 | **B** | `servo_mapping.yaml` mit echten PWM-Werten (Cal-Doku Tab. 3.2) + direction=+1 Default für alle Pins | ~30 min | Claude | ✅ 2026-05-24 |
 | **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude | ⏳ |
-| **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude | ⏳ |
+| **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude | ✅ 2026-05-24 |
 | **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude | ⏳ |
 
 **Total: ~9–10 h verteilt über ≥ 2 Sessions** (Stage C+E sind interaktiv mit HW).
@@ -730,13 +730,17 @@ der Build.
 ### D.3 Progress-Checkliste
 
 ```
-- [ ] D.1 hexapod.urdf.xacro: 6× xacro:leg-Call mit individuellen
+- [x] D.1 hexapod.urdf.xacro: 6× xacro:leg-Call mit individuellen
         coxa/femur/tibia_lower/upper-Args (18 Werte aus Cal-Doku Tab. 3.3)
-- [ ] D.2 colcon build hexapod_description + hexapod_hardware grün
-- [ ] D.3 xacro-Output-Diff: alle 18 <limit lower upper>-Paare
-        stimmen mit Cal-Doku Tab. 3.3
-- [ ] D.4 Sim-Spawn Smoke (Stand-Pose visuell ok)
-- [ ] D.5 Self-Review-Tabelle
+- [x] D.1b **Beifang**: hexapod.ros2_control.xacro auch per-Joint angepasst
+        (Stage-A-Lücke — Macro hatte aber alle Aufrufer nutzten globale
+        Properties statt per-Bein). 18 `<param min/max>` aus Tab. 3.3.
+- [x] D.2 colcon build alle 4 Pakete grün
+- [x] D.3 xacro-Output: 18 `<limit>` + 18 `<param min/max>` mit Tab. 3.3
+        byte-identisch verifiziert
+- [ ] D.4 Sim-Spawn Smoke (Stand-Pose visuell ok) — **deferred zu
+        test_commands.md Test A.C / Stage E** (interaktiv)
+- [x] D.5 Self-Review-Tabelle
 ```
 
 ### D.4 Offene Punkte für User-Review

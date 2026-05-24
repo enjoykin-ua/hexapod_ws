@@ -49,25 +49,47 @@
                        x="${body_length}" y="${body_width}" z="${body_height}"/>
   </link>
 
-  <!-- ===== Beine (Mountpunkte + yaw aus 00_conventions.md §11.3) ===== -->
+  <!-- ===== Beine (Mountpunkte + yaw aus 00_conventions.md §11.3) =====
+       Stage D: per-Bein-Joint-Limits aus servo_real_calibration_todos.md
+       Tab. 3.3 (PWM-zentrisch, dank Stage-0-Plugin-Fix keine Spiegelung
+       für direction=-1 nötig). Werte aus Cal-Session 2026-05-21 +
+       leg_2/leg_5 re-cal 2026-05-24 nach Mount-Tausch. -->
   <xacro:leg id="1"
              mount_x="${ body_length/2}" mount_y="${-body_width/2}"
-             mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"/>
+             mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"
+             coxa_lower="-0.747"  coxa_upper="0.569"
+             femur_lower="-1.529" femur_upper="1.564"
+             tibia_lower="-1.920" tibia_upper="1.197"/>
   <xacro:leg id="2"
              mount_x="0"                 mount_y="${-body_width_middle/2}"
-             mount_z="${leg_mount_z}"    mount_yaw="${-pi/2}"/>
+             mount_z="${leg_mount_z}"    mount_yaw="${-pi/2}"
+             coxa_lower="-0.474"  coxa_upper="0.415"
+             femur_lower="-1.588" femur_upper="1.517"
+             tibia_lower="-1.943" tibia_upper="1.232"/>
   <xacro:leg id="3"
              mount_x="${-body_length/2}" mount_y="${-body_width/2}"
-             mount_z="${leg_mount_z}"    mount_yaw="${-3*pi/4}"/>
+             mount_z="${leg_mount_z}"    mount_yaw="${-3*pi/4}"
+             coxa_lower="-0.498"  coxa_upper="0.794"
+             femur_lower="-1.529" femur_upper="1.553"
+             tibia_lower="-1.967" tibia_upper="1.185"/>
   <xacro:leg id="4"
              mount_x="${-body_length/2}" mount_y="${ body_width/2}"
-             mount_z="${leg_mount_z}"    mount_yaw="${ 3*pi/4}"/>
+             mount_z="${leg_mount_z}"    mount_yaw="${ 3*pi/4}"
+             coxa_lower="-0.758"  coxa_upper="0.427"
+             femur_lower="-1.636" femur_upper="1.493"
+             tibia_lower="-1.197" tibia_upper="1.943"/>
   <xacro:leg id="5"
              mount_x="0"                 mount_y="${ body_width_middle/2}"
-             mount_z="${leg_mount_z}"    mount_yaw="${ pi/2}"/>
+             mount_z="${leg_mount_z}"    mount_yaw="${ pi/2}"
+             coxa_lower="-0.474"  coxa_upper="0.474"
+             femur_lower="-1.588" femur_upper="1.564"
+             tibia_lower="-1.197" tibia_upper="1.943"/>
   <xacro:leg id="6"
              mount_x="${ body_length/2}" mount_y="${ body_width/2}"
-             mount_z="${leg_mount_z}"    mount_yaw="${ pi/4}"/>
+             mount_z="${leg_mount_z}"    mount_yaw="${ pi/4}"
+             coxa_lower="-0.569"  coxa_upper="0.806"
+             femur_lower="-1.659" femur_upper="1.493"
+             tibia_lower="-1.161" tibia_upper="1.967"/>
 
   <!-- ===== Gazebo-spezifische Eigenschaften (Reibung an Foot-Kugeln) ===== -->
   <xacro:include filename="hexapod.gazebo.xacro"/>
