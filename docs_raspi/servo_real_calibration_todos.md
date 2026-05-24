@@ -284,6 +284,29 @@ Trotz unterschiedlicher absoluter PWM-Niveaus (Mount-Offsets −160 vs
 linken Beinen sehr konsistent ist; die PWM-Verschiebung ist reine
 Horn-Spline-Diskretisierung.
 
+**7. Walking-Envelope-Befund (Stage E Sim-Vorab, 2026-05-24):**
+
+Die Cal-Werte aus Tab. 3.3 sind **enger als die gait_node-Defaults aus
+Phase 4-6 (±1.57)** annehmen. In Sim-Tuning (Stage E) ermittelt:
+
+- **Default Stand-Pose (radial=0.27, body_height=-0.052) ist NICHT
+  erreichbar** — fordert tibia=+1.332 rad, Limit ist nur +1.197
+  (leg_1) bzw. +1.185 (leg_3).
+- **Engster Bottleneck: leg_3 tibia_upper = +1.185 rad** beschränkt
+  Stand-Pose-Höhe + radial_distance.
+- **Working Sim-Preset (manuell tuned):** radial=0.30, body_height=-0.075,
+  step_length_max=0.03, step_height=0.02 → linear_max=0.015 m/s
+  (siehe `src/hexapod_gait/config/presets/sim_walk.yaml`).
+- **Zweiter Bottleneck bei größeren step_length:** geometrische
+  out-of-reach `L_femur + L_tibia = 0.2799 m`. Bei radial=0.30 +
+  step_length>0.05 wird Foot-Drift > 0.2799.
+
+→ **Implikation:** gait_node-Param-Tuning muss zur Cal passen, nicht
+andersrum. Manuelles Try-and-Error in Sim ist ineffizient — die
+Spec für ein systematisches Auto-Tuning-Tool ist in
+[`walking_envelope_tool_spec.md`](walking_envelope_tool_spec.md)
+beschrieben (geplant, noch nicht implementiert).
+
 ## 4. Implementation-Plan
 
 Siehe **[`servo_real_cal_plan.md`](servo_real_cal_plan.md)** —

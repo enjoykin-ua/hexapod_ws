@@ -68,82 +68,99 @@ Falls weiterhin `inactive` → STOP.
 
 ---
 
-## Schritt 3 — gait_node starten MIT robot_description (Stage 0.6 aktiv)
+## Schritt 3 — gait_node starten MIT robot_description + Sim-Preset
 
 **T2 (gait_node):**
 ```bash
 ros2 launch hexapod_gait gait.launch.py \
   use_sim_time:=true \
-  robot_description_file:=$(ros2 pkg prefix hexapod_description)/share/hexapod_description/urdf/hexapod.urdf.xacro
+  robot_description_file:=$(ros2 pkg prefix hexapod_description)/share/hexapod_description/urdf/hexapod.urdf.xacro \
+  params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/sim_walk.yaml
 ```
 
-**Erwartung — gait_node-Logs müssen folgendes enthalten:**
+> **`sim_walk.yaml`** enthält die in Stage E (2026-05-24) manuell
+> getuneten Walking-Envelope-Werte: `radial_distance=0.30`,
+> `body_height=-0.075`, `step_length_max=0.03`, `step_height=0.02`.
+> Siehe [`walking_envelope_tool_spec.md`](walking_envelope_tool_spec.md)
+> für Math und das (geplante) Sweep-Tool das systematisch optimale
+> Werte pro Höhe findet.
+
+**Erwartung — gait_node-Logs:**
 ```
 [INFO] [gait_node]: Stage 0.6: parsed joint limits for 6 legs from robot_description
-[INFO] [gait_node]: gait_node init: pattern=tripod, step_height=0.040 m, ...
+[INFO] [gait_node]: gait_node init: pattern=tripod, step_height=0.020 m, ..., body_height=-0.075 m ..., step_length_max=0.030 m (linear_max=0.015 m/s) ...
 ```
 
 **Wenn stattdessen** `WARN: robot_description empty or unparseable — IK runs in lenient mode`:
 xacro-File-Pfad ist falsch oder hexapod_description nicht gesourct. → STOP, fixen.
 
-**Hexapod-Visual in Gazebo:** sollte unverändert in Stand-Pose stehen
-(gait_engine ist in STATE_STANDING, hält Position).
+**Wenn `linear_max=0.050 m/s`** (Default-Werte statt Preset):
+params_file-Pfad nicht gefunden. Preset wurde nicht geladen. → STOP, fixen.
+
+**Hexapod-Visual in Gazebo:** sollte in Stand-Pose stehen, Beine etwas
+weiter raus + tiefer als bei reinem Default.
 
 ---
 
-## Schritt 4 — Walking-Smoke mit kleiner cmd_vel
+## Schritt 4 — Walking-Smoke mit cmd_vel
 
 **T3:**
 ```bash
-ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.02}}'
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.015}}'
 ```
 
+> **Warum 0.015 m/s?** Mit `step_length_max=0.03 m` und `cycle_time=2.0 s`
+> ist `linear_max = 0.03/2.0 = 0.015 m/s`. Größere Werte werden geclamped
+> mit WARN-Log (siehe Schritt 5).
+
 **Erwartung:**
-- In Gazebo: Hexapod bewegt sich langsam vorwärts (~2 cm/s)
+- In Gazebo: Hexapod bewegt sich langsam vorwärts (~1.5 cm/s)
 - Tripod-Gait sichtbar: 3 Beine am Boden, 3 Beine in der Luft, alternierend
 - 30+ Sekunden ohne Glitch
-- gait_node-Terminal (T2): **KEINE** `IKError`-Logs, **KEINE**
-  `safety_freeze`-Logs
+- gait_node-Terminal (T2): **KEINE** `IKError`-Logs
 
-**Beobachtungs-Notizen (für Stage C/E2 später):**
+**Beobachtungs-Notizen:**
 - ☐ Walking ist glatt
 - ☐ alle 6 Beine in Sync
-- ☐ Body-Höhe stabil (kein Wackeln)
+- ☐ Body-Höhe stabil
 - ☐ Mittel-Beine (leg_2, leg_5) halten Tripod
 
-**Wenn IKError auftritt:** Step-Length zu groß für Cal-Werte. Stop +
-melden welcher Bein/Joint genannt wird.
+**Wenn IKError auftritt:** Cal-Werte sind enger als erwartet. Sim-Preset
+muss neu getunt werden — sag Bescheid mit dem Bein/Joint-Detail aus dem
+Log.
 
-**Strg+C in T3** zum Stoppen des cmd_vel-Publishers. Hexapod sollte
-binnen 1-2 Schritten in STANDING gehen (gait_engine STATE_STOPPING-
-Sequenz).
+**Strg+C in T3** nach 30 s. Hexapod geht in STATE_STOPPING → STANDING.
 
 ---
 
-## Schritt 5 — Extremfall: provoziere IK-Joint-Limit-Error
+## Schritt 5 — cmd_vel-Clamp-Verhalten (statt Extremfall)
+
+> **Hinweis:** Der ursprüngliche "Extremfall" (cmd_vel=0.5 zum
+> Provozieren von IKError) funktioniert mit dem Sim-Preset NICHT mehr,
+> weil gait_engine cmd_vel auf `linear_max=0.015 m/s` clampt BEVOR IK
+> rechnet. Stattdessen verifizieren wir den Clamp-Mechanismus.
 
 **T3:**
 ```bash
 ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.5}}'
 ```
 
-Das ist 25× normales Walking-Tempo — IK sollte rad-Werte produzieren
-die out-of-URDF-Limit gehen.
-
-**Erwartung in gait_node-Terminal (T2):**
+**Erwartung in T2 — alle 2 s eine WARN-Zeile:**
 ```
-[ERROR] [gait_node]: gait_engine: IK failed for leg_X at t=...: joint limit: leg 'leg_X' <joint> rad=... outside [..., ...] (foot=(...))
-[ERROR] [gait_node]: /hexapod_safety_freeze service not available — proceeding with local stop only (no plugin-side freeze). This is OK in sim, but on hardware indicates a missing or crashed hexapod_hardware plugin.
+[WARN] [gait_node]: cmd_vel clamped: input (vx=0.500, vy=0.000, omega=0.000) > max-leg-speed 0.015 m/s
 ```
 
-**Erwartung in Gazebo:** Hexapod bleibt stehen oder macht nur einen
-halben Schritt und friert ein. KEIN durchgehender Gallop.
-
-**Wenn KEIN IKError erscheint:** Stage 0.6 IK-Joint-Limit-Check ist
-nicht aktiv. Zeigt entweder robot_description nicht durchgereicht ODER
-gait_engine joint_limits-Bug.
+**Erwartung in Gazebo:** Hexapod läuft mit linear_max=0.015 m/s
+(genauso schnell wie in Schritt 4). KEINE IKError-Logs.
 
 **Strg+C in T3.**
+
+> **Test der Stage-0.6-Joint-Limit-Detection** (optional, manuell):
+> Wenn du den IKError-Pfad live sehen willst, müsstest du
+> `step_length_max` temporär außerhalb-Envelope setzen
+> (`ros2 param set /gait_node step_length_max 0.08`) und Walking
+> versuchen. Wird IKError + Service-Fallback-Log auslösen für leg_3.
+> Danach `ros2 param set /gait_node step_length_max 0.03` zurücksetzen.
 
 ---
 

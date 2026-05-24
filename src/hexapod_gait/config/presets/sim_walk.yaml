@@ -1,0 +1,40 @@
+# =============================================================================
+# Hexapod gait_node Preset — "Sim Walk" (Stage E Sim-Vorab, 2026-05-24)
+# =============================================================================
+#
+# Walking-Envelope für Sim mit den finalen Cal-Werten aus Stage D
+# (servo_real_calibration_todos.md Tab. 3.3). Empirisch durch manuelles
+# Tuning gefunden bei Stage E (Sim-Vorab) — siehe
+# docs_raspi/walking_envelope_tool_spec.md für die Math und das
+# (geplante) Auto-Tuning-Tool das diese Werte systematisch herleitet.
+#
+# Konkrete Constraints die diese Werte erfüllen:
+#   - leg_3 tibia_upper=+1.185 ist engster Joint-Limit-Bottleneck.
+#   - L_femur + L_tibia = 0.27994 m ist max-Reach (Bein gestreckt).
+#   - Bei body_height=-0.075, radial_distance=0.30 und step_length_max=0.03:
+#     - Stand-Pose-Tibia ≈ 1.10 rad (≤ 1.185 ✓)
+#     - Walking-Foot-radial driftet zwischen [0.285, 0.315], d ≤ 0.276 (✓)
+#
+# Default-cmd_vel.linear_max = step_length_max / stance_duration
+#                            = 0.03 / 2.0 = 0.015 m/s (sehr langsam!)
+# Für sichtbare Walking-Bewegung: cmd_vel.linear.x bis ~0.015 m/s.
+#
+# Werte größer als step_length_max=0.03 oder radial_distance>0.30 führen
+# zu IK-out-of-reach. Werte kleiner als body_height=-0.075 führen zu
+# IK-joint-limit (leg_3 tibia). → Schmaler Envelope, Erweiterung über
+# walking_envelope_tool später.
+#
+# Laden:
+#   ros2 launch hexapod_gait gait.launch.py \
+#     use_sim_time:=true \
+#     robot_description_file:=$(ros2 pkg prefix hexapod_description)/share/hexapod_description/urdf/hexapod.urdf.xacro \
+#     params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/sim_walk.yaml
+# =============================================================================
+/gait_node:
+  ros__parameters:
+    radial_distance: 0.30
+    body_height: -0.075
+    step_length_max: 0.03
+    step_height: 0.02
+    cycle_time: 2.0
+    # gait_pattern und tick_rate behalten Defaults (tripod, 50 Hz).
