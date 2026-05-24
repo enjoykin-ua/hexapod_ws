@@ -5,8 +5,16 @@
 >
 > **Terminal-Konvention:**
 > - `T1` = Plugin (hexapod_hardware mit Servo2040 + USB)
-> - `T2` = Sim-Stack als visuelle Referenz (Gazebo headless oder RViz allein)
-> - `T3` = Joint-Trajectory-Publisher + Live-Param-Sets + Inspection
+> - `T2` = RViz als visuelle URDF-Referenz
+> - `T3` = Joint-Trajectory-Publisher + Inspection
+> - `T4` = rqt_reconfigure (Live-Param-GUI für direction-Flips per Mausklick)
+>
+> **Warum nur RViz, kein Gazebo:** Gazebo nutzt `gz_ros2_control` —
+> dieses Plugin und `hexapod_hardware` können nicht gleichzeitig auf
+> denselben Joint-Pool zugreifen (ros2_control-Constraint). RViz nur
+> nutzt das URDF + JointStatePublisher und zeigt die per-Trajectory
+> kommandierten Joint-Werte als Visualisierung. Genau das was wir für
+> Direction-Vergleich brauchen.
 >
 > User führt aus, gibt pro Bein/Joint kurz Status (✓ stimmt / ❌ direction
 > flippen + welcher Pin).
@@ -20,7 +28,22 @@
 - ✅ Hardware-Kill-Switch (Stromtrennung Servo-PSU) griffbereit
 - ✅ Augen weg von Beinen beim ersten Test pro Bein
 
-**Workspace gebaut + gesourct in allen 3 Terminals:**
+**Was beim Plugin-Start passiert** (Schritt 1):
+- Plugin sendet beim Activate **pulse_zero** pro Pin = kalibrierte
+  Neutral-Pose (Coxa radial nach außen, Femur horizontal, Tibia gerade)
+- Das ist die Stand-Pose, **nicht** pulse_min oder pulse_max → kein
+  mechanischer Anschlag-Stress
+- Bei aufgebockt: Beine hängen, Servos halten Stand-Pose mit Drehmoment
+
+**Was beim Joint-Trajectory-Publish in Schritten 3-8 passiert:**
+- rad=±0.3 ist **weit innerhalb** aller URDF-Joint-Limits (engste
+  Range ist leg_3 tibia_upper=+1.185 rad → 0.3 nutzt 25%)
+- Bei falscher direction: Servo dreht in andere Richtung als RViz, aber
+  PWM bleibt innerhalb [pulse_min, pulse_max] → kein Schaden
+- Stage 0.5 safety_freeze ist aktiv: falls PWM doch out-of-range
+  (z.B. wegen Cal-Bug), Plugin friert sofort ein
+
+**Workspace gebaut + gesourct in allen 4 Terminals:**
 ```bash
 cd ~/hexapod_ws
 colcon build
@@ -47,26 +70,48 @@ prüfen, Stromversorgung Servo2040 prüfen.
 
 ---
 
-## SCHRITT 2 — RViz als Sim-Referenz starten
+## SCHRITT 2 — RViz als URDF-Referenz starten
 
 **T2 (RViz):**
 ```bash
 ros2 launch hexapod_description display.launch.py
 ```
 
-> **Hinweis:** display.launch.py startet RViz mit dem URDF und einem
-> `joint_state_publisher` + `robot_state_publisher`. Die Joint-Position
-> in RViz ist das was der URDF + JointTrajectoryController vorgibt
-> (nicht das was die HW tatsächlich macht — wir vergleichen die zwei
-> visuell).
+> **Was passiert:** `display.launch.py` startet RViz mit dem URDF +
+> `robot_state_publisher`. Die Joint-Position in RViz reflektiert die
+> aktuellen `/joint_states` — und das Plugin in T1 publisht
+> `/joint_states` mit den aus den Joint-Trajectory-Commands abgeleiteten
+> rad-Werten.
+>
+> **Was du in RViz siehst:** die Joints folgen der **URDF-Konvention**
+> wie sie ros2_control + Plugin sie verarbeitet.
+> **Was du am Hexapod siehst:** die mechanische Drehrichtung des Servos.
+>
+> Stimmen beide überein → direction richtig. Stimmen sie NICHT überein
+> → direction muss geflippt werden.
 
-**Alternative wenn display.launch.py nicht da ist oder andere Sim-Stack
-gewollt:** Gazebo via `sim.launch.py` parallel zu T1 starten. Aber
-Achtung: gz_ros2_control vs hexapod_hardware können nicht gleichzeitig
-denselben Joint-Pool besitzen — daher zwei separate ros2_control-
-Sessions nötig (different namespaces oder different Hosts).
+---
 
-**Pragmatisch:** RViz allein reicht für visuelle Direction-Reference.
+## SCHRITT 2b — rqt_reconfigure öffnen (für direction-Flips per GUI)
+
+**T4 (rqt_reconfigure):**
+```bash
+ros2 run rqt_reconfigure rqt_reconfigure
+```
+
+> **Was du dort siehst:** Plugin-Node `/hexapodsystem` mit 72 Live-Cal-
+> Params (18 Pins × 4 Felder: pulse_min, pulse_zero, pulse_max,
+> direction). Plus die gait_node-Params falls gait läuft (in Stage C
+> nicht).
+>
+> **Für direction-Flip:** Pin auswählen, Param `pin_<N>.direction`
+> finden, von `1` auf `-1` (oder umgekehrt) setzen. Sofort wirksam,
+> kein Neustart nötig.
+>
+> **Alternative via CLI** (falls rqt nicht passt):
+> ```bash
+> ros2 param set /hexapodsystem pin_<N>.direction -1
+> ```
 
 ---
 
@@ -141,7 +186,8 @@ ros2 topic pub --once /leg_1_controller/joint_trajectory \
     points: [{positions: [0.3, 0.0, 0.0], time_from_start: {sec: 2}}]}'
 ```
 
-Match? Wenn ❌:
+Match? Wenn ❌: direction flippen — entweder in **T4 rqt_reconfigure**
+(`pin_0.direction` von 1 → -1) oder via CLI in T3:
 ```bash
 ros2 param set /hexapodsystem pin_0.direction -1
 ```

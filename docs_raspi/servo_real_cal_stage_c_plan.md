@@ -51,16 +51,17 @@ damit auch bei Mismatch der Servo nicht ans mech-Limit geht.
 
 ## 4. Sub-Stages
 
-### C.1 — Setup + Sim-Reference
+### C.1 — Setup + RViz-Reference
 
-Sim parallel zum HW-Plugin starten — RViz zeigt die URDF-Joint-rad-
-Visualisierung, **rein als visuelle Referenz**. Sim und HW laufen mit
-unterschiedlichem ros2_control-Plugin (`gz_ros2_control` vs
-`hexapod_hardware`), aber **derselben URDF** und denselben Joint-rad-
-Commands.
+Plugin im real-Mode starten (T1) + RViz parallel mit URDF (T2). RViz
+visualisiert die per-Plugin gepublishten `/joint_states` und zeigt die
+**URDF-rad-Konvention** für jeden Joint. **Kein Gazebo** — gz_ros2_control
+und hexapod_hardware können nicht gleichzeitig denselben Joint-Pool
+besitzen. RViz ist nur Visualisierung, kein zweites Control-Backend.
 
-Erfolg: Hexapod in Gazebo + Plugin im real-Mode laufen, beide reagieren
-auf JointTrajectory-Publishes.
+Erfolg: Plugin steht in T1 + RViz zeigt Hexapod in Stand-Pose in T2.
+JointTrajectory-Publish bewegt Servo (HW) UND Joint-Visual (RViz)
+synchron.
 
 ### C.2 — leg_6 als Sanity-Anker
 
