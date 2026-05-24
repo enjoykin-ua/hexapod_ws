@@ -24,12 +24,13 @@ linear zwischen Goals → smooth Bewegung.
 
 from dataclasses import dataclass
 import time
+import xml.etree.ElementTree as ET
 
 from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import Twist
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
-from hexapod_kinematics import HEXAPOD, IKError
+from hexapod_kinematics import HEXAPOD, IKError, JointLimits
 from rcl_interfaces.msg import (
     FloatingPointRange,
     ParameterDescriptor,
@@ -40,7 +41,67 @@ import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from std_msgs.msg import Float64
+from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
+
+# =====================================================================
+# Stage 0.6 — URDF Joint-Limits Parser
+# =====================================================================
+def parse_joint_limits_from_urdf(urdf_xml: str) -> dict[str, JointLimits]:
+    """
+    Parse <joint><limit lower upper> tags from a URDF/xacro-expanded XML string.
+
+    Returns dict keyed by leg name (e.g. "leg_1") with one JointLimits per
+    leg, built from the three per-leg joints (coxa/femur/tibia). Joints
+    whose name doesn't match the ``leg_<n>_{coxa,femur,tibia}_joint``
+    convention are silently ignored (e.g. fixed joints, fingers in some
+    future variant). Legs that aren't fully covered (missing one or more
+    joints) are dropped — partial entries would be a bug magnet at
+    runtime.
+
+    Empty or invalid URDF → empty dict (gait_engine falls back to lenient
+    mode, = Phase-5 behaviour). This makes the limits-injection feature
+    opt-in: if the launch-file doesn't pass robot_description, nothing
+    breaks; only the Stage-0.6 freeze is silently disabled.
+    """
+    if not urdf_xml.strip():
+        return {}
+    try:
+        root = ET.fromstring(urdf_xml)
+    except ET.ParseError:
+        return {}
+
+    # Collect raw per-joint limits keyed by joint name.
+    per_joint: dict[str, tuple[float, float]] = {}
+    for j in root.iter('joint'):
+        jname = j.attrib.get('name', '')
+        if not jname.startswith('leg_'):
+            continue
+        limit_el = j.find('limit')
+        if limit_el is None:
+            continue
+        try:
+            lower = float(limit_el.attrib['lower'])
+            upper = float(limit_el.attrib['upper'])
+        except (KeyError, ValueError):
+            continue
+        per_joint[jname] = (lower, upper)
+
+    # Build per-leg JointLimits from the joint triplets.
+    result: dict[str, JointLimits] = {}
+    for leg in HEXAPOD.legs:
+        coxa = per_joint.get(f'{leg.name}_coxa_joint')
+        femur = per_joint.get(f'{leg.name}_femur_joint')
+        tibia = per_joint.get(f'{leg.name}_tibia_joint')
+        if coxa is None or femur is None or tibia is None:
+            continue  # incomplete triple → drop, lenient mode for this leg
+        result[leg.name] = JointLimits(
+            coxa_lower=coxa[0], coxa_upper=coxa[1],
+            femur_lower=femur[0], femur_upper=femur[1],
+            tibia_lower=tibia[0], tibia_upper=tibia[1],
+        )
+    return result
 
 
 # =====================================================================
@@ -251,6 +312,33 @@ class GaitNode(Node):
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
+        # Stage 0.6: parse joint-limits from the URDF (passed in as the
+        # `robot_description` parameter, conventionally set by the
+        # launch-file via xacro-expansion). Empty/missing → empty dict
+        # → gait_engine runs lenient (phase-5 behaviour preserved).
+        self.declare_parameter(
+            'robot_description', '',
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_STRING,
+                description=(
+                    'URDF XML. If set, per-leg joint limits are parsed '
+                    'and passed to gait_engine for Stage-0.6 freeze.'),
+                read_only=True,
+            ),
+        )
+        urdf_xml = str(self.get_parameter('robot_description').value)
+        joint_limits = parse_joint_limits_from_urdf(urdf_xml)
+        if joint_limits:
+            self.get_logger().info(
+                f'Stage 0.6: parsed joint limits for {len(joint_limits)} '
+                'legs from robot_description'
+            )
+        else:
+            self.get_logger().warn(
+                'Stage 0.6: robot_description empty or unparseable — '
+                'IK runs in lenient mode (no joint-limit freeze)'
+            )
+
         self._engine = GaitEngine(
             pattern=self._pattern,
             step_height=self._step_height,
@@ -258,7 +346,18 @@ class GaitNode(Node):
             radial_distance=self._radial_distance,
             body_height=self._body_height,
             step_length_max=self._step_length_max,
+            joint_limits=joint_limits,
         )
+
+        # Stage 0.6: async service-client for the hexapod_safety_freeze
+        # service. On IKError in _tick we fire-and-forget a Trigger call;
+        # the effective local stop is the missing publish in that tick,
+        # the service is just the explicit "tell plugin to hard-stop too"
+        # signal. Service not available (sim without plugin) → call
+        # silently no-ops, gait still stops locally.
+        self._safety_freeze_client = self.create_client(
+            Trigger, '/hexapod_safety_freeze')
+        self._safety_freeze_logged_unreachable = False
 
         self._pubs = {
             leg.name: self.create_publisher(
@@ -437,12 +536,50 @@ class GaitNode(Node):
         try:
             angles_per_leg = self._engine.compute_joint_angles(t)
         except IKError as exc:
+            # Stage 0.6: IKError covers two cases:
+            #  - geometric "out of reach ..." (Phase-5 case)
+            #  - "joint limit ..." (new, Stage-0.6 case)
+            # Effective local stop: we return without publishing — JTC
+            # holds the last good trajectory.
             self.get_logger().error(f'gait_engine: {exc}')
+
+            # For joint-limit violations, additionally trigger the plugin
+            # hard-stop via /hexapod_safety_freeze (async fire-and-forget,
+            # Q3-decision: realtime safety over confirmation).
+            if 'joint limit' in str(exc):
+                self._trigger_safety_freeze()
             return
 
         for leg in HEXAPOD.legs:
             traj = self._build_trajectory(leg.name, angles_per_leg[leg.name])
             self._pubs[leg.name].publish(traj)
+
+    def _trigger_safety_freeze(self) -> None:
+        """
+        Stage 0.6: async-call /hexapod_safety_freeze on IK joint-limit error.
+
+        Fire-and-forget — we do NOT await the response (would block the
+        50 Hz tick, see Q3-decision 2026-05-24). The effective stop is
+        already in place by the time this fires: _tick returns without
+        publishing a new trajectory, so JTC holds the last good position.
+
+        If the service is unreachable (e.g. sim without hexapod_hardware
+        plugin), we log once and continue. The local stop is sufficient
+        in sim — there's no servo to slam in any case.
+        """
+        if not self._safety_freeze_client.service_is_ready():
+            if not self._safety_freeze_logged_unreachable:
+                self.get_logger().error(
+                    '/hexapod_safety_freeze service not available — '
+                    'proceeding with local stop only (no plugin-side freeze). '
+                    'This is OK in sim, but on hardware indicates a missing '
+                    'or crashed hexapod_hardware plugin.'
+                )
+                self._safety_freeze_logged_unreachable = True
+            return
+        # call_async returns a Future we deliberately ignore — the
+        # plugin will process the Trigger request on its own executor.
+        self._safety_freeze_client.call_async(Trigger.Request())
 
     def _on_param_change(self, params) -> SetParametersResult:
         """

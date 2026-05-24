@@ -37,7 +37,7 @@ import math
 
 from hexapod_gait.gait_patterns import GaitPattern
 from hexapod_gait.trajectory_gen import stance_traj, stand_pose, swing_traj
-from hexapod_kinematics import HEXAPOD, IKError, leg_ik, rotate_z
+from hexapod_kinematics import HEXAPOD, IKError, JointLimits, leg_ik, rotate_z
 
 
 JointAngles = tuple[float, float, float]
@@ -71,6 +71,7 @@ class GaitEngine:
         radial_distance: float,
         body_height: float,
         step_length_max: float,
+        joint_limits: dict[str, JointLimits] | None = None,
     ):
         if cycle_time <= 0.0:
             raise ValueError(
@@ -87,6 +88,11 @@ class GaitEngine:
         self.radial_distance = radial_distance
         self.body_height = body_height
         self.step_length_max = step_length_max
+
+        # Stage 0.6: optional per-leg joint_limits (keyed by leg.name).
+        # If None: IK runs lenient (= phase-5 behaviour). gait_node passes
+        # the URDF-parsed limits in here on startup.
+        self.joint_limits: dict[str, JointLimits] = joint_limits or {}
 
         self._state = self.STATE_STANDING
         self._v_body: Vec2 = (0.0, 0.0)
@@ -391,13 +397,22 @@ class GaitEngine:
         Berechne Joint-Winkel pro Bein durch IK auf den Foot-Targets.
 
         Returns dict {leg_name: (theta_coxa, theta_femur, theta_tibia)}.
-        Wirft IKError mit Bein-Kontext, falls IK out-of-reach trifft.
+        Wirft IKError mit Bein-Kontext, falls IK out-of-reach trifft
+        ODER (wenn ``self.joint_limits`` gesetzt ist) ein rad-Wert
+        außerhalb der URDF-Joint-Limits liegt.
+
+        Stage 0.6: gait_node fängt den IKError im Tick-Handler, ruft
+        async den /hexapod_safety_freeze Service, und publisht in
+        diesem Tick keine neue Trajectory → effektiver lokaler Stop.
         """
         targets = self.compute_foot_targets(t)
         angles = {}
         for leg in HEXAPOD.legs:
+            # Stage 0.6: per-leg joint_limits an IK durchreichen wenn
+            # vorhanden. Ohne Limits-Dict: lenient (= Phase-5-Verhalten).
+            leg_limits = self.joint_limits.get(leg.name)
             try:
-                angles[leg.name] = leg_ik(*targets[leg.name], leg)
+                angles[leg.name] = leg_ik(*targets[leg.name], leg, leg_limits)
             except IKError as exc:
                 raise IKError(
                     f'IK failed for {leg.name} at t={t:.3f}s, target='

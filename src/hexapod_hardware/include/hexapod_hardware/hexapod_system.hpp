@@ -68,6 +68,12 @@ public:
   // cleared, false if the flag was already clear (idempotent).
   bool clear_safety_freeze() noexcept;
 
+  // Stage 0.6: Set the safety_freeze flag (counterpart to clear).
+  // Used by the /hexapod_safety_freeze service callback AND tests.
+  // Returns true if the freeze was newly set, false if already set
+  // (idempotent — no double-trigger spam).
+  bool trigger_safety_freeze() noexcept;
+
 private:
   // ─── Phase 11 Stage B — Live-Cal-Params + Save-Service ──────────────────
 
@@ -114,6 +120,21 @@ private:
   // Response zurück (success=true wenn vorher frozen, success=true mit
   // Hinweis-Message wenn idempotent / nicht frozen).
   void handle_safety_reset(
+    std_srvs::srv::Trigger::Request::ConstSharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response);
+
+  // Stage 0.6: /hexapod_safety_freeze service — counterpart to
+  // /hexapod_safety_reset. Triggers safety_freeze externally (vs. the
+  // implicit OoR detection in write()). Used by gait_node when IK
+  // detects a joint-limit violation: gait calls this async so the
+  // plugin's hold-last-good kicks in immediately, even though the OoR
+  // wouldn't have triggered the in-write detection (rad-Werte sind
+  // out-of-URDF-Limit aber Plugin-Cal-Range würde es schaffen).
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr safety_freeze_service_{};
+
+  // Service-Callback: sets safety_freeze_=true and returns a status
+  // message describing what happened (just-frozen vs already-frozen).
+  void handle_safety_freeze(
     std_srvs::srv::Trigger::Request::ConstSharedPtr request,
     std_srvs::srv::Trigger::Response::SharedPtr response);
 

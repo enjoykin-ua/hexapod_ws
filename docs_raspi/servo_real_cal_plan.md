@@ -346,9 +346,60 @@ Freeze auslösen.
 
 ### 0.6.4 Offene Punkte für User-Review
 
-- **0.6-Q1:** ✅ entschieden — N=1 (sofortiger Freeze beim ersten
-  IK-Joint-Limit-Error). Extremfall-Sicherheit vor transient-Toleranz.
-- **0.6-Q2:** Status-Topic `/gait_health` → Phase 13 (siehe Pendenzen).
+- **0.6-Q1:** Eskalations-Schwelle bei IK-Joint-Limit-Error
+  - Optionen: N=1 sofortiger Freeze / N=3 (60 ms Toleranz) / N=5 (100 ms) /
+    N=10 (200 ms) / Graduierte Eskalation mit Hold-Pose
+  - ✅ **User-Wahl 2026-05-24: N=1** — Extremfall-Sicherheit vor transient-
+    Toleranz. Begründung: ein einziger IK-Joint-Limit-Bruch ist immer ein
+    echter Konfig/Cal-Mismatch und darf nicht mit Hold-Position gemuted
+    werden.
+
+- **0.6-Q2:** Status-Topic `/gait_health` für Diagnose-Sichtbarkeit
+  - Optionen: jetzt implementieren (OK/DEGRADED/FROZEN) / Phase-13-Material
+  - ✅ **User-Wahl: Phase 13** — kein Konsumer existiert aktuell, kann
+    später ohne Refactor ergänzt werden (siehe Phase-13-Pendenzen).
+
+- **0.6-Q3:** Service-Call von gait_engine → /hexapod_safety_freeze:
+  synchron oder asynchron?
+  - Optionen:
+    - (a) **async** (`client.call_async`): non-blocking, gait-Tick hat
+      volle 20 ms, Future kann ignoriert werden. ~50 µs Overhead.
+      Keine Plugin-Bestätigung. OK weil Plugin-Selbstschutz (Stage 0.5)
+      und Effektiv-Stop kommt vom Nicht-Publishen.
+    - (b) **sync** (`client.call`): blockiert bis Plugin antwortet
+      (~1-5 ms lokal, theoretisch Timeout-lang). Garantierte
+      Bestätigung. Aber: Service-Crash → gait-Tick hängt.
+  - ✅ **User-Wahl 2026-05-24: (a) async** — Realtime-Sicherheit (kein
+    Block im 50-Hz-Tick) vor expliziter Bestätigung. Effektiv-Stop ist
+    durch Nicht-Publishen gesichert, unabhängig von Service-Antwort.
+
+- **0.6-Q4:** Quelle der URDF-Joint-Limits für gait_engine
+  - Optionen:
+    - (a) **URDF parsen** (gait_node liest `/robot_description`-Param,
+      parst `<limit>`-Tags via `urdf_parser_py`): Single-Source-of-Truth
+      bleibt URDF, konsistent zum Plugin
+    - (b) **Separate YAML-Config** in gait_node.params.yaml: dupliziert
+      URDF-Werte, kann driftest
+    - (c) **`hexapod_kinematics.config.LegConfig`** mit zusätzlichem
+      joint_limits-Feld: zentriert in Kinematik-Modul, aber URDF-Werte
+      müssen explizit dort gespiegelt werden
+  - ✅ **User-Wahl 2026-05-24: (a) URDF parsen** — keine Datenduplikation.
+
+- **0.6-Q5:** Verhalten wenn `/hexapod_safety_freeze`-Service nicht
+  verfügbar (Sim ohne Plugin, Plugin-Crash)
+  - Optionen:
+    - (a) **Log-Error + weiterlaufen**: gait_engine loggt einmalig
+      „cannot reach freeze service", publisht trotzdem keine neuen
+      Trajectories für diesen Tick = effektiv lokaler Stop. JTC hält
+      letzte Position.
+    - (b) **Init-Time-Check + Refuse**: gait_node prüft beim Start ob
+      Service verfügbar, refused zu starten wenn nicht. Sim ohne
+      Plugin würde nicht booten.
+    - (c) **Service-Wait at Init**: gait_node blockt beim Start bis
+      Service da ist (mit Timeout 5s).
+  - ✅ **User-Wahl 2026-05-24: (a) Log + weiterlaufen** — Sim soll
+    auch ohne Plugin laufen. Effektiv-Stop ist trotzdem gesichert durch
+    Nicht-Publishen (siehe Q3-Klarstellung).
 
 ---
 

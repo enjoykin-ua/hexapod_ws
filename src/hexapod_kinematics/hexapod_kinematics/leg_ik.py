@@ -14,12 +14,19 @@ radial nach außen, +Z oben. Joint-Drehrichtungen aus der URDF
 Knie-Konvention: hardcoded "Knie oben" (siehe Stufe-B-Design-Entscheidung
 3 in phase_5_progress.md).
 
-Fehlerbehandlung: lenient — IKError nur bei geometrisch out-of-reach
-(Cosinus-Argument außerhalb [-1, 1]). Keine Joint-Limit-Prüfung.
+Fehlerbehandlung:
+- IKError("foot out of reach") wenn Cosinus-Argument außerhalb [-1, 1]
+  (= Foot-Punkt geometrisch nicht erreichbar).
+- IKError("joint limit") wenn das ``joint_limits``-Arg übergeben wird
+  UND einer der berechneten Joint-Winkel außerhalb des per-Joint-rad-
+  Range liegt (Stage 0.6 Frühwarnung — sofortiger Freeze in gait_engine).
+- Ohne ``joint_limits``-Arg: lenient (= bisheriges Phase-5-Verhalten,
+  Backwards-Compat für Tests).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 
 from hexapod_kinematics.config import LegConfig
@@ -34,24 +41,61 @@ Point3 = tuple[float, float, float]
 _COS_EPS = 1e-9
 
 
+@dataclass(frozen=True)
+class JointLimits:
+    """
+    Per-Bein-Joint-Limits in rad (URDF-Konvention).
+
+    Stage 0.6: optional an ``leg_ik`` übergeben. Wenn gesetzt, prüft IK
+    nach Berechnung ob die drei Joint-Werte innerhalb [lower, upper]
+    liegen — sonst IKError("joint limit ...").
+
+    Quelle: URDF ``<limit lower upper>``, in gait_node beim Init aus
+    ``/robot_description`` geparst und an gait_engine übergeben.
+    """
+
+    coxa_lower: float
+    coxa_upper: float
+    femur_lower: float
+    femur_upper: float
+    tibia_lower: float
+    tibia_upper: float
+
+
 class IKError(ValueError):
-    """Foot-Punkt geometrisch nicht erreichbar (out-of-reach)."""
+    """
+    Foot-Punkt nicht erreichbar.
+
+    Unterscheidung über die Exception-Message:
+    - "out of reach ..." = geometrisch nicht erreichbar (Reichweiten-Kegel)
+    - "joint limit ..." = rad-Wert außerhalb URDF-Limits (Stage 0.6)
+    """
 
 
-def leg_ik(x: float, y: float, z: float, leg_cfg: LegConfig) -> JointAngles:
+def leg_ik(
+    x: float,
+    y: float,
+    z: float,
+    leg_cfg: LegConfig,
+    joint_limits: JointLimits | None = None,
+) -> JointAngles:
     """
     Berechne Joint-Winkel für einen Foot-Punkt im Bein-Frame.
 
     Eingabe: ``(x, y, z)`` = Foot-Link-Center im Bein-Frame des
     angegebenen Beins (siehe ``geometry.base_to_leg_frame`` für die
-    Konvertierung aus base_link).
+    Konvertierung aus base_link). Optional ``joint_limits`` für
+    Stage-0.6-Joint-Limit-Prüfung.
 
     Ausgabe: ``(theta_coxa, theta_femur, theta_tibia)`` in Radiant,
     URDF-Konvention (positives ``theta_femur`` zeigt nach unten,
     positives ``theta_tibia`` knickt weiter nach unten).
 
-    Wirft ``IKError``, wenn der Punkt geometrisch außerhalb des
-    Reichweitenbereichs liegt (zu weit oder zu nah).
+    Wirft ``IKError``:
+    - "out of reach ..." wenn der Punkt geometrisch außerhalb des
+      Reichweitenbereichs liegt
+    - "joint limit ..." wenn ``joint_limits`` gesetzt ist und ein
+      Joint-Wert außerhalb des erlaubten rad-Range liegt
     """
     L_c = leg_cfg.L_coxa
     L_f = leg_cfg.L_femur
@@ -98,6 +142,29 @@ def leg_ik(x: float, y: float, z: float, leg_cfg: LegConfig) -> JointAngles:
     # "Knie oben"-Modus muss Femur über die Foot-Linie nach oben kippen
     # (math: alpha + beta), das negieren wir = alpha - beta.
     theta_femur = alpha - beta
+
+    # Stage 0.6: optional gegen URDF-Joint-Limits prüfen. Bei Verletzung
+    # IKError ("joint limit ...") werfen — gait_engine catched das und
+    # triggert sofortigen safety_freeze (N=1, User-Wahl 2026-05-24).
+    if joint_limits is not None:
+        if not (joint_limits.coxa_lower <= theta_coxa <= joint_limits.coxa_upper):
+            raise IKError(
+                f'joint limit: leg {leg_cfg.name!r} coxa rad={theta_coxa:.4f} '
+                f'outside [{joint_limits.coxa_lower:.4f}, '
+                f'{joint_limits.coxa_upper:.4f}] (foot=({x:.4f}, {y:.4f}, {z:.4f}))'
+            )
+        if not (joint_limits.femur_lower <= theta_femur <= joint_limits.femur_upper):
+            raise IKError(
+                f'joint limit: leg {leg_cfg.name!r} femur rad={theta_femur:.4f} '
+                f'outside [{joint_limits.femur_lower:.4f}, '
+                f'{joint_limits.femur_upper:.4f}] (foot=({x:.4f}, {y:.4f}, {z:.4f}))'
+            )
+        if not (joint_limits.tibia_lower <= theta_tibia <= joint_limits.tibia_upper):
+            raise IKError(
+                f'joint limit: leg {leg_cfg.name!r} tibia rad={theta_tibia:.4f} '
+                f'outside [{joint_limits.tibia_lower:.4f}, '
+                f'{joint_limits.tibia_upper:.4f}] (foot=({x:.4f}, {y:.4f}, {z:.4f}))'
+            )
 
     return (theta_coxa, theta_femur, theta_tibia)
 

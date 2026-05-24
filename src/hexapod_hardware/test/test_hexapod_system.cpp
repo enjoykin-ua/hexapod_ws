@@ -1290,6 +1290,38 @@ TEST(HexapodSafetyFreeze, ClearWhileNotFrozenReturnsFalse)
   EXPECT_FALSE(plugin.is_safety_frozen());
 }
 
+TEST(HexapodSafetyFreeze, ExternalTriggerSetsFreezeIdempotently)
+{
+  // Stage 0.6: trigger_safety_freeze() is the external entry point
+  // (gait_node calls /hexapod_safety_freeze on IK joint-limit error,
+  // service-callback calls this method). First call returns true
+  // (= newly set), subsequent calls while frozen return false.
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  ASSERT_FALSE(plugin.is_safety_frozen());
+
+  // First call: false→true transition. Returns true (newly set).
+  EXPECT_TRUE(plugin.trigger_safety_freeze())
+    << "first trigger should report newly-set (returns true)";
+  EXPECT_TRUE(plugin.is_safety_frozen());
+
+  // Second call while frozen: no-op. Returns false (was already set).
+  EXPECT_FALSE(plugin.trigger_safety_freeze())
+    << "trigger on already-frozen must be idempotent (returns false)";
+  EXPECT_TRUE(plugin.is_safety_frozen());
+
+  // Verify clear() round-trip works after external trigger.
+  EXPECT_TRUE(plugin.clear_safety_freeze());
+  EXPECT_FALSE(plugin.is_safety_frozen());
+}
+
 TEST(HexapodSafetyFreeze, WriteWhileFrozenHoldsLastGoodPulse)
 {
   // Stage 0.5 contract: in freeze, write() must not update

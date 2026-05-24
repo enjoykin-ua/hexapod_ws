@@ -6,12 +6,13 @@ from hexapod_kinematics.geometry import (
     leg_to_base_frame,
     rotate_z,
 )
-from hexapod_kinematics.leg_ik import IKError, leg_fk, leg_ik
+from hexapod_kinematics.leg_ik import IKError, JointLimits, leg_fk, leg_ik
 
 __all__ = [
     'HEXAPOD',
     'HexapodConfig',
     'IKError',
+    'JointLimits',
     'LegConfig',
     'base_to_leg_frame',
     'leg_fk',

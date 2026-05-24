@@ -13,7 +13,7 @@ Strategie:
 import math
 import random
 
-from hexapod_kinematics import HEXAPOD, IKError, leg_fk, leg_ik
+from hexapod_kinematics import HEXAPOD, IKError, JointLimits, leg_fk, leg_ik
 import pytest
 
 
@@ -165,3 +165,61 @@ def test_neutral_pose_consistent_across_legs():
     for i, foot in enumerate(feet[1:], start=1):
         assert foot == pytest.approx(feet[0], abs=1e-12), \
             f'leg {i + 1} stand-foot differs from leg 1'
+
+
+# ----- Stage 0.6 Joint-Limit-Check -----------------------------------
+
+# Build a guaranteed-reachable foot point by going through FK first.
+# This avoids picking arbitrary coordinates that may land outside the
+# reach-cone (which would fire the geometric IKError before the joint-
+# limit check has a chance to run).
+_REACHABLE_FOOT = leg_fk(0.0, -0.5, 1.0, LEG)  # neutral stand pose
+
+
+def test_joint_limits_none_keeps_lenient_behaviour():
+    """Backwards-compat: leg_ik without joint_limits arg behaves like Phase-5."""
+    a, b, c = leg_ik(*_REACHABLE_FOOT, LEG)
+    a2, b2, c2 = leg_ik(*_REACHABLE_FOOT, LEG, None)
+    assert (a, b, c) == pytest.approx((a2, b2, c2), abs=1e-12)
+
+
+def test_joint_limits_within_range_returns_same_angles():
+    """With limits that comfortably contain the angles, IK returns same result."""
+    a, b, c = leg_ik(*_REACHABLE_FOOT, LEG)
+    limits = JointLimits(
+        coxa_lower=-1.57, coxa_upper=+1.57,
+        femur_lower=-1.57, femur_upper=+1.57,
+        tibia_lower=-1.57, tibia_upper=+1.57,
+    )
+    a2, b2, c2 = leg_ik(*_REACHABLE_FOOT, LEG, limits)
+    assert (a, b, c) == pytest.approx((a2, b2, c2), abs=1e-12)
+
+
+def test_joint_limits_violation_raises_ikerror_with_joint_limit_message():
+    """Force a coxa-angle violation via FK->IK with a tight coxa limit."""
+    # Forward-Kinematics produziert garantiert erreichbare Foot-Punkte.
+    # coxa=+0.7 ist deutlich über ±0.1.
+    foot = leg_fk(0.7, -0.5, 1.0, LEG)
+    tight_limits = JointLimits(
+        coxa_lower=-0.1, coxa_upper=+0.1,  # tight; +0.7 violates
+        femur_lower=-1.57, femur_upper=+1.57,
+        tibia_lower=-1.57, tibia_upper=+1.57,
+    )
+    with pytest.raises(IKError) as exc_info:
+        leg_ik(*foot, LEG, tight_limits)
+    assert 'joint limit' in str(exc_info.value), \
+        f'expected "joint limit" in message, got: {exc_info.value}'
+    assert 'coxa' in str(exc_info.value)
+
+
+def test_joint_limits_does_not_prevent_reach_cone_error():
+    """Reach-cone check fires first (out-of-reach beats joint-limit check)."""
+    loose_limits = JointLimits(
+        coxa_lower=-10.0, coxa_upper=+10.0,
+        femur_lower=-10.0, femur_upper=+10.0,
+        tibia_lower=-10.0, tibia_upper=+10.0,
+    )
+    with pytest.raises(IKError) as exc_info:
+        leg_ik(1.0, 0.0, 0.0, LEG, loose_limits)  # way out of reach
+    assert 'out of reach' in str(exc_info.value), \
+        f'reach-cone must fire before joint-limit, got: {exc_info.value}'

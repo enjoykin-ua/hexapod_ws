@@ -1,7 +1,24 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="leg" params="id mount_x mount_y mount_z mount_yaw">
+  <!--
+    Stage A (servo_real_cal_plan.md): per-Joint-Limit-Args.
+    Default-Pattern ``arg:=^|${prop}|``: bei NICHT gesetztem Arg wird der
+    gleichnamige outer-scope-Property genutzt (= globale Defaults aus
+    hexapod_physical_properties.xacro, ±1.57 für Coxa/Femur, ±1.50 für
+    Tibia). Backwards-compat: bestehende Aufrufe ohne neue Args greifen
+    die globalen Properties wie vor Stage A.
+
+    Stage D füllt die 6 Aufrufe in hexapod.urdf.xacro mit den 18
+    pro-Joint-rad-Limits aus servo_real_calibration_todos.md Tab. 3.3.
+  -->
+  <xacro:macro name="leg" params="id mount_x mount_y mount_z mount_yaw
+                                  coxa_lower:=^|${coxa_lower}|
+                                  coxa_upper:=^|${coxa_upper}|
+                                  femur_lower:=^|${femur_lower}|
+                                  femur_upper:=^|${femur_upper}|
+                                  tibia_lower:=^|${tibia_lower}|
+                                  tibia_upper:=^|${tibia_upper}|">
 
     <!-- ===== Coxa ===== -->
     <joint name="leg_${id}_coxa_joint" type="revolute">

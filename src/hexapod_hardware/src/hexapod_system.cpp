@@ -321,11 +321,23 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_configure(
     RCLCPP_INFO(
       plugin_logger(),
       "Stage 0.5: /hexapod_safety_reset service ready");
+
+    // Stage 0.6 — /hexapod_safety_freeze service for external freeze
+    // (called by gait_node when IK detects a joint-limit violation).
+    safety_freeze_service_ = node->create_service<std_srvs::srv::Trigger>(
+      "hexapod_safety_freeze",
+      std::bind(
+        &HexapodSystemHardware::handle_safety_freeze, this,
+        std::placeholders::_1, std::placeholders::_2));
+    RCLCPP_INFO(
+      plugin_logger(),
+      "Stage 0.6: /hexapod_safety_freeze service ready");
   } else {
     RCLCPP_WARN(
       plugin_logger(),
       "Phase 11 Stage B: get_node() returned null in on_configure — "
-      "/save_calibration and /hexapod_safety_reset services not registered");
+      "/save_calibration, /hexapod_safety_reset and /hexapod_safety_freeze "
+      "services not registered");
   }
 
   if (loopback_mode_) {
@@ -1030,6 +1042,14 @@ bool HexapodSystemHardware::clear_safety_freeze() noexcept
   return safety_freeze_.exchange(false);
 }
 
+bool HexapodSystemHardware::trigger_safety_freeze() noexcept
+{
+  // Returns the *previous* value via exchange. We invert: true if we
+  // actually transitioned false→true (= newly set), false if already
+  // true (= idempotent no-op).
+  return !safety_freeze_.exchange(true);
+}
+
 void HexapodSystemHardware::handle_safety_reset(
   std_srvs::srv::Trigger::Request::ConstSharedPtr /*request*/,
   std_srvs::srv::Trigger::Response::SharedPtr response)
@@ -1047,6 +1067,27 @@ void HexapodSystemHardware::handle_safety_reset(
     RCLCPP_WARN(plugin_logger(), "%s", response->message.c_str());
   } else {
     response->message = "safety_freeze was not active — nothing to clear";
+    RCLCPP_INFO(plugin_logger(), "%s", response->message.c_str());
+  }
+}
+
+void HexapodSystemHardware::handle_safety_freeze(
+  std_srvs::srv::Trigger::Request::ConstSharedPtr /*request*/,
+  std_srvs::srv::Trigger::Response::SharedPtr response)
+{
+  // Stage 0.6: external freeze trigger, typically called by gait_node
+  // when IK detected a joint-limit violation. Idempotent — repeated
+  // calls in freeze are no-ops (response message reflects that).
+  const bool newly_set = trigger_safety_freeze();
+  response->success = true;
+  if (newly_set) {
+    response->message =
+      "safety_freeze activated externally — plugin now holding last "
+      "good PWM on all joints. Recover via /hexapod_safety_reset.";
+    RCLCPP_ERROR(plugin_logger(), "%s", response->message.c_str());
+  } else {
+    response->message =
+      "safety_freeze was already active — no change";
     RCLCPP_INFO(plugin_logger(), "%s", response->message.c_str());
   }
 }
