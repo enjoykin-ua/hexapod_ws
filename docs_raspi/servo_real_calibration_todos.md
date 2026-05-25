@@ -25,7 +25,7 @@ Sauber-konsistente Cal aller 18 Servos im realen Hexapod, sodass:
 ## 2. Hintergrund
 
 In Phase 11 (rqt-Live-Cal abgeschlossen 2026-05-21) wurde erkannt,
-dass die bisherige Cal aus `servo_calibration_approach.md` math-
+dass die bisherige Cal aus `_archive_servo_calibration_approach.md` math-
 inkonsistent ist — pulse_min/max basierten auf mech-Stops, aber URDF-
 Limits waren pauschal ±1.57. Folge: Plugin-Math und IK-Position
 divergierten.
@@ -305,7 +305,7 @@ Phase 4-6 (±1.57)** annehmen. In Sim-Tuning (Stage E) ermittelt:
 - **Walking-Envelope-Tool implementiert:** Auto-Tuning via
   [`tools/walking_envelope_check.py`](../tools/walking_envelope_check.py)
   (check/sweep/recommend Modi, 11/11 pytest grün). Spec in
-  [`walking_envelope_tool_spec.md`](walking_envelope_tool_spec.md).
+  [`tools/walking_envelope_check.README.md`](../tools/walking_envelope_check.README.md).
 
 → **Implikation:** gait_node-Param-Tuning muss zur Cal passen, nicht
 andersrum. Bei jeder Cal-Änderung (z.B. nach Stage C Direction-Cal):

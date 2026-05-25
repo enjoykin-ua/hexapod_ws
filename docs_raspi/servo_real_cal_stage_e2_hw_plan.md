@@ -50,7 +50,8 @@ Stufenweise hochskalieren:
   als bei Bodenkontakt-Stand.
 - **Lange Walking-Sessions** (>1 min) — wir testen 30 s pro Tempo.
 
-→ Phase-13-Pendenzen, siehe HANDOVER_STAGE_E2.md §"Phasen-Kontext".
+→ Phase-13-Pendenzen, siehe §13 weiter unten + Memory
+[[project-phase13-femur-zero-asymmetry]] + [[project-phase13-gait-launch-sim-time-default]].
 
 ## 4. Sub-Stages — Logik-Skizze + Tests
 
@@ -335,7 +336,7 @@ mit `real.launch.py`.
 - `servo_real_cal_plan.md` Stage E2 → ✅ 2026-05-25
 - Memory `project_servo_real_cal_done.md` anlegen (cross-phase-thread fertig)
 - Phase 13 (Voll-Bringup) kann starten
-- HANDOVER_STAGE_E2.md §"Phase-13-Pendenzen" wird die nächste Plan-Grundlage
+- §13 dieser Plan-Doku + die zwei Phase-13-Pendenz-Memories werden die nächste Plan-Grundlage
 
 ## 9. Was passiert wenn Probleme
 

@@ -37,7 +37,7 @@ Pure Python, kein ROS-Runtime nötig — nutzt direkt hexapod_kinematics und
 hexapod_gait. URDF-Joint-Limits werden via xacro aus der Stage-D-URDF
 gelesen.
 
-Konzept-Spec: docs_raspi/walking_envelope_tool_spec.md
+Konzept-Spec: ./walking_envelope_check.README.md
 
 ────────────────────────────────────────────────────────────────────────────────
 WAS DAS TOOL PRÜFT (und was NICHT)

@@ -1,10 +1,11 @@
 # Hexapod Workspace
 
 ROS 2 Jazzy / Gazebo Harmonic Hexapod-Projekt — 6 Beine, 18 Joints,
-Servo2040-Hardware-Anbindung in Phase 7.
+Servo2040-Hardware-Anbindung über `hexapod_hardware`-Plugin (Phase 9).
 
 Phasenweises Vorgehen, verbindliche Konventionen in `CLAUDE.md`,
-aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/`.
+aktuelle Phase in `PHASE.md`, Phasen-Doku in `docs/` (Phasen 0–6) und
+`docs_raspi/` (Phasen 7+).
 
 ## Cross-Phasen-Referenzen
 
@@ -14,36 +15,46 @@ relevant sind:
 | Datei | Wann lesen |
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | Vor jeder Session — User-Profil, Tech-Stack, Shell-Verbote, Workflow-Regeln |
-| [PHASE.md](PHASE.md) | Vor jeder Session — aktuelle Phase + Phasen-Übersicht |
+| [PHASE.md](PHASE.md) | Vor jeder Session — aktuelle Phase + kompakte Phasen-Übersicht (Tabelle) |
+| [PHASE_NOTES.md](PHASE_NOTES.md) | Retros pro Phase, Übergabe-Items, Begründungen für Phase-Schnitte (ergänzt PHASE.md) |
 | [docs/00_conventions.md](docs/00_conventions.md) | Naming, Frames, Einheiten, physikalische Konstanten (Joint-Limits, Geometrie) |
 | **[docs/01_hardware_change_workflow.md](docs/01_hardware_change_workflow.md)** | **Wenn du am Roboter etwas änderst** — 12 Szenarien (Bein-Geometrie, Massen, Servos, USB-Port, Sim↔HW-Switch), pro Szenario was du wo anfasst und welche Tests Drift abfangen |
+| [docs_raspi/servo_real_cal_plan.md](docs_raspi/servo_real_cal_plan.md) | Cross-Phase-Thread Servo Real Calibration ✅ 2026-05-25 — Stages 0/0.5/0.6/A/B/D/E/C/E2 (Cal aller 18 Pins, direction-Map, Safety-Layer, HW-Walking aufgebockt) |
 
 ## Stand
 
-| Phase | Inhalt | Status | Umsetzungsdauer |
-|---|---|---|---|
-| 0 | Desktop-Setup, ROS-Toolchain | ✅ | 0,5 Tage |
-| 1 | ROS 2 Basics (Udemy-Kurs, hier Phase übersprungen) | ✅ | Udemy-Kurs |
-| 2 | URDF/Xacro-Beschreibung | ✅ | 0,5 Tage |
-| 3 | Gazebo-Simulation | ✅ (alle 6 Kriterien; Kriterium 4 nachträglich in Phase 4 Stufe F verifiziert) | 1 Tag |
-| 4 | `ros2_control` | ✅ | 1 Tag |
-| 5 | Inverse Kinematik & Gait | ✅ (alle 5 Done-Kriterien + omnidirektional via Stufen H/I) | 2 Tage |
-| 6 | Teleop | ✅ (PS4 via USB; Tastatur verworfen, Bluetooth deferred) | 0,2 Tage |
-| 7 | Pi-Portierung & Hardware | 🟡 aktiv | — |
+| Phase | Inhalt | Status |
+|---|---|---|
+| 0–6 | Sim-Phasen (Setup, URDF, Gazebo, ros2_control, IK/Gait, Teleop) | ✅ abgeschlossen (siehe [PHASE_NOTES.md](PHASE_NOTES.md) für Retros) |
+| 7 | Servo2040 Firmware | ✅ 2026-05-14 |
+| 8 | Strom- & Elektronik-Bench | ⏸️ pausiert (Deadline vor Phase 12) |
+| 9 | ROS2-Plugin `hexapod_hardware` | ✅ 2026-05-16 |
+| 10 | Single-Leg Bring-up + Kalibrierung (leg_6) | ✅ 2026-05-19 |
+| 11 | Param-GUI mit Live-Tuning (rqt_reconfigure) | ✅ 2026-05-21 |
+| **Cross-Phase-Thread** `servo_real_cal` | Cal aller 18 Pins + Safety-Layer + HW-Walking aufgebockt | ✅ 2026-05-25 |
+| 12 | Pi-Plattform & Portierung | 🟡 aktiv (noch nicht angefasst) |
+| 13 | Voll-Bringup mit echtem Roboter | ⚪ offen (Sub-Stages B/C/D vorweggenommen durch servo_real_cal) |
 
 ## Pakete
 
 | Paket | Status | Zweck |
 |---|---|---|
-| `hexapod_description` | ✅ Phase 2 | URDF/Xacro, RViz-Display, ros2_control-Block + gz_ros2_control-Plugin (Phase 4) |
-| `hexapod_gazebo` | ✅ Phase 3 | Plain-Sim-Bringup (Launch, Bridge, Reibungswerte im URDF-Gazebo-Tag) |
-| `hexapod_control` | ✅ Phase 4 | `ros2_control`-Config (controllers.yaml: JSB + 6 JTC) |
-| `hexapod_bringup` | ✅ Phase 4 | Standard-Sim-Launch mit Controller-Spawnern (sim.launch.py) |
-| `hexapod_kinematics` | ✅ Phase 5 | Pure-Python IK/FK-Library (kein rclpy), Single-Source-of-Truth `LegConfig` |
-| `hexapod_sensors` | ✅ Phase 5 Stufe D | Gazebo→ROS Foot-Contact-Adapter (Bool/Bein, 100 ms Decay-Decay) |
-| `hexapod_gait` | ✅ Phase 5 | `stand_node` (Stufe C), `gait_node` mit cmd_vel-Subscriber + State-Machine + GaitPattern (Tripod-Default) |
-| `hexapod_teleop` | ✅ Phase 6 | PS4-Controller via USB (D-Pad + L2/R2 + R1-Dead-Man) → cmd_vel + cmd_body_height |
-| `hexapod_hardware` | offen | C++ HardwareInterface (Pi, Phase 7) |
+| `hexapod_description` | ✅ Phase 2 (+ ros2_control + gazebo in Phase 4) | URDF/Xacro, RViz-Display |
+| `hexapod_gazebo` | ✅ Phase 3 | Plain-Sim-Bringup |
+| `hexapod_control` | ✅ Phase 4 | `ros2_control`-Config (controllers.yaml + controllers.real.yaml: JSB + 6 JTC) |
+| `hexapod_bringup` | ✅ Phase 4/9 | sim.launch.py + real.launch.py |
+| `hexapod_kinematics` | ✅ Phase 5 (Stage 0.6: + Joint-Limit-Check) | Pure-Python IK/FK |
+| `hexapod_sensors` | ✅ Phase 5 Stufe D | Gazebo→ROS Foot-Contact-Adapter |
+| `hexapod_gait` | ✅ Phase 5/11 (Stage 0.6 + 11A: + URDF-Joint-Limits-Parse + Live-Params + Presets) | `stand_node`, `gait_node` mit State-Machine + cmd_vel/cmd_body_height + `/save_calibration` |
+| `hexapod_teleop` | ✅ Phase 6 | PS4 via USB |
+| `hexapod_hardware` | ✅ Phase 9 (Stage 0 + 0.5: + direction-aware slope + safety_freeze) | C++ HardwareInterface (pluginlib), Servo2040 USB-CDC |
+
+## Tools
+
+| Tool | Zweck |
+|---|---|
+| `tools/walking_envelope_check.py` | Pure-Python Walking-Envelope-Check (4 cmd_vel-Szenarien × radial × body_height × step_length × step_height) mit auto-tuning. Spec: [`tools/walking_envelope_check.README.md`](tools/walking_envelope_check.README.md) |
+| `tools/hexapod-shell-aliases.sh` | Opt-in Bash-Aliases: `hexapod-save-cal`, `hexapod-load-walking-preset`, `hexapod-save-walking-params` |
 
 ## Quickstart
 

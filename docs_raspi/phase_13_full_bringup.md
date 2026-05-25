@@ -1,22 +1,28 @@
 # Phase 13 — Voll-Bringup mit echtem Roboter
 
-**Dauer-Schätzung:** 4–6 Tage (Kalenderzeit, viele Iterationen — inkl.
-neuer Stufe B für SW-Auto-Kalibrierung der 15 in Phase 10 nicht
-kalibrierten Servos)
+**Dauer-Schätzung:** 3–5 Tage (Kalenderzeit, viele Iterationen — Stufe B
+reduziert auf Pi-Recheck + Femur-Asymmetrie-Fix, da Cross-Phase-Thread
+`servo_real_cal` 2026-05-25 alle 18 Pins bereits kalibriert hat)
 **Maschine:** Raspberry Pi 4 am Roboter, Desktop für Monitoring/Teleop
-**Vorbedingung:** Phase 12 abgeschlossen (Pi-Plattform steht), Phase 10
-abgeschlossen (leg_6 = Pin 15/16/17 am Desktop kalibriert; die anderen
-15 Servos sind in `servo_mapping.yaml` weiter Platzhalter und werden
-**in Stufe B dieser Phase** per SW-Tool kalibriert)
+**Vorbedingung:**
+- Phase 12 abgeschlossen (Pi-Plattform steht)
+- Phase 10 abgeschlossen (Single-Leg-Bringup mit leg_6 am Desktop)
+- **Cross-Phase-Thread `servo_real_cal` ✅ 2026-05-25** — alle 18 Pins
+  kalibriert mit direction-Map (`servo_mapping.yaml`), Stage 0.5/0.6
+  Safety-Layer in Plugin + gait_node, URDF mit per-Pin asymm rad-Limits,
+  HW-Walking aufgebockt verifiziert (`cmd_vel` 0.02/0.03/0.035 m/s ohne
+  IKError). Plan-Index: `servo_real_cal_plan.md`.
 
 ---
 
 ## Ziel
 
 Den vollen Hexapod-Stack auf dem Pi mit echter Hardware in Betrieb nehmen.
-Reihenfolge: **15 verbleibende Servos per SW-Tool kalibrieren** → alle
-18 Beine in Stand-Pose aufgebockt → Tripod in der Luft → Stand auf Boden
-(Hängevorrichtung) → erster Walk → Phase-6-PS4-Vollbetrieb.
+Reihenfolge: **Pi-Recheck Cal + Femur-Asymmetrie-Fix** (Stufe B) → alle
+18 Beine in Stand-Pose aufgebockt am Pi (Stufe C, vorher am Desktop in
+servo_real_cal-E2.3 ✓) → Tripod in der Luft (Stufe D, vorher
+E2.4/E2.5 ✓) → Stand auf Boden (Hängevorrichtung, Stufe E — neu) →
+erster Walk (Stufe F — neu) → Phase-6-PS4-Vollbetrieb (Stufe G).
 
 **Sicherheits-Schwerpunkt der Phase.** Jede Stufe hat einen
 „Goldenen-Regeln"-Block, der **gelesen sein muss** bevor der Hauptschalter
@@ -30,9 +36,9 @@ zugeht.
 - Servo2040 am Pi per USB-C-Kabel (3 m XT60-Kabel reicht für Bench-Strom)
 - Bench-PSU als Stromquelle (kein Akku)
 - DCDC versorgt Pi
-- leg_6 (Pin 15/16/17) bereits kalibriert in `servo_mapping.yaml` (aus
-  Phase 10); die 15 verbleibenden Pins werden in **Stufe B dieser Phase**
-  per SW-Auto-Cal-Tool kalibriert
+- Alle 18 Pins bereits kalibriert in `servo_mapping.yaml` durch Cross-
+  Phase-Thread `servo_real_cal` (am Desktop). Stufe B macht Pi-Recheck +
+  Femur-Asymmetrie-Fix (siehe Memory `project_phase13_femur_zero_asymmetry`)
 - Hängevorrichtung über dem Roboter (Seil/Gurt durch Body-Aufhängung, an
   Decken-Haken oder Stativ)
 - PS4-Controller (USB)
@@ -57,9 +63,9 @@ zugeht.
 ## Done-Kriterien
 
 1. Servo2040 hängt am Pi (USB), `hexapod_hardware` läuft auf Pi (Stufe A)
-2. **Alle 18 Servos in `servo_mapping.yaml` mit Status `calibrated` —
-   15 davon per SW-Auto-Cal in Stufe B, leg_6 bereits aus Phase 10
-   (Stufe B)**
+2. **Alle 18 Servos in `servo_mapping.yaml` `calibrated` (am Desktop fertig
+   im servo_real_cal-Thread); Pi-Recheck dass Cal nach Pi-Transfer noch
+   klappt + Femur-Asymmetrie aus servo_real_cal-E2 gefixt (Stufe B)**
 3. Stand-Pose alle 18 aufgebockt stabil > 5 min (Stufe C)
 4. Tripod-Cycle aufgebockt sichtbar synchron (Stufe D)
 5. Stand-Pose mit Bodenkontakt > 30 s stabil, Hängevorrichtung trägt
@@ -140,144 +146,118 @@ verwirrendem Zustand triggern.
 
 ---
 
-### Stufe B — SW-Auto-Kalibrierung der 15 verbleibenden Servos
+### Stufe B — Pi-Recheck Cal + Femur-Asymmetrie-Fix
 
-**Ziel:** Die 15 Servos in `servo_mapping.yaml`, die nach Phase 10 noch
-Platzhalter sind (alles außer Pin 15/16/17 = leg_6), per SW-Tool über
-den echten Plugin-→-Firmware-→-Servo-Pfad kalibrieren. Genauer als der
-HJ-Tester in Phase 10, weil **gleiche PWM-Pipeline wie im
-Produktiv-Betrieb** (kein Tester-vs-Stack-Drift) und **Self-Collision-
-Test direkt mit beiden Nachbar-Beinen möglich**.
+**Ziel:** Verifizieren dass die in `servo_real_cal` (am Desktop fertig
+2026-05-25) ermittelten Cal-Werte für alle 18 Pins nach Pi-Transfer
+identisch funktionieren, und die in `servo_real_cal-E2.3` entdeckte
+Femur-Asymmetrie rechts/links (~5°) beheben.
 
 **Vorbedingung:** Stufe A grün (Plugin läuft auf Pi gegen Servo2040,
-USB stabil, `STATE`-Frames kommen). Hexapod **aufgebockt**, alle 18
-Servos montiert, alle 18 Servos elektrisch angeschlossen (im Gegensatz
-zu Phase 10, wo nur leg_6 verkabelt war). Bench-PSU 7.0 V, CC-Limit
-großzügig (Cal-Tool bewegt nur 1 Bein gleichzeitig + 2 Referenz-Beine
-passiv).
+USB stabil). Hexapod **aufgebockt**. `servo_mapping.yaml` ist identisch
+zur Desktop-Version (Git-Pull oder File-Sync).
 
-**Begründung (cross-ref Phase-10-Stage-B Strategie B'):** Phase 10
-hat für leg_6 mit dem HJ-Tester die `pulse_min`/`max`/`zero`-Werte
-ermittelt — funktioniert für 3 Servos, skaliert aber schlecht auf 15.
-Auto-Cal-Tool nutzt die **selbe Pulse-Hard-Stop-Strategie**
-(Self-Collision-sichere Hardware-Anschläge mit 5° Sicherheits-Abstand
-zu Nachbar-Beinen), automatisiert aber den Mess-Vorgang über die
-Stack-Pipeline.
+**Begründung des Scope-Wechsels:** Stage B war ursprünglich
+„SW-Auto-Cal für 15 verbleibende Servos". Der Cross-Phase-Thread
+`servo_real_cal` (Stages B/C/D) hat alle 18 Pins kalibriert
+(`pulse_min/zero/max` + `direction`), inkl. Mount-Tausch-Korrektur
+leg_2↔leg_5. Damit ist die Auto-Cal-Tool-Pflicht entfallen. Stage B
+wird stattdessen zum **Pi-Recheck mit Femur-Asymmetrie-Fix** —
+deutlich kürzer (~30–60 min statt 2 d).
 
-#### B.1 Architektur-Entscheidung (vor Implementation)
+#### B.1 Pi-Sanity: `servo_mapping.yaml` identisch zu Desktop
 
-| Frage | Vorschlag | Verworfen | Begründung |
-|---|---|---|---|
-| **Wo lebt das Tool?** | Neues Python-Paket `hexapod_calibration` oder Skript-Unterordner in `hexapod_hardware` | Plugin-Erweiterung (C++) | Tool nutzt das bestehende Plugin als Black Box (Pulse rein, Bewegung raus), keine Plugin-Code-Änderung nötig — schneller zu bauen + testen, niedriger Wartungsaufwand |
-| **Wie sendet das Tool Pulse?** | Direkt per `forward_position_controller` (Joint-Position-Goals in rad, Plugin macht rad→pulse-Konvertierung) **oder** Roh-Pulse über einen Cal-Mode im Plugin | Plugin-Cal-Mode | Roh-Pulse über Cal-Mode wäre Plugin-Code-Change. Stattdessen: Tool sendet rad-Goals mit Test-`pulse_per_rad`-Schätzung, iteriert. Genaue Werte werden über Δrad↔Δpulse-Beobachtung am realen Bein zurückgerechnet. |
-| **User-Interface** | Terminal-Tastatur: `←`/`→` für ±5 µs, `Enter` = „das ist die Grenze", `q` = abbrechen, `n` = next servo | Vollautomatisch (Encoder-Feedback) | Encoder gibt's nicht (Echo-State). Mensch im Loop ist Pflicht, weil visuelle Self-Collision-Beurteilung nicht ohne Sensorik geht. |
-| **Reihenfolge der Servos** | leg-für-leg, pro Bein Coxa → Femur → Tibia (analog Phase-10-Stage-B-C-D-E) | Alle Coxas zuerst, dann alle Femurs, dann alle Tibias | Pro-Bein-Reihenfolge erlaubt Stand-Pose-Snapshot nach jedem Bein als Sanity-Check; Alle-Coxas-zuerst macht keinen Stand möglich. |
-| **Self-Collision-Test pro Coxa** | Beide Nachbar-Beine in worst-case-Pose schwenken, Cal-Tool fährt aktives Bein langsam ran bis User „Enter" drückt 5° vor Berührung | Nur einseitiger Test wie in Phase 10 | Mittel-Beine (leg_2, leg_5) haben **zwei** Nachbarn — beide müssen begrenzt werden. Phase 10 leg_6 hat nur leg_5 als Nachbar (Eck-Bein). |
-
-#### B.2 Tool-Funktions-Skizze (Pseudo-Code, ~150 Zeilen)
-
-```python
-# tools/auto_calibrate.py
-#
-# Usage:
-#   ros2 run hexapod_calibration auto_calibrate \
-#       --leg leg_2 --joint coxa
-#
-# Schritte:
-#   1. Lade servo_mapping.yaml, finde Pin für (leg, joint)
-#   2. Sende JTC-Goal zur erwarteten Joint-Mitte (Default-`pulse_zero` 1500 µs
-#      → über `pulse_per_rad`-Schätzung in rad umrechnen)
-#   3. User-Loop:
-#      ←/→ = Trim ±5 µs, Bein-Verhalten beobachten
-#      Enter (PHASE 1) = „das ist visuelle Joint-Mitte" → pulse_zero gespeichert
-#   4. Sende inkrementelle Goals Richtung -1.5 rad (Self-Collision-Seite)
-#      User-Loop:
-#      Visuell beurteilen wie nah Bein dem Nachbar-Bein kommt
-#      Enter (PHASE 2) = „STOP, 5° vor Berührung" → pulse_min gespeichert
-#   5. Analog Richtung +1.5 rad
-#      Enter (PHASE 3) = pulse_max gespeichert
-#   6. YAML-Update: schreibe Pin-Eintrag mit pulse_min/zero/max + direction +
-#      status: calibrated + calibrated_at: <ISO>
-#   7. Backup vorheriges YAML als .bak.<timestamp>
+```bash
+# Auf Pi:
+cd ~/hexapod_ws
+md5sum src/hexapod_hardware/config/servo_mapping.yaml
+# Auf Desktop:
+ssh desktop "md5sum ~/hexapod_ws/src/hexapod_hardware/config/servo_mapping.yaml"
 ```
 
-#### B.3 Pre-Cal-Vorbereitung pro Bein
+→ Hashes müssen übereinstimmen. Wenn nicht: Git-Pull / rsync.
 
-Pro Bein vor dem Auto-Cal-Run:
+#### B.2 Loopback-Test: Plugin lädt Cal sauber am Pi
 
-1. **PSU AUS**, Bein-Mechanik prüfen (Schrauben fest, Kabel ohne Spannung,
-   Servos können sich frei drehen)
-2. **Nachbar-Beine in worst-case-Pose** schwenken:
-   - Eck-Beine (leg_1, leg_3, leg_4, leg_6): nur **ein** Nachbar (Mittel-Bein)
-     in worst-case
-   - Mittel-Beine (leg_2, leg_5): **beide** Nachbarn (Eck-Beine) in worst-case
-3. Friction-Check: bleiben Nachbar-Beine ohne Strom in worst-case-Pose?
-   - Falls Servo zurückrutscht: Klebeband oder Schaumstoff temporär
-4. **PSU AN**, Plugin läuft (aus Stufe A), aktives Bein per User-Hand
-   in geometrische Mitte gehalten (Initial-Pulse-Mitigation analog
-   Phase-10-Stages-C/D/E — Memory `project_phase13_initial_pose_presets.md`
-   ist Cross-Phase-Outlook, in B nicht implementiert)
+```bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
+```
 
-#### B.4 Auto-Cal-Run pro Joint
+Erwartet: Plugin-Init-Logs `Stage 0.5: /hexapod_safety_reset service ready`,
+6× `Configured and activated leg_<n>_controller`, **KEIN**
+`safety_freeze` beim Init. Stoppt mit Strg+C.
 
-Erwartete Dauer pro Joint: ~3 min (vs. ~10 min HJ-Tester in Phase 10).
-15 Joints × 3 min ≈ 45 min reine Mess-Zeit + ~30 min Bein-Vorbereitung
-pro Bein-Wechsel.
+#### B.3 Femur-Asymmetrie-Fix (Option B aus Memory)
 
-Reihenfolge: **leg_1 → leg_2 → leg_3 → leg_4 → leg_5** (Coxa → Femur →
-Tibia jeweils).
+**Hintergrund:** Memory [[project-phase13-femur-zero-asymmetry]] —
+`servo_real_cal-E2.3` zeigt visuell, dass Femur-pulse_zero rechts
+(legs 1/2/3, Ø 1485 µs) vs. links (legs 4/5/6, Ø 1543 µs) ~58 µs
+auseinanderliegt → ~5° Offset. Bei IK-Stand-Pose stärker eingeknickt
+rechts. Auf Boden würde das zu Body-Tilt führen.
 
-Pro Joint (User-Workflow):
-1. Auto-Cal-Tool starten mit `--leg leg_X --joint <coxa|femur|tibia>`
-2. Phase 1 (`pulse_zero`): visuelle Joint-Mitte mit `←`/`→` finden,
-   `Enter`
-3. Phase 2 (`pulse_min`): langsam Richtung Self-Collision/mech. Anschlag
-   trimmen, `Enter` 5° vor Grenze
-4. Phase 3 (`pulse_max`): analog Phase 2 in andere Richtung
-5. Phase 4 (`direction`-Beobachtung): Tool fragt „Bein dreht in
-   URDF-positive Richtung beim positiven Trim? y/n" — bei n flipt
-   Tool `direction: -1` direkt im YAML
-6. Tool schreibt YAML, fertig
+**Vorgehen mit Wasserwaage am Femur-Segment** pro Bein:
 
-#### B.5 Plausibilitäts-Validation am Ende von Stufe B
+1. Plugin läuft im echten Mode (`real.launch.py` ohne loopback)
+2. Bein-Trajectory zur Joint-Null senden:
+   ```bash
+   ros2 topic pub --once /leg_<N>_controller/joint_trajectory \
+     trajectory_msgs/msg/JointTrajectory \
+     '{joint_names: ["leg_<N>_coxa_joint", "leg_<N>_femur_joint", "leg_<N>_tibia_joint"],
+       points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+   ```
+3. Wasserwaage auf Femur-Segment — ist es horizontal?
+4. Falls nein: pulse_zero anpassen via rqt_reconfigure ODER CLI:
+   ```bash
+   ros2 param set /hexapodsystem pin_<N>.pulse_zero <neuer_Wert>
+   ```
+   Werte trimmen bis horizontal. Pro µs ≈ 0.09°. ~50 µs Spielraum erwartet.
+5. Wiederholen für alle 6 Femur-Pins (1, 4, 7, 10, 13, 16)
+6. Wenn alle 6 horizontal: persistieren
+   ```bash
+   ros2 service call /save_calibration std_srvs/srv/Trigger '{}'
+   ```
+   → `servo_mapping.yaml` wird mit Backup `.bak.<timestamp>` aktualisiert
 
-Nach allen 15 Joints kalibriert:
-- `servo_mapping.yaml` enthält für alle 18 Pins `status: calibrated`
-- Pro Pin: `pulse_min < pulse_zero < pulse_max`, alle in [800, 2200] µs
-- Stand-Pose-Sanity-Test aufgebockt (alle 18 fahren in Joint-Mitte) —
-  visuell symmetrische Pose, kein Servo brummt am Anschlag
+#### B.4 Stand-Pose-Recheck am Pi
 
-#### B.6 Tool-Implementation: was muss neu gebaut werden
+```bash
+# T2:
+ros2 launch hexapod_gait gait.launch.py \
+  use_sim_time:=false \
+  robot_description_file:=$(ros2 pkg prefix hexapod_description)/share/hexapod_description/urdf/hexapod.urdf.xacro \
+  params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/sim_walk.yaml
+```
 
-- **Neues Paket** `hexapod_calibration` (Python, ament_python)
-- **Node** `auto_calibrate` (~150 Zeilen Python)
-- **YAML-Schema bleibt unverändert** — Tool schreibt in bestehendes
-  Format
-- **Code-Anpassungen am Plugin oder Firmware:** **keine**
+Erwartet: gait_node fährt alle 6 in Stand-Pose, **diesmal visuell
+symmetrisch rechts/links** (Femur-Asymmetrie behoben). 30 s stabil.
 
-Tool-Test-Strategie (vor B.3 am echten Bein):
-- Unit-Tests für YAML-Read/Write + Plausibilitäts-Check
-- Smoke-Test mit Loopback-Mode (`real.launch.py loopback:=true`) —
-  Tool sendet Goals, Plugin echo't zurück, Tool validiert dass
-  YAML-Write korrekt ist
+#### B.5 (Optional) Memory-Update + Phase-13-Pendenz schließen
+
+Wenn B.3 erfolgreich:
+- Memory `project_phase13_femur_zero_asymmetry.md` als ✅ markieren
+  oder löschen
+- Falls Asymmetrie aus B.3 nicht ganz weg ist (mechanisch limitiert):
+  Option C aus Memory (URDF-`mount_offset`) als neue Sub-Pendenz öffnen
 
 **Done-Kriterium B:**
-1. `hexapod_calibration`-Paket existiert, Build grün, Unit-Tests grün
-2. Smoke-Test im Loopback-Mode bestanden (Tool kann YAML lesen +
-   schreiben + Goals senden)
-3. Alle 15 verbleibenden Servos durchkalibriert, YAML für alle 18 Pins
-   hat `status: calibrated`
-4. Stand-Pose-Sanity aufgebockt symmetrisch
-5. Cal-Log pro Bein (analog `phase_10_stage_b_calibration_log.md`):
-   `phase_13_stage_b_calibration_log.md` mit allen 15 Mess-Eintragungen
-   als Audit-Trail
+1. `servo_mapping.yaml` MD5 identisch Desktop↔Pi (B.1)
+2. Plugin-Loopback-Init grün am Pi (B.2)
+3. Alle 6 Femur-Segmente bei `rad=0` horizontal — Wasserwaage bestätigt (B.3)
+4. `/save_calibration` ausgeführt, Backup `.bak.*` vorhanden (B.3)
+5. gait_node-Stand-Pose visuell symmetrisch rechts/links, 30 s stabil (B.4)
+6. Memory-Pendenz `project_phase13_femur_zero_asymmetry.md` aktualisiert
 
 ---
 
-### Stufe C — Stand-Pose alle 18 aufgebockt
+### Stufe C — Stand-Pose alle 18 aufgebockt (Pi-Recheck)
 
-**Ziel:** Erstmaliger Voll-Stand, aufgebockt. Erster echter Stresstest
-der Boot-Sequenz.
+**Ziel:** Voll-Stand am Pi, aufgebockt. Stresstest der Boot-Sequenz.
+
+> **Wurde am Desktop in `servo_real_cal-E2.3` (2026-05-25) bereits
+> verifiziert** — alle 6 Beine fahren simultan in Stand-Pose, 30 s stabil,
+> kein IKError, kein safety_freeze. Auf Pi ist's hier der Recheck dass
+> das identisch klappt. Falls es klappt: ✓ schnell durch. Falls nicht:
+> Pi-spezifisches Problem (DDS, USB-Latenz, Strom).
 
 #### C.1 Vorbereitung
 
@@ -327,10 +307,17 @@ Per LaunchArg oder direkt im YAML setzen, vor `real.launch.py`-Start.
 
 ---
 
-### Stufe D — Tripod-Cycle aufgebockt
+### Stufe D — Tripod-Cycle aufgebockt (Pi-Recheck)
 
 **Ziel:** Vollständiger Tripod-Cycle, drei Beine schwingen, drei „stützen"
 (in der Luft, ohne Last). Synchronität verifizieren.
+
+> **Wurde am Desktop in `servo_real_cal-E2.4/E2.5` (2026-05-25) bereits
+> verifiziert** — Tripod-Walking aufgebockt mit cmd_vel 0.02/0.03/0.035 m/s
+> ohne IKError, Clamp-WARN bei 0.04 m/s korrekt. Auf Pi: Recheck.
+> **Hinweis:** `gait.launch.py` braucht `use_sim_time:=false` auf HW
+> (siehe Memory [[project-phase13-gait-launch-sim-time-default]]).
+> sim_walk.yaml-Preset hat `linear_max=0.035 m/s`.
 
 #### D.1 Foot-Contact deaktivieren
 
