@@ -74,9 +74,15 @@ prüfen, Stromversorgung Servo2040 prüfen.
 
 **T2 (RViz):**
 ```bash
-ros2 launch hexapod_description display.launch.py
+ros2 launch hexapod_description display.launch.py with_jsp_gui:=false
 ```
 
+> **`with_jsp_gui:=false` ist wichtig:** ohne diesen Arg startet
+> `display.launch.py` auch `joint_state_publisher_gui` der ebenfalls
+> `/joint_states` publisht — Race mit dem Plugin-Echo aus T1, RViz
+> springt zwischen beiden Quellen. Mit dem Arg läuft `joint_state_-
+> publisher_gui` nicht, /joint_states kommt nur vom Plugin.
+>
 > **Was passiert:** `display.launch.py` startet RViz mit dem URDF +
 > `robot_state_publisher`. Die Joint-Position in RViz reflektiert die
 > aktuellen `/joint_states` — und das Plugin in T1 publisht
@@ -115,15 +121,37 @@ ros2 run rqt_reconfigure rqt_reconfigure
 
 ---
 
-## SCHRITT 3 — Sanity-Check: leg_6 (Phase-10-Anker)
+## SCHRITT 3 — Direction-Cal pro Joint-Sorte (alle 6 Beine)
 
 **T3:**
 
-leg_6 hat im YAML direction=-1/-1/+1 aus Phase 10 vorgespeichert. Test
-diese drei Joints — sollten ohne flip stimmen.
+Vorgehen: ein Joint-Typ (Coxa / Femur / Tibia) nach dem anderen über
+ALLE 6 Beine. Pro Bein 1 Befehl publishen, in RViz vs HW vergleichen,
+ggf. direction flippen, dann nächstes Bein. Reihenfolge **leg_6
+zuerst** als Sanity-Anker (Phase-10-direction `-1/-1/+1` ist im YAML
+vorgespeichert — sollte ohne flip stimmen, sonst überraschend).
 
-### 3a — leg_6_coxa (pin 15)
+**Pin-Map:**
 
+| Bein | coxa pin | femur pin | tibia pin |
+|---|---|---|---|
+| leg_1 | 0 | 1 | 2 |
+| leg_2 | 3 | 4 | 5 |
+| leg_3 | 6 | 7 | 8 |
+| leg_4 | 9 | 10 | 11 |
+| leg_5 | 12 | 13 | 14 |
+| leg_6 | 15 | 16 | 17 |
+
+> **Pro Befehl-Block unten:** publish → 2 s warten (Trajectory-Zeit) →
+> RViz vs HW vergleichen → ✓ notieren ODER `pin_<N>.direction` in T4
+> (rqt_reconfigure) flippen → Befehl nochmal publishen → ✓ notieren.
+> Dann zum nächsten Bein.
+
+---
+
+### 3a — Coxa-Test, alle 6 Beine (rad=+0.3 auf Coxa)
+
+**leg_6 (pin 15, Sanity-Anker — sollte stimmen)**
 ```bash
 ros2 topic pub --once /leg_6_controller/joint_trajectory \
   trajectory_msgs/msg/JointTrajectory \
@@ -131,54 +159,7 @@ ros2 topic pub --once /leg_6_controller/joint_trajectory \
     points: [{positions: [0.3, 0.0, 0.0], time_from_start: {sec: 2}}]}'
 ```
 
-**Beobachten:**
-- **RViz (T2):** leg_6 dreht visuell in eine Richtung
-- **HW (sichtbar am Roboter):** leg_6 coxa-Servo dreht in...
-- **Match?** ✓ oder ❌
-
-### 3b — leg_6_femur
-
-```bash
-ros2 topic pub --once /leg_6_controller/joint_trajectory \
-  trajectory_msgs/msg/JointTrajectory \
-  '{joint_names: ["leg_6_coxa_joint", "leg_6_femur_joint", "leg_6_tibia_joint"],
-    points: [{positions: [0.0, 0.3, 0.0], time_from_start: {sec: 2}}]}'
-```
-
-Beobachten + Match? ✓ oder ❌
-
-### 3c — leg_6_tibia
-
-```bash
-ros2 topic pub --once /leg_6_controller/joint_trajectory \
-  trajectory_msgs/msg/JointTrajectory \
-  '{joint_names: ["leg_6_coxa_joint", "leg_6_femur_joint", "leg_6_tibia_joint"],
-    points: [{positions: [0.0, 0.0, 0.3], time_from_start: {sec: 2}}]}'
-```
-
-Beobachten + Match? ✓ oder ❌
-
-### 3d — Zurück auf Neutral
-
-```bash
-ros2 topic pub --once /leg_6_controller/joint_trajectory \
-  trajectory_msgs/msg/JointTrajectory \
-  '{joint_names: ["leg_6_coxa_joint", "leg_6_femur_joint", "leg_6_tibia_joint"],
-    points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
-```
-
-**Wenn leg_6 nicht stimmt:** überraschend (Phase 10 hatte's verifiziert).
-STOP, melden — könnte sein dass Mount geändert wurde oder anderer Bug.
-
----
-
-## SCHRITT 4 — leg_1 (Default direction=+1, unbekannt)
-
-Test für jeden der 3 Joints analog zu Schritt 3. Wenn ein Joint
-**nicht** mit RViz stimmt, direction flippen via Live-Param.
-
-### 4a — leg_1_coxa (pin 0)
-
+**leg_1 (pin 0)**
 ```bash
 ros2 topic pub --once /leg_1_controller/joint_trajectory \
   trajectory_msgs/msg/JointTrajectory \
@@ -186,17 +167,57 @@ ros2 topic pub --once /leg_1_controller/joint_trajectory \
     points: [{positions: [0.3, 0.0, 0.0], time_from_start: {sec: 2}}]}'
 ```
 
-Match? Wenn ❌: direction flippen — entweder in **T4 rqt_reconfigure**
-(`pin_0.direction` von 1 → -1) oder via CLI in T3:
+**leg_2 (pin 3)**
 ```bash
-ros2 param set /hexapodsystem pin_0.direction -1
+ros2 topic pub --once /leg_2_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_2_coxa_joint", "leg_2_femur_joint", "leg_2_tibia_joint"],
+    points: [{positions: [0.3, 0.0, 0.0], time_from_start: {sec: 2}}]}'
 ```
-Dann Test wiederholen, jetzt sollte's stimmen.
 
-Falls weiterhin ❌: STOP, melden.
+**leg_3 (pin 6)**
+```bash
+ros2 topic pub --once /leg_3_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_3_coxa_joint", "leg_3_femur_joint", "leg_3_tibia_joint"],
+    points: [{positions: [0.3, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+```
 
-### 4b — leg_1_femur (pin 1)
+**leg_4 (pin 9)**
+```bash
+ros2 topic pub --once /leg_4_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_4_coxa_joint", "leg_4_femur_joint", "leg_4_tibia_joint"],
+    points: [{positions: [0.3, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+```
 
+**leg_5 (pin 12)**
+```bash
+ros2 topic pub --once /leg_5_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_5_coxa_joint", "leg_5_femur_joint", "leg_5_tibia_joint"],
+    points: [{positions: [0.3, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+**Direction-Flip falls nötig** (statt Mausklick in T4 rqt):
+```bash
+ros2 param set /hexapodsystem pin_<N>.direction -1
+# Dann Trajectory-Befehl für betroffenes Bein nochmal publishen
+```
+
+---
+
+### 3b — Femur-Test, alle 6 Beine (rad=+0.3 auf Femur)
+
+**leg_6 (pin 16, Sanity-Anker)**
+```bash
+ros2 topic pub --once /leg_6_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_6_coxa_joint", "leg_6_femur_joint", "leg_6_tibia_joint"],
+    points: [{positions: [0.0, 0.3, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+**leg_1 (pin 1)**
 ```bash
 ros2 topic pub --once /leg_1_controller/joint_trajectory \
   trajectory_msgs/msg/JointTrajectory \
@@ -204,10 +225,51 @@ ros2 topic pub --once /leg_1_controller/joint_trajectory \
     points: [{positions: [0.0, 0.3, 0.0], time_from_start: {sec: 2}}]}'
 ```
 
-Match? Wenn ❌: `ros2 param set /hexapodsystem pin_1.direction -1` + Re-Test.
+**leg_2 (pin 4)**
+```bash
+ros2 topic pub --once /leg_2_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_2_coxa_joint", "leg_2_femur_joint", "leg_2_tibia_joint"],
+    points: [{positions: [0.0, 0.3, 0.0], time_from_start: {sec: 2}}]}'
+```
 
-### 4c — leg_1_tibia (pin 2)
+**leg_3 (pin 7)**
+```bash
+ros2 topic pub --once /leg_3_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_3_coxa_joint", "leg_3_femur_joint", "leg_3_tibia_joint"],
+    points: [{positions: [0.0, 0.3, 0.0], time_from_start: {sec: 2}}]}'
+```
 
+**leg_4 (pin 10)**
+```bash
+ros2 topic pub --once /leg_4_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_4_coxa_joint", "leg_4_femur_joint", "leg_4_tibia_joint"],
+    points: [{positions: [0.0, 0.3, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+**leg_5 (pin 13)**
+```bash
+ros2 topic pub --once /leg_5_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_5_coxa_joint", "leg_5_femur_joint", "leg_5_tibia_joint"],
+    points: [{positions: [0.0, 0.3, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+---
+
+### 3c — Tibia-Test, alle 6 Beine (rad=+0.3 auf Tibia)
+
+**leg_6 (pin 17, Sanity-Anker)**
+```bash
+ros2 topic pub --once /leg_6_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_6_coxa_joint", "leg_6_femur_joint", "leg_6_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.3], time_from_start: {sec: 2}}]}'
+```
+
+**leg_1 (pin 2)**
 ```bash
 ros2 topic pub --once /leg_1_controller/joint_trajectory \
   trajectory_msgs/msg/JointTrajectory \
@@ -215,10 +277,51 @@ ros2 topic pub --once /leg_1_controller/joint_trajectory \
     points: [{positions: [0.0, 0.0, 0.3], time_from_start: {sec: 2}}]}'
 ```
 
-Match? Wenn ❌: `ros2 param set /hexapodsystem pin_2.direction -1` + Re-Test.
+**leg_2 (pin 5)**
+```bash
+ros2 topic pub --once /leg_2_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_2_coxa_joint", "leg_2_femur_joint", "leg_2_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.3], time_from_start: {sec: 2}}]}'
+```
 
-### 4d — Zurück auf Neutral
+**leg_3 (pin 8)**
+```bash
+ros2 topic pub --once /leg_3_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_3_coxa_joint", "leg_3_femur_joint", "leg_3_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.3], time_from_start: {sec: 2}}]}'
+```
 
+**leg_4 (pin 11)**
+```bash
+ros2 topic pub --once /leg_4_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_4_coxa_joint", "leg_4_femur_joint", "leg_4_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.3], time_from_start: {sec: 2}}]}'
+```
+
+**leg_5 (pin 14)**
+```bash
+ros2 topic pub --once /leg_5_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_5_coxa_joint", "leg_5_femur_joint", "leg_5_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.3], time_from_start: {sec: 2}}]}'
+```
+
+---
+
+### 3d — Alle 6 Beine zurück auf Neutral (rad=0)
+
+**leg_6**
+```bash
+ros2 topic pub --once /leg_6_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_6_coxa_joint", "leg_6_femur_joint", "leg_6_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+**leg_1**
 ```bash
 ros2 topic pub --once /leg_1_controller/joint_trajectory \
   trajectory_msgs/msg/JointTrajectory \
@@ -226,43 +329,48 @@ ros2 topic pub --once /leg_1_controller/joint_trajectory \
     points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
 ```
 
----
-
-## SCHRITT 5 — leg_5 (pins 12-14)
-
-Analog zu Schritt 4, ersetze `leg_1` → `leg_5` und `pin_0/1/2` → `pin_12/13/14`.
-
-Falls direction-Flip nötig:
+**leg_2**
 ```bash
-ros2 param set /hexapodsystem pin_12.direction -1   # coxa
-ros2 param set /hexapodsystem pin_13.direction -1   # femur
-ros2 param set /hexapodsystem pin_14.direction -1   # tibia
+ros2 topic pub --once /leg_2_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_2_coxa_joint", "leg_2_femur_joint", "leg_2_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
 ```
 
+**leg_3**
+```bash
+ros2 topic pub --once /leg_3_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_3_coxa_joint", "leg_3_femur_joint", "leg_3_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+**leg_4**
+```bash
+ros2 topic pub --once /leg_4_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_4_coxa_joint", "leg_4_femur_joint", "leg_4_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+**leg_5**
+```bash
+ros2 topic pub --once /leg_5_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["leg_5_coxa_joint", "leg_5_femur_joint", "leg_5_tibia_joint"],
+    points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+```
+
+> **leg_6 Sanity-Check fail (3a/3b/3c gibt ❌)?** Überraschend — Phase 10
+> hatte verifiziert. STOP, melden. Mögliche Ursachen: Mount geändert,
+> servo_mapping.yaml manipuliert, Bug.
+
+> **leg_2 unbekannt:** Mount-Tausch 2026-05-24 hat die direction-Map
+> verändert. Erwarte ggf. mehrere Flips an pin_3/4/5.
+
 ---
 
-## SCHRITT 6 — leg_4 (pins 9-11)
-
-Analog. Pin-Map: 9=coxa, 10=femur, 11=tibia. Topic: `/leg_4_controller/joint_trajectory`.
-
----
-
-## SCHRITT 7 — leg_3 (pins 6-8)
-
-Analog. Pin-Map: 6=coxa, 7=femur, 8=tibia. Topic: `/leg_3_controller/joint_trajectory`.
-
----
-
-## SCHRITT 8 — leg_2 (pins 3-5)
-
-Analog. Pin-Map: 3=coxa, 4=femur, 5=tibia. Topic: `/leg_2_controller/joint_trajectory`.
-
-> **Achtung leg_2:** wegen Mount-Tausch 2026-05-24 ist die direction-
-> Map am unbekanntesten. Erwarte ggf. alle 3 flips nötig.
-
----
-
-## SCHRITT 9 — Direction-Map persistieren
+## SCHRITT 4 — Direction-Map persistieren
 
 Alle direction-Werte sind jetzt im Plugin-RAM geändert. **Save:**
 
@@ -283,7 +391,7 @@ cp install/hexapod_hardware/share/hexapod_hardware/config/servo_mapping.yaml \
 
 ---
 
-## SCHRITT 10 — Sauber Beenden
+## SCHRITT 5 — Sauber Beenden
 
 In dieser Reihenfolge Strg+C:
 1. **T3** — (alle aktiven Publisher)
@@ -302,29 +410,37 @@ Nach allem kurz dieses Format:
 ```
 Stage C Direction-Cal (2026-05-XX):
 
-leg_6 (Sanity, Phase-10-Anker):
-  pin 15 coxa  : ✓ / ❌
-  pin 16 femur : ✓ / ❌
-  pin 17 tibia : ✓ / ❌
+3a Coxa-Test:
+  pin 15 leg_6 : ✓ original / ❌ flipped to -1 (Sanity-Anker, Phase 10)
+  pin 0  leg_1 : ✓ / ❌
+  pin 3  leg_2 : ✓ / ❌
+  pin 6  leg_3 : ✓ / ❌
+  pin 9  leg_4 : ✓ / ❌
+  pin 12 leg_5 : ✓ / ❌
 
-leg_1:
-  pin 0 coxa   : ✓ original / ❌ flipped to -1
-  pin 1 femur  : ✓ / ❌
-  pin 2 tibia  : ✓ / ❌
+3b Femur-Test:
+  pin 16 leg_6 : ✓ / ❌
+  pin 1  leg_1 : ✓ / ❌
+  pin 4  leg_2 : ✓ / ❌
+  pin 7  leg_3 : ✓ / ❌
+  pin 10 leg_4 : ✓ / ❌
+  pin 13 leg_5 : ✓ / ❌
 
-leg_5:
-  pin 12       : ✓ / ❌
-  ...
+3c Tibia-Test:
+  pin 17 leg_6 : ✓ / ❌
+  pin 2  leg_1 : ✓ / ❌
+  pin 5  leg_2 : ✓ / ❌
+  pin 8  leg_3 : ✓ / ❌
+  pin 11 leg_4 : ✓ / ❌
+  pin 14 leg_5 : ✓ / ❌
 
-leg_4: ...
-leg_3: ...
-leg_2 (post-Mount-Tausch): ...
-
-Save-Service: ✓ /  ❌
+3d alle zurück auf Neutral: ✓ / ❌
+Save-Service:                ✓ / ❌
 
 Auffälligkeiten:
   - safety_freeze trigger? <ja/nein, bei welchem Pin>
   - Servo-Brummen / Anschlag-Berührung? <ja/nein>
+  - leg_2 post-Mount-Tausch: <wie viele Flips waren nötig>
 ```
 
 ---

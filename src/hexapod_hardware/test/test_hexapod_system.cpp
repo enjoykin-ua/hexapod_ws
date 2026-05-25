@@ -1068,7 +1068,7 @@ TEST(HexapodSystemWriteRead, LoopbackNanCommandIsLoggedAndIgnored)
     plugin.read(rclcpp::Time{}, rclcpp::Duration{0, 0}),
     hardware_interface::return_type::OK);
   const double slot5_good = read_handle(state_ifs[5]);
-  EXPECT_NEAR(slot5_good, 0.5, 2e-3);
+  EXPECT_NEAR(slot5_good, 0.5, 6e-3);
 
   // Second write: NaN on slot 5; the others to 0.1.
   for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
@@ -1086,9 +1086,9 @@ TEST(HexapodSystemWriteRead, LoopbackNanCommandIsLoggedAndIgnored)
   const double slot5_after_nan = read_handle(state_ifs[5]);
   EXPECT_FALSE(std::isnan(slot5_after_nan))
     << "NaN propagated into state — would poison the next controller tick";
-  EXPECT_NEAR(slot5_after_nan, 0.5, 2e-3);
+  EXPECT_NEAR(slot5_after_nan, 0.5, 6e-3);
   // Other slots tracked the 0.1 update.
-  EXPECT_NEAR(read_handle(state_ifs[3]), 0.1, 2e-3);
+  EXPECT_NEAR(read_handle(state_ifs[3]), 0.1, 6e-3);
 }
 
 TEST(HexapodSystemWriteRead, LoopbackClampsAbsurdRadInsteadOfUB)

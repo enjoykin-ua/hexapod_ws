@@ -81,42 +81,45 @@ defaults:
   pulse_zero: 1500
   direction:  1
 
-# Output index 0..17 → joint mapping. Per-pin values from
+# Output index 0..17 → joint mapping. PWM-Werte aus
 # servo_real_calibration_todos.md Tab. 3.2 (Cal-Session 2026-05-21 +
 # leg_2/leg_5 re-cal 2026-05-24).
+#
+# Direction-Map verifiziert in Stage C (Direction-Cal HW+RViz parallel,
+# 2026-05-24). Pattern:
+#   - Coxa: ALLE 6 Pins direction=-1 (alle Coxas drehen anders als URDF
+#     erwartet — passt zu body-festen Coxa-Servos die mit derselben
+#     Welle-Orientierung montiert sind)
+#   - Femur: rechts (leg_1/2/3) = +1, links (leg_4/5/6) = -1 (Spiegelung)
+#   - Tibia: rechts (leg_1/2/3) = -1, links (leg_4/5/6) = +1 (Spiegelung)
 servo2040_output_to_joint:
 
   # ---- Leg 1 — front-right ----
-  0:  { joint: leg_1_coxa_joint,  pulse_min: 1145, pulse_zero: 1460, pulse_max: 1700 }
-  1:  { joint: leg_1_femur_joint, pulse_min:  815, pulse_zero: 1460, pulse_max: 2120 }
-  2:  { joint: leg_1_tibia_joint, pulse_min:  870, pulse_zero: 1680, pulse_max: 2185 }
+  0:  { joint: leg_1_coxa_joint,  pulse_min: 1145, pulse_zero: 1460, pulse_max: 1700, direction: -1 }
+  1:  { joint: leg_1_femur_joint, pulse_min:  815, pulse_zero: 1460, pulse_max: 2120, direction:  1 }
+  2:  { joint: leg_1_tibia_joint, pulse_min:  870, pulse_zero: 1680, pulse_max: 2185, direction: -1 }
 
   # ---- Leg 2 — mid-right (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
-  3:  { joint: leg_2_coxa_joint,  pulse_min: 1375, pulse_zero: 1575, pulse_max: 1750 }
-  4:  { joint: leg_2_femur_joint, pulse_min:  880, pulse_zero: 1550, pulse_max: 2190 }
-  5:  { joint: leg_2_tibia_joint, pulse_min:  860, pulse_zero: 1680, pulse_max: 2200 }
+  3:  { joint: leg_2_coxa_joint,  pulse_min: 1375, pulse_zero: 1575, pulse_max: 1750, direction: -1 }
+  4:  { joint: leg_2_femur_joint, pulse_min:  880, pulse_zero: 1550, pulse_max: 2190, direction:  1 }
+  5:  { joint: leg_2_tibia_joint, pulse_min:  860, pulse_zero: 1680, pulse_max: 2200, direction: -1 }
 
   # ---- Leg 3 — back-right ----
-  6:  { joint: leg_3_coxa_joint,  pulse_min: 1200, pulse_zero: 1410, pulse_max: 1745 }
-  7:  { joint: leg_3_femur_joint, pulse_min:  800, pulse_zero: 1445, pulse_max: 2100 }
-  8:  { joint: leg_3_tibia_joint, pulse_min:  790, pulse_zero: 1620, pulse_max: 2120 }
+  6:  { joint: leg_3_coxa_joint,  pulse_min: 1200, pulse_zero: 1410, pulse_max: 1745, direction: -1 }
+  7:  { joint: leg_3_femur_joint, pulse_min:  800, pulse_zero: 1445, pulse_max: 2100, direction:  1 }
+  8:  { joint: leg_3_tibia_joint, pulse_min:  790, pulse_zero: 1620, pulse_max: 2120, direction: -1 }
 
   # ---- Leg 4 — back-left ----
-  9:  { joint: leg_4_coxa_joint,  pulse_min: 1200, pulse_zero: 1520, pulse_max: 1700 }
-  10: { joint: leg_4_femur_joint, pulse_min:  870, pulse_zero: 1560, pulse_max: 2190 }
-  11: { joint: leg_4_tibia_joint, pulse_min:  815, pulse_zero: 1320, pulse_max: 2140 }
+  9:  { joint: leg_4_coxa_joint,  pulse_min: 1200, pulse_zero: 1520, pulse_max: 1700, direction: -1 }
+  10: { joint: leg_4_femur_joint, pulse_min:  870, pulse_zero: 1560, pulse_max: 2190, direction: -1 }
+  11: { joint: leg_4_tibia_joint, pulse_min:  815, pulse_zero: 1320, pulse_max: 2140, direction:  1 }
 
   # ---- Leg 5 — mid-left (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
-  12: { joint: leg_5_coxa_joint,  pulse_min: 1350, pulse_zero: 1550, pulse_max: 1750 }
-  13: { joint: leg_5_femur_joint, pulse_min:  860, pulse_zero: 1530, pulse_max: 2190 }
-  14: { joint: leg_5_tibia_joint, pulse_min:  885, pulse_zero: 1390, pulse_max: 2210 }
+  12: { joint: leg_5_coxa_joint,  pulse_min: 1350, pulse_zero: 1550, pulse_max: 1750, direction: -1 }
+  13: { joint: leg_5_femur_joint, pulse_min:  860, pulse_zero: 1530, pulse_max: 2190, direction: -1 }
+  14: { joint: leg_5_tibia_joint, pulse_min:  885, pulse_zero: 1390, pulse_max: 2210, direction:  1 }
 
-  # ---- Leg 6 — front-left (Phase 10 Stage B/C/D/E direction stack-verified,
-  # PWM-Werte aus Cal-Session 2026-05-21 (überschreiben die früheren
-  # Phase-10-Werte 1280/1550/1860 etc.). Direction-Werte BEHALTEN — leg_6
-  # mount wurde nicht getauscht, Stack-Verification aus Phase 10 bleibt gültig.
-  # Cross-Phase insight: "left-side consistency" hypothesis DISPROVEN —
-  # leg_6 has Coxa/Femur=-1 but Tibia=+1. Stage C muss EACH pin verify.
+  # ---- Leg 6 — front-left (Phase 10 stack-verified + Stage C confirmed 2026-05-24) ----
   15: { joint: leg_6_coxa_joint,  pulse_min: 1290, pulse_zero: 1530, pulse_max: 1870, direction: -1 }
   16: { joint: leg_6_femur_joint, pulse_min:  840, pulse_zero: 1540, pulse_max: 2170, direction: -1 }
   17: { joint: leg_6_tibia_joint, pulse_min:  850, pulse_zero: 1340, pulse_max: 2170, direction:  1 }

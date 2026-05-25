@@ -17,12 +17,20 @@ Startet:
   - static_transform_publisher (world -> base_link, hebt Roboter so an,
     dass die Chassis-Unterseite auf world.z=0 liegt)
   - robot_state_publisher (mit xacro-verarbeitetem URDF)
-  - joint_state_publisher_gui (Slider fuer alle revolute Joints)
+  - joint_state_publisher_gui (Slider fuer alle revolute Joints; optional)
   - rviz2 (mit config/view.rviz)
+
+Launch-Args:
+  with_jsp_gui:=true|false  (default: true) — joint_state_publisher_gui
+    starten. Bei false: kein /joint_states aus diesem Launch. Nutzbar
+    z.B. in Stage C (Direction-Cal), wenn das Plugin selbst /joint_states
+    publisht und sonst Race-Bedingungen entstehen.
 """
 
 from launch import LaunchDescription
-from launch.substitutions import Command, PathJoinSubstitution
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -50,7 +58,17 @@ def generate_launch_description() -> LaunchDescription:
         ),
     }
 
+    with_jsp_gui_arg = DeclareLaunchArgument(
+        'with_jsp_gui',
+        default_value='true',
+        description=(
+            'joint_state_publisher_gui starten? Bei externem '
+            '/joint_states-Publisher (z.B. hexapod_hardware Plugin in '
+            'Stage C) auf false setzen, sonst Race auf /joint_states.'),
+    )
+
     return LaunchDescription([
+        with_jsp_gui_arg,
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -74,6 +92,7 @@ def generate_launch_description() -> LaunchDescription:
             executable='joint_state_publisher_gui',
             name='joint_state_publisher_gui',
             output='screen',
+            condition=IfCondition(LaunchConfiguration('with_jsp_gui')),
         ),
         Node(
             package='rviz2',

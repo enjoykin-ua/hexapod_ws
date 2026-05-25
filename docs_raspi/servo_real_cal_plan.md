@@ -40,7 +40,7 @@ keine Phase-12-Done-Kriterien-Aussagen. Dokumente unter Präfix
 | **0.6** | IK-Joint-Limit-Check + sofortiger safety_freeze bei Verletzung | ~1.5 h | Claude | ✅ 2026-05-24 |
 | **A** | URDF-Macro-Refactor (pro-Joint-Limit-Args, Defaults unverändert) | ~1 h | Claude | ✅ 2026-05-24 |
 | **B** | `servo_mapping.yaml` mit echten PWM-Werten (Cal-Doku Tab. 3.2) + direction=+1 Default für alle Pins | ~30 min | Claude | ✅ 2026-05-24 |
-| **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude | ⏳ |
+| **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude | ✅ 2026-05-24 |
 | **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude | ✅ 2026-05-24 |
 | **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude | 🟡 Sim ✅ 2026-05-24 (alle 4 cmd_vel-Szenarien grün), HW ⏳ |
 
