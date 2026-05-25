@@ -42,7 +42,7 @@ keine Phase-12-Done-Kriterien-Aussagen. Dokumente unter Präfix
 | **B** | `servo_mapping.yaml` mit echten PWM-Werten (Cal-Doku Tab. 3.2) + direction=+1 Default für alle Pins | ~30 min | Claude | ✅ 2026-05-24 |
 | **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude | ✅ 2026-05-24 |
 | **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude | ✅ 2026-05-24 |
-| **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude | 🟡 Sim ✅ 2026-05-24 (alle 4 cmd_vel-Szenarien grün), HW ⏳ |
+| **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude | ✅ Sim 2026-05-24 (alle 4 cmd_vel-Szenarien grün) + HW (E2) 2026-05-25 (Walking 0.02/0.03/0.035 ohne IKError, 0.04 Clamp-WARN verifiziert) |
 
 **Total: ~9–10 h verteilt über ≥ 2 Sessions** (Stage C+E sind interaktiv mit HW).
 
