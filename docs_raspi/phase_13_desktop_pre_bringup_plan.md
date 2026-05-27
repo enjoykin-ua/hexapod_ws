@@ -41,7 +41,7 @@ Phase-13-Pi-Stufe oder einer separaten Floor-Walking-Stage).
 
 | Stage | Dateien | Inhalt | Aufwand | Wer | Status |
 |---|---|---|---|---|---|
-| `servo_real_cal` **Stage F** | `servo_real_cal_stage_f_femur_plan.md` + `_test_commands.md` | Femur-Asymmetrie-Fix (Wasserwaage + pulse_zero trim + `/save_calibration`) | 30-60 min interaktiv | User+Claude | 🟡 Plan in Arbeit |
+| `servo_real_cal` **Stage F** | `servo_real_cal_stage_f_urdf_symmetrize_plan.md` + `_test_commands.md` | **URDF rad-Limits symmetrieren** (alle 6 Beine identische limits: coxa ±0.415 / femur ±1.493 / tibia ±1.161). Adressiert die in E2.3 entdeckte Tibia-Asymmetrie (~28° physisch) via URDF-Edit statt pulse_zero-Trim. Alte Wasserwaage-Variante archiviert (`_archive_*_femur_wasserwaage_*`) | ~30-45 min Edit + Live | User+Claude | ✅ 2026-05-25 (Stand-Pose visuell symmetrisch, Walking 0.02/0.03/0.035 sauber) |
 | Phase 13 Desktop **Stage A** | `phase_13_desktop_stage_a_lut_plan.md` + `_test_commands.md` | LUT-Infrastruktur: `walking_envelope_check.py recommend-multi` + `height_slots.yaml`-Generator + `gait_node` Slot-Loading + REPOSITIONING-State + Unit-Tests | ~2-3 h Code | Claude | ⚪ offen |
 | Phase 13 Desktop **Stage B** | `phase_13_desktop_stage_b_teleop_plan.md` + `_test_commands.md` | `hexapod_teleop` PS4-Mapping-Erweiterung (L2/R2/L1+L2-Modifier) + Unit-Tests | ~1-2 h Code | Claude | ⚪ offen |
 | Phase 13 Desktop **Stage C** | `phase_13_desktop_stage_c_suspended_walking_test_commands.md` | Walking-Tests aufgebockt mit LUT: pro Slot Stand-Pose + Walk durchprobieren | ~1-2 h interaktiv | User+Claude | ⚪ offen |

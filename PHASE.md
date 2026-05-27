@@ -42,7 +42,7 @@
 
 | Thread | Index-Datei | Status |
 |---|---|---|
-| Servo Real Calibration & Walking aufgebockt am Desktop | `docs_raspi/servo_real_cal_plan.md` | 🟢 abgeschlossen 2026-05-25 (Stages 0/0.5/0.6/A/B/D/E-Sim/C/E2 — alle 18 Pins kalibriert, direction-Map, Safety-Layer Stage 0.5+0.6, HW-Walking aufgebockt mit cmd_vel 0.02/0.03/0.035 m/s ohne IKError) |
+| Servo Real Calibration & Walking aufgebockt am Desktop | `docs_raspi/servo_real_cal_plan.md` | 🟢 abgeschlossen 2026-05-25 (Stages 0/0.5/0.6/A/B/D/E-Sim/C/E2/**F** — alle 18 Pins kalibriert, direction-Map, Safety-Layer Stage 0.5+0.6, HW-Walking aufgebockt mit cmd_vel 0.02/0.03/0.035 m/s ohne IKError, **Stage F: URDF rad-Limits strict-symmetrisch ±0.415/±1.493/±1.161 — Asymmetrie aus E2.3 behoben**) |
 
 ### Querschnitts-Docs (`docs_raspi/`, kein eigenes Phasen-Done-Kriterium)
 

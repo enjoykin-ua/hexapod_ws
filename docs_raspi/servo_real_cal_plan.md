@@ -43,6 +43,7 @@ keine Phase-12-Done-Kriterien-Aussagen. Dokumente unter Präfix
 | **C** | Direction-Cal HW+Sim parallel (6 Beine, je 3 Joints) | ~1–2 h | User + Claude | ✅ 2026-05-24 |
 | **D** | URDF mit finalen asymm rad-Limits aus Cal-Doku Tab. 3.3 (PWM-zentrisch, KEINE Spiegelung dank Plugin-Fix) | ~30 min | Claude | ✅ 2026-05-24 |
 | **E** | Sim-Verifikation (visual + Walking-Smoke) + Walking aufgebockt | ~1 h | User + Claude | ✅ Sim 2026-05-24 (alle 4 cmd_vel-Szenarien grün) + HW (E2) 2026-05-25 (Walking 0.02/0.03/0.035 ohne IKError, 0.04 Clamp-WARN verifiziert) |
+| **F** | URDF rad-Limits symmetrieren (alle 6 Beine identisch: coxa ±0.415 / femur ±1.493 / tibia ±1.161) — behebt visuelle Asymmetrie aus E2.3 | ~30 min | User + Claude | ✅ 2026-05-25 (Stand-Pose visuell symmetrisch + Walking 0.02/0.03/0.035 sauber + Coxa-Drehtest erklärt; Wasserwaage-Ansatz archiviert weil falsche Wurzel-Hypothese) |
 
 **Total: ~9–10 h verteilt über ≥ 2 Sessions** (Stage C+E sind interaktiv mit HW).
 

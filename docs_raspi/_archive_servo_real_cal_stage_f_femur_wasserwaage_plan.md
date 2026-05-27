@@ -1,4 +1,29 @@
-# Stage F (Femur-Asymmetrie-Fix) — Plan
+# Stage F (Femur-Asymmetrie-Fix via Wasserwaage) — Plan [ARCHIVIERT]
+
+> **⚠️ ARCHIVIERT 2026-05-25 — falscher Ansatz.**
+>
+> Diese Stage F basierte auf der Annahme, dass die in E2.3 beobachtete
+> Femur-Asymmetrie rechts/links durch `pulse_zero`-Drift entstanden ist
+> und per Wasserwaage-Trim behoben werden könnte. **Das war falsch.**
+>
+> Nach tieferer Analyse 2026-05-25 (siehe
+> [`servo_real_cal_stage_f_urdf_symmetrize_plan.md`](servo_real_cal_stage_f_urdf_symmetrize_plan.md))
+> stellte sich heraus: die Asymmetrie kommt aus der **URDF-rad-Limit-
+> Encoding** (Stage D). Die Plugin-Slope-Formel
+> `slope = (pulse_extreme - pulse_zero) / joint_upper` benutzt die
+> per-leg-asymmetrischen URDF-Limits als Skalierungsfaktor — was zu
+> **~28° physikalischer Differenz im Tibia** zwischen rechts und links
+> bei der IK-Stand-Pose führt. Femur-pulse_zero ist NICHT die Quelle.
+>
+> **Neuer Ansatz Stage F:** URDF-rad-Limits auf strict-symmetrische
+> gemeinsame Werte setzen (für alle 6 Beine identisch). Plugin braucht
+> keinen Code-Change. Siehe neue Plan-Doku.
+>
+> **Diese Datei bleibt als Audit-Trail / Lehrstück erhalten.**
+
+---
+
+# Stage F (Femur-Asymmetrie-Fix) — Plan [historische Version]
 
 > **Status:** Cross-Phase-Thread `servo_real_cal` — Folge-Stage nach
 > Stage E2 ✅ 2026-05-25. Adressiert die in E2.3 entdeckte Femur-

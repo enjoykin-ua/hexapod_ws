@@ -1,4 +1,17 @@
-# Stage F (Femur-Asymmetrie-Fix) — Test-Commands
+# Stage F (Femur-Asymmetrie-Fix via Wasserwaage) — Test-Commands [ARCHIVIERT]
+
+> **⚠️ ARCHIVIERT 2026-05-25 — Test-Commands nie ausgeführt.**
+>
+> Diese Test-Commands waren für den Wasserwaage-Trim-Ansatz. Nach
+> tieferer Analyse stellte sich heraus: Asymmetrie ist URDF-rad-
+> Limit-Encoding, nicht pulse_zero-Drift. Neuer Ansatz:
+> [`servo_real_cal_stage_f_urdf_symmetrize_test_commands.md`](servo_real_cal_stage_f_urdf_symmetrize_test_commands.md).
+>
+> **Datei bleibt als Audit-Trail erhalten.**
+
+---
+
+# Stage F (Femur-Asymmetrie-Fix) — Test-Commands [historische Version]
 
 > Operative Anleitung für die Femur-pulse_zero-Re-Cal. Plan-Doku +
 > Erfolgs-Kriterien:
