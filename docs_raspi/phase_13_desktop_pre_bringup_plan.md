@@ -41,16 +41,17 @@ Phase-13-Pi-Stufe oder einer separaten Floor-Walking-Stage).
 
 | Stage | Dateien | Inhalt | Aufwand | Wer | Status |
 |---|---|---|---|---|---|
-| `servo_real_cal` **Stage F** | `servo_real_cal_stage_f_urdf_symmetrize_plan.md` + `_test_commands.md` | **URDF rad-Limits symmetrieren** (alle 6 Beine identische limits: coxa ±0.415 / femur ±1.493 / tibia ±1.161). Adressiert die in E2.3 entdeckte Tibia-Asymmetrie (~28° physisch) via URDF-Edit statt pulse_zero-Trim. Alte Wasserwaage-Variante archiviert (`_archive_*_femur_wasserwaage_*`) | ~30-45 min Edit + Live | User+Claude | ✅ 2026-05-25 (Stand-Pose visuell symmetrisch, Walking 0.02/0.03/0.035 sauber) |
-| Phase 13 Desktop **Stage A** | `phase_13_desktop_stage_a_lut_plan.md` + `_test_commands.md` | LUT-Infrastruktur: `walking_envelope_check.py recommend-multi` + `height_slots.yaml`-Generator + `gait_node` Slot-Loading + REPOSITIONING-State + Unit-Tests | ~2-3 h Code | Claude | ⚪ offen |
-| Phase 13 Desktop **Stage B** | `phase_13_desktop_stage_b_teleop_plan.md` + `_test_commands.md` | `hexapod_teleop` PS4-Mapping-Erweiterung (L2/R2/L1+L2-Modifier) + Unit-Tests | ~1-2 h Code | Claude | ⚪ offen |
-| Phase 13 Desktop **Stage C** | `phase_13_desktop_stage_c_suspended_walking_test_commands.md` | Walking-Tests aufgebockt mit LUT: pro Slot Stand-Pose + Walk durchprobieren | ~1-2 h interaktiv | User+Claude | ⚪ offen |
-| Phase 13 Desktop **Stage D** | `phase_13_desktop_stage_d_ps4_suspended_test_commands.md` | PS4-Vollbetrieb-Test aufgebockt mit allen Modifier-Kombinationen | ~1 h interaktiv | User+Claude | ⚪ offen |
+| `servo_real_cal` **Stage F** | `servo_real_cal_stage_f_urdf_symmetrize_plan.md` + `_test_commands.md` | **URDF rad-Limits symmetrieren** (alle 6 Beine identische limits: coxa ±0.415 / femur ±1.493 / tibia ±1.161). Adressiert die in E2.3 entdeckte Tibia-Asymmetrie (~28° physisch) via URDF-Edit statt pulse_zero-Trim. Alte Wasserwaage-Variante archiviert (`_archive_*_femur_wasserwaage_*`) | ~30-45 min Edit + Live | User+Claude | ✅ 2026-05-25 |
+| Phase 13 Desktop **Stage A** | `phase_13_desktop_stage_a_initial_pose_plan.md` + `_test_commands.md` | **Initial-Pose-Preset "suspended" + Auto-Stand-Pose-Ramp**: Plugin sendet beim Activate Suspended-PWMs (statt pulse_zero) → kein ruckartiges Hochspringen; danach sanfter Joint-Space-Lerp über 4 s zur Default-Slot-Stand-Pose | ~2-3 h Code + Live | Claude+User | ⚪ offen |
+| Phase 13 Desktop **Stage B** | `phase_13_desktop_stage_b_lut_plan.md` + `_test_commands.md` | LUT-Infrastruktur: `walking_envelope_check.py recommend-multi` + `height_slots.yaml`-Generator + `gait_node` Slot-Loading + REPOSITIONING-State (Tripod 3+3) + Unit-Tests | ~2-3 h Code | Claude | ⚪ offen |
+| Phase 13 Desktop **Stage C** | `phase_13_desktop_stage_c_teleop_plan.md` + `_test_commands.md` | `hexapod_teleop` PS4-Mapping-Erweiterung (L2/R2/L1+L2-Modifier) + 5 Delta-Topics → gait_node | ~1-2 h Code | Claude | ⚪ offen |
+| Phase 13 Desktop **Stage D** | `phase_13_desktop_stage_d_suspended_walking_test_commands.md` | Walking-Tests aufgebockt mit LUT: pro Slot Stand-Pose + Walk durchprobieren | ~1-2 h interaktiv | User+Claude | ⚪ offen |
+| Phase 13 Desktop **Stage E** | `phase_13_desktop_stage_e_ps4_suspended_test_commands.md` | PS4-Vollbetrieb-Test aufgebockt mit allen Modifier-Kombinationen | ~1 h interaktiv | User+Claude | ⚪ offen |
 
-**Total:** ~6-9 h verteilt über 2-3 Sessions.
+**Total:** ~8-10 h verteilt über 3-4 Sessions.
 
-Die zwei interaktiven Stages (C+D) haben **kein eigenes Plan-File** —
-nur Test-Commands. Begründung: sie validieren die in Stages A+B gebauten
+Die zwei interaktiven Stages (D+E) haben **kein eigenes Plan-File** —
+nur Test-Commands. Begründung: sie validieren die in Stages A-C gebauten
 Features ohne zusätzliche Design-Entscheidungen. Test-Commands enthalten
 embedded Erfolgs-Kriterien.
 
@@ -62,7 +63,7 @@ embedded Erfolgs-Kriterien.
 `src/hexapod_gait/config/height_slots.yaml`, generiert via Tool-Erweiterung,
 geladen von `gait_node` beim Start.
 
-**Schema (Vorschlag, finalisiert in Stage A):**
+**Schema (Vorschlag, finalisiert in Stage B):**
 ```yaml
 # Generiert von: tools/walking_envelope_check.py recommend-multi
 # Generiert am:  2026-05-26 (Beispiel)
@@ -122,7 +123,7 @@ Fehler sichtbar.
 | `body_height` | **2 cm** | Tool entdeckt, ~-0.12 bis -0.02 | exakte Slot-Werte (vom Tool ausgewählt) |
 | `radial_distance` | **1 cm** | Tool entdeckt pro Slot, ca. 0.20-0.32 | Default = Slot-Mitte; ±1 cm Steps innerhalb valid_range; Fallback "nächst-möglicher Wert" wenn Step nicht-exakt erreichbar |
 | `step_height` | **1 cm** | Tool entdeckt pro Slot, ca. 1-4 cm | gleicher Fallback wie radial |
-| `step_length_max` | **vom Tool getrieben** (vermutlich 1 cm, finalisiert in Stage A nach Tool-Run) | Tool entdeckt pro Slot, ca. 0.5-6 cm | gleicher Fallback wie radial |
+| `step_length_max` | **vom Tool getrieben** (vermutlich 1 cm, finalisiert in Stage B nach Tool-Run) | Tool entdeckt pro Slot, ca. 0.5-6 cm | gleicher Fallback wie radial |
 | `cycle_time` | **0.5 s** | 1.0 - 5.0 s | exakte 0.5-Schritte |
 
 **Wichtig:** "diskrete Auswahl" mit Fallback "nächst-möglicher Wert" heißt:
@@ -175,7 +176,7 @@ wenn `height_slots.yaml` vorhanden ist.
   einstellbar
 - PS4-Modifier-Tasten wirken im Legacy-Mode auf die Phase-6-Logik
   (continuous L2/R2 wie aktuell) — oder werden zu no-op (Detail in
-  Stage B finalisieren)
+  Stage C finalisieren)
 - Phase-11-Workshop-Doku bleibt valide
 
 **4-Anker-Doku-Strategie** (damit der Modus nicht vergessen wird):
@@ -216,7 +217,7 @@ STOPPING --[slot_change attempt]--> bleibt STOPPING + WARN-Log (ignored)
 5. Während REPOSITIONING: `cmd_vel` ignoriert + WARN-Log;
    andere PS4-Param-Verstellungen blockiert
 
-**Implementation-Hinweis für Stage A:** kann als Erweiterung von
+**Implementation-Hinweis für Stage B:** kann als Erweiterung von
 `gait_engine.compute_joint_angles` implementiert werden (analog zu
 STOPPING-Logik). Pure-Python testbar.
 
@@ -315,7 +316,7 @@ Wurde in Q-final-1 abgedeckt.
 - ⇒ `sim_walk.yaml` bleibt valide
 
 **Entscheidung:** Risiko gestrichen. Kein Re-Run nötig. Die LUT-
-Generierung in Stage A läuft natürlich gegen den dann aktuellen
+Generierung in Stage B läuft natürlich gegen den dann aktuellen
 Cal-Stand inkl. Stage F-Updates.
 
 ### R2 — Plugin Stage 0.5 PWM-OoR-Freeze während Stage F
@@ -374,29 +375,111 @@ Design-Sektion, Memory `project_gait_node_slot_vs_legacy_mode.md`.
 | R2 | Plugin Stage 0.5 PWM-OoR-Freeze wenn pulse_zero falsch eingestellt | mittel (rqt-Range zu weit) | Pre-Check vor `/save_calibration` in Stage F |
 | R3 | REPOSITIONING-State falsch implementiert → Beine kollidieren | gering (Pure-Python testbar) | Unit-Tests für Lift-Trajectory + Sub-Phase-Übergang; aufgebockt = kein Boden-Kontakt; Foot-Hover-Distance konservativ wählen |
 | R4 | Slot-Mode-Aktivierung versehentlich → Phase-11-Workshop-Demo bricht | gering | Default-Behavior pro `height_slots.yaml`-Existenz; explizit `use_height_slots:=false` für Legacy-Demo |
-| R5 (neu) | User trifft physisch L1+L2-Combo schlecht (PS4-Ergonomie) | unbekannt | Test in Stage D; alternative Modifier-Mapping vormerken (z.B. Square+L2) |
-| R6 (neu) | walking_envelope_check.py recommend-multi findet zu wenige viable Slots (< 3) | mittel | Vor Stage A: trial-run; Fallback `--slot-step 0.01` (1 cm statt 2 cm) oder bigger search-range |
+| R5 (neu) | User trifft physisch L1+L2-Combo schlecht (PS4-Ergonomie) | unbekannt | Test in Stage E; alternative Modifier-Mapping vormerken (z.B. Square+L2) |
+| R6 (neu) | walking_envelope_check.py recommend-multi findet zu wenige viable Slots (< 3) | mittel | Vor Stage B: trial-run; Fallback `--slot-step 0.01` (1 cm statt 2 cm) oder bigger search-range |
+| R7 (neu) | Suspended-Preset-PWMs am mechanischen Anschlag → Servo-Stall-Strom beim Activate | gering (Schwerkraft zieht eh dorthin) | Vorsichtshalber rad-Werte leicht **innerhalb** der Limits wählen (z.B. femur=-1.45 statt -1.493); Plugin Strom-Limit pro Servo-PSU gibt Reserve |
+| R8 (neu) | Auto-Stand-Pose-Ramp zu schnell → Beine reißen trotzdem ruckartig hoch | mittel | Default 4 s; User kann live `auto_standup_duration` per Launch-Arg überschreiben; bei Bedarf bis 6-8 s erhöhen |
 
 ## 6. Offene Punkte (für später, nicht jetzt entschieden)
 
 | # | Frage | Wann zu klären |
 |---|---|---|
-| O1 | L1+L2-Combo ergonomisch — bequem aushaltbar? | Stage D Live-Test |
-| O2 | `step_length_max` Step-Größe konkret — 1 cm oder feiner? | Stage A nach erstem Tool-Run |
-| O3 | `cycle_time` an Slot gekoppelt? (z.B. tiefe Pose = langsamer Gait sicherer) | Stage C Walking-Tests; ggf. Phase-13-Pendenz |
-| O4 | Sollen alte `cmd_body_height`-Float-Topic + L2/R2-continuous-Senken-Anheben aus Phase 6 in Legacy-Mode erhalten bleiben? | Stage B Design-Detail |
-| O5 | Visualisierung des aktiven Slots in rqt — eigenes Topic `/gait_slot_state`? | Stage A Design-Detail |
-| O6 | Was wenn Stage F einen Femur mechanisch nicht horizontal trimmbar findet (z.B. Servo-Mount asymm)? Option C aus Memory (URDF mount_offset)? | Stage F Live-Findings |
+| O1 | L1+L2-Combo ergonomisch — bequem aushaltbar? | Stage E Live-Test |
+| O2 | `step_length_max` Step-Größe konkret — 1 cm oder feiner? | Stage B nach erstem Tool-Run |
+| O3 | `cycle_time` an Slot gekoppelt? (z.B. tiefe Pose = langsamer Gait sicherer) | Stage D Walking-Tests; ggf. Phase-13-Pendenz |
+| O4 | Sollen alte `cmd_body_height`-Float-Topic + L2/R2-continuous-Senken-Anheben aus Phase 6 in Legacy-Mode erhalten bleiben? | Stage C Design-Detail |
+| O5 | Visualisierung des aktiven Slots in rqt — eigenes Topic `/gait_slot_state`? | Stage B Design-Detail |
+| O6 | "resting"-Preset für Boden-Start | wenn Boden-Walking-Stage ansteht (nach Phase 12 Pi-Plattform oder eigene Floor-Stage) |
+| O7 | Auto-Stand-Pose-Ramp auch nach `/hexapod_safety_reset` (analog Phase-13-Pendenz "Auto-Standing-Rampe")? | Stage A oder spätere Stage; nice-to-have |
 
 ## 7. Stage-Implementation-Skeletons
 
-> **Zweck:** Kurze Skizze pro Stage (A–D) mit Implementation-Items +
+> **Zweck:** Kurze Skizze pro Stage (A–E) mit Implementation-Items +
 > Stage-spezifischen Offenen Fragen. Soll **nicht** den späteren
 > Stage-Plan ersetzen (der wird pro Stage in eigenem File erstellt),
 > sondern als Cross-Session-Reminder dienen damit nach Pause/Compact
 > die Knöpfe + offenen Fragen wieder sichtbar sind.
 
-### 7.1 Stage A — LUT-Infrastruktur
+### 7.1 Stage A — Initial-Pose-Preset "suspended" + Auto-Stand-Pose-Ramp
+
+**Implementation-Items:**
+
+1. **Initial-Pose-YAML** `src/hexapod_hardware/config/initial_poses.yaml`:
+   ```yaml
+   # Preset-Definitionen. Joint-Werte in URDF-rad (Plugin konvertiert
+   # zu PWM via existing Calibration::radians_to_pulse_us).
+   poses:
+     suspended:
+       description: "Roboter aufgebockt, Beine hängen frei nach unten"
+       joints:
+         coxa: 0.0
+         femur: -1.45    # leicht innerhalb -1.493-Anschlag (Safety-Margin)
+         tibia: 0.0      # Tibia in Verlängerung vom Femur → Lower-Segment hängt
+     pulse_zero:
+       description: "Legacy: rad=0 für alle Joints (= horizontale T-Pose)"
+       joints:
+         coxa: 0.0
+         femur: 0.0
+         tibia: 0.0
+   ```
+   Bewusst alle 6 Beine bekommen dieselben Werte (Plugin-direction-Map
+   sorgt für korrekte PWM-Spiegelung per Bein).
+
+2. **Plugin-Erweiterung** (`hexapod_hardware/src/hexapod_system.cpp`):
+   - Neuer Launch-Arg `initial_pose:=suspended|pulse_zero` (Default `suspended`)
+   - In `on_activate`: statt generischem `pulse_zero`-Default
+     Preset-rad-Werte → `Calibration::radians_to_pulse_us(...)` per Joint
+     → diese PWMs als erste Servo-Commands
+   - YAML-Loader in `on_init` (oder on_configure)
+   - Fallback wenn Preset-Name nicht in YAML: WARN-Log + pulse_zero
+     (Legacy-Verhalten)
+
+3. **Auto-Stand-Pose-Ramp in gait_node**:
+   - Neuer State `STATE_STARTUP_RAMP` in gait_engine (parallel zu
+     STANDING/WALKING/STOPPING; nicht zu verwechseln mit Stage-B's
+     REPOSITIONING)
+   - Beim ersten `/joint_states`-Empfang: aktuelle Joint-Position als
+     Start; Lerp linear in Joint-Space über `auto_standup_duration`
+     (Default 4.0 s) zur Default-Slot-Stand-Pose
+     (in Stage A noch hartkodiert auf radial=0.295, body_height=-0.07)
+   - Während Ramp: `cmd_vel` ignoriert + WARN-Log (alle 2 s throttled)
+   - Auto-Transition zu STANDING wenn Ramp fertig
+
+4. **Mini-Fix** nebenher: `gait.launch.py` Z.164
+   `use_sim_time default_value='true'` → `'false'` (oder neue separate
+   `gait_real.launch.py` mit korrektem Default). Siehe Memory
+   [[project_phase13_gait_launch_sim_time_default]].
+
+5. **Unit-Tests:**
+   - `test_initial_pose_yaml_load` (parsing + Preset-Lookup)
+   - `test_plugin_activate_sends_preset_pwm` (Loopback-Test: nach
+     Activate kommen die preset-rad-Werte als JointState-Echo)
+   - `test_startup_ramp_continuity` (Linear-Lerp ohne Sprünge,
+     Endpunkt = Stand-Pose)
+   - `test_startup_ramp_ignores_cmd_vel`
+   - `test_startup_ramp_auto_transitions_to_standing`
+
+6. **Test-Strategie Live:**
+   - Loopback-Smoke (CI-tauglich): Plugin Activate → `/joint_states`
+     zeigt suspended-Werte; gait_node startet → Joint-Trajectory zeigt
+     glatten 4-s-Lerp zu Stand-Pose
+   - HW aufgebockt: PSU aus (Beine hängen frei) → PSU an + Plugin-Launch
+     → **kein** ruckartiges Hochspringen, Beine fahren sanft hoch zur
+     Stand-Pose
+
+**Offene A-Qs (in Stage-A-Plan-Doku zu entscheiden):**
+
+| # | Frage | Vorschlag |
+|---|---|---|
+| A-Q1 | Suspended-Joint-Werte: `femur=-1.45` (mit Safety-Margin) oder `-1.493` (am Anschlag)? | **-1.45** — kleine Reserve gegen Servo-Stall. Plugin-Strom-Limit bietet zusätzliche Sicherheit |
+| A-Q2 | Auto-Stand-Pose-Ramp lebt in gait_node ODER neues separates `auto_standup_node`? | **gait_node** — kleiner Zustand, integriert sich sauber in State-Machine; vermeidet extra Node-Lifecycle |
+| A-Q3 | Trigger für Ramp: Plugin-Activate-Detection ODER explicit Topic/Service ODER beim ersten `/joint_states`? | **Bei erstem `/joint_states`-Empfang** — robust, kein extra Service nötig, funktioniert auch nach Plugin-Restart |
+| A-Q4 | Default-Slot-Stand-Pose: in Stage A hartkodiert (radial=0.295, body_height=-0.07) oder schon aus LUT? | **Hartkodiert** in Stage A — LUT kommt erst in Stage B. Konstanten in gait_node-Params, später durch Slot-Lookup ersetzt |
+| A-Q5 | Verhalten wenn cmd_vel während Ramp kommt? | **Ignorieren + WARN-Log** (throttled 2 s). Kein cmd_vel-Queue, User soll warten bis Ramp fertig |
+| A-Q6 | `use_sim_time`-Fix als Stage-A-Item oder eigener Mini-Commit vorher? | **Mit-Stage-A** — 5 min Aufwand, gehört thematisch zur Initial-Setup-Klärung |
+| A-Q7 | Aufruf-Reihenfolge bei real.launch.py: Plugin-First (Initial-Pose), dann gait_node (Ramp)? Falls gait_node vor Plugin startet → Race? | **Plugin-First per OnProcessExit-EventHandler in real.launch.py**; gait_node startet erst nach JSB-Spawner-Exit (Pattern existiert schon) |
+
+### 7.2 Stage B — LUT-Infrastruktur
 
 **Implementation-Items:**
 
@@ -438,7 +521,7 @@ Design-Sektion, Memory `project_gait_node_slot_vs_legacy_mode.md`.
      - `height_slot_index` (int, Default: middle slot, range `[0, len(slots)-1]`)
    - YAML-Loading-Methode bei Init (mit Schema-Validation)
    - Slot-Wechsel-Handler (auf Topic-Empfang ODER on_param_change —
-     siehe A-Q1)
+     siehe B-Q1)
    - Trigger REPOSITIONING-State bei Slot-Change in STANDING
 
 4. **gait_engine-Änderungen** (`src/hexapod_gait/hexapod_gait/gait_engine.py`):
@@ -466,18 +549,18 @@ Design-Sektion, Memory `project_gait_node_slot_vs_legacy_mode.md`.
    - `gait_node.py` Module-Docstring um Modus-Beschreibung erweitern
    - Memory `project_gait_node_slot_vs_legacy_mode.md` anlegen
 
-**Offene A-Qs (in Stage-A-Plan-Doku zu entscheiden):**
+**Offene B-Qs (in Stage-B-Plan-Doku zu entscheiden):**
 
 | # | Frage | Vorschlag |
 |---|---|---|
-| A-Q1 | Slot-Wechsel via `ros2 param set /gait_node height_slot_index N` ODER eigenes Topic `/cmd_height_slot` (Int32)? | **Topic** — passt zum existing `/cmd_body_height`-Pattern, ist Hot-Path-freundlicher als Param-Roundtrip |
-| A-Q2 | Default-Slot bei Start? | **Middle-Slot** (`len(slots) // 2`) — fängt vermutlich die aktuelle sim_walk.yaml -0.07 |
-| A-Q3 | YAML-File fehlt → Verhalten? | **Auto-Fallback Legacy-Mode** mit WARN-Log statt Init-Error — Robustheit |
-| A-Q4 | REPOSITIONING-Lift-Höhe? | **Param `repositioning_lift_height`, Default 0.03 m** — konservativ, anpassbar |
-| A-Q5 | REPOSITIONING-Dauer pro Tripod-Sub-Phase? | **`repositioning_phase_duration`, Default 1.5 s** (gesamt ~3 s) — analog zu cycle_time-Skala |
-| A-Q6 | Wer triggert REPOSITIONING — gait_node intern bei Slot-Wechsel oder Topic-Pub von außen erlaubt? | **Intern bei Slot-Wechsel** (auto). Topic `/trigger_repositioning` als Dev-Override möglich, nicht Pflicht |
+| B-Q1 | Slot-Wechsel via `ros2 param set /gait_node height_slot_index N` ODER eigenes Topic `/cmd_height_slot` (Int32)? | **Topic** — passt zum existing `/cmd_body_height`-Pattern, ist Hot-Path-freundlicher als Param-Roundtrip |
+| B-Q2 | Default-Slot bei Start? | **Middle-Slot** (`len(slots) // 2`) — fängt vermutlich die aktuelle sim_walk.yaml -0.07; aus Stage A wird der initiale Ramp dort hingeführt |
+| B-Q3 | YAML-File fehlt → Verhalten? | **Auto-Fallback Legacy-Mode** mit WARN-Log statt Init-Error — Robustheit |
+| B-Q4 | REPOSITIONING-Lift-Höhe? | **Param `repositioning_lift_height`, Default 0.03 m** — konservativ, anpassbar |
+| B-Q5 | REPOSITIONING-Dauer pro Tripod-Sub-Phase? | **`repositioning_phase_duration`, Default 1.5 s** (gesamt ~3 s, User-Wahl Q4) |
+| B-Q6 | Wer triggert REPOSITIONING — gait_node intern bei Slot-Wechsel oder Topic-Pub von außen erlaubt? | **Intern bei Slot-Wechsel** (auto). Topic `/trigger_repositioning` als Dev-Override möglich, nicht Pflicht |
 
-### 7.2 Stage B — PS4-Mapping-Erweiterung
+### 7.3 Stage C — PS4-Mapping-Erweiterung
 
 **Implementation-Items:**
 
@@ -517,18 +600,18 @@ Design-Sektion, Memory `project_gait_node_slot_vs_legacy_mode.md`.
    - `test_gait_node_delta_processing_in_standing`
    - `test_gait_node_delta_ignored_in_walking`
 
-**Offene B-Qs:**
+**Offene C-Qs (in Stage-C-Plan-Doku zu entscheiden):**
 
 | # | Frage | Vorschlag |
 |---|---|---|
-| B-Q1 | Delta-Topics (Int8 ±1) oder Absolut-Wert-Topics (Float64)? | **Delta** — einfacher PS4-Press-zu-Topic-Mapping, gait_node hält absoluten State |
-| B-Q2 | 5 separate Topics oder 1 `/cmd_walking_param` mit Discriminator-Field? | **5 separate** — konsistent mit existing `/cmd_body_height`-Pattern, klarere Topic-Semantik |
-| B-Q3 | Drei Modifier gleichzeitig (z.B. L1+L2+R2) — Verhalten? | **Strict-Priorität:** L1+L2 = cycle_time. Sonst L2 = höhe/radial. Sonst R2 = step. Wenn L1+L2+R2 alle gleichzeitig → erste-passende-Combo wirken lassen + WARN-Log |
-| B-Q4 | Legacy-Mode L2/R2-Verhalten — Phase-6-continuous-cmd_body_height beibehalten? | **Legacy:** continuous L2/R2 = senken/anheben body_height (Phase 6 unverändert). Slot-Mode: discrete Delta. Mode-Switch via `use_height_slots`-Param |
-| B-Q5 | Wann ist `R1 + L2 + D-Pad` valide — Movement oder Param-Adjust? | **R1 ist Dead-Man-Switch**, L2 ist Modifier. Wenn beide gleichzeitig: gait_node muss entscheiden. **Vorschlag:** STANDING-Constraint gewinnt — Param-Adjust nur wenn `STATE_STANDING` und kein cmd_vel im Flight. Im Doubt: keine Aktion + WARN. |
-| B-Q6 | Foot-Trajectory-Visualisierung in rqt für REPOSITIONING-Verlauf? | **Out-of-Scope für Stage B** — Phase-13-Pendenz oder Dev-Tool später |
+| C-Q1 | Delta-Topics (Int8 ±1) oder Absolut-Wert-Topics (Float64)? | **Delta** — einfacher PS4-Press-zu-Topic-Mapping, gait_node hält absoluten State |
+| C-Q2 | 5 separate Topics oder 1 `/cmd_walking_param` mit Discriminator-Field? | **5 separate** — konsistent mit existing `/cmd_body_height`-Pattern, klarere Topic-Semantik |
+| C-Q3 | Drei Modifier gleichzeitig (z.B. L1+L2+R2) — Verhalten? | **Strict-Priorität:** L1+L2 = cycle_time. Sonst L2 = höhe/radial. Sonst R2 = step. Wenn L1+L2+R2 alle gleichzeitig → erste-passende-Combo wirken lassen + WARN-Log |
+| C-Q4 | Legacy-Mode L2/R2-Verhalten — Phase-6-continuous-cmd_body_height beibehalten? | **Legacy:** continuous L2/R2 = senken/anheben body_height (Phase 6 unverändert). Slot-Mode: discrete Delta. Mode-Switch via `use_height_slots`-Param |
+| C-Q5 | Wann ist `R1 + L2 + D-Pad` valide — Movement oder Param-Adjust? | **R1 ist Dead-Man-Switch**, L2 ist Modifier. Wenn beide gleichzeitig: gait_node muss entscheiden. **Vorschlag:** STANDING-Constraint gewinnt — Param-Adjust nur wenn `STATE_STANDING` und kein cmd_vel im Flight. Im Doubt: keine Aktion + WARN. |
+| C-Q6 | Foot-Trajectory-Visualisierung in rqt für REPOSITIONING-Verlauf? | **Out-of-Scope für Stage C** — Phase-13-Pendenz oder Dev-Tool später |
 
-### 7.3 Stage C — Walking-Tests aufgebockt mit LUT
+### 7.4 Stage D — Walking-Tests aufgebockt mit LUT
 
 **Test-Workflow:**
 
@@ -552,15 +635,15 @@ Design-Sektion, Memory `project_gait_node_slot_vs_legacy_mode.md`.
   × Walking-OK × Auffälligkeiten)
 - Ggf. neue Default-Slot-Entscheidung
 
-**Offene C-Qs:**
+**Offene D-Qs (in Stage-D-Test-Commands zu finalisieren):**
 
 | # | Frage | Vorschlag |
 |---|---|---|
-| C-Q1 | sim_walk.yaml automatisch updaten oder manuell entscheiden? | **Manuell** nach Stage C — User entscheidet welcher Slot Default wird, dann walking_envelope_check.py regeneriert sim_walk.yaml ODER gait_node-Default-Slot-Index wird angepasst |
-| C-Q2 | Tempo-Treppe pro Slot oder nur Default-Tempo (0.02 m/s)? | **Nur Default-Tempo** in Stage C; Tempo-Treppe pro Slot ist Wiederholung von Stage E2.5, kommt später wenn Boden-Walking-Phase ansteht |
-| C-Q3 | Bei Slot-Versagen (IKError mid-Walk) — STAGE abbrechen oder skip-and-continue? | **Skip-and-continue** — Stage soll alle Slots durchprobieren, am Ende die Reste-Liste bereinigen. Ggf. invaliden Slot aus height_slots.yaml entfernen |
+| D-Q1 | sim_walk.yaml automatisch updaten oder manuell entscheiden? | **Manuell** nach Stage D — User entscheidet welcher Slot Default wird, dann walking_envelope_check.py regeneriert sim_walk.yaml ODER gait_node-Default-Slot-Index wird angepasst |
+| D-Q2 | Tempo-Treppe pro Slot oder nur Default-Tempo (0.02 m/s)? | **Nur Default-Tempo** in Stage D; Tempo-Treppe pro Slot ist Wiederholung von Stage E2.5, kommt später wenn Boden-Walking-Phase ansteht |
+| D-Q3 | Bei Slot-Versagen (IKError mid-Walk) — STAGE abbrechen oder skip-and-continue? | **Skip-and-continue** — Stage soll alle Slots durchprobieren, am Ende die Reste-Liste bereinigen. Ggf. invaliden Slot aus height_slots.yaml entfernen |
 
-### 7.4 Stage D — PS4-Vollbetrieb-Test aufgebockt
+### 7.5 Stage E — PS4-Vollbetrieb-Test aufgebockt
 
 **Test-Workflow:**
 
@@ -587,14 +670,14 @@ Design-Sektion, Memory `project_gait_node_slot_vs_legacy_mode.md`.
    - Modifier-Konflikt (L1+L2+R2 alle gehalten): Strict-Priorität wie
      in B-Q3 entschieden?
 
-**Offene D-Qs:**
+**Offene E-Qs (in Stage-E-Test-Commands zu finalisieren):**
 
 | # | Frage | Vorschlag |
 |---|---|---|
-| D-Q1 | Test-Reihenfolge — Walking first oder Param-Verstellungen first? | **Param first** — verifiziert Slot-Mode + Modifier-Logik, BEVOR Walking-Test-Komplexität dazukommt. Walking nach Param-Change als Sanity am Ende jeder Param-Stufe |
-| D-Q2 | Erfolgs-Kriterium gesamt? | **Alle 5 Modifier-Kombis funktional + REPOSITIONING glatt + Walking nach Param-Wechsel weiterhin sauber + L1+L2-Ergonomie akzeptabel + Edge-Cases korrekt** |
-| D-Q3 | Was wenn L1+L2-Combo physisch unbequem? | **Plan B in Memory festhalten:** alternative Modifier (z.B. Square+L2 oder PS+L2). Nicht Stage-D-Blocker, aber dokumentieren für späteren Mapping-Refactor |
-| D-Q4 | Sollen wir Phase-13-Pi-Pendant testen (PS4 am Pi statt Desktop)? | **NEIN, out-of-scope** — Phase-12-Pi-Plattform-Stage. Hier nur Desktop. |
+| E-Q1 | Test-Reihenfolge — Walking first oder Param-Verstellungen first? | **Param first** — verifiziert Slot-Mode + Modifier-Logik, BEVOR Walking-Test-Komplexität dazukommt. Walking nach Param-Change als Sanity am Ende jeder Param-Stufe |
+| E-Q2 | Erfolgs-Kriterium gesamt? | **Alle 5 Modifier-Kombis funktional + REPOSITIONING glatt + Walking nach Param-Wechsel weiterhin sauber + L1+L2-Ergonomie akzeptabel + Edge-Cases korrekt** |
+| E-Q3 | Was wenn L1+L2-Combo physisch unbequem? | **Plan B in Memory festhalten:** alternative Modifier (z.B. Square+L2 oder PS+L2). Nicht Stage-E-Blocker, aber dokumentieren für späteren Mapping-Refactor |
+| E-Q4 | Sollen wir Phase-13-Pi-Pendant testen (PS4 am Pi statt Desktop)? | **NEIN, out-of-scope** — Phase-12-Pi-Plattform-Stage. Hier nur Desktop. |
 
 ---
 
