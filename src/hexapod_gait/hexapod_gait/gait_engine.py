@@ -62,6 +62,12 @@ class GaitEngine:
     STATE_STANDING = 'STANDING'
     STATE_WALKING = 'WALKING'
     STATE_STOPPING = 'STOPPING'
+    # Phase 13 Stage A: Smooth-Step-Lerp von einer beliebigen Start-Joint-
+    # Position zur Stand-Pose. Wird via start_ramp() explizit getriggert
+    # (vom gait_node bei erstem /joint_states-Empfang). In diesem State
+    # ignoriert set_command() cmd_vel komplett, und compute_joint_angles()
+    # liefert den Lerp-Punkt — kein IK-Aufruf waehrend Ramp.
+    STATE_STARTUP_RAMP = 'STARTUP_RAMP'
 
     def __init__(
         self,
@@ -102,6 +108,12 @@ class GaitEngine:
         self._t_stop_start: float = 0.0
         self._cycle_phase_at_stop: dict[int, float] = {}
         self._stance_pos_at_stop: dict[int, Point3] = {}
+
+        # Phase 13 Stage A — STARTUP_RAMP-State-Daten.
+        self._ramp_start_joints: dict[str, JointAngles] = {}
+        self._ramp_target_joints: dict[str, JointAngles] = {}
+        self._ramp_start_t: float = 0.0
+        self._ramp_duration: float = 0.0
 
     @property
     def state(self) -> str:
@@ -148,6 +160,58 @@ class GaitEngine:
                 max_speed = speed
         return max_speed
 
+    def start_ramp(
+        self,
+        start_joints: dict[str, JointAngles],
+        t: float,
+        duration: float,
+    ) -> None:
+        """
+        Phase 13 Stage A: STARTUP_RAMP einleiten.
+
+        ``start_joints`` ist die Start-Joint-Position pro Bein (typisch
+        vom ersten /joint_states-Empfang im gait_node abgegriffen).
+        ``duration`` ist die Ramp-Dauer in Sekunden. Smooth-Step-Lerp
+        (``s = p²(3-2p)``) zur Default-Stand-Pose (Engine-Parameter
+        ``radial_distance`` / ``body_height``) — sanftes Anlaufen +
+        Abbremsen.
+
+        Wenn ein Bein in ``start_joints`` fehlt, wird die Stand-Pose
+        sowohl Start als auch Ziel — also keine Bewegung fuer das Bein.
+
+        Setzt ``_state = STARTUP_RAMP``. ``compute_joint_angles`` setzt
+        nach Ablauf automatisch zurueck auf STANDING.
+        """
+        if duration <= 0.0:
+            raise ValueError(
+                f'ramp duration must be > 0, got {duration}'
+            )
+        target = self._compute_stand_pose_joints()
+        self._ramp_target_joints = target
+        # Fehlende Beine: Start = Ziel → keine Bewegung dafuer.
+        self._ramp_start_joints = {
+            leg.name: start_joints.get(leg.name, target[leg.name])
+            for leg in HEXAPOD.legs
+        }
+        self._ramp_start_t = t
+        self._ramp_duration = duration
+        self._state = self.STATE_STARTUP_RAMP
+
+    def _compute_stand_pose_joints(self) -> dict[str, JointAngles]:
+        """
+        Stand-Pose-Joint-Angles via IK pro Bein.
+
+        Mit den aktuellen Engine-Parametern ``radial_distance`` und
+        ``body_height``. Helper fuer ``start_ramp`` — laeuft einmal
+        beim Ramp-Trigger, nicht pro Tick.
+        """
+        targets = self._compute_standing_targets()
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            leg_limits = self.joint_limits.get(leg.name)
+            angles[leg.name] = leg_ik(*targets[leg.name], leg, leg_limits)
+        return angles
+
     def set_command(
         self,
         v_body_x: float,
@@ -165,7 +229,15 @@ class GaitEngine:
 
         ``t`` ist die aktuelle Zeit (gleicher Reference-Frame wie für
         ``compute_foot_targets``).
+
+        Phase 13 Stage A: in STATE_STARTUP_RAMP wird cmd_vel
+        vollstaendig ignoriert (kein State-Change, kein Clamp). User
+        muss warten bis Ramp fertig ist und Engine selbsttaetig auf
+        STANDING wechselt.
         """
+        # Phase 13 Stage A: cmd_vel waehrend Ramp komplett verwerfen.
+        if self._state == self.STATE_STARTUP_RAMP:
+            return False
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
         clamped = False
         linear_max = self.linear_max
@@ -404,7 +476,18 @@ class GaitEngine:
         Stage 0.6: gait_node fängt den IKError im Tick-Handler, ruft
         async den /hexapod_safety_freeze Service, und publisht in
         diesem Tick keine neue Trajectory → effektiver lokaler Stop.
+
+        Phase 13 Stage A: in STATE_STARTUP_RAMP wird KEIN IK aufgerufen
+        — der Rueckgabewert ist der Smooth-Step-Lerp zwischen
+        ``_ramp_start_joints`` und ``_ramp_target_joints`` in Joint-
+        Space. Wenn Ramp fertig ist (progress >= 1): State wechselt
+        automatisch zu STANDING, Lerp-Endpunkt = Stand-Pose-IK wird
+        returned.
         """
+        # Phase 13 Stage A — STARTUP_RAMP: Joint-Space-Lerp ohne IK
+        if self._state == self.STATE_STARTUP_RAMP:
+            return self._compute_startup_ramp_angles(t)
+
         targets = self.compute_foot_targets(t)
         angles = {}
         for leg in HEXAPOD.legs:
@@ -418,6 +501,47 @@ class GaitEngine:
                     f'IK failed for {leg.name} at t={t:.3f}s, target='
                     f'{targets[leg.name]}: {exc}'
                 ) from exc
+        return angles
+
+    def _compute_startup_ramp_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        Smooth-Step-Lerp in Joint-Space waehrend STARTUP_RAMP.
+
+        Mit ``progress = (t - _ramp_start_t) / _ramp_duration`` und
+        Smooth-Step ``s = progress² * (3 - 2 * progress)``. Pro Joint:
+        ``angle = start + (target - start) * s``. Bei progress >= 1
+        wird ``_state`` auf STANDING zurueckgesetzt und der Target-
+        Endpunkt geliefert — JTC interpoliert dann von dort weiter im
+        normalen Stand-Pose-IK-Flow.
+        """
+        tau = t - self._ramp_start_t
+        if self._ramp_duration <= 0.0:
+            # Defensive: sollte durch start_ramp()-Check nie passieren
+            self._state = self.STATE_STANDING
+            return dict(self._ramp_target_joints)
+
+        progress = tau / self._ramp_duration
+        if progress >= 1.0:
+            self._state = self.STATE_STANDING
+            return dict(self._ramp_target_joints)
+
+        # Smooth-Step: s(0)=0, s(1)=1, s'(0)=s'(1)=0 — Geschwindigkeits-
+        # Null an beiden Enden, weicher Anlauf + Abbremsen.
+        s = progress * progress * (3.0 - 2.0 * progress)
+
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            start = self._ramp_start_joints.get(
+                leg.name, self._ramp_target_joints[leg.name],
+            )
+            target = self._ramp_target_joints[leg.name]
+            angles[leg.name] = (
+                start[0] + (target[0] - start[0]) * s,
+                start[1] + (target[1] - start[1]) * s,
+                start[2] + (target[2] - start[2]) * s,
+            )
         return angles
 
 

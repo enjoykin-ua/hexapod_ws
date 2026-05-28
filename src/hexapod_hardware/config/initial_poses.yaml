@@ -1,0 +1,39 @@
+# Initial-Pose-Presets fuer hexapod_hardware-Plugin (Phase 13 Stage A).
+#
+# Plugin sendet diese rad-Werte beim on_activate als erste SET_TARGETS-
+# Frame. Die rad-Werte werden via Calibration::radians_to_pulse_us pro
+# Servo zu PWM konvertiert — direction-Map + Slope-Formel handhaben die
+# per-Bein-Spiegelung automatisch, deshalb sind hier fuer alle 6 Beine
+# identische rad-Werte hinterlegt.
+#
+# Preset-Wahl per URDF-<param name="initial_pose">. Default in
+# hexapod.urdf.xacro: "suspended". Fallback bei missing-file oder
+# unknown-name: pulse_zero (Legacy-Pre-Stage-A-Verhalten, WARN-Log).
+
+poses:
+  suspended:
+    description: >
+      Roboter aufgebockt, Beine haengen frei nach unten durch Schwerkraft.
+      Vorzeichen-Konvention femur+1.45: URDF-femur-Achse ist (0,1,0). Bei
+      rad=0 zeigt der Femur radial nach AUSSEN (horizontal). Bei +pi/2
+      ≈ +1.5708 ist der Femur vertikal nach UNTEN (Rotation um Y dreht
+      +X nach -Z, rechte-Hand-Regel). rad=+1.45 ist nahe an diesem Anschlag
+      (Stage-F-Limit upper=+1.493) mit Safety-Margin. direction-Map im
+      servo_mapping.yaml spiegelt fuer linke Beine (4/5/6, direction=-1)
+      automatisch zur korrekten Servo-Drehrichtung. Tibia=0 = in
+      Verlaengerung des Femurs → ganzes Bein vertikal nach unten.
+    joints:
+      coxa: 0.0
+      femur: 1.45
+      tibia: 0.0
+
+  pulse_zero:
+    description: >
+      Legacy-Verhalten: Plugin sendet rad=0 fuer alle Joints (horizontale
+      T-Pose, alle Servos in der Mitte). Verursacht ruckartiges Hochspringen
+      wenn die Beine vorher haengen — vorhanden fuer Fallback / Bewusste-
+      Legacy-Tests via initial_pose:=pulse_zero.
+    joints:
+      coxa: 0.0
+      femur: 0.0
+      tibia: 0.0

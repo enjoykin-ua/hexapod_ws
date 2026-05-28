@@ -109,6 +109,14 @@ if(BUILD_TESTING)
   # test_helpers.hpp uses it to locate config/servo_mapping.yaml.
   target_compile_definitions(test_plugin_registration PRIVATE
     SOURCE_DIR_FOR_TESTS="${CMAKE_CURRENT_SOURCE_DIR}")
+
+  # Phase 13 Stage A — Initial-Pose-Preset-Loader (T1/T2/T7 + fallbacks).
+  # Drives the plugin through on_init/on_activate in loopback mode and
+  # inspects the echo-state to verify which initial PWMs were committed.
+  ament_add_gtest(test_initial_pose_preset test/test_initial_pose_preset.cpp)
+  target_link_libraries(test_initial_pose_preset ${PROJECT_NAME} util)
+  target_compile_definitions(test_initial_pose_preset PRIVATE
+    SOURCE_DIR_FOR_TESTS="${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 ament_export_include_directories(include)

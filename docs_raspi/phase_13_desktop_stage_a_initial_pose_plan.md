@@ -52,6 +52,18 @@ jeder Plugin-Restart wird damit entspannter und sanfter.
 - Auto-Stand-Pose-Ramp nach `/hexapod_safety_reset` (Phase-13-Pendenz O7)
 - Sanftes REPOSITIONING zwischen Slot-Wechseln (= Stage B-Inhalt)
 - Strom-Profil während Ramp (Servos haben aufgebockt eh wenig Last)
+- UNDERVOLTAGE_TRIPPED-Recovery ohne Plugin-Restart: aktuell muss bei
+  PSU-Off-While-Running ein Plugin-Restart erfolgen (UNDERVOLTAGE_TRIPPED
+  ist latched in der FW). Bench-Workflow: PSU aus + Strg+C + Plugin neu
+  starten zwischen Tests. Phase 13 Pi-Akku-Workflow ggf. eigene Stage
+  (Auto-Recovery via Service `/hexapod_full_recovery` oder Plugin-side
+  auto-trigger nach voltage-healthy).
+- FW-Side-Optimierung Pendenz: ``handle_set_targets()`` in
+  hexapod_servo_driver koennte bei !servo_enabled[i] direkt
+  current_pulse_us = target setzen (Soft-Ramp ist Safety nur fuer
+  aktive Servos). Wuerde den 400 ms pre-enable-Breather im Plugin
+  ueberfluessig machen. Score: ~3 Zeilen FW-Aenderung +
+  Co-Versionierung Plugin↔FW.
 
 ## 4. Logik-Skizze
 
@@ -76,7 +88,7 @@ poses:
     description: "Roboter aufgebockt, Beine hängen frei nach unten durch Schwerkraft"
     joints:
       coxa: 0.0       # Bein zeigt radial nach außen, kein horizontaler Schwenk
-      femur: -1.45    # Femur fast am unteren mechanischen Anschlag (rad-Limit -1.493 nach Stage F, leicht innerhalb mit Safety-Margin)
+      femur: 1.45     # Femur fast am oberen mechanischen Anschlag (Stage-F-Limit +1.493). URDF-Achse (0,1,0): +π/2 dreht +X auf -Z → Bein vertikal nach unten. direction-Map spiegelt fuer linke Beine (4/5/6) automatisch.
       tibia: 0.0      # Tibia in Verlängerung des Femurs → ganzes Bein hängt vertikal nach unten
 
   pulse_zero:
@@ -88,11 +100,17 @@ poses:
 ```
 
 **Begründung Suspended-Werte:**
-- `femur=-1.45` (statt `-1.493 = exakt am Anschlag`): kleine Safety-Margin.
-  Beim Plugin-Activate sendet der Servo seinen Hold-Strom; wenn die
-  Schwerkraft das Bein schon nach unten gezogen hat, ist der Servo
-  gerade dort wo er hin soll. Strom-Reserve gegen Stall.
-- `tibia=0.0`: wenn Femur bei -1.45 rad steht (≈ -83° physisch, fast
+- `femur=+1.45` (statt `+1.493 = exakt am Anschlag`): kleine Safety-Margin.
+  URDF-femur-Achse ist (0,1,0). Bei rad=0 zeigt der Femur radial nach
+  AUSSEN (horizontal, +X-Richtung). Bei rad=+π/2 dreht Y-Rotation +X
+  auf -Z (rechte-Hand-Regel) → Bein zeigt vertikal nach UNTEN. rad=+1.45
+  ≈ +83° ist nahe diesem Anschlag mit Safety-Margin. direction-Map im
+  servo_mapping.yaml (linke Beine 4/5/6 direction=-1) spiegelt
+  automatisch zur korrekten Servo-PWM-Richtung. Beim Plugin-Activate
+  sendet der Servo seinen Hold-Strom; wenn die Schwerkraft das Bein
+  schon nach unten gezogen hat, ist der Servo gerade dort wo er hin
+  soll. Strom-Reserve gegen Stall.
+- `tibia=0.0`: wenn Femur bei +1.45 rad steht (≈ +83° physisch, fast
   vertikal nach unten), und Tibia bei 0 rad (= in Verlängerung des
   Femurs), hängt das ganze Bein vertikal nach unten. Konsistent mit
   Schwerkraft-Equilibrium.
@@ -262,7 +280,7 @@ abgehakt:
 
 | # | Frage | Vorschlag |
 |---|---|---|
-| A-Q1 | Suspended-Joint-Werte: `femur=-1.45` (mit Safety-Margin) oder `-1.493` (am Anschlag)? | **-1.45** — kleine Reserve gegen Servo-Stall. Plugin-Strom-Limit bietet zusätzliche Sicherheit |
+| A-Q1 | Suspended-Joint-Werte: `femur=+1.45` (mit Safety-Margin) oder `+1.493` (am Anschlag)? | **+1.45** — kleine Reserve gegen Servo-Stall. Plugin-Strom-Limit bietet zusätzliche Sicherheit. Vorzeichen POSITIV: URDF-femur-Y-Achse, +π/2 dreht +X auf -Z (Bein nach unten) — siehe Begründung §4.1 |
 | A-Q2 | Auto-Stand-Pose-Ramp lebt in gait_node ODER neues separates `auto_standup_node`? | **gait_node** — kleiner Zustand, integriert sich sauber in State-Machine; vermeidet extra Node-Lifecycle |
 | A-Q3 | Trigger für Ramp: Plugin-Activate-Detection ODER explicit Topic/Service ODER beim ersten `/joint_states`? | **Bei erstem `/joint_states`-Empfang** — robust, kein extra Service nötig, funktioniert auch nach Plugin-Restart |
 | A-Q4 | Default-Slot-Stand-Pose: in Stage A hartkodiert oder schon aus LUT? | **Hartkodiert** (radial=0.295, body_height=-0.07) — LUT kommt erst in Stage B. Konstanten in gait_node-Params, später durch Slot-Lookup ersetzt |
@@ -282,11 +300,38 @@ abgehakt:
 | R5 | Plugin-Loop in Endlos-WARN wenn YAML fehlt | gering | Einmaliges WARN beim on_init, dann silent fallback. Keine Loop. |
 | R6 | Ramp zu schnell visuell wirkt immer noch ruckhaft | mittel | Default 4 s; User kann live `ros2 param set /gait_node auto_standup_duration 6.0` setzen für sanfteren Übergang |
 
-## 9. Self-Review (nach Live-Ausführung ausfüllen)
+## 9. Self-Review
+
+### 9.1 Code-Review (vor Live, 2026-05-28)
 
 | Punkt | Status | Detail |
 |---|---|---|
-| T1-T7 Unit-Tests grün | (offen) | |
+| Plugin: YAML-Loader best-effort, kein throw aus on_init | OK | `load_initial_pose_preset()` fängt YAML-Parse-Errors, missing-File, unknown-Preset jeweils mit WARN + Fallback pulse_zero pro Pin |
+| Plugin: Pre-Validate PWM ∈ [pulse_min, pulse_max] | OK | Pro Pin OoR-Check mit ±1 µs FP-Tolerance (analog write()-Pfad); OoR → WARN + Fallback pulse_zero für den Pin (verhindert Stage-0.5 freeze beim Activate) |
+| Plugin: on_activate sendet `initial_pulse_us_` statt `pulse_zero` | OK | last_command_pulse_us_ wird nach send synchronisiert → read() echoed direkt die Initial-Pose |
+| Plugin: missing `initial_poses_file` Param (= empty) | OK | `param_or` Default "" → load-Funktion sieht leer → WARN + Fallback pulse_zero, kein Crash |
+| Engine: cmd_vel-Block in STARTUP_RAMP | OK | `set_command` returnt sofort `False` ohne State-Mutation oder v_body-Update |
+| Engine: STARTUP_RAMP → STANDING auto-transition | OK | `_compute_startup_ramp_angles` setzt `_state = STANDING` bei progress >= 1, returnt Endpunkt |
+| Engine: Smooth-Step-Math `s = p²(3-2p)` | OK | Unit-Tests `test_startup_ramp_midpoint_is_lerp_average` (s(0.5)=0.5) + `test_startup_ramp_smooth_step_monotonic` (nicht-fallend) |
+| Engine: fehlende Beine in start_joints | OK | Start = Target → keine Bewegung; Test `test_startup_ramp_missing_legs_fall_back_to_target` |
+| Engine: Stand-Pose nicht erreichbar | OK | `start_ramp` lässt IKError aus `_compute_stand_pose_joints` durch; gait_node fängt `(ValueError, IKError)` und markiert ramp_triggered=True ohne State-Change |
+| gait_node: erstes `/joint_states` triggert Ramp | OK | `_on_joint_states` parsed alle 18 Joints, return early bei unvollständig (wartet auf nächste Msg) oder bei `_ramp_triggered` |
+| gait_node: pre-Ramp keine Trajectories publishen | OK | `_tick` returnt early wenn `not _ramp_triggered`; verhindert dass JTC den Start-Punkt auf Stand-Pose-IK setzt statt vom realen Joint-State zu rampen |
+| gait_node: /joint_states-Timeout-Warning | OK | 10 s Timeout → einmaliger ERROR-Log via `_joint_states_timeout_logged`-Flag; gait_node bleibt am Leben |
+| gait_node: cmd_vel-WARN throttled 2 s | OK | nur wenn STARTUP_RAMP aktiv UND cmd_vel != 0 |
+| gait_node: STARTUP_RAMP→STANDING Log einmal | OK | state-before / state-after Vergleich pro Tick, INFO-Log nur bei Transition |
+| Test-Commands: SCHRITT 1 entfernt | OK | Pre-Stage-A-Reproduktion wird durch SCHRITT 6 (L6 pulse_zero) abgedeckt |
+| Test-Commands: Sauber-Beenden + PSU-Reset zwischen Tests | OK | Pflicht-Block vor SCHRITT 1, 6, 7 — verhindert "Servo noch in alter Pose vom letzten Test" |
+| Test-Commands: Wartezeiten (~5 s nach PSU-an, ~5 s nach gait_node-Start für Ramp-Ende) | OK | In SCHRITT 1, 3, 5 dokumentiert |
+| `gait.launch.py` use_sim_time Default false | OK | Default `'false'`; Sim-Test-Commands (servo_real_cal_stage_e_sim_test_commands.md) hatten schon `use_sim_time:=true` explizit, kein Doku-Update nötig |
+| colcon build hexapod_hardware + hexapod_gait | OK | grün 2026-05-28 |
+| colcon test hexapod_hardware: 238 grün | OK | inkl. 5 neue `InitialPosePreset.*` Tests |
+| colcon test hexapod_gait: 39 grün | OK | inkl. 11 neue `test_startup_ramp` Tests (alle T3-T6 + Edge-Cases) |
+
+### 9.2 Live-Test (vom User auszufüllen)
+
+| Punkt | Status | Detail |
+|---|---|---|
 | L1: keine ruckartige Bewegung beim Plugin-Start | (offen) | |
 | L2: /joint_states zeigt suspended-Werte | (offen) | |
 | L3: 4-s-Ramp sanft sichtbar | (offen) | |

@@ -75,6 +75,28 @@ public:
   bool trigger_safety_freeze() noexcept;
 
 private:
+  // ─── Phase 13 Stage A — Initial-Pose-Preset-Loader ──────────────────────
+  // Liest ``initial_poses_file_`` und fuellt ``initial_pulse_us_`` pro
+  // Pin mit den Preset-Pulses. Reihenfolge:
+  //   1. YAML-File lesen via yaml-cpp; bei Parse-Error oder fehlendem
+  //      File: WARN + Fallback (alle Pins auf pulse_zero).
+  //   2. Preset-Block ``poses[<initial_pose_name_>]`` lookuppen; bei
+  //      unbekanntem Namen: WARN + Fallback.
+  //   3. Pro URDF-Joint i:
+  //      - Joint-Name parsen → segment-Typ (coxa/femur/tibia)
+  //      - rad-Wert aus Preset lookuppen; bei fehlendem Segment: WARN
+  //        + Pin auf pulse_zero
+  //      - PWM via Calibration::radians_to_pulse_us berechnen
+  //      - Pre-Validate: PWM ∈ [pulse_min, pulse_max]? Bei OoR: WARN +
+  //        Pin auf pulse_zero (verhindert Stage-0.5-safety_freeze beim
+  //        Aktivieren).
+  //
+  // Wird in on_init nach Cal-Load + joint_to_output_idx aufgerufen.
+  // Best-Effort-Semantik: kein Throw, nur WARN-Logs. Pins die im
+  // Preset oder via OoR ausfallen, kriegen pulse_zero (= sicherer
+  // Fallback, da Cal-validate dort sicher passt).
+  void load_initial_pose_preset();
+
   // ─── Phase 11 Stage B — Live-Cal-Params + Save-Service ──────────────────
 
   // Param-Spec für einen Pin × Cal-Feld. Wird in
@@ -165,10 +187,29 @@ private:
     std_srvs::srv::Trigger::Request::ConstSharedPtr request,
     std_srvs::srv::Trigger::Response::SharedPtr response);
 
+  // ─── Phase 13 Stage A — Initial-Pose-Preset ────────────────────────────
+  // Plugin sendet beim on_activate die hier gespeicherten Pulse als
+  // erstes SET_TARGETS-Frame (statt generisch pulse_zero). Mit Default-
+  // Preset "suspended" haengt der Roboter aufgebockt mit den Beinen
+  // schwerkraftbedingt nach unten — kein ruckartiges Hochspringen.
+  //
+  // Befuellt in on_init aus initial_poses.yaml (Preset-Name aus
+  // hardware_parameter "initial_pose"). Wenn YAML fehlt oder Preset
+  // unbekannt: pre-Validate sieht keine OoR, daher Fallback ist
+  // pulse_zero pro Pin (= Legacy-Verhalten).
+  //
+  // Pre-Validate: Plugin rechnet pro Joint rad -> PWM via Calibration
+  // BEREITS in on_init und prueft [pulse_min, pulse_max]; bei OoR fuer
+  // einen Pin wird dieser Pin auf pulse_zero gesetzt + WARN-Log
+  // (Strong-Exception-Style: andere Pins bleiben mit gueltigem Preset).
+  std::array<int16_t, NUM_SERVOS> initial_pulse_us_{};
+
   // ─── Hardware-State (von Stage 9 her) ─────────────────────────────────
   // ─── Configuration (set in on_init from URDF + hardware_parameters) ──────
   std::string serial_port_path_{"/dev/ttyACM0"};
   std::string calibration_file_{};
+  std::string initial_poses_file_{};   // Stage A: Pfad zu initial_poses.yaml
+  std::string initial_pose_name_{"suspended"};  // Stage A: Preset-Name
   bool loopback_mode_{false};
 
   // ─── Joint mapping (set in on_init) ──────────────────────────────────────

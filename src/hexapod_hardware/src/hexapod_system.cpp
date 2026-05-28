@@ -19,6 +19,7 @@
 
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include "hexapod_hardware/error_report_log.hpp"
 
@@ -110,6 +111,14 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
 
     const std::string lb = param_or(info_.hardware_parameters, "loopback_mode", "false");
     loopback_mode_ = parse_bool(lb, "loopback_mode");
+
+    // Phase 13 Stage A: Initial-Pose-Preset (optional, default
+    // "suspended"). Wenn initial_poses_file leer oder nicht vorhanden,
+    // fallback auf pulse_zero pro Pin in load_initial_pose_preset().
+    initial_pose_name_ = param_or(
+      info_.hardware_parameters, "initial_pose", "suspended");
+    initial_poses_file_ = param_or(
+      info_.hardware_parameters, "initial_poses_file", "");
   } catch (const std::exception & e) {
     RCLCPP_FATAL(plugin_logger(), "Failed to parse hardware parameters: %s", e.what());
     return hardware_interface::CallbackReturn::ERROR;
@@ -117,9 +126,12 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
 
   RCLCPP_INFO(
     plugin_logger(),
-    "Config: serial_port=%s, calibration_file=%s, loopback_mode=%s",
+    "Config: serial_port=%s, calibration_file=%s, loopback_mode=%s, "
+    "initial_pose=%s, initial_poses_file=%s",
     serial_port_path_.c_str(), calibration_file_.c_str(),
-    loopback_mode_ ? "true" : "false");
+    loopback_mode_ ? "true" : "false",
+    initial_pose_name_.c_str(),
+    initial_poses_file_.empty() ? "<none>" : initial_poses_file_.c_str());
 
   // ─── 3) Load calibration YAML ──────────────────────────────────────────
   try {
@@ -266,7 +278,18 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
   // yields 0 rad — consistent with hw_command_positions_=0.0 above.
   for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
     last_command_pulse_us_[pin] = calibration_.at(static_cast<int>(pin)).pulse_zero;
+    // Phase 13 Stage A: initial_pulse_us_ default = pulse_zero pro Pin
+    // (Legacy-Fallback). load_initial_pose_preset() ueberschreibt das
+    // gleich pro Pin mit Preset-Werten, wenn YAML + Preset vorhanden.
+    initial_pulse_us_[pin] = last_command_pulse_us_[pin];
   }
+
+  // ─── 7b) Phase 13 Stage A — Initial-Pose-Preset laden ──────────────────
+  // Fuellt initial_pulse_us_ aus initial_poses.yaml + initial_pose-Param.
+  // Best-Effort: bei missing-File / unknown-Preset / OoR pro Pin gibts
+  // WARN-Log + Fallback pulse_zero fuer den betroffenen Pin. Plugin
+  // startet trotzdem (Legacy-Verhalten als safety net).
+  load_initial_pose_preset();
 
   // ─── 8) Phase 11 Stage B — Live-Cal-Params + Save-Service ──────────────
   // Deklariert 72 Pin-Params (4 Felder × 18 Pins) mit ParameterDescriptor +
@@ -435,7 +458,8 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   // In loopback mode we still walk the boot sequence to keep code paths
   // identical (seq_ increments, last_command_pulse_us_ is set to pulse_zero)
   // but skip wire I/O and the 50 ms stagger. CI stays fast (< 100 ms) and
-  // a test can assert seq_ increments by 20 (1 RESET + 18 ENABLE + 1 SET_TARGETS).
+  // a test can assert seq_ increments by 21 (1 RESET + 1 SET_TARGETS (pre-enable)
+  // + 18 ENABLE + 1 SET_TARGETS (reaffirm)).
   const auto stagger = loopback_mode_ ?
     std::chrono::milliseconds(0) :
     std::chrono::milliseconds(50);
@@ -469,22 +493,88 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   // ENABLE_SERVO frames are NACK'd in that state; sending RESET first makes
   // the boot sequence idempotent regardless of how the last run ended.
   // Spec ref: PROTOCOL.md §6 "Recovery".
+  //
+  // Side effect of RESET in FW (main.cpp): target_pulse_us[i] = pulse_zero[i],
+  // current_pulse_us[i] = pulse_zero[i]. Servos are still disabled — no
+  // PWM is generated yet.
   {
     auto frame = encode_reset(seq_.fetch_add(1));
     if (!send_frame(frame, "RESET")) {
       return hardware_interface::CallbackReturn::ERROR;
     }
-    // Small breather so the firmware can process RESET before the ENABLE
-    // barrage arrives. 10 ms is well above the firmware's frame-dispatch
-    // cost (~ µs) but invisible to the 50 ms per-servo cadence below.
+    // Small breather so the firmware can process RESET before the SET_TARGETS
+    // arrives. 10 ms is well above the firmware's frame-dispatch cost (~ µs)
+    // but invisible to the 50 ms per-servo cadence below.
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  // ─── 2) 18× ENABLE_SERVO with 50 ms host-side stagger ──────────────────
+  // ─── 2) SET_TARGETS with initial-pose pulses (BEFORE enable) ───────────
+  // Phase 13 Stage A — Frame-Order-Fix: SET_TARGETS muss VOR den ENABLE-
+  // Frames kommen, sonst:
+  //   - Nach RESET ist target_pulse_us[i] = pulse_zero (T-Pose-Mitte).
+  //   - Jeder ENABLE_SERVO aktiviert den Servo, der dann via FW-Soft-Ramp
+  //     (cfg::MAX_DELTA_PULSE_PER_TICK_US = 20 µs/tick @ 100 Hz) zur
+  //     target_pulse_us laeuft — also Mitte = T-Pose.
+  //   - Erst ein NACHTRAEGLICHES SET_TARGETS aendert target_pulse_us. Bis
+  //     dahin sind alle Servos schon ~1 s in der horizontalen T-Pose
+  //     gegen Schwerkraft (mechanischer Stress).
+  //
+  // Mit SET_TARGETS davor: target_pulse_us[i] ist sofort auf die
+  // suspended-PWMs eingestellt. Jeder ENABLE_SERVO aktiviert dann den
+  // Servo, der direkt zur suspended-PWM rampt (~0.3 s fuer 641 µs
+  // Differenz bei 2000 µs/s) — kein T-Pose-Zwischenstadium.
+  //
+  // ``initial_pulse_us_`` wurde in on_init aus initial_poses.yaml +
+  // ``initial_pose``-Param gefuellt; bei missing-YAML/unknown-Preset ist
+  // es per Pin pulse_zero (= Legacy-Verhalten ohne Stage A).
+  auto init_frame = encode_set_targets(seq_.fetch_add(1), initial_pulse_us_);
+  if (!send_frame(init_frame, "SET_TARGETS (initial-pose, pre-enable)")) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+  // Phase 13 Stage A — 400 ms Breather damit die FW-Soft-Ramp ihre
+  // current_pulse_us auf die suspended-PWMs aufholen kann, BEVOR der
+  // erste ENABLE_SERVO den Pin "scharf" schaltet. Hintergrund:
+  //   - Nach RESET haben target und current beide = pulse_zero (FW-Init).
+  //   - SET_TARGETS pre-enable aktualisiert nur ``target_pulse_us`` auf
+  //     die suspended-PWMs. ``current_pulse_us`` wird per on_tick-
+  //     Soft-Ramp (cfg::MAX_DELTA_PULSE_PER_TICK_US = 20 µs/tick @ 100 Hz
+  //     = 2000 µs/s) langsam dorthin gerampt — auch waehrend der
+  //     servo_enabled[i] noch false ist (Soft-Ramp ist nicht gegated).
+  //   - Bei ENABLE_SERVO triggert Pimoroni die erste PWM-Ausgabe pro
+  //     Pin. Wenn current zu dem Zeitpunkt noch pulse_zero (T-Pose-Mitte)
+  //     ist, schreibt Pimoroni genau diesen Wert als ersten Pulse raus
+  //     → Servo motoriziert sichtbar zur Mitte (Zucken nach oben),
+  //     bevor er via Soft-Ramp wieder zur suspended-PWM rampt.
+  //   - Worst-case Differenz pulse_zero zu suspended-PWM ueber alle 18
+  //     Pins ist ~700 µs (femur-Pins). Soft-Ramp braucht ~350 ms dafuer.
+  //     400 ms Safety-Margin.
+  //
+  // Ergebnis: nach 400 ms ist current ≈ target = suspended-PWM fuer
+  // alle 18 Pins. Beim ENABLE schreibt Pimoroni direkt die suspended-
+  // PWM raus → kein Zucken, Servo geht aktiv auf die Position wo er
+  // physisch eh schon ist (haengt durch Schwerkraft).
+  //
+  // Pendenz (out-of-scope Stage A, ggf. spaetere FW-Stage im
+  // hexapod_servo_driver): handle_set_targets() koennte bei
+  // !servo_enabled[i] direkt current_pulse_us[i] = target setzen
+  // (Soft-Ramp ist Safety-Feature fuer ACTIVE Servos; bei disabled
+  // existiert kein Sicherheitsgrund). Das wuerde diesen 400 ms
+  // Breather hier ueberfluessig machen.
+  //
+  // Im loopback_mode_ entfaellt der Breather: es gibt keine FW-Soft-Ramp
+  // (kein Wire-IO), und CI-Tests sollen schnell bleiben.
+  if (!loopback_mode_) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+  }
+
+  // ─── 3) 18× ENABLE_SERVO with 50 ms host-side stagger ──────────────────
   // Phase-7 design decision D.1: the host paces the per-servo enables to
   // spread inrush current across ~900 ms. Each frame also resets the
   // firmware's 200 ms watchdog (PROTOCOL.md §6), so the watchdog stays warm
   // throughout the boot.
+  //
+  // Mit dem vorangehenden SET_TARGETS (Schritt 2) rampt jeder Servo direkt
+  // nach seinem ENABLE zur initial-pose-PWM via FW-Soft-Ramp.
   for (uint8_t pin = 0; pin < NUM_SERVOS; ++pin) {
     auto frame = encode_enable_servo(seq_.fetch_add(1), pin, /*enable=*/true);
     if (!send_frame(frame, "ENABLE_SERVO")) {
@@ -493,25 +583,44 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
     std::this_thread::sleep_for(stagger);
   }
 
-  // ─── 3) SET_TARGETS with neutral pulses ────────────────────────────────
-  // Two purposes:
-  //  - keep the watchdog warm during the gap between on_activate's exit and
-  //    the first controller_manager write() tick (could be > 200 ms in
-  //    pathological launch timings)
-  //  - put the robot in a defined neutral pose (all joints at pulse_zero,
-  //    ≈ 1500 µs ≡ 0 rad) so the first JTC trajectory has a known start
-  //
-  // last_command_pulse_us_ is already pulse_zero from on_init, but we
-  // re-assert it here so a re-activate after a disconnect-recovery cycle
-  // also lands in the neutral pose regardless of what the last write() set.
-  std::array<int16_t, NUM_SERVOS> neutral_pulses{};
-  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
-    neutral_pulses[pin] = calibration_.at(static_cast<int>(pin)).pulse_zero;
-    last_command_pulse_us_[pin] = neutral_pulses[pin];
-  }
-  auto neutral_frame = encode_set_targets(seq_.fetch_add(1), neutral_pulses);
-  if (!send_frame(neutral_frame, "SET_TARGETS (neutral)")) {
+  // ─── 4) Re-send SET_TARGETS as safety-net + watchdog-kick ──────────────
+  // Belt-and-suspenders: ein zweites SET_TARGETS am Ende der Boot-Sequenz
+  // stellt sicher dass target_pulse_us konsistent ist und kickt den
+  // Watchdog (200 ms Timer) noch einmal. Wichtig falls zwischen on_activate
+  // und dem ersten controller_manager write()-Tick > 200 ms vergehen.
+  auto reaffirm_frame = encode_set_targets(seq_.fetch_add(1), initial_pulse_us_);
+  if (!send_frame(reaffirm_frame, "SET_TARGETS (initial-pose, reaffirm)")) {
     return hardware_interface::CallbackReturn::ERROR;
+  }
+  // Sync last_command_pulse_us_ damit read() bis zum ersten write()-Tick
+  // den Echo-State auf der Initial-Pose haelt (statt veraltetem Wert
+  // aus on_init oder vorigem Cycle).
+  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    last_command_pulse_us_[pin] = initial_pulse_us_[pin];
+  }
+
+  // Phase 13 Stage A — hw_command_positions_ + hw_state_positions_ auf die
+  // Initial-Pose-rad-Werte syncen. SONST kommt es zur folgenden Race:
+  //   1. on_init setzt hw_command_positions_ = 0.0 fuer alle Joints
+  //   2. on_activate sendet zwar suspended-PWMs an Servo2040, aber das
+  //      controller_manager triggert SOFORT die write()/read()-Loop
+  //   3. JTC-on_activate (das hw_state_positions_ → hw_command_positions_
+  //      als hold-position setzt) passiert NACH Plugin-on_activate
+  //   4. In der Race-Zeit dazwischen liest write() hw_command_positions_=0
+  //      und konvertiert zu pulse_zero → last_command_pulse_us_ und
+  //      damit die Servos werden auf T-Pose gesetzt
+  //   5. read() echoed pulse_zero zurueck → /joint_states zeigt 0.0 rad
+  //
+  // Fix: hw_command_positions_ + hw_state_positions_ aus initial_pulse_us_
+  // berechnen → write() haelt die Initial-Pose bis JTC eigene Commands
+  // schickt, read() echoed konsistent.
+  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
+    const int output_idx = joint_to_output_idx_[i];
+    const double rad = calibration_.pulse_us_to_radians(
+      output_idx,
+      static_cast<double>(initial_pulse_us_[output_idx]));
+    hw_command_positions_[i] = rad;
+    hw_state_positions_[i] = rad;
   }
 
   // Phase 11 Stage B — Lifecycle-State markieren. Set NACH erfolgreichem
@@ -520,7 +629,7 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   is_active_.store(true);
 
   RCLCPP_INFO(plugin_logger(),
-    "on_activate complete — %s (seq counter advanced by 20)",
+    "on_activate complete — %s (seq counter advanced by 21)",
     loopback_mode_ ?
     "loopback path traced, no wire frames sent" :
     "18 servos enabled, neutral pose commanded");
@@ -1090,6 +1199,178 @@ void HexapodSystemHardware::handle_safety_freeze(
       "safety_freeze was already active — no change";
     RCLCPP_INFO(plugin_logger(), "%s", response->message.c_str());
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Phase 13 Stage A — Initial-Pose-Preset-Loader
+// ═════════════════════════════════════════════════════════════════════════
+//
+// Liest initial_poses.yaml und fuellt initial_pulse_us_ aus dem Preset-
+// Eintrag. Best-Effort: bei Fehlern bleibt der jeweilige Pin auf
+// pulse_zero (in on_init bereits gesetzt) + WARN-Log. Plugin startet
+// trotzdem, on_activate sendet dann die Mischung aus Preset + Fallback.
+//
+// Aufgerufen in on_init nach Schritt 7 (last_command_pulse_us_-Init).
+// Voraussetzungen: calibration_ geladen, set_joint_limits gemacht,
+// joint_to_output_idx_ gebaut, info_.joints[i].name verfuegbar.
+//
+// Joint-Segment-Klassifikation: parsed Suffix von joint.name —
+// "leg_<n>_coxa_joint" → coxa, ditto femur/tibia. Joints die nicht
+// matchen (Future-Variant, fixed joints) werden ignoriert + WARN.
+void HexapodSystemHardware::load_initial_pose_preset()
+{
+  // Fall 0: kein File-Pfad gegeben → Legacy-Verhalten (alles pulse_zero)
+  if (initial_poses_file_.empty()) {
+    RCLCPP_WARN(plugin_logger(),
+      "initial_poses_file not set — falling back to pulse_zero "
+      "(Legacy-T-Pose) for all servos on activate");
+    return;
+  }
+
+  // Fall 1: YAML-File laden
+  YAML::Node root;
+  try {
+    root = YAML::LoadFile(initial_poses_file_);
+  } catch (const YAML::Exception & e) {
+    RCLCPP_WARN(plugin_logger(),
+      "Failed to load initial_poses_file '%s': %s. "
+      "Falling back to pulse_zero (Legacy-T-Pose) for all servos.",
+      initial_poses_file_.c_str(), e.what());
+    return;
+  }
+
+  // Fall 2: poses-Block + Preset-Lookup
+  if (!root["poses"] || !root["poses"].IsMap()) {
+    RCLCPP_WARN(plugin_logger(),
+      "initial_poses_file '%s': missing or invalid top-level 'poses' map. "
+      "Falling back to pulse_zero.",
+      initial_poses_file_.c_str());
+    return;
+  }
+
+  YAML::Node preset = root["poses"][initial_pose_name_];
+  if (!preset || !preset.IsMap()) {
+    RCLCPP_WARN(plugin_logger(),
+      "initial_poses_file '%s': preset '%s' not found or invalid. "
+      "Available presets are top-level keys under 'poses:'. "
+      "Falling back to pulse_zero.",
+      initial_poses_file_.c_str(), initial_pose_name_.c_str());
+    return;
+  }
+
+  YAML::Node joints_block = preset["joints"];
+  if (!joints_block || !joints_block.IsMap()) {
+    RCLCPP_WARN(plugin_logger(),
+      "initial_poses_file '%s': preset '%s' has no 'joints:' block. "
+      "Falling back to pulse_zero.",
+      initial_poses_file_.c_str(), initial_pose_name_.c_str());
+    return;
+  }
+
+  // Fall 3: pro Segment-Typ rad-Wert lookuppen
+  // Wenn ein Segment-Typ fehlt: Pin bleibt auf pulse_zero, WARN-Log
+  // einmal pro Typ (nicht pro Pin, sonst 6x dasselbe Log).
+  auto read_segment_rad =
+    [&joints_block, this](const char * key, double & out) -> bool {
+      if (!joints_block[key]) {
+        RCLCPP_WARN(plugin_logger(),
+          "initial_pose preset '%s': missing 'joints.%s', using "
+          "pulse_zero (Legacy) for all matching servos",
+          initial_pose_name_.c_str(), key);
+        return false;
+      }
+      try {
+        out = joints_block[key].as<double>();
+      } catch (const YAML::Exception & e) {
+        RCLCPP_WARN(plugin_logger(),
+          "initial_pose preset '%s': 'joints.%s' not a number (%s), "
+          "using pulse_zero for all matching servos",
+          initial_pose_name_.c_str(), key, e.what());
+        return false;
+      }
+      return true;
+    };
+
+  double coxa_rad = 0.0, femur_rad = 0.0, tibia_rad = 0.0;
+  bool have_coxa = read_segment_rad("coxa", coxa_rad);
+  bool have_femur = read_segment_rad("femur", femur_rad);
+  bool have_tibia = read_segment_rad("tibia", tibia_rad);
+
+  // Fall 4: pro URDF-Joint → segment-Typ klassifizieren, rad → PWM,
+  // Pre-Validate, in initial_pulse_us_[pin] schreiben
+  std::size_t applied = 0;
+  std::size_t fallback_oor = 0;
+  std::size_t fallback_unknown_segment = 0;
+
+  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
+    const std::string & jname = info_.joints[i].name;
+    const int output_idx = joint_to_output_idx_[i];
+
+    // Segment-Klassifikation per Suffix
+    double rad = 0.0;
+    bool have_segment = false;
+    if (jname.size() >= 11 && jname.compare(jname.size() - 11, 11, "_coxa_joint") == 0) {
+      have_segment = have_coxa;
+      rad = coxa_rad;
+    } else if (jname.size() >= 12 && jname.compare(jname.size() - 12, 12, "_femur_joint") == 0) {
+      have_segment = have_femur;
+      rad = femur_rad;
+    } else if (jname.size() >= 12 && jname.compare(jname.size() - 12, 12, "_tibia_joint") == 0) {
+      have_segment = have_tibia;
+      rad = tibia_rad;
+    } else {
+      RCLCPP_WARN(plugin_logger(),
+        "Joint '%s': name does not match leg_<n>_{coxa,femur,tibia}_joint, "
+        "using pulse_zero for initial pose", jname.c_str());
+      ++fallback_unknown_segment;
+      // initial_pulse_us_[output_idx] bleibt pulse_zero (= on_init-Default)
+      continue;
+    }
+
+    if (!have_segment) {
+      // initial_pulse_us_[output_idx] bleibt pulse_zero
+      continue;
+    }
+
+    // rad → PWM via Calibration
+    const double pulse_d = calibration_.radians_to_pulse_us(output_idx, rad);
+    const auto & cal_pin = calibration_.at(output_idx);
+
+    // Pre-Validate: PWM ∈ [pulse_min, pulse_max]? Bei OoR: pulse_zero
+    // (verhindert Stage-0.5 safety_freeze beim on_activate-Send).
+    // Tolerance analog zu write(): ±1 µs FP-drift.
+    constexpr double PULSE_FP_TOLERANCE_US = 1.0;
+    const bool out_of_range =
+      (pulse_d < static_cast<double>(cal_pin.pulse_min) - PULSE_FP_TOLERANCE_US) ||
+      (pulse_d > static_cast<double>(cal_pin.pulse_max) + PULSE_FP_TOLERANCE_US);
+
+    if (out_of_range) {
+      RCLCPP_WARN(plugin_logger(),
+        "initial_pose '%s' for joint '%s' (pin %d): rad=%.4f → pulse=%.1f µs "
+        "outside cal range [%d, %d]. Using pulse_zero for this pin. "
+        "Adjust the preset's rad value or widen cal range.",
+        initial_pose_name_.c_str(), jname.c_str(), output_idx, rad, pulse_d,
+        cal_pin.pulse_min, cal_pin.pulse_max);
+      ++fallback_oor;
+      // initial_pulse_us_[output_idx] bleibt pulse_zero
+      continue;
+    }
+
+    // Defensive clamp to int16 + round (analog write())
+    const double pulse_clamped = std::clamp(
+      pulse_d,
+      static_cast<double>(INT16_MIN),
+      static_cast<double>(INT16_MAX));
+    initial_pulse_us_[output_idx] =
+      static_cast<int16_t>(std::round(pulse_clamped));
+    ++applied;
+  }
+
+  RCLCPP_INFO(plugin_logger(),
+    "loaded initial pose preset '%s' from %s: %zu/%zu joints applied "
+    "(fallback pulse_zero: %zu OoR, %zu unknown-segment)",
+    initial_pose_name_.c_str(), initial_poses_file_.c_str(),
+    applied, info_.joints.size(), fallback_oor, fallback_unknown_segment);
 }
 
 }  // namespace hexapod_hardware

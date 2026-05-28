@@ -161,8 +161,15 @@ def generate_launch_description() -> LaunchDescription:
 
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='true',
-        description='Sim-Time aus /clock verwenden.',
+        default_value='false',
+        description=(
+            'Sim-Time aus /clock verwenden. Phase 13 Stage A: Default '
+            'auf false (HW-Pfad ohne /clock). Sim-Tests muessen jetzt '
+            'explizit use_sim_time:=true setzen (z.B. in sim.launch.py '
+            'integriert). Hintergrund: ohne /clock blockten rclpy-Timer '
+            'auf HW still — Workaround use_sim_time:=false war bisher '
+            'in allen HW-Test-Commands explizit; jetzt Default.'
+        ),
     )
 
     # Phase 11 Stage D — Preset-File-Loader (D-Q1 Option A).

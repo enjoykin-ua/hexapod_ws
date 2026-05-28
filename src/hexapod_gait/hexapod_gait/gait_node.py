@@ -40,6 +40,7 @@ from rcl_interfaces.msg import (
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -253,7 +254,24 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             'min < body_height < max. STANDING-only.'
         ),
     ),
+    _ParamSpec(
+        name='auto_standup_duration', default=4.0, standing_only=True,
+        fp_range=(1.0, 10.0, 0.1),
+        description=(
+            'Phase 13 Stage A: Dauer der Auto-Stand-Pose-Ramp in s. '
+            'Wird beim ersten /joint_states-Empfang getriggert; Engine '
+            'lerpt von der aktuellen Joint-Pose smooth zur Default-Stand-'
+            'Pose. Default 4.0 s. STANDING-only (Live-Update nach '
+            'Ramp-Ende moeglich).'
+        ),
+    ),
 )
+
+# Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.
+# Wenn nach diesem Zeitraum kein /joint_states empfangen wurde, wird
+# einmalig ein ERROR-Log gefeuert (typische Ursache: joint_state_
+# broadcaster nicht gestartet / gecrasht).
+_JOINT_STATES_TIMEOUT_S = 10.0
 
 
 # Abgeleitet aus _GAIT_PARAMS — keine Doppel-Pflege.
@@ -308,6 +326,9 @@ class GaitNode(Node):
         )
         self._body_height_max = float(
             self.get_parameter('body_height_max').value
+        )
+        self._auto_standup_duration = float(
+            self.get_parameter('auto_standup_duration').value
         )
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
@@ -376,6 +397,17 @@ class GaitNode(Node):
             Float64, '/cmd_body_height', self._on_cmd_body_height, 10
         )
 
+        # Phase 13 Stage A — /joint_states-Subscriber fuer Ramp-Trigger.
+        # Erstes Empfang loest start_ramp() mit den aktuellen Joint-
+        # Positions als Start aus. Bis dahin publisht _tick KEINE
+        # Trajectories (sonst wuerde JTC sofort zur Stand-Pose-Lerp-
+        # Start-Position springen statt vom realen Joint-State zu
+        # rampen). Best-Effort: wenn ein Joint im JointState fehlt,
+        # warten wir auf die naechste Message.
+        self._joint_states_sub = self.create_subscription(
+            JointState, '/joint_states', self._on_joint_states, 10
+        )
+
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
         self._t_start = time.monotonic()
@@ -383,6 +415,14 @@ class GaitNode(Node):
         self._last_cmd_v_x = 0.0
         self._last_cmd_v_y = 0.0
         self._last_cmd_omega_z = 0.0
+
+        # Phase 13 Stage A — Ramp-Trigger-State.
+        # _ramp_triggered=True ab erstem vollstaendigem /joint_states-
+        # Empfang (alle 18 Joints gefunden). Vorher: _tick publisht
+        # keine Trajectories. _joint_states_timeout_logged: einmaliger
+        # ERROR nach _JOINT_STATES_TIMEOUT_S ohne Empfang.
+        self._ramp_triggered = False
+        self._joint_states_timeout_logged = False
 
         # Phase 11 Stage A — Timer in MutuallyExclusiveCallbackGroup,
         # damit _restart_timer() bei tick_rate-Update keinen Race mit
@@ -411,7 +451,9 @@ class GaitNode(Node):
             f'linear_y={self._default_linear_y:.3f}, '
             f'angular_z={self._default_angular_z:.3f}), '
             f'cmd_vel_timeout={self._cmd_vel_timeout:.2f} s, '
-            f'tick_rate={self._tick_rate:.0f} Hz'
+            f'tick_rate={self._tick_rate:.0f} Hz, '
+            f'auto_standup_duration={self._auto_standup_duration:.2f} s '
+            '(waiting for /joint_states to trigger ramp)'
         )
 
     def _declare_params_with_descriptors(self) -> None:
@@ -454,6 +496,74 @@ class GaitNode(Node):
         self._last_cmd_v_x = float(msg.linear.x)
         self._last_cmd_v_y = float(msg.linear.y)
         self._last_cmd_omega_z = float(msg.angular.z)
+
+    def _on_joint_states(self, msg: JointState) -> None:
+        """
+        Phase 13 Stage A — beim ersten vollstaendigen Empfang: Ramp triggern.
+
+        Wir bauen ein dict ``{leg_name: (coxa, femur, tibia)}`` aus dem
+        JointState. Wenn ein Joint fehlt (z.B. JointState kommt von
+        einem partiellen Broadcaster): wir warten auf die naechste
+        Message — keine Ramp-Trigger.
+
+        Nach erfolgreichem Trigger: Subscriber bleibt registriert
+        (kein destroy), aber die Methode returnt sofort wenn
+        ``_ramp_triggered``. Das vermeidet teures Re-Parsing bei
+        jedem JointState-Tick im Standby.
+        """
+        if self._ramp_triggered:
+            return
+
+        # JointState als name/position arrays parsen. Verfuegbar machen
+        # als dict {joint_name: position} fuer einfacheres Lookup.
+        if len(msg.name) != len(msg.position):
+            # Defekte Message — ignorieren, naechste abwarten
+            return
+        positions = dict(zip(msg.name, msg.position))
+
+        start_joints: dict[str, tuple] = {}
+        for leg in HEXAPOD.legs:
+            coxa_name = f'{leg.name}_coxa_joint'
+            femur_name = f'{leg.name}_femur_joint'
+            tibia_name = f'{leg.name}_tibia_joint'
+            if (
+                coxa_name not in positions
+                or femur_name not in positions
+                or tibia_name not in positions
+            ):
+                # Unvollstaendige Joint-Liste — auf naechste Message warten
+                return
+            start_joints[leg.name] = (
+                float(positions[coxa_name]),
+                float(positions[femur_name]),
+                float(positions[tibia_name]),
+            )
+
+        # Alle 18 Joints da → Ramp triggern
+        now = time.monotonic()
+        t = now - self._t_start
+        try:
+            self._engine.start_ramp(
+                start_joints, t, self._auto_standup_duration,
+            )
+        except (ValueError, IKError) as exc:
+            # IKError bei Stand-Pose-Berechnung waere ein
+            # Configuration-Bug (radial/body_height nicht erreichbar) —
+            # log + drop. Engine bleibt in STANDING (Default). User
+            # muss params korrigieren.
+            self.get_logger().error(
+                f'Auto-Stand-Pose-Ramp failed to start: {exc}'
+            )
+            self._ramp_triggered = True  # nicht nochmal versuchen
+            return
+
+        self._ramp_triggered = True
+        self.get_logger().info(
+            f'Auto-Stand-Pose-Ramp gestartet: '
+            f'{self._auto_standup_duration:.2f} s zur Default-Stand-Pose '
+            f'(radial={self._radial_distance:.3f}, '
+            f'body_height={self._body_height:.3f})'
+        )
 
     def _on_cmd_body_height(self, msg: Float64) -> None:
         """
@@ -522,7 +632,48 @@ class GaitNode(Node):
     def _tick(self):
         now = time.monotonic()
         t = now - self._t_start
+
+        # Phase 13 Stage A — pre-Ramp: solange kein /joint_states empfangen
+        # wurde, KEINE Trajectories publishen. Sonst wuerde JTC sofort
+        # zur Stand-Pose-IK-Pose springen statt sanft von der realen
+        # Joint-Position zu rampen. Plus einmalige Timeout-WARN nach
+        # _JOINT_STATES_TIMEOUT_S — typische Ursache: joint_state_
+        # broadcaster nicht aktiv.
+        if not self._ramp_triggered:
+            elapsed = now - self._t_start
+            if (
+                elapsed > _JOINT_STATES_TIMEOUT_S
+                and not self._joint_states_timeout_logged
+            ):
+                self.get_logger().error(
+                    f'No /joint_states received within '
+                    f'{_JOINT_STATES_TIMEOUT_S:.0f} s — gait_node will not '
+                    'start Auto-Stand-Pose-Ramp. Check that '
+                    'joint_state_broadcaster is running and publishing.'
+                )
+                self._joint_states_timeout_logged = True
+            return
+
+        # Phase 13 Stage A — WARN wenn cmd_vel waehrend STARTUP_RAMP
+        # ankommt (Engine ignoriert es eh in set_command). Throttled
+        # damit auch ein rate-publisher (50 Hz cmd_vel) nicht spammt.
         v_x, v_y, omega_z = self._resolve_command(now)
+        if (
+            self._engine.state == GaitEngine.STATE_STARTUP_RAMP
+            and (abs(v_x) + abs(v_y) + abs(omega_z)) > 1e-4
+        ):
+            self.get_logger().warn(
+                'cmd_vel received during STARTUP_RAMP — ignored. Wait '
+                f'~{self._auto_standup_duration:.1f} s for ramp to complete.',
+                throttle_duration_sec=2.0,
+            )
+
+        # State VOR set_command merken, damit wir den
+        # STARTUP_RAMP→STANDING-Uebergang loggen koennen, der entweder
+        # in set_command (n/a, da Ramp cmd_vel ignoriert) ODER in
+        # compute_joint_angles (progress>=1) passiert.
+        state_before = self._engine.state
+
         clamped = self._engine.set_command(v_x, v_y, omega_z, t)
         if clamped:
             self.get_logger().warn(
@@ -549,6 +700,16 @@ class GaitNode(Node):
             if 'joint limit' in str(exc):
                 self._trigger_safety_freeze()
             return
+
+        # Phase 13 Stage A — State-Transition-Log (einmal beim Wechsel)
+        if (
+            state_before == GaitEngine.STATE_STARTUP_RAMP
+            and self._engine.state == GaitEngine.STATE_STANDING
+        ):
+            self.get_logger().info(
+                'Engine state: STARTUP_RAMP -> STANDING '
+                '(Auto-Stand-Pose-Ramp complete)'
+            )
 
         for leg in HEXAPOD.legs:
             traj = self._build_trajectory(leg.name, angles_per_leg[leg.name])
@@ -741,6 +902,8 @@ class GaitNode(Node):
             self._default_angular_z = value
         elif name == 'cmd_vel_timeout':
             self._cmd_vel_timeout = value
+        elif name == 'auto_standup_duration':
+            self._auto_standup_duration = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
 

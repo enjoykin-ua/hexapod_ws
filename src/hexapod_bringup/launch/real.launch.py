@@ -91,9 +91,20 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    declare_initial_pose = DeclareLaunchArgument(
+        'initial_pose',
+        default_value='suspended',
+        description=(
+            'Initial-Pose-Preset fuer Plugin-on_activate (Phase 13 Stage A). '
+            'Default "suspended" = Beine haengen frei nach unten (kein ruckartiges '
+            'Hochspringen). Alternative "pulse_zero" = Legacy-T-Pose. Presets in '
+            'hexapod_hardware/config/initial_poses.yaml.'
+        ),
+    )
+
     # robot_description: xacro wird zur Launch-Zeit evaluiert. use_sim
-    # ist fest auf false (= HW-Pfad), die anderen beiden Args reichen
-    # die LaunchConfiguration unveraendert an xacro weiter, sodass das
+    # ist fest auf false (= HW-Pfad), die anderen Args reichen die
+    # LaunchConfiguration unveraendert an xacro weiter, sodass das
     # generierte URDF den <param>-Block des hexapod_hardware-Plugins
     # mit den richtigen Werten enthaelt.
     robot_description = {
@@ -103,6 +114,7 @@ def generate_launch_description() -> LaunchDescription:
                 ' use_sim:=false',
                 ' loopback_mode:=', LaunchConfiguration('loopback_mode'),
                 ' serial_port:=', LaunchConfiguration('serial_port'),
+                ' initial_pose:=', LaunchConfiguration('initial_pose'),
             ]),
             value_type=str,
         ),
@@ -166,6 +178,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         declare_loopback_mode,
         declare_serial_port,
+        declare_initial_pose,
         rsp,
         controller_manager,
         spawn_jsb,

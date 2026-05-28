@@ -655,40 +655,64 @@ TEST(HexapodSystemActivate, PtyActivateSendsBootSequenceInOrder)
   const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(200));
   const auto frames = split_and_decode_frames(bytes);
 
-  ASSERT_EQ(frames.size(), 20u)
-    << "Expected 1 RESET + 18 ENABLE_SERVO + 1 SET_TARGETS (got " <<
-    frames.size() << ")";
+  // Phase 13 Stage A — Frame-Reihenfolge geaendert um T-Pose-Zwischenstadium
+  // zu vermeiden:
+  //   Frame 0:        RESET
+  //   Frame 1:        SET_TARGETS (initial-pose, pre-enable) ← NEU
+  //   Frames 2..19:   ENABLE_SERVO(pin 0..17), 50 ms stagger
+  //   Frame 20:       SET_TARGETS (initial-pose, reaffirm)
+  // Total 21 frames. Hintergrund: FW-Soft-Ramp (20 µs/tick @ 100 Hz)
+  // braucht target_pulse_us ungleich pulse_zero VOR dem Enable, sonst
+  // fahren alle Servos erst auf horizontale T-Pose (pulse_zero default
+  // nach RESET) bevor das alte End-SET_TARGETS sie auf die Initial-Pose
+  // bewegt.
+  ASSERT_EQ(frames.size(), 21u)
+    << "Expected 1 RESET + 1 SET_TARGETS (pre-enable) + 18 ENABLE_SERVO + "
+       "1 SET_TARGETS (reaffirm) (got " << frames.size() << ")";
 
   // Frame 0: RESET (payload empty).
   EXPECT_EQ(frames[0].cmd, hexapod_hardware::opcode::RESET);
   EXPECT_EQ(frames[0].payload.size(), 0u);
 
-  // Frames 1..18: ENABLE_SERVO(pin, enable=0x01), pin = 0..17 in order.
+  // Frame 1: SET_TARGETS (initial-pose, pre-enable). Mit make_valid_info()
+  // ohne initial_pose-/initial_poses_file-Params faellt der Plugin-Loader
+  // auf pulse_zero pro Pin zurueck (Legacy-Verhalten) — Payload-Bytes
+  // entsprechen kExpectedPulseZero.
+  EXPECT_EQ(frames[1].cmd, hexapod_hardware::opcode::SET_TARGETS);
+  ASSERT_EQ(frames[1].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
+  for (std::size_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
+    const uint8_t lo = frames[1].payload[2 * pin];
+    const uint8_t hi = frames[1].payload[2 * pin + 1];
+    const int16_t pulse = static_cast<int16_t>(
+      static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
+    EXPECT_EQ(pulse, kExpectedPulseZero[pin])
+      << "pre-enable SET_TARGETS pulse mismatch at servo pin " << pin;
+  }
+
+  // Frames 2..19: ENABLE_SERVO(pin, enable=0x01), pin = 0..17 in order.
   for (uint8_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
-    const auto & f = frames[1 + pin];
+    const auto & f = frames[2 + pin];
     EXPECT_EQ(f.cmd, hexapod_hardware::opcode::ENABLE_SERVO)
-      << "at wire index " << static_cast<int>(1 + pin);
+      << "at wire index " << static_cast<int>(2 + pin);
     ASSERT_EQ(f.payload.size(), 2u);
     EXPECT_EQ(f.payload[0], pin) << "servo_idx mismatch at pin " << static_cast<int>(pin);
     EXPECT_EQ(f.payload[1], 0x01) << "expected enable=true at pin " << static_cast<int>(pin);
   }
 
-  // Frame 19: SET_TARGETS with all 18 pulses at the per-pin pulse_zero from
-  // the in-tree servo_mapping.yaml. Pin 0..14 use the YAML defaults (1500),
-  // pin 15/16/17 use Phase 10 Stage B pre-cal values (see kExpectedPulseZero).
-  EXPECT_EQ(frames[19].cmd, hexapod_hardware::opcode::SET_TARGETS);
-  ASSERT_EQ(frames[19].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
+  // Frame 20: SET_TARGETS (reaffirm) — identische Pulses wie Frame 1.
+  EXPECT_EQ(frames[20].cmd, hexapod_hardware::opcode::SET_TARGETS);
+  ASSERT_EQ(frames[20].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
   for (std::size_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
-    const uint8_t lo = frames[19].payload[2 * pin];
-    const uint8_t hi = frames[19].payload[2 * pin + 1];
+    const uint8_t lo = frames[20].payload[2 * pin];
+    const uint8_t hi = frames[20].payload[2 * pin + 1];
     const int16_t pulse = static_cast<int16_t>(
       static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
     EXPECT_EQ(pulse, kExpectedPulseZero[pin])
-      << "neutral pulse_zero mismatch at servo pin " << pin;
+      << "reaffirm SET_TARGETS pulse mismatch at servo pin " << pin;
   }
 
   // SEQ starts at 0; fetch_add returns pre-increment value. So the wire
-  // sequence is 0, 1, 2, …, 19 in order.
+  // sequence is 0, 1, 2, …, 20 in order.
   for (std::size_t i = 0; i < frames.size(); ++i) {
     EXPECT_EQ(static_cast<int>(frames[i].seq), static_cast<int>(i))
       << "SEQ mismatch at frame " << i;
@@ -704,7 +728,12 @@ TEST(HexapodSystemActivate, PtyActivateRespectsStaggerTiming)
 {
   // Without the 50 ms stagger, the boot sequence would finish in single
   // digits of milliseconds — verify the wall-clock duration matches the
-  // designed cadence. Budget: 10 ms (RESET breather) + 18 × 50 ms = 910 ms.
+  // designed cadence.
+  // Budget (Phase 13 Stage A): 10 ms (RESET breather) +
+  //                            400 ms (SET_TARGETS pre-enable breather, lets
+  //                                    FW-Soft-Ramp lift current_pulse_us to
+  //                                    suspended-PWMs before ENABLEs hit) +
+  //                            18 × 50 ms (ENABLE_SERVO stagger) = ~1310 ms.
   // Allow ±200 ms band for scheduler jitter on busy CI machines.
   int master_fd;
   std::string slave_name;
@@ -727,8 +756,9 @@ TEST(HexapodSystemActivate, PtyActivateRespectsStaggerTiming)
     hardware_interface::CallbackReturn::SUCCESS);
   const auto dt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now() - t0).count();
-  EXPECT_GT(dt_ms, 800) << "Activate completed in " << dt_ms << " ms — no stagger?";
-  EXPECT_LT(dt_ms, 1200) << "Activate took " << dt_ms << " ms — too slow?";
+  EXPECT_GT(dt_ms, 1200) << "Activate completed in " << dt_ms << " ms — "
+    "no stagger or pre-enable breather skipped?";
+  EXPECT_LT(dt_ms, 1700) << "Activate took " << dt_ms << " ms — too slow?";
 
   drain_master_until_idle(master_fd, std::chrono::milliseconds(50));
   EXPECT_EQ(
