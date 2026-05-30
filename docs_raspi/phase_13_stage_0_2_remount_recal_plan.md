@@ -4,7 +4,8 @@
 > **Vorbedingung:** Sub-Stage 0.1 ✅ (manuelle Relay-Steuerung
 > `/hexapod_relay_set` + FW geflasht).
 > **Test-Anleitung:** [`phase_13_stage_0_2_remount_recal_test_commands.md`](phase_13_stage_0_2_remount_recal_test_commands.md).
-> **Status:** ⚪ offen, wartet auf Freigabe (2026-05-30).
+> **Status:** ✅ finalisiert 2026-05-30 (K1–K6 eingearbeitet, Decisions §4
+> geklärt). Bereit für Umbau nach Commit.
 
 **Ziel:** Die 6 Femur-Segmente werden mechanisch so versetzt, dass der Servo
 bei seiner Power-On-Mitte (~1500 µs) **35° nach oben** zeigt. Anschließend
@@ -42,21 +43,48 @@ Pro Bein:
 > Gegenrichtung montieren. Die Direction-Map in `servo_mapping.yaml` bleibt
 > unverändert (Servo wird nicht gedreht).
 
+> **K2 — 35° bestätigt (User 2026-05-30):** die 35°-Ruhepose ist
+> **kollisionsfrei** (kein Body-Anschlag am Ruhepunkt). Nach Umbau ist die
+> Range nach oben kürzer / nach unten länger — genau das fängt der Re-Cal
+> (§1.2/§1.3) ein. 35° ist damit **fix**, keine provisorische Reduktion nötig.
+
+> **K5 — Halten beim Umbau (User 2026-05-30):** enabled Servos lassen sich von
+> Hand kaum bewegen; die JTC hält `rad=+0.611` stabil, die Referenz verrutscht
+> beim Ab-/Anschrauben nicht. Hinweis: zwischen Umbau und Re-Cal zeigt RViz bei
+> `rad=0` noch Horizontal, die HW aber 35° hoch — **erwarteter** Mismatch bis
+> der Re-Cal fertig ist.
+
 **Alternative (verworfen, als Fallback dokumentiert):** §12-Simpel —
 bei `rad=0` (horizontal) abschrauben, Segment per Protraktor 35° hoch drehen,
 festziehen. Verworfen weil 35°-Augenmaß ungenauer als Horizontale.
 
 ### 1.2 Re-Cal der 6 Femur-Pins (Weg A) — pulse_zero/min/max
 
-Über die Phase-11-Live-Cal (rqt_reconfigure-Sliders + `/save_calibration`):
+Über die Phase-11-Live-Cal (rqt_reconfigure + `/servo_pulses`/GET_STATE-Ablesung
++ `/save_calibration`). **Direction-Map bleibt unverändert** — der Servo wird
+nicht gedreht, nur das Segment.
+
+> **⚠️ K4 — Clamp zuerst weiten:** die aktuellen `pulse_min/max` klemmen den
+> Output (Stage 0.5). Um die *neuen* Anschläge zu erreichen, in rqt_reconfigure
+> die Range erst weiten (innerhalb der globalen [800, 2200] µs), dann die Pins
+> bis zum mech-Anschlag fahren und ablesen, dann auf die gefundenen Werte
+> setzen.
+
+> **⚠️ K1 — direction-aware erfassen:** „nach oben" / „nach unten" ≠ fest
+> `pulse_min`/`pulse_max`! Femur-Direction ist rechts (1/2/3) = `+1`, links
+> (4/5/6) = `−1`. Für linke Beine ist „unten" das **kleinere** µs. Daher:
+> Anschläge **physisch nach up/down** erfassen, dann **numerisch** zuordnen.
 
 Pro Femur-Pin (1, 4, 7, 10, 13, 16):
 - **`pulse_zero`** = jog bis Femur **visuell horizontal** → notieren.
-  (≈ Servo-Mitte + ~35°-wert; für leg_1 illustrativ ~1727 µs statt alt 1460.)
-- **`pulse_min`** = jog **nach oben** bis mechanischer Anschlag (Kollision
-  mit Body/Coxa) → notieren. (Up-Range ist nach Umbau **kurz**.)
-- **`pulse_max`** = jog **nach unten** bis Anschlag/Servo-Limit → notieren.
-  (Down-Range ist **lang**.)
+  (≈ Servo-Mitte ± ~35°-wert; für leg_1 illustrativ ~1727 µs statt alt 1460.)
+- **Up-Anschlag**-µs = jog nach **oben** bis mech-Anschlag (Body/Coxa-Kollision;
+  Up-Range nach Umbau **kurz**) → notieren.
+- **Down-Anschlag**-µs = jog nach **unten** bis Anschlag/Servo-Limit
+  (Down-Range **lang**) → notieren.
+- Dann **numerisch zuordnen**: `pulse_min = min(up_µs, down_µs)`,
+  `pulse_max = max(up_µs, down_µs)`. (Rechte Beine: up=min, down=max.
+  Linke Beine: down=min, up=max.)
 - Invariante `pulse_min < pulse_zero < pulse_max` (calibration.cpp erzwingt).
 
 ### 1.3 Femur-Joint-Limits herleiten (der kritische Schritt)
@@ -67,28 +95,34 @@ Pro Femur-Pin (1, 4, 7, 10, 13, 16):
 (rad, von horizontal) am Down-Anschlag sein — sonst stimmt die Steigung nicht
 und die IK setzt den Fuß falsch.
 
-**Lösung (Steigung erhalten):** Die Servo-Linearität (µs pro rad) ist eine
-**Servo-Eigenschaft** und wird vom Umbau **nicht** verändert (der Umbau dreht
-nur Segment ↔ Welle). Also:
+**Lösung (Steigung erhalten, in Magnituden — direction-unabhängig):** Die
+Servo-Linearität `k` (µs pro rad, Betrag) ist eine **Servo-Eigenschaft** und
+wird vom Umbau **nicht** verändert (der Umbau dreht nur Segment ↔ Welle). `k`
+ist zudem die **empirisch validierte** Steigung (mit ihr lief der Roboter
+korrekt). Wir rechnen daher in physischen Winkeln (up/down) + Magnituden und
+mappen am Ende auf den URDF-Frame:
 
-1. Vor-Umbau-Steigung pro Pin aus altem Cal berechnen:
-   - `slope_down = (pulse_max_alt − pulse_zero_alt) / joint_upper_alt`
-   - `slope_up   = (pulse_zero_alt − pulse_min_alt) / |joint_lower_alt|`
-   - (leg_1: slope_down=(2120−1460)/1.493 ≈ **442 µs/rad**, slope_up=(1460−815)/1.493 ≈ **432 µs/rad**)
-2. Neue Limits aus gemessenen neuen Pulse-Extremen + erhaltener Steigung:
-   - `joint_upper_neu = (pulse_max_neu − pulse_zero_neu) / slope_down`
-   - `joint_lower_neu = (pulse_min_neu − pulse_zero_neu) / slope_up`  (negativ)
-3. Diese Limits in `servo_mapping.yaml` (joint_lower/upper pro Pin werden vom
-   Plugin aus URDF gesetzt — siehe unten) bzw. URDF + config.py eintragen.
+1. `k` pro Pin aus dem **alten** Cal (Gesamt-Spanne, direction-unabhängig):
+   `k = (pulse_max_alt − pulse_min_alt) / (joint_upper_alt − joint_lower_alt)`
+   (leg_1: `(2120−815)/(1.493−(−1.493)) = 1305/2.986 ≈ **437 µs/rad**`)
+2. Neue physische Winkel aus gemessenen Anschlägen + erhaltenem `k`:
+   - `θ_down = |down_Anschlag_µs − pulse_zero_neu| / k`   (Betrag, → +rad)
+   - `θ_up   = |up_Anschlag_µs   − pulse_zero_neu| / k`   (Betrag, → wird −rad)
+3. Auf URDF-Frame mappen (für **alle** Beine gleich gemeint, da `+rad = unten`
+   im Segment-Frame unabhängig vom Servo):
+   - `joint_upper = +θ_down`   (max nach unten)
+   - `joint_lower = −θ_up`     (max nach oben)
 
-**Selbst-konsistenz-Check:** mit `joint_upper_neu` wird die calibration-Steigung
-`(pulse_max_neu − pulse_zero_neu)/joint_upper_neu = slope_down` → exakt die
-erhaltene Servo-Steigung. ✓ Damit sind Zwischen-Winkel korrekt **ohne**
-Protraktor-Messung.
+**Warum das ohne Protraktor stimmt:** `θ_down = |down_µs − zero|/k` ist exakt
+der physische Femur-Winkel am Down-Anschlag (weil `Δµs = k·Δrad`). Und weil die
+calibration-Steigung intern aus genau diesen Limits + Pulse-Extremen wieder `k`
+ergibt, sind auch die **Zwischen**-Winkel korrekt. Die Direction-Spiegelung
+steckt nur in der `pulse_min/max`-Zuordnung (§1.2) + dem `direction`-Feld — die
+URDF-Limits selbst sind direction-frei.
 
-> **Verifikation (optional, empfohlen):** an 1–2 Beinen den physischen Winkel
-> am Down-Anschlag mit Protraktor gegen `joint_upper_neu·(180/π)` prüfen
-> (Erwartung: ~±2°). Bestätigt die Linearitäts-Annahme.
+**Verifikation (optional, empfohlen):** an 1–2 Beinen den physischen
+Down-Anschlag-Winkel mit Protraktor gegen `joint_upper·180/π` prüfen
+(Erwartung ±2°). Bestätigt die Linearitäts-Annahme.
 
 ### 1.4 Welche Dateien (Weg A)
 
@@ -97,13 +131,18 @@ Protraktor-Messung.
 | `src/hexapod_hardware/config/servo_mapping.yaml` | 6 Femur-Pins: `pulse_zero`/`pulse_min`/`pulse_max` neu |
 | `src/hexapod_description/urdf/hexapod_physical_properties.xacro` | Femur `joint_lower`/`joint_upper` → neue asymmetrische Werte |
 | `src/hexapod_kinematics/hexapod_kinematics/config.py` | `_FEMUR_LIMITS` → identisch zur xacro |
-| `src/hexapod_hardware/config/initial_poses.yaml` | Init-Pose Femur-Wert (alt −1.45) → **−0.611** (35° hoch); coxa/tibia bleiben |
 | **NICHT geändert** | `leg.xacro` (Femur-Geometrie/origin), `leg_ik.py` (IK/FK-Formel), RViz, Gazebo |
+| **→ Stage 0.3 (nicht hier)** | `initial_poses.yaml` Femur-Init — **K3**: Wert aus `pulse_us_to_radians(1500)` pro Pin ableiten (echte Servo-Mitte = wahre Power-On-Pose), nicht hartkodiert −0.611. Gehört zur Init-Sequenz |
 
 > **Limit-Quelle:** Femur-Limits sind in `hexapod_physical_properties.xacro`
 > die Single Source (Convention §11). Das Plugin liest sie aus dem URDF
 > (`set_joint_limits`), die IK aus `config.py`. Beide müssen identisch sein.
 > Global vs. per-Bein → siehe Offene Punkte 4.3.
+
+> **K6 — Tibia/Coxa bewusst unangetastet:** nur die Femur-Segmente werden
+> umgebaut. Der Femur-35°-Versatz ändert die Tibia-/Coxa-Cal **nicht**, weil
+> die Tibia relativ zum Femur montiert bleibt und die IK die Kette (Coxa→Femur
+> →Tibia) sauber durchrechnet. Tibia/Coxa-Limits + -Cal bleiben unverändert.
 
 ---
 
@@ -141,35 +180,38 @@ Protraktor-Messung.
 ```
 ### Sub-Stage 0.2 — Mech-Umbau + Re-Cal (Weg A) + Femur-Limits
 - [ ] 0.2.1  Mech-Umbau alle 6 Femurs (§6-Trick), Direction pro Bein verifiziert
-- [ ] 0.2.2  Re-Cal pulse_zero (=horizontal) für 6 Femur-Pins
-- [ ] 0.2.3  Re-Cal pulse_min (oben-Anschlag) + pulse_max (unten) für 6 Pins
-- [ ] 0.2.4  servo_mapping.yaml 6 Femur-Einträge aktualisiert + pulse_min<zero<max ok
-- [ ] 0.2.5  Femur joint_lower/upper hergeleitet (Steigung erhalten) — pro Pin notiert
-- [ ] 0.2.6  Entscheidung global vs per-Bein-Limits (Offene Punkte 4.3)
-- [ ] 0.2.7  hexapod_physical_properties.xacro Femur-Limits aktualisiert
-- [ ] 0.2.8  config.py _FEMUR_LIMITS identisch zur xacro
-- [ ] 0.2.9  initial_poses.yaml Femur → -0.611
-- [ ] 0.2.10 colcon build (description/kinematics/hardware) grün
-- [ ] 0.2.11 colcon test kinematics + hardware grün (IK-Regression)
-- [ ] 0.2.12 Live: rad=0 → horizontal (HW + RViz identisch)
-- [ ] 0.2.13 Live: rad=-0.611 → 35° hoch (HW + RViz identisch, ≈ Servo-Mitte)
-- [ ] 0.2.14 Live: rad-Sweep über Limits → kein OoR-Freeze, kein Stall
-- [ ] 0.2.15 Live: Power-On via Relay → Femurs ~35° hoch, kein Horizontal-Sprung
-- [ ] 0.2.16 Self-Review-Tabelle, Fixe erledigt
+- [ ] 0.2.2  35°-Ruhepose pro Bein kollisionsfrei bestätigt (K2)
+- [ ] 0.2.3  rqt-Clamp-Range geweitet (K4) zum Anschlag-Suchen
+- [ ] 0.2.4  Re-Cal pulse_zero (=horizontal) für 6 Femur-Pins
+- [ ] 0.2.5  Re-Cal up-/down-Anschlag → pulse_min/max direction-aware zugeordnet (K1)
+- [ ] 0.2.6  servo_mapping.yaml 6 Femur-Einträge aktualisiert + pulse_min<zero<max ok
+- [ ] 0.2.7  k pro Pin (alt) + joint_lower/upper hergeleitet (Magnituden, §1.3) — notiert
+- [ ] 0.2.8  Entscheidung global vs per-Bein-Limits (Offene Punkte 4.3)
+- [ ] 0.2.9  hexapod_physical_properties.xacro Femur-Limits aktualisiert
+- [ ] 0.2.10 config.py _FEMUR_LIMITS identisch zur xacro
+- [ ] 0.2.11 colcon build (description/kinematics/hardware) grün
+- [ ] 0.2.12 colcon test kinematics + hardware grün (IK-Regression)
+- [ ] 0.2.13 Live: rad=0 → horizontal (HW + RViz identisch)
+- [ ] 0.2.14 Live: rad=-0.611 → ~35° hoch (HW + RViz identisch, ≈ Servo-Mitte)
+- [ ] 0.2.15 Live: rad-Sweep über Limits → kein OoR-Freeze, kein Stall
+- [ ] 0.2.16 Live: Power-On via Relay → Femurs ~35° hoch, kein Horizontal-Sprung
+- [ ] 0.2.17 Self-Review-Tabelle, Fixe erledigt
+# K3 (initial_poses.yaml Femur-Wert aus pulse_us_to_radians(1500)) → Stage 0.3
 ```
 
 ---
 
-## 4. Offene Punkte für User-Review (vor Code/Umbau-Beginn)
+## 4. Entscheidungen (mit User geklärt 2026-05-30)
 
-| # | Frage | Vorschlag |
+| # | Frage | Entscheidung |
 |---|---|---|
-| 4.1 | Umbau-Methode: §6-Servo-Trick (mount horizontal, Servo definiert 35°) vs §12-Simpel (35° per Auge) | **§6-Trick** — horizontale Referenz genauer als 35°-Augenmaß |
-| 4.2 | Limit-Herleitung: Steigung-erhalten (§1.3, ohne Protraktor) vs. physische Winkelmessung | **Steigung-erhalten** + optionale Protraktor-Stichprobe an 1–2 Beinen |
-| 4.3 | Femur-Limits **global** (alle 6 gleich, konservativstes Min) oder **per-Bein** (echte Range je Bein) | **Erst messen, dann entscheiden.** Wenn die 6 Werte eng beieinander liegen → global (min nehmen, Symmetrie-Stil); wenn stark streuend → per-Bein. Datengetrieben nach 0.2.5 |
-| 4.4 | Wie Femurs live auf rad=+0.611 / rad=0 halten beim Umbau? | Über bestehende Joint-Command-Kette (forward-controller / joint_value_publisher aus Phase 10/11) — exakte Befehle in test_commands |
-| 4.5 | Re-Cal-Speichern via `/save_calibration`-Service oder `hexapod-save-cal`-Alias? | **Alias** falls vorhanden ([[project_phase11_convenience_aliases]]), sonst Service |
-| 4.6 | Pre-Check `pulse_min < pulse_zero < pulse_max` vor Save (analog Stage-F R2)? | **Ja** — Sicherheitsnetz gegen rqt-Fehleingabe |
+| 4.1 | Umbau-Methode | ✅ **§6-Servo-Trick** (horizontal montieren, Servo macht die 35° exakt) — genauer als 35°-Augenmaß |
+| 4.2 | Limit-Herleitung | ✅ **Steigung-erhalten** in Magnituden (§1.3), `k` aus altem Cal; optionale Protraktor-Stichprobe an 1–2 Beinen |
+| 4.3 | Femur-Limits global vs per-Bein | ✅ **datengetrieben**: 6 Werte messen (0.2.7) → eng beieinander = global (Minimum); stark streuend = per-Bein. Entscheidung in 0.2.8 |
+| 4.4 | Femurs live anfahren/halten | ✅ **JointTrajectoryController** — einmal `/leg_N_controller/joint_trajectory` mit Femur=+0.611 publishen, JTC hält. Relay muss an sein. Helfer für alle 6 in test_commands |
+| 4.5 | Re-Cal speichern | **Alias** `hexapod-save-cal` falls vorhanden ([[project_phase11_convenience_aliases]]), sonst `/save_calibration`-Service |
+| 4.6 | Pre-Check `pulse_min<zero<max` vor Save | ✅ **Ja** — Sicherheitsnetz gegen rqt-Fehleingabe |
+| **K3** | Init-Pose-Wert (Femur) | **→ Stage 0.3 verschoben**: `pulse_us_to_radians(1500)` pro Pin statt hartkodiert −0.611, damit `/joint_states` die wahre Power-On-Pose meldet und Stand-up (0.4) sauber rampt |
 
 ---
 

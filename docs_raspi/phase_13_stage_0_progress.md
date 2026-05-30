@@ -4,9 +4,9 @@
 > erledigtem Schritt sofort `[ ]`→`[x]` (Memory `feedback_phase_progress_tracking`).
 > Plan-Übersicht: [`phase_13_stage_0_plan.md`](phase_13_stage_0_plan.md).
 
-**Stand:** 2026-05-30 — Sub-Stage 0.1 ✅ **FERTIG** (FW + Plugin gebaut,
-Unit-Tests 12/12, Live T1–T6 alle grün auf HW, Self-Review ohne 🔴).
-Bereit für Commit. Nächste: Sub-Stage 0.2 (Mech-Umbau + Re-Cal).
+**Stand:** 2026-05-30 — Sub-Stage 0.1 ✅ FERTIG. Sub-Stage 0.2 **Plan +
+test_commands finalisiert** (K1–K6 eingearbeitet, Decisions geklärt), bereit
+für den Umbau nach Commit. Implementierung/Umbau noch nicht begonnen.
 
 ---
 
@@ -51,26 +51,32 @@ Plan: [`phase_13_stage_0_1_relay_plan.md`](phase_13_stage_0_1_relay_plan.md)
 Plan: [`phase_13_stage_0_2_remount_recal_plan.md`](phase_13_stage_0_2_remount_recal_plan.md)
 
 - [ ] 0.2.1  Mech-Umbau alle 6 Femurs (§6-Trick), Direction pro Bein verifiziert
-- [ ] 0.2.2  Re-Cal pulse_zero (=horizontal) für 6 Femur-Pins
-- [ ] 0.2.3  Re-Cal pulse_min (oben-Anschlag) + pulse_max (unten) für 6 Pins
-- [ ] 0.2.4  servo_mapping.yaml 6 Femur-Einträge aktualisiert + pulse_min<zero<max ok
-- [ ] 0.2.5  Femur joint_lower/upper hergeleitet (Steigung erhalten) — pro Pin notiert
-- [ ] 0.2.6  Entscheidung global vs per-Bein-Limits (Offene Punkte 4.3)
-- [ ] 0.2.7  hexapod_physical_properties.xacro Femur-Limits aktualisiert
-- [ ] 0.2.8  config.py _FEMUR_LIMITS identisch zur xacro
-- [ ] 0.2.9  initial_poses.yaml Femur → -0.611
-- [ ] 0.2.10 colcon build (description/kinematics/hardware) grün
-- [ ] 0.2.11 colcon test kinematics + hardware grün (IK-Regression)
-- [ ] 0.2.12 Live: rad=0 → horizontal (HW + RViz identisch)
-- [ ] 0.2.13 Live: rad=-0.611 → 35° hoch (HW + RViz identisch, ≈ Servo-Mitte)
-- [ ] 0.2.14 Live: rad-Sweep über Limits → kein OoR-Freeze, kein Stall
-- [ ] 0.2.15 Live: Power-On via Relay → Femurs ~35° hoch, kein Horizontal-Sprung
-- [ ] 0.2.16 Self-Review-Tabelle, Fixe erledigt
+- [ ] 0.2.2  35°-Ruhepose pro Bein kollisionsfrei bestätigt (K2)
+- [ ] 0.2.3  rqt-Clamp-Range geweitet (K4) zum Anschlag-Suchen
+- [ ] 0.2.4  Re-Cal pulse_zero (=horizontal) für 6 Femur-Pins
+- [ ] 0.2.5  Re-Cal up-/down-Anschlag → pulse_min/max direction-aware zugeordnet (K1)
+- [ ] 0.2.6  servo_mapping.yaml 6 Femur-Einträge aktualisiert + pulse_min<zero<max ok
+- [ ] 0.2.7  k pro Pin (alt) + joint_lower/upper hergeleitet (Magnituden, §1.3) — notiert
+- [ ] 0.2.8  Entscheidung global vs per-Bein-Limits (Offene Punkte 4.3)
+- [ ] 0.2.9  hexapod_physical_properties.xacro Femur-Limits aktualisiert
+- [ ] 0.2.10 config.py _FEMUR_LIMITS identisch zur xacro
+- [ ] 0.2.11 colcon build (description/kinematics/hardware) grün
+- [ ] 0.2.12 colcon test kinematics + hardware grün (IK-Regression)
+- [ ] 0.2.13 Live: rad=0 → horizontal (HW + RViz identisch)
+- [ ] 0.2.14 Live: rad=-0.611 → ~35° hoch (HW + RViz identisch, ≈ Servo-Mitte)
+- [ ] 0.2.15 Live: rad-Sweep über Limits → kein OoR-Freeze, kein Stall
+- [ ] 0.2.16 Live: Power-On via Relay → Femurs ~35° hoch, kein Horizontal-Sprung
+- [ ] 0.2.17 Self-Review-Tabelle, Fixe erledigt
+  (K3: initial_poses.yaml Femur-Wert aus pulse_us_to_radians(1500) → Stage 0.3)
 
 ## Sub-Stage 0.3 — Plugin on_activate Relay-gated Init-Sequenz
 
-_Plan just-in-time nach 0.2. Init-Target rad −0.611 → Femur-Enable
-gestaffelt → Relay-ON → Coxa → Tibia._
+_Plan just-in-time nach 0.2. Init-Target → Femur-Enable gestaffelt →
+Relay-ON → Coxa → Tibia._
+- **K3-Pendenz (aus 0.2):** Init-Pose-Femur-Wert NICHT hartkodiert −0.611,
+  sondern pro Pin aus `pulse_us_to_radians(1500)` (echte Servo-Power-On-Mitte),
+  damit `/joint_states` die wahre Startpose meldet und Stand-up (0.4) sauber
+  rampt.
 
 ## Sub-Stage 0.4 — Gait Stand-up (Tripod 3+3)
 
