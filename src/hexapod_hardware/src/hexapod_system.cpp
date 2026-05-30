@@ -531,41 +531,14 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   if (!send_frame(init_frame, "SET_TARGETS (initial-pose, pre-enable)")) {
     return hardware_interface::CallbackReturn::ERROR;
   }
-  // Phase 13 Stage A — 400 ms Breather damit die FW-Soft-Ramp ihre
-  // current_pulse_us auf die suspended-PWMs aufholen kann, BEVOR der
-  // erste ENABLE_SERVO den Pin "scharf" schaltet. Hintergrund:
-  //   - Nach RESET haben target und current beide = pulse_zero (FW-Init).
-  //   - SET_TARGETS pre-enable aktualisiert nur ``target_pulse_us`` auf
-  //     die suspended-PWMs. ``current_pulse_us`` wird per on_tick-
-  //     Soft-Ramp (cfg::MAX_DELTA_PULSE_PER_TICK_US = 20 µs/tick @ 100 Hz
-  //     = 2000 µs/s) langsam dorthin gerampt — auch waehrend der
-  //     servo_enabled[i] noch false ist (Soft-Ramp ist nicht gegated).
-  //   - Bei ENABLE_SERVO triggert Pimoroni die erste PWM-Ausgabe pro
-  //     Pin. Wenn current zu dem Zeitpunkt noch pulse_zero (T-Pose-Mitte)
-  //     ist, schreibt Pimoroni genau diesen Wert als ersten Pulse raus
-  //     → Servo motoriziert sichtbar zur Mitte (Zucken nach oben),
-  //     bevor er via Soft-Ramp wieder zur suspended-PWM rampt.
-  //   - Worst-case Differenz pulse_zero zu suspended-PWM ueber alle 18
-  //     Pins ist ~700 µs (femur-Pins). Soft-Ramp braucht ~350 ms dafuer.
-  //     400 ms Safety-Margin.
-  //
-  // Ergebnis: nach 400 ms ist current ≈ target = suspended-PWM fuer
-  // alle 18 Pins. Beim ENABLE schreibt Pimoroni direkt die suspended-
-  // PWM raus → kein Zucken, Servo geht aktiv auf die Position wo er
-  // physisch eh schon ist (haengt durch Schwerkraft).
-  //
-  // Pendenz (out-of-scope Stage A, ggf. spaetere FW-Stage im
-  // hexapod_servo_driver): handle_set_targets() koennte bei
-  // !servo_enabled[i] direkt current_pulse_us[i] = target setzen
-  // (Soft-Ramp ist Safety-Feature fuer ACTIVE Servos; bei disabled
-  // existiert kein Sicherheitsgrund). Das wuerde diesen 400 ms
-  // Breather hier ueberfluessig machen.
-  //
-  // Im loopback_mode_ entfaellt der Breather: es gibt keine FW-Soft-Ramp
-  // (kein Wire-IO), und CI-Tests sollen schnell bleiben.
-  if (!loopback_mode_) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(400));
-  }
+  // Phase 13 FW-Fix (2026-05-28): 10 ms Frame-Dispatch-Breather. Die
+  // alte 400 ms Wartezeit (fuer FW-Soft-Ramp aufholen) ist nicht mehr
+  // noetig, da die Servo2040-FW jetzt bei handle_set_targets() fuer
+  // disabled Pins direkt current_pulse_us = target_pulse_us syncen +
+  // Pimoroni-state aktualisieren. Beim folgenden ENABLE_SERVO geht
+  // Pimoroni direkt zur target-PWM ohne Mitte-Snap.
+  // Siehe docs_raspi/phase_13_servo2040_fix.md.
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
   // ─── 3) 18× ENABLE_SERVO with 50 ms host-side stagger ──────────────────
   // Phase-7 design decision D.1: the host paces the per-servo enables to

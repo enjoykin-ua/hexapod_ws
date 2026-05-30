@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../hexapod_servo_driver"
+		},
+		{
+			"path": "../pimoroni_servo_fix"
 		}
 	],
 	"settings": {}

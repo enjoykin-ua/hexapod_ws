@@ -1,7 +1,12 @@
 # Aktive Phase
 
-**Aktuell:** Phase 12 — Pi-Plattform & Portierung
-**Datei:** `docs_raspi/phase_12_pi_platform.md`
+**Aktuell:** Phase 13 Desktop-Pre-Bringup — **Stage 0** (HW Init-Pose via Femur-Umbau + Relay)
+**Datei:** `docs_raspi/phase_13_stage_0_plan.md` (Übersicht) → Sub-Stage 0.1: `phase_13_stage_0_1_relay_plan.md`
+
+> Phase 13 Desktop-Pre-Bringup läuft **vor** Phase 12 (Pi-Plattform), siehe
+> `phase_13_desktop_pre_bringup_plan.md`. Stage A ("suspended"-Preset) ist
+> **obsolet** (Servo-MID-on-Power-On widerlegt das Konzept) → ersetzt durch
+> Stage 0 (mechanischer Femur-Umbau: Servo-Mitte = 35° hoch + Relay-Gate).
 
 > Cross-Phase-Thread `servo_real_cal` (Stages 0/0.5/0.6/A/B/D/E/C/E2) ✅
 > 2026-05-25 — Cal aller 18 Pins + Safety-Layer + HW-Walking aufgebockt
@@ -36,7 +41,7 @@
 | 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟢 abgeschlossen (2026-05-19) |
 | 11 | Param-GUI mit Live-Tuning (rqt_reconfigure) | `docs_raspi/phase_11_param_gui.md` | 🟢 abgeschlossen (2026-05-21) |
 | **12** | **Pi-Plattform & Portierung** | `docs_raspi/phase_12_pi_platform.md` | 🟡 aktiv (noch nicht angefasst) |
-| 13 | Voll-Bringup mit echtem Roboter | `docs_raspi/phase_13_full_bringup.md` | ⚪ offen (Sub-Stages B/C/D vorweggenommen durch servo_real_cal-Thread) |
+| **13** | **Desktop-Pre-Bringup → Voll-Bringup** | `docs_raspi/phase_13_stage_0_plan.md` (Desktop) / `phase_13_full_bringup.md` (Pi) | 🟡 aktiv — **Stage 0** (Femur-Umbau + Relay); Stage A obsolet |
 
 ### Cross-Phase-Threads (parallel zu Hauptphasen)
 

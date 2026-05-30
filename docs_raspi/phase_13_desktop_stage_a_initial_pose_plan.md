@@ -1,5 +1,14 @@
 # Phase 13 Desktop Stage A — Initial-Pose-Preset "suspended" + Auto-Stand-Pose-Ramp
 
+> **⛔ OBSOLET (2026-05-30).** Das "suspended"-Preset-Konzept (Plugin sendet
+> beim Activate Suspended-PWMs) ist nicht umsetzbar: Hobby-Servos fahren beim
+> Power-On **hardware-bedingt zur Servo-Mitte**, unabhängig vom kommandierten
+> PWM (erschöpfend getestet in `~/pimoroni_servo_fix/`). Ersetzt durch
+> **Stage 0** ([`phase_13_stage_0_plan.md`](phase_13_stage_0_plan.md)):
+> mechanischer Femur-Umbau (Servo-Mitte = 35° hoch) + Relay-Gate. Diese
+> Datei bleibt als Historie. Die Auto-Stand-Pose-Ramp-Idee lebt teilweise
+> in Stage 0.4 (Gait-Stand-up) weiter.
+>
 > **Übergeordneter Plan:** [`phase_13_desktop_pre_bringup_plan.md`](phase_13_desktop_pre_bringup_plan.md)
 > §2 Stage-Übersicht + §7.1 Stage-A-Skeleton.
 >

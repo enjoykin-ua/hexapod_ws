@@ -1,6 +1,16 @@
 # Phase 13 — Servo2040 FW-Fix: PWM-Auto-Enable beim Boot/Reset
 
-> **Status:** ⚪ offen, Plan-Doku, wartet auf User-Freigabe (2026-05-28)
+> **Status (2026-05-30):** ✅ FW-Änderungen (3.1–3.4) sind in `main.cpp`
+> umgesetzt und werden als **Fundament behalten**. **Wichtig:** dieser Fix
+> löst das eigentliche **MID-on-Power-On-Verhalten NICHT** (das ist
+> Servo-hardware-bedingt, siehe [`phase_13_stage_0_plan.md`](phase_13_stage_0_plan.md) §2).
+> Sein bleibender Wert: er hält PWM auf disabled Pins sauber aus — das ist
+> **Voraussetzung** für den Relay-Ansatz von Stage 0 (nur Relay + ENABLE
+> fahren die Servos hoch). Die in §3 angedachte "Zucken weg"-Erwartung ist
+> damit überholt; das Zucken-Problem wird in Stage 0 mechanisch (Femur-Umbau)
+> + per Relay-Gate gelöst, nicht FW-seitig.
+>
+> **Ursprünglicher Status:** ⚪ offen, Plan-Doku, wartet auf User-Freigabe (2026-05-28)
 >
 > **Vorgaenger:** Phase 13 Desktop Stage A
 > ([`phase_13_desktop_stage_a_initial_pose_plan.md`](phase_13_desktop_stage_a_initial_pose_plan.md))
@@ -174,7 +184,17 @@ for (uint i = 0; i < NUM_SERVOS; ++i) {
 **Begruendung:** Soft-Ramp ist ein Safety-Feature fuer ACTIVE Servos
 (Schutz vor abrupten Bewegungen). Bei disabled Servos gibt es keine
 Bewegung — kein Schutzbedarf. Plus: nach diesem Fix ist beim ENABLE
-`current == target`, also Pimoroni schreibt direkt die Target-PWM raus.
+`current == target`, und Fix 3.4 (siehe unten) emittiert PWM=current=target
+direkt beim Enable.
+
+**Historie (2026-05-28):** eine fruehere Variante dieses Fixes versuchte
+ueber `g_servos->pulse(target, false)` + `g_servos->disable(false)` die
+Pimoroni-`last_enabled_pulse`-Variable zu synchen damit ein spaeterer
+`g_servos->enable()`-Call nicht zur MID-Position fallback. Das hat in der
+Praxis nicht funktioniert (Beine blieben visuell auf MID-PWM=horizontal,
+obwohl joint_states suspended zeigte). Statt da weiter zu debuggen, loest
+Fix 3.4 das Problem cleaner indem `handle_enable_servo` gar nicht mehr
+`g_servos->enable()` callt — sondern direkt `g_servos->pulse(target)`.
 
 ### 3.3 Fix 3 — `handle_reset` callt `g_servos->disable_all()`
 
@@ -206,6 +226,50 @@ if (g_servos) g_servos->load();
 
 **Begruendung:** RESET soll garantiert PWM-aus produzieren. Vorher
 konnte das vom on_tick-Verhalten abhaengen.
+
+### 3.4 Fix 4 — `handle_enable_servo` callt `pulse(target)` statt `enable()`
+
+**Wo:** `handle_enable_servo()` ([main.cpp:259-300](../../hexapod_servo_driver/src/main.cpp#L259-L300))
+
+**Aktuell (pre-Fix 3.4):**
+```cpp
+servo_enabled[idx] = (en != 0);
+if (g_servos) {
+    if (en) g_servos->enable(idx, true);
+    else    g_servos->disable(idx, true);
+}
+```
+
+**Soll:**
+```cpp
+servo_enabled[idx] = (en != 0);
+if (g_servos) {
+    if (en) {
+        g_servos->pulse(idx, static_cast<float>(current_pulse_us[idx]),
+                        /*load=*/true);
+    } else {
+        g_servos->disable(idx, true);
+    }
+}
+```
+
+**Begruendung:** Pimoroni's `ServoCluster::enable()` ruft intern
+`ServoState::enable_with_return()`, das **MID** (1500 µs) zurueckgibt
+wenn `last_enabled_pulse < MIN_VALID_PULSE` (= 1.0 µs). Diese Variable
+wird nur in `pulse()` oder `set_value()` gesetzt — also bei frischem
+FW-Boot oder nach RESET ist sie noch 0. Folge: `enable()` setzt PWM auf
+MID = horizontale T-Pose-Mitte, **unabhaengig** davon was im FW
+`target_pulse_us[idx]` steht. Diesen MID-Fallback umgehen wir indem
+wir gar nicht `enable()` callen — `pulse(target, load=true)` setzt
+ServoState::last_enabled_pulse=target + enabled=true + emittiert
+PWM=target in einem Schritt. Mit Fix 3.2 ist `current_pulse_us[idx] ==
+target_pulse_us[idx]` zu diesem Zeitpunkt, also exakt die Initial-Pose.
+
+Voraussetzung: Plugin sendet **vor** ENABLE_SERVO mindestens einmal
+`SET_TARGETS` (was es in on_activate macht). Falls ein User einen
+ENABLE_SERVO ohne vorheriges SET_TARGETS schickt: `current_pulse_us[idx]
+== pulse_zero_us[idx]` (= DEFAULT_PULSE_ZERO_US = 1500 µs) → Servo zur
+Mitte, was der Pre-Fix-3.4-Default war.
 
 ---
 

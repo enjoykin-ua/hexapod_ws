@@ -729,11 +729,9 @@ TEST(HexapodSystemActivate, PtyActivateRespectsStaggerTiming)
   // Without the 50 ms stagger, the boot sequence would finish in single
   // digits of milliseconds — verify the wall-clock duration matches the
   // designed cadence.
-  // Budget (Phase 13 Stage A): 10 ms (RESET breather) +
-  //                            400 ms (SET_TARGETS pre-enable breather, lets
-  //                                    FW-Soft-Ramp lift current_pulse_us to
-  //                                    suspended-PWMs before ENABLEs hit) +
-  //                            18 × 50 ms (ENABLE_SERVO stagger) = ~1310 ms.
+  // Budget (Phase 13 FW-Fix): 10 ms (RESET breather) +
+  //                           10 ms (SET_TARGETS pre-enable breather) +
+  //                           18 × 50 ms (ENABLE_SERVO stagger) = ~920 ms.
   // Allow ±200 ms band for scheduler jitter on busy CI machines.
   int master_fd;
   std::string slave_name;
@@ -756,9 +754,8 @@ TEST(HexapodSystemActivate, PtyActivateRespectsStaggerTiming)
     hardware_interface::CallbackReturn::SUCCESS);
   const auto dt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now() - t0).count();
-  EXPECT_GT(dt_ms, 1200) << "Activate completed in " << dt_ms << " ms — "
-    "no stagger or pre-enable breather skipped?";
-  EXPECT_LT(dt_ms, 1700) << "Activate took " << dt_ms << " ms — too slow?";
+  EXPECT_GT(dt_ms, 800) << "Activate completed in " << dt_ms << " ms — no stagger?";
+  EXPECT_LT(dt_ms, 1200) << "Activate took " << dt_ms << " ms — too slow?";
 
   drain_master_until_idle(master_fd, std::chrono::milliseconds(50));
   EXPECT_EQ(
