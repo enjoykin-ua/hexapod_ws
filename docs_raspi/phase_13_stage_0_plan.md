@@ -53,7 +53,8 @@ gewünschte Init-Pose ist.
    Default LOW = Servos stromlos. Das Plugin schaltet V+ erst auf, wenn die
    PWM-Signale sauber stehen.
 3. **Plugin-Init-Sequenz** (gestaffeltes Enable: Femur → Relay-On → Coxa →
-   Tibia) + **Gait-Stand-up** (Tripod 3+3) zum Aufstehen.
+   Tibia) + **Gait-Stand-up** (**all-6 simultan**, STARTUP_RAMP — siehe DL-7)
+   zum Aufstehen vom Bauch.
 
 ## 4. Design-Entscheidung: 35°-Offset lebt in der Kalibrierung (Weg A)
 
@@ -119,10 +120,10 @@ Pipeline.
 | **0.1** | FW RELAY_CONTROL-Frame (0x51) + Fail-safe-Relay-Off + GP26-Boot-LOW; Plugin `/hexapod_relay_set` Service + `encode_relay_control` + on_deactivate-Relay-Off | Code, standalone testbar | [`phase_13_stage_0_1_relay_plan.md`](phase_13_stage_0_1_relay_plan.md) |
 | **0.2** | Mech-Umbau (§6-Servo-Trick, an Weg A angepasst) + Re-Cal Femurs (pulse_zero/min/max) + asymm. Femur-Limits | User-Mechanik + Cal | _just-in-time_ |
 | **0.3** | Plugin `on_activate` Relay-gated Init-Sequenz (Init-Target → Femur-Enable gestaffelt → Relay-ON → Coxa → Tibia); Init-Pose-Wert rad −0.611 | Code + Unit-Tests | _just-in-time_ |
-| **0.4** | Gait Stand-up Tripod-3+3-States ab Init-Pose | Pure-Python + Unit-Tests | _just-in-time_ |
+| **0.4** | Gait Stand-up **all-6 simultan** ab power_on_mid (STARTUP_RAMP — DL-7) | Pure-Python + Unit-Tests | [`phase_13_stage_0_4_standup_plan.md`](phase_13_stage_0_4_standup_plan.md) |
 | **0.5** | Sim-Visualisierung Init + Stand-up (Gazebo + RViz) | interaktiv | _just-in-time test_commands_ |
 | **0.6** | HW Live aufgebockt — Init + Stand-up | interaktiv | _just-in-time test_commands_ |
-| **0.7** | Boden-Test — Hexapod liegt, Aufstehen via Tripod | interaktiv | _just-in-time test_commands_ |
+| **0.7** | Boden-Test — Hexapod liegt am Bauch, Aufstehen **all-6** | interaktiv | _just-in-time test_commands_ |
 
 Die Pläne für 0.2–0.7 werden **just-in-time** erstellt, weil ihre Inhalte
 (asymmetrische Limits, Init-Pose-Start) von Mess-/Vorergebnissen abhängen.
@@ -132,8 +133,9 @@ Die Pläne für 0.2–0.7 werden **just-in-time** erstellt, weil ihre Inhalte
 Alle Sub-Stages 0.1–0.7 grün laut
 [`phase_13_stage_0_progress.md`](phase_13_stage_0_progress.md):
 Roboter fährt beim Plugin-Start ruckfrei in die 35°-Init-Pose (aufgebockt
-**und** liegend) und steht via Tripod-3+3-Sequenz auf, ohne Foot-Schramm,
-ohne IKError, ohne Servo-Stall.
+**und** liegend) und steht **mit allen 6 Beinen gleichzeitig** (STARTUP_RAMP,
+all-6 — siehe DL-7) vom Bauch auf, ohne Foot-Schramm, ohne IKError, ohne
+Servo-Stall.
 
 ## 8. Cross-References
 

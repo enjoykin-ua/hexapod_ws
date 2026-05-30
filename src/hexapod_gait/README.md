@@ -10,7 +10,7 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 |---|---|
 | [stand_node.py](hexapod_gait/stand_node.py) | One-shot rclpy-Knoten: fährt alle 6 Beine in Stand-Pose und beendet sich |
 | [gait_node.py](hexapod_gait/gait_node.py) | 50 Hz Timer-Loop, cmd_vel-Subscriber, Engine-Tick → 6 JointTrajectory-Pubs |
-| [gait_engine.py](hexapod_gait/gait_engine.py) | Pure-Python State-Machine STANDING / WALKING / STOPPING + Body-Frame-Mapping |
+| [gait_engine.py](hexapod_gait/gait_engine.py) | Pure-Python State-Machine STANDING / WALKING / STOPPING / STARTUP_RAMP + Body-Frame-Mapping |
 | [gait_patterns.py](hexapod_gait/gait_patterns.py) | `GaitPattern`-Dataclass + Presets `TRIPOD`, `SINGLE_LEG_1..6`, erweiterbar für Wave/Ripple |
 | [trajectory_gen.py](hexapod_gait/trajectory_gen.py) | Pure-Python `swing_traj` (Halbsinus) + `stance_traj` (linear) im Bein-Frame |
 
@@ -25,6 +25,31 @@ ros2 launch hexapod_gait stand.launch.py
 Fährt alle 6 Beine in
 `(radial=0.27, 0, body_height=-0.052)` (Stufe-F-Default mit 5 mm
 globaler Penetration für JTC-Tracking-Lag). Beendet sich nach ~5 s.
+
+### Stand-up / Aufstehen (Phase 13 Stage 0.4)
+
+Auf der echten Hardware ist `stand_node` (one-shot, cartesian) **nicht** der
+Aufsteh-Pfad — das macht der **STARTUP_RAMP-State** in `gait_node`/`gait_engine`:
+
+- Nach dem HW-Plugin-Init (`hexapod_hardware` Stage 0.3) stehen die Servos auf
+  der **power_on_mid-Pose** (Servo-Mitte 1500 µs: Femurs ~27° hoch, Beine
+  angehoben/eingezogen, Bauch liegt auf).
+- `gait_node` liest diese Pose beim ersten `/joint_states`-Empfang und rampt
+  per Smooth-Step (`s = p²(3−2p)`) **alle 6 Beine gleichzeitig** in Joint-Space
+  zur Stand-Pose hoch — der Hexapod **steht vom Bauch auf**. Auto-Übergang →
+  STANDING bei `progress ≥ 1`; `cmd_vel` wird während des Ramps ignoriert.
+- **all-6 simultan, nicht Tripod 3+3** (Stage-0 DL-7): Beim Aufstehen vom Bauch
+  ist Bauch/Boden die Stütze, nicht die Beine — kein Stativ nötig. Tripod 3+3
+  braucht man nur, wenn der Körper allein auf den Beinen steht und Füße
+  umgesetzt werden (z. B. Bein-Radius im Stand ändern). all-6 verteilt zudem die
+  Lift-Last auf 6 statt 3 Servos.
+- **In-Limits garantiert**: Smooth-Step interpoliert monoton zwischen
+  power_on_mid und Stand-Pose; beide liegen in den URDF-Limits → jeder
+  Zwischenwert auch. Kein Stage-0.5/0.6-Plugin-Freeze während des Aufstehens
+  (Test `test_power_on_mid_start_ramp_in_limits`).
+- Param `auto_standup_duration` (Default 4.0 s) steuert die Ramp-Dauer. Das
+  obsolete `suspended`-Preset (femur=+1.45) ist **nicht** mehr der Startpunkt
+  (war Pre-0.3).
 
 ### Gait starten
 

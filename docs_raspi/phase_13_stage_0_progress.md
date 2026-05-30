@@ -10,7 +10,13 @@ on_activate-Sequenz (RESET→SET_TARGETS→6×femur→RELAY→coxa→tibia→rea
 Settle-Heartbeat gegen FW-Watchdog (R16). Tests **352/0/25-skip**, uncrustify
 clean. Live T2–T5 aufgebockt verifiziert (Relay hält, Race weg, kein Trip,
 Shutdown stromlos). Code- + Final-Review ohne 🔴 (zwei 🟡-Merker: T5b-Live +
-0.7-Boden-limp). **Bereit für Commit (User).** Nächste: 0.4 (Gait Stand-up).
+0.7-Boden-limp). **Bereit für Commit (User).**
+
+**+ Sub-Stage 0.4 ✅ FERTIG (2026-05-30):** Gait Stand-up = **all-6 simultan**
+ab power_on_mid (STARTUP_RAMP existierte bereits → Validierung statt Neubau, DL-7
+korrigiert Tripod-3+3→all-6). Fixture suspended→power_on_mid, 5 neue Tests
+(in-limits/endpoint/all-6/monoton/sanity), **colcon test hexapod_gait 51/0/0**,
+README aktualisiert, Self-Review ohne 🔴. Nächste: 0.5 (Sim-Visualisierung).
 
 ---
 
@@ -198,9 +204,40 @@ Boden-limp) sind bewusste Merker für spätere Stages, kein Blocker für 0.3.
 
 ---
 
-## Sub-Stage 0.4 — Gait Stand-up (Tripod 3+3)
+## Sub-Stage 0.4 — Gait Stand-up (all-6 simultan, ab power_on_mid) ✅ FERTIG (2026-05-30)
 
-_Plan just-in-time nach 0.3._
+Plan: [`phase_13_stage_0_4_standup_plan.md`](phase_13_stage_0_4_standup_plan.md).
+Pure-Python (kein Engine-Rewrite — STARTUP_RAMP existierte, all-6, in-limits
+garantiert; 0.4 = Fixture-Realität + Beweis-Tests + Doku + Vertrags-Korrektur).
+
+- [x] 0.4.1  Design all-6 (nicht 3+3) im Stage-0-Plan §3/§6/§7 + DL-7 korrigiert
+- [x] 0.4.2  test_startup_ramp.py: suspended-Fixture (femur=1.45) → power_on_mid-Fixture (reale 0.3-Init-Pose, 8 Call-Sites umgestellt)
+- [x] 0.4.3  Test `power_on_mid_start_ramp_in_limits` (21 Samples × 18 Joints ∈ URDF-Limits)
+- [x] 0.4.4  Test `power_on_mid_ramp_endpoint_is_stand_pose`
+- [x] 0.4.5  Test `power_on_mid_ramp_all_six_simultaneous` (gleicher smooth-step-Faktor alle 6 Beine)
+- [x] 0.4.6  Test `power_on_mid_ramp_monotonic` + `power_on_mid_matches_calibration_roundtrip` (Sanity)
+- [x] 0.4.7  Kein Engine/Node-Fix nötig (Analyse + grüne Tests bestätigen)
+- [x] 0.4.8  colcon test hexapod_gait grün (**51/0/0**, inkl. flake8/pep257/copyright + 5 neue Tests)
+- [x] 0.4.9  gait README: STARTUP_RAMP-State + Stand-up-Abschnitt (all-6, in-limits, power_on_mid, suspended obsolet)
+- [x] 0.4.10 Self-Review (unten), keine offenen 🔴
+
+### Sub-Stage 0.4 — Post-Review (2026-05-30)
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | Stand-up-Mechanik existierte bereits (STARTUP_RAMP, all-6, joint-space smooth-step) — 0.4 ist Validierung + Test-Realität, kein Neubau | OK |
+| R2 | power_on_mid-rad-Fixture aus servo_mapping.yaml via pulse_us_to_radians(1500) abgeleitet (Plan §3), hartkodiert im gait-Test um hexapod_hardware-Import zu vermeiden | OK — bei neuer Femur-Cal Fixture nachziehen (🟢 im Test-Kommentar dokumentiert) |
+| R3 | In-Limits über ganzen Ramp empirisch belegt (21 Samples), nicht nur Endpunkte — fängt künftige Monotonie-Brüche | OK |
+| R4 | all-6-simultan per Test belegt (gleicher smooth-step-Faktor) → Abgrenzung zu 3+3 maschinell gesichert | OK |
+| R5 | Startpunkt = real gemessene `/joint_states`-Pose (nicht hartkodiert); Fixture spiegelt das nur für den Test | OK |
+| R6 | Lerp joint-space-start-agnostisch: kleine HW-Cal-Toleranz ggü. Fixture bleibt korrekt/in-limits | OK |
+| R7 | Stand-Pose-Param radial=0.27/body_height=−0.052 aus Sim; HW-Feintuning 0.6 live | 🟡 → 0.6 (kein Blocker) |
+| R8 | `auto_standup_duration` 4.0 s: größte Bewegung Tibia ~57–64° → ~0.25–0.28 rad/s ≪ 2.0 rad/s URDF-Cap | OK (konservativ) |
+| R9 | gait.launch.py `use_sim_time`-Default (Memory `project_phase13_gait_launch_sim_time_default`) blockt rclpy-Timer auf HW ohne /clock | 🟡 → ab 0.6 HW (Workaround `use_sim_time:=false`), nicht 0.4 |
+
+**Ergebnis:** keine 🔴. Zwei 🟡 (R7 Stand-Pose-Feintuning, R9 use_sim_time) sind
+Live-Themen für 0.6, kein Blocker für die Pure-Python-Logik-Stage 0.4.
+**Sub-Stage 0.4 fertig.** Bereit für User-Commit. Nächste: 0.5 (Sim-Visualisierung).
 
 ## Sub-Stage 0.5 — Sim-Visualisierung
 
@@ -226,6 +263,7 @@ _test_commands just-in-time._
 | DL-4 | **servo2040_fix behalten** als Fundament | verwerfen | Gated PWM auf disabled Pins ist Voraussetzung für Relay-Ansatz; löst nicht MID-on-Power, aber komplementär | 2026-05-30 |
 | DL-5 | **Femur-Limits asymmetrisch**, datengetrieben nach Re-Cal | symmetrisch ±X (Stage-F-Stil) | Mechanik ist nach Umbau real asymmetrisch (mehr Range unten); Symmetrie wäre künstliche Beschränkung | 2026-05-30 |
 | DL-6 | **UV/OC-Trips nur scharf wenn `relay_on`** (FW) + Sense-Warmup-Reset beim Relay-On | Trips immer scharf (0.1-Stand) | **0.2-Blocker-Fix:** Relay default-OFF → Rail liest ~0 V (gemessen 129 mV) → FW trippte Undervoltage **sofort nach Boot** → latch-disable aller Servos → Servos kamen trotz späterem Relay-On nie hoch. Relay bricht die „Rail immer bestromt"-Annahme der Schutzlogik. Gehört zur sauberen Relay-Integration (in 0.1 übersehen) | 2026-05-30 |
+| DL-7 | **Stand-up all-6 simultan** (STARTUP_RAMP) | Tripod 3+3 (urspr. Stage-0-Plan §6/§7) | Aufstehen erfolgt **vom Bauch** (bzw. aufgehängt-am-Bauch = Boden-Sim): Bauch/Boden ist die Stütze, nicht die Beine → kein Stativ-Bedarf. Tripod 3+3 ist für statische Stabilität nötig, wenn der Körper allein auf den Beinen steht + Füße umgesetzt werden (z. B. Bein-Radius-Änderung — kein 0.4-Thema). all-6 verteilt zudem die Lift-Last auf 6 statt 3 Servos (weniger Stall-Risiko). Stage-0-Plan §6/§7 entsprechend korrigiert | 2026-05-30 |
 
 ## Offene Punkte (cross-Sub-Stage, zu klären wenn erreicht)
 

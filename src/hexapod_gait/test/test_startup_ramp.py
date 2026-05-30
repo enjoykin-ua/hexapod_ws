@@ -1,5 +1,10 @@
 """
-Tests for Phase 13 Stage A — STATE_STARTUP_RAMP in gait_engine.
+Tests for Phase 13 Stage A + Stage 0.4 — STATE_STARTUP_RAMP in gait_engine.
+
+Stage 0.4: the real init pose is now power_on_mid (servo centre 1500 us,
+see hexapod_hardware Stage 0.3), NOT the obsolete suspended preset
+(femur=1.45). The start-pose fixture below reflects that. The stand-up
+is all-6 simultaneous (NOT tripod 3+3 — see Stage-0 DL-7).
 
 Pure-Python (pytest, no rclpy). Covers:
 - T3: linear/smooth-step lerp from start_joints to stand-pose target,
@@ -14,9 +19,11 @@ Plugin-side YAML-load + PWM-conversion tests (T1, T2, T7) live in the
 hexapod_hardware gtest suite.
 """
 
+import math
+
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
-from hexapod_kinematics import HEXAPOD
+from hexapod_kinematics import HEXAPOD, JointLimits, leg_ik
 import pytest
 
 
@@ -35,9 +42,33 @@ def _make_engine() -> GaitEngine:
     )
 
 
-def _suspended_start_joints() -> dict[str, tuple[float, float, float]]:
-    """Stage-A-suspended-Preset-Werte fuer alle 6 Beine."""
-    return {leg.name: (0.0, 1.45, 0.0) for leg in HEXAPOD.legs}
+# URDF joint limits (00_conventions.md §11.4 + Stage 0.2): coxa/femur
+# ±1.57, tibia ±1.50. Used by the in-limits test below.
+_URDF_LIMITS = JointLimits(
+    coxa_lower=-1.57, coxa_upper=1.57,
+    femur_lower=-1.57, femur_upper=1.57,
+    tibia_lower=-1.50, tibia_upper=1.50,
+)
+
+
+# power_on_mid start pose (servo centre 1500 us -> rad per joint), the
+# real plugin init pose after Stage 0.3. Computed from servo_mapping.yaml
+# via pulse_us_to_radians(1500); hard-coded here so the gait test stays
+# free of a hexapod_hardware import. Per leg: (coxa, femur, tibia) rad.
+# Source: docs_raspi/phase_13_stage_0_4_standup_plan.md §3.
+_POWER_ON_MID = {
+    'leg_1': (-0.262, -0.469, 0.333),
+    'leg_2': (0.589, -0.637, 0.329),
+    'leg_3': (-0.422, -0.439, 0.217),
+    'leg_4': (0.098, -0.477, 0.329),
+    'leg_5': (0.393, -0.419, 0.201),
+    'leg_6': (0.196, -0.496, 0.289),
+}
+
+
+def _power_on_mid_start_joints() -> dict[str, tuple[float, float, float]]:
+    """Real Stage-0.3 init pose (power_on_mid) per leg, as ramp start."""
+    return dict(_POWER_ON_MID)
 
 
 # ---------------------------------------------------------------------
@@ -54,14 +85,14 @@ def test_startup_ramp_initial_state_is_standing():
 def test_startup_ramp_state_after_start_ramp():
     """start_ramp() setzt _state auf STARTUP_RAMP."""
     engine = _make_engine()
-    engine.start_ramp(_suspended_start_joints(), t=0.0, duration=4.0)
+    engine.start_ramp(_power_on_mid_start_joints(), t=0.0, duration=4.0)
     assert engine.state == GaitEngine.STATE_STARTUP_RAMP
 
 
 def test_startup_ramp_auto_transitions_to_standing():
     """Nach progress >= 1.0 wechselt Engine selbsttaetig zu STANDING."""
     engine = _make_engine()
-    engine.start_ramp(_suspended_start_joints(), t=0.0, duration=4.0)
+    engine.start_ramp(_power_on_mid_start_joints(), t=0.0, duration=4.0)
     # Erster tick mid-Ramp — bleibt in STARTUP_RAMP
     _ = engine.compute_joint_angles(t=2.0)
     assert engine.state == GaitEngine.STATE_STARTUP_RAMP
@@ -78,7 +109,7 @@ def test_startup_ramp_auto_transitions_to_standing():
 def test_startup_ramp_endpoint_at_progress_1():
     """Bei progress >= 1.0: Output == Ramp-Target (= Stand-Pose-IK)."""
     engine = _make_engine()
-    start = _suspended_start_joints()
+    start = _power_on_mid_start_joints()
     engine.start_ramp(start, t=0.0, duration=4.0)
     out_end = engine.compute_joint_angles(t=4.0)
     # Compare gegen direkt-berechnete Stand-Pose
@@ -93,7 +124,7 @@ def test_startup_ramp_endpoint_at_progress_1():
 def test_startup_ramp_start_at_progress_0():
     """Bei progress = 0: Output == Start-Joints (smooth-step s(0)=0)."""
     engine = _make_engine()
-    start = _suspended_start_joints()
+    start = _power_on_mid_start_joints()
     engine.start_ramp(start, t=10.0, duration=4.0)
     out_start = engine.compute_joint_angles(t=10.0)
     for leg in HEXAPOD.legs:
@@ -106,7 +137,7 @@ def test_startup_ramp_start_at_progress_0():
 def test_startup_ramp_midpoint_is_lerp_average():
     """Smooth-Step bei progress=0.5 = arithmetisches Mittel pro Joint."""
     engine = _make_engine()
-    start = _suspended_start_joints()
+    start = _power_on_mid_start_joints()
     engine.start_ramp(start, t=0.0, duration=4.0)
     target = engine._compute_stand_pose_joints()
     out_mid = engine.compute_joint_angles(t=2.0)  # progress=0.5
@@ -119,7 +150,7 @@ def test_startup_ramp_midpoint_is_lerp_average():
 def test_startup_ramp_smooth_step_monotonic():
     """Smooth-Step-Lerp ist nicht-fallend pro Joint ueber 11 Stichproben."""
     engine = _make_engine()
-    start = _suspended_start_joints()
+    start = _power_on_mid_start_joints()
     engine.start_ramp(start, t=0.0, duration=4.0)
     samples = []
     for k in range(11):
@@ -162,7 +193,7 @@ def test_startup_ramp_smooth_step_monotonic():
 def test_startup_ramp_ignores_cmd_vel():
     """set_command() in STARTUP_RAMP: kein state-change, kein clamp."""
     engine = _make_engine()
-    engine.start_ramp(_suspended_start_joints(), t=0.0, duration=4.0)
+    engine.start_ramp(_power_on_mid_start_joints(), t=0.0, duration=4.0)
     clamped = engine.set_command(0.05, 0.0, 0.0, t=1.0)
     # Kein Clamp gesetzt
     assert clamped is False
@@ -176,7 +207,7 @@ def test_startup_ramp_ignores_cmd_vel():
 def test_startup_ramp_cmd_vel_works_after_ramp_finished():
     """Nach STANDING-Uebergang reagiert set_command() wieder normal."""
     engine = _make_engine()
-    engine.start_ramp(_suspended_start_joints(), t=0.0, duration=4.0)
+    engine.start_ramp(_power_on_mid_start_joints(), t=0.0, duration=4.0)
     # Erst Ramp komplettieren
     _ = engine.compute_joint_angles(t=4.001)
     assert engine.state == GaitEngine.STATE_STANDING
@@ -194,7 +225,7 @@ def test_startup_ramp_rejects_zero_duration():
     engine = _make_engine()
     with pytest.raises(ValueError):
         engine.start_ramp(
-            _suspended_start_joints(), t=0.0, duration=0.0
+            _power_on_mid_start_joints(), t=0.0, duration=0.0
         )
 
 
@@ -202,14 +233,14 @@ def test_startup_ramp_rejects_negative_duration():
     engine = _make_engine()
     with pytest.raises(ValueError):
         engine.start_ramp(
-            _suspended_start_joints(), t=0.0, duration=-1.0
+            _power_on_mid_start_joints(), t=0.0, duration=-1.0
         )
 
 
 def test_startup_ramp_missing_legs_fall_back_to_target():
     """Fehlende Beine in start_joints: Start = Target, keine Bewegung."""
     engine = _make_engine()
-    start = _suspended_start_joints()
+    start = _power_on_mid_start_joints()
     # leg_3 fehlt
     del start['leg_3']
     engine.start_ramp(start, t=0.0, duration=4.0)
@@ -219,8 +250,142 @@ def test_startup_ramp_missing_legs_fall_back_to_target():
     out = engine.compute_joint_angles(t=2.0)
     for i in range(3):
         assert out['leg_3'][i] == pytest.approx(target['leg_3'][i], abs=1e-9)
-    # leg_1 ist auf Lerp-Mitte zwischen suspended und stand
-    expected_leg1_femur = 0.5 * (1.45 + target['leg_1'][1])
+    # leg_1 ist auf Lerp-Mitte zwischen power_on_mid und stand
+    start_leg1_femur = _POWER_ON_MID['leg_1'][1]
+    expected_leg1_femur = 0.5 * (start_leg1_femur + target['leg_1'][1])
     assert out['leg_1'][1] == pytest.approx(
         expected_leg1_femur, abs=1e-9
     )
+
+
+# ---------------------------------------------------------------------
+# Stage 0.4 — power_on_mid stand-up (all-6 simultaneous, in-limits)
+# ---------------------------------------------------------------------
+
+
+def test_power_on_mid_ramp_endpoint_is_stand_pose():
+    """Ramp end == stand-pose IK for all 6 legs (power_on_mid start)."""
+    engine = _make_engine()
+    engine.start_ramp(_power_on_mid_start_joints(), t=0.0, duration=4.0)
+    out_end = engine.compute_joint_angles(t=4.0)
+    target = engine._compute_stand_pose_joints()
+    for leg in HEXAPOD.legs:
+        for i in range(3):
+            assert out_end[leg.name][i] == pytest.approx(
+                target[leg.name][i], abs=1e-9
+            )
+
+
+def test_power_on_mid_start_ramp_in_limits():
+    """
+    Every intermediate sample of all 18 joints stays within URDF limits.
+
+    Smooth-step lerps monotonically from power_on_mid to stand-pose, so if
+    both endpoints are in-limits every sample is too — this asserts it
+    empirically over 21 samples (incl. endpoints) so a future engine change
+    that breaks monotonicity would be caught. In-limits over the whole ramp
+    is the HW-safety property: no Stage-0.5/0.6 plugin freeze during stand-up.
+    """
+    engine = _make_engine()
+    engine.start_ramp(_power_on_mid_start_joints(), t=0.0, duration=4.0)
+    lim = _URDF_LIMITS
+    bounds = (
+        (lim.coxa_lower, lim.coxa_upper),
+        (lim.femur_lower, lim.femur_upper),
+        (lim.tibia_lower, lim.tibia_upper),
+    )
+    for k in range(21):
+        t = k * 0.2  # 0.0 .. 4.0
+        angles = engine.compute_joint_angles(t)
+        for leg in HEXAPOD.legs:
+            for i in range(3):
+                lo, hi = bounds[i]
+                v = angles[leg.name][i]
+                assert lo <= v <= hi, (
+                    f'{leg.name} joint {i} = {v:.4f} out of limits '
+                    f'[{lo}, {hi}] at t={t:.2f}'
+                )
+        # compute_joint_angles auto-transitions to STANDING at progress>=1;
+        # re-arm so the next sample is still evaluated in-ramp.
+        if engine.state == GaitEngine.STATE_STANDING:
+            engine._state = GaitEngine.STATE_STARTUP_RAMP
+
+
+def test_power_on_mid_ramp_all_six_simultaneous():
+    """
+    All 6 legs advance with the SAME smooth-step factor at a given progress.
+
+    Verifies the stand-up is all-6 simultaneous (Stage-0 DL-7), not a
+    staggered tripod. For each leg/joint the realised fraction
+    (angle-start)/(target-start) must equal the shared smooth-step s at the
+    sample time (joints with start==target are skipped — no motion, fraction
+    undefined).
+    """
+    engine = _make_engine()
+    start = _power_on_mid_start_joints()
+    engine.start_ramp(start, t=0.0, duration=4.0)
+    target = engine._compute_stand_pose_joints()
+    for progress in (0.25, 0.5, 0.75):
+        s_expected = progress * progress * (3.0 - 2.0 * progress)
+        angles = engine.compute_joint_angles(t=progress * 4.0)
+        for leg in HEXAPOD.legs:
+            for i in range(3):
+                span = target[leg.name][i] - start[leg.name][i]
+                if abs(span) < 1e-6:
+                    continue
+                frac = (angles[leg.name][i] - start[leg.name][i]) / span
+                assert frac == pytest.approx(s_expected, abs=1e-9), (
+                    f'{leg.name} joint {i}: fraction {frac:.6f} != shared '
+                    f's {s_expected:.6f} at progress {progress}'
+                )
+        engine._state = GaitEngine.STATE_STARTUP_RAMP
+
+
+def test_power_on_mid_ramp_monotonic():
+    """Each joint moves monotonically start->target (no slam/overshoot)."""
+    engine = _make_engine()
+    start = _power_on_mid_start_joints()
+    engine.start_ramp(start, t=0.0, duration=4.0)
+    samples = []
+    for k in range(11):
+        t = k * 0.4
+        angles = engine.compute_joint_angles(t)
+        samples.append({leg.name: angles[leg.name] for leg in HEXAPOD.legs})
+        if engine.state == GaitEngine.STATE_STANDING:
+            engine._state = GaitEngine.STATE_STARTUP_RAMP
+    for leg in HEXAPOD.legs:
+        for i in range(3):
+            seq = [s[leg.name][i] for s in samples]
+            delta_total = seq[-1] - seq[0]
+            if abs(delta_total) < 1e-9:
+                for v in seq:
+                    assert v == pytest.approx(seq[0], abs=1e-9)
+            else:
+                sign = 1.0 if delta_total > 0 else -1.0
+                for prev, curr in zip(seq, seq[1:]):
+                    assert sign * (curr - prev) >= -1e-9, (
+                        f'{leg.name} joint {i}: non-monotonic '
+                        f'{prev} -> {curr}'
+                    )
+
+
+def test_power_on_mid_matches_calibration_roundtrip():
+    """
+    Sanity: hard-coded _POWER_ON_MID matches stand-pose reachability.
+
+    Not a calibration re-derivation (that lives in hexapod_hardware); just
+    guards that the fixture values are plausible leg-space angles by checking
+    the stand-pose target itself is IK-reachable from these (leg_ik on the
+    stand foot-target must not raise).
+    """
+    foot = (0.27, 0.0, -0.052)
+    for leg in HEXAPOD.legs:
+        # Must not raise IKError — stand pose reachable for every leg.
+        angles = leg_ik(*foot, leg, _URDF_LIMITS)
+        # femur clearly more negative than the power_on_mid start (legs lower)
+        assert angles[1] < _POWER_ON_MID[leg.name][1] + 1e-6
+        # tibia clearly more positive (knee tucks to push body up)
+        assert angles[2] > _POWER_ON_MID[leg.name][2]
+        # coxa target centered
+        assert abs(angles[0]) < 1e-6
+        assert not math.isnan(angles[0])
