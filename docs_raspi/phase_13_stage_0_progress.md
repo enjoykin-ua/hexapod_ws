@@ -88,8 +88,21 @@ Plan: [`phase_13_stage_0_2_remount_recal_plan.md`](phase_13_stage_0_2_remount_re
 
 ## Sub-Stage 0.3 — Plugin on_activate Relay-gated Init-Sequenz
 
-_Plan just-in-time nach 0.2. Init-Target → Femur-Enable gestaffelt →
-Relay-ON → Coxa → Tibia._
+Plan: [`phase_13_stage_0_3_init_sequence_plan.md`](phase_13_stage_0_3_init_sequence_plan.md)
++ `_test_commands.md`. Löst Init-Race (0.2-Finding) + K3.
+
+- [ ] 0.3.1  on_activate: init_pulse = 1500 µs (Servo-Mitte) für alle 18 Pins (K3)
+- [ ] 0.3.2  on_activate: hw_state_positions_ = rad(1500) → Race-Fix (JTC liest echte Pose)
+- [ ] 0.3.3  on_activate: gestaffelte Sequenz RESET→SET_TARGETS→6×Femur-ENABLE→RELAY-ON→Coxa→Tibia→reaffirm
+- [ ] 0.3.4  initial_poses.yaml: "suspended" (+1.45) obsolet → power_on_mid / Doku
+- [ ] 0.3.5  initial_pose-Default-Param (urdf.xacro) angepasst
+- [ ] 0.3.6  Unit-Tests (Sequenz-Order, init=1500, hw_state) + bestehende angepasst
+- [ ] 0.3.7  colcon build + test hexapod_hardware grün
+- [ ] 0.3.8  Live T2: Init-Sequenz fährt alle 6 sauber hoch, kein Ruck, kein Trip
+- [ ] 0.3.9  Live T3: 5× Restart → nie bleibt ein Bein unten (Race weg)
+- [ ] 0.3.10 Live T4: Strom beim Staffel-Enable unter Limit
+- [ ] 0.3.11 Live T5: on_deactivate Relay-off (Regression)
+- [ ] 0.3.12 Self-Review-Tabelle, Fixe erledigt
 - **K3-Pendenz (aus 0.2):** Init-Pose-Femur-Wert NICHT hartkodiert −0.611,
   sondern pro Pin aus `pulse_us_to_radians(1500)` (echte Servo-Power-On-Mitte),
   damit `/joint_states` die wahre Startpose meldet und Stand-up (0.4) sauber
