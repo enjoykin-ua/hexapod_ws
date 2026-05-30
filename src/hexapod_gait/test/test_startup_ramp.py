@@ -31,38 +31,46 @@ _TRIPOD = GAIT_PRESETS['tripod']
 
 
 def _make_engine() -> GaitEngine:
-    """Engine mit Phase-11/13-Defaults — reproduzierbar, IK-erreichbar."""
+    """Engine mit Stage-0.4-Stand-Pose-Defaults — IK-erreichbar + in-limits."""
     return GaitEngine(
         pattern=_TRIPOD,
         step_height=0.03,
         cycle_time=2.0,
-        radial_distance=0.27,
-        body_height=-0.052,
+        # Stage 0.4: radial 0.295 / body_height -0.080 (war 0.27 / -0.052).
+        # Die alte Pose verletzte das Tibia-Limit (1.33 > 1.161 rad) -> auf HW
+        # Stage-0.5-Freeze; in lenienter Phase-5-Sim nie aufgefallen.
+        radial_distance=0.295,
+        body_height=-0.080,
         step_length_max=0.05,
     )
 
 
-# URDF joint limits (00_conventions.md §11.4 + Stage 0.2): coxa/femur
-# ±1.57, tibia ±1.50. Used by the in-limits test below.
+# ECHTE URDF-Joint-Limits, die das Plugin via set_joint_limits aus
+# hexapod.urdf.xacro nimmt (Stage F strict-min + Stage 0.2 femur):
+# coxa ±0.415, femur ±1.57, tibia ±1.161. NICHT die config.py-Defaults
+# (±1.57/±1.50) — die Slope-Formel haengt von den Limits ab, daher muss
+# der In-Limits-Test die echten Werte nutzen.
 _URDF_LIMITS = JointLimits(
-    coxa_lower=-1.57, coxa_upper=1.57,
+    coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.50, tibia_upper=1.50,
+    tibia_lower=-1.161, tibia_upper=1.161,
 )
 
 
 # power_on_mid start pose (servo centre 1500 us -> rad per joint), the
 # real plugin init pose after Stage 0.3. Computed from servo_mapping.yaml
-# via pulse_us_to_radians(1500); hard-coded here so the gait test stays
-# free of a hexapod_hardware import. Per leg: (coxa, femur, tibia) rad.
-# Source: docs_raspi/phase_13_stage_0_4_standup_plan.md §3.
+# via pulse_us_to_radians(1500) MIT den echten URDF-Limits (s. _URDF_LIMITS);
+# hard-coded here so the gait test stays free of a hexapod_hardware import.
+# Per leg: (coxa, femur, tibia) rad. Falls die Femur-Cal je neu vermessen
+# wird, diese Werte nachziehen.
+# Source: docs_raspi/phase_13_stage_0_4_standup_plan.md §3.1.
 _POWER_ON_MID = {
-    'leg_1': (-0.262, -0.469, 0.333),
-    'leg_2': (0.589, -0.637, 0.329),
-    'leg_3': (-0.422, -0.439, 0.217),
-    'leg_4': (0.098, -0.477, 0.329),
-    'leg_5': (0.393, -0.419, 0.201),
-    'leg_6': (0.196, -0.496, 0.289),
+    'leg_1': (-0.069, -0.469, 0.258),
+    'leg_2': (0.156, -0.637, 0.255),
+    'leg_3': (-0.111, -0.439, 0.168),
+    'leg_4': (0.026, -0.477, 0.255),
+    'leg_5': (0.104, -0.419, 0.156),
+    'leg_6': (0.052, -0.496, 0.224),
 }
 
 
@@ -369,23 +377,30 @@ def test_power_on_mid_ramp_monotonic():
                     )
 
 
-def test_power_on_mid_matches_calibration_roundtrip():
+def test_stand_pose_in_limits_for_all_legs():
     """
-    Sanity: hard-coded _POWER_ON_MID matches stand-pose reachability.
+    Stand-pose must be IK-reachable + within strict URDF limits, all 6 legs.
 
-    Not a calibration re-derivation (that lives in hexapod_hardware); just
-    guards that the fixture values are plausible leg-space angles by checking
-    the stand-pose target itself is IK-reachable from these (leg_ik on the
-    stand foot-target must not raise).
+    Stage 0.4 regression: this would have caught the bug fixed in 0.4 — the old
+    stand pose (radial 0.27 / body_height -0.052) needed tibia 1.33 rad, over
+    the +-1.161 limit -> HW Stage-0.5 freeze. leg_ik with _URDF_LIMITS raises
+    IKError on any out-of-limit joint, so a regression of the stand-pose
+    defaults fails loudly here.
     """
-    foot = (0.27, 0.0, -0.052)
+    foot = (0.295, 0.0, -0.080)  # Stage-0.4 stand pose
     for leg in HEXAPOD.legs:
-        # Must not raise IKError — stand pose reachable for every leg.
+        # Must not raise IKError (geometry reach + strict joint limits).
         angles = leg_ik(*foot, leg, _URDF_LIMITS)
-        # femur clearly more negative than the power_on_mid start (legs lower)
-        assert angles[1] < _POWER_ON_MID[leg.name][1] + 1e-6
-        # tibia clearly more positive (knee tucks to push body up)
-        assert angles[2] > _POWER_ON_MID[leg.name][2]
-        # coxa target centered
+        # Stand-up direction from power_on_mid: femur RISES (less negative,
+        # legs push down/out), tibia tucks MORE (knee bends to lift body).
+        assert angles[1] > _POWER_ON_MID[leg.name][1] - 1e-6, (
+            f'{leg.name} femur should rise from power_on_mid to stand'
+        )
+        assert angles[2] > _POWER_ON_MID[leg.name][2], (
+            f'{leg.name} tibia should tuck more from power_on_mid to stand'
+        )
+        # coxa target centered (radial neutral pose, y=0).
         assert abs(angles[0]) < 1e-6
         assert not math.isnan(angles[0])
+        # explicit limit guard (belt-and-suspenders to the IK strict-check).
+        assert _URDF_LIMITS.tibia_lower <= angles[2] <= _URDF_LIMITS.tibia_upper

@@ -23,8 +23,8 @@ ros2 launch hexapod_gait stand.launch.py
 ```
 
 Fährt alle 6 Beine in
-`(radial=0.27, 0, body_height=-0.052)` (Stufe-F-Default mit 5 mm
-globaler Penetration für JTC-Tracking-Lag). Beendet sich nach ~5 s.
+`(radial=0.295, 0, body_height=-0.080)` (Phase 13 Stage 0.4 Stand-Pose,
+in URDF-Limits). Beendet sich nach ~5 s.
 
 ### Stand-up / Aufstehen (Phase 13 Stage 0.4)
 
@@ -43,10 +43,19 @@ Aufsteh-Pfad — das macht der **STARTUP_RAMP-State** in `gait_node`/`gait_engin
   braucht man nur, wenn der Körper allein auf den Beinen steht und Füße
   umgesetzt werden (z. B. Bein-Radius im Stand ändern). all-6 verteilt zudem die
   Lift-Last auf 6 statt 3 Servos.
+- **Stand-Pose = radial 0.295 / body_height −0.080** (tibia 0.758 rad, klar in
+  URDF-Limit ±1.161). Stage 0.4 hat hier einen latenten Bug behoben: die alte
+  Pose (radial 0.27 / −0.052) verlangte tibia 1.33 rad > Limit 1.161 → auf HW
+  Stage-0.5-Freeze für die rechten Beine. In der lenienten Phase-5-Sim
+  (IK ohne Limit-Check) nie aufgefallen; die Stand-Pose wurde bei der Stage-F-
+  Limit-Verengung (2026-05-25) nicht mitgezogen. Weitere gültige
+  (body_height, radial)-Höhen: `phase_13_stage_0_4_standup_plan.md` Tab. 3.3,
+  per Param live anfahrbar.
 - **In-Limits garantiert**: Smooth-Step interpoliert monoton zwischen
   power_on_mid und Stand-Pose; beide liegen in den URDF-Limits → jeder
   Zwischenwert auch. Kein Stage-0.5/0.6-Plugin-Freeze während des Aufstehens
-  (Test `test_power_on_mid_start_ramp_in_limits`).
+  (Tests `test_power_on_mid_start_ramp_in_limits` + `test_stand_pose_in_limits_for_all_legs`,
+  beide mit den ECHTEN URDF-Limits coxa ±0.415 / femur ±1.57 / tibia ±1.161).
 - Param `auto_standup_duration` (Default 4.0 s) steuert die Ramp-Dauer. Das
   obsolete `suspended`-Preset (femur=+1.45) ist **nicht** mehr der Startpunkt
   (war Pre-0.3).

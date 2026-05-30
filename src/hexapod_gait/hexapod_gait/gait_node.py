@@ -172,20 +172,25 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='body_height', default=-0.052, standing_only=True,
-        fp_range=(-0.100, -0.020, 0.001),
+        name='body_height', default=-0.080, standing_only=True,
+        fp_range=(-0.120, -0.020, 0.001),
         description=(
             'Stand-Pose Foot-Z im Bein-Frame (m). '
-            'HW-Default -0.047, Sim-Default -0.052. '
+            'Phase 13 Stage 0.4: Default -0.080 (mit radial 0.295). Der alte '
+            '-0.052 verletzte mit radial 0.27 das Tibia-Limit (1.33>1.161 rad) '
+            '-> HW-Freeze; in der lenienten Phase-5-Sim nie aufgefallen. '
             'Live-Update nur in STANDING (analog cmd_body_height).'
         ),
     ),
     _ParamSpec(
-        name='radial_distance', default=0.27, standing_only=True,
+        name='radial_distance', default=0.295, standing_only=True,
         fp_range=(0.10, 0.35, 0.001),
         description=(
             'Radialer Foot-Neutral-Abstand vom Coxa-Mount '
-            'im Bein-Frame (m). '
+            'im Bein-Frame (m). Phase 13 Stage 0.4: Default 0.295 (war 0.27). '
+            'Weiter gestreckt -> Tibia knickt weniger -> in URDF-Limit '
+            '(+-1.161). Gueltige (body_height, radial)-Paare siehe '
+            'phase_13_stage_0_4_standup_plan.md Tab. 3.3. '
             'Live-Update nur in STANDING (Stand-Pose-Reset).'
         ),
     ),
@@ -239,16 +244,18 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='body_height_min', default=-0.080, standing_only=True,
-        fp_range=(-0.100, -0.020, 0.001),
+        name='body_height_min', default=-0.115, standing_only=True,
+        fp_range=(-0.120, -0.020, 0.001),
         description=(
             'Untere Schranke body_height (m). Cross-Constraint: '
-            'min < body_height < max. STANDING-only.'
+            'min < body_height < max. Phase 13 Stage 0.4: -0.115 (war -0.080) '
+            '— innerhalb des bei radial 0.295 gueltigen Bereichs (bis -0.120). '
+            'STANDING-only.'
         ),
     ),
     _ParamSpec(
         name='body_height_max', default=-0.030, standing_only=True,
-        fp_range=(-0.100, -0.020, 0.001),
+        fp_range=(-0.120, -0.020, 0.001),
         description=(
             'Obere Schranke body_height (m). Cross-Constraint: '
             'min < body_height < max. STANDING-only.'

@@ -40,8 +40,8 @@ class StandNode(Node):
     def __init__(self):
         super().__init__('stand_node')
 
-        self.declare_parameter('body_height', -0.052)
-        self.declare_parameter('radial_distance', 0.27)
+        self.declare_parameter('body_height', -0.080)
+        self.declare_parameter('radial_distance', 0.295)
         self.declare_parameter('transition_duration', 4.0)
         self.declare_parameter('discovery_wait', 2.0)
 

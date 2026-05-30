@@ -57,24 +57,68 @@ Test-Fixtures referenzieren noch den alten suspended-Startpunkt.**
 
 ## 3. Verifizierte Zahlen (power_on_mid → Stand-Pose)
 
-Berechnet aus `servo_mapping.yaml` (pulse_us_to_radians(1500)) + IK
-(radial=0.27, body_height=−0.052):
+> **⚠️ Korrektur (2026-05-30): Stand-Pose-Limit-Bug entdeckt + behoben.**
+> Beim Berechnen der Sim-Initpose (User-Wunsch: exakte HW-Werte) fielen ZWEI
+> Fehler auf, die in der lenienten Phase-5-Sim nie sichtbar waren:
+>
+> 1. **Falsche Limit-Quelle in der 0.4-Erstfassung:** `pulse_us_to_radians(1500)`
+>    + In-Limits-Test nutzten `config.py`-Limits (coxa ±1.57, tibia ±1.50). Die
+>    **echten** Limits, die das Plugin via `set_joint_limits` aus der URDF nimmt,
+>    sind aber **coxa ±0.415, femur ±1.57, tibia ±1.161** (Stage-F-strict-min).
+>    Da die Slope-Formel von den Limits abhängt, waren die power_on_mid-coxa/tibia-
+>    Werte falsch skaliert.
+> 2. **Stand-Pose (radial 0.27 / body_height −0.052) verletzt das Tibia-Limit:**
+>    sie verlangt **tibia = 1.332 rad**, aber das Limit ist **1.161**. Auf der HW
+>    → Stage-0.5-`safety_freeze` für die rechten Beine (PWM 751 µs < cal-min
+>    870 µs). Wurzel: die Stand-Pose-Defaults wurden bei der Stage-F-Limit-
+>    Verengung (2026-05-25) **nicht mitgezogen**; die Sim-IK lief lenient → nie
+>    aufgefallen. **Fix:** radial 0.27 → **0.295**, body_height −0.052 → **−0.080**
+>    (Beine weiter gestreckt → Tibia knickt weniger → 0.758 rad, klar in-limit).
 
-| leg | power_on_mid c/f/t (deg) | stand-pose c/f/t (deg) |
-|---|---|---|
-| leg_1 | −15.0 / −26.9 / +19.1 | 0.0 / −43.8 / +76.3 |
-| leg_2 | +33.7 / −36.5 / +18.9 | 0.0 / −43.8 / +76.3 |
-| leg_3 | −24.2 / −25.1 / +12.4 | 0.0 / −43.8 / +76.3 |
-| leg_4 | +5.6 / −27.3 / +18.9 | 0.0 / −43.8 / +76.3 |
-| leg_5 | +22.5 / −24.0 / +11.5 | 0.0 / −43.8 / +76.3 |
-| leg_6 | +11.2 / −28.4 / +16.6 | 0.0 / −43.8 / +76.3 |
+### 3.1 power_on_mid (1500 µs) — KORREKT mit URDF-Limits
 
-**Bewegungs-Charakter:** Coxas zentrieren auf 0°, Femurs senken leicht
-(~−15…−20°), **Tibias knicken stark ein (~+57…+64°)** — das ist der
-„Hochdrück"-Move. Alle Start- **und** Zielwerte liegen innerhalb der URDF-Limits
-(coxa/femur ±1.57, tibia ±1.50). Da Smooth-Step **monoton zwischen Start und
-Ziel** interpoliert, sind **alle Zwischenwerte ebenfalls in-limits** → kein
-Stage-0.5/0.6-Freeze möglich (mathematisch garantiert, kein empirisches Glück).
+| pin/joint | rad | deg | in [limit] |
+|---|---|---|---|
+| leg_1 coxa/femur/tibia | −0.069 / −0.469 / +0.258 | −4.0 / −26.9 / +14.8 | ✓ |
+| leg_2 coxa/femur/tibia | +0.156 / −0.637 / +0.255 | +8.9 / −36.5 / +14.6 | ✓ |
+| leg_3 coxa/femur/tibia | −0.111 / −0.439 / +0.168 | −6.4 / −25.1 / +9.6 | ✓ |
+| leg_4 coxa/femur/tibia | +0.026 / −0.477 / +0.255 | +1.5 / −27.3 / +14.6 | ✓ |
+| leg_5 coxa/femur/tibia | +0.104 / −0.419 / +0.156 | +5.9 / −24.0 / +8.9 | ✓ |
+| leg_6 coxa/femur/tibia | +0.052 / −0.496 / +0.224 | +3.0 / −28.4 / +12.8 | ✓ |
+
+(femur ist umbau-bedingt ~−27° = Servo-Mitte nach 35°-Umbau; coxa/tibia-
+Abweichungen = reine Servo-Montage-/Cal-Toleranz, alle in-limit.)
+
+### 3.2 Stand-Pose (radial 0.295 / body_height −0.080) — alle 6 Beine
+
+`coxa = 0.000, femur = −0.240, tibia = +0.758` (rad), identisch für alle 6
+Beine (symmetrische Geometrie). Alle in-limit (tibia 0.758 ≪ 1.161).
+
+### 3.3 Gültige Stand-Höhen (Referenz für Live-Tuning 0.6, Param-anfahrbar)
+
+Alle 6 Beine ∈ URDF-rad-Limits **und** ∈ cal-PWM-Range. `body_height` = Foot-Z
+im Bein-Frame (negativer = tiefer/geduckter):
+
+| body_height | radial gültig | empf. radial | tibia @ empf. |
+|---|---|---|---|
+| −0.05 | 0.285–0.310 | 0.300 | +0.82 |
+| −0.06 | 0.280–0.310 | 0.295 | +0.88 |
+| −0.07 | 0.280–0.310 | 0.295 | +0.82 |
+| **−0.08 (DEFAULT)** | **0.275–0.310** | **0.295** | **+0.76** |
+| −0.09 | 0.270–0.305 | 0.290 | +0.79 |
+| −0.10 | 0.270–0.305 | 0.290 | +0.71 |
+| −0.11 | 0.265–0.300 | 0.285 | +0.72 |
+
+Bei fixem radial=0.295 ist body_height von −0.020 bis −0.120 gültig → die
+`/cmd_body_height`-Live-Mutation-Grenzen werden auf min −0.115 / max −0.030
+gesetzt (innerhalb des gültigen Bereichs mit Reserve).
+
+**Bewegungs-Charakter Aufstehen:** Coxas zentrieren auf 0°, Femurs heben von
+~−27° (power_on_mid) auf ~−14° (Stand), **Tibias knicken von ~+13° auf ~+43°
+ein** — der „Hochdrück"-Move. Da Smooth-Step **monoton** zwischen power_on_mid
+und Stand-Pose interpoliert und beide Endpunkte in-limits sind, sind **alle
+Zwischenwerte ebenfalls in-limits** → kein Freeze während des Aufstehens
+(Test `power_on_mid_start_ramp_in_limits` mit den KORREKTEN Limits).
 
 ## 4. Offene Punkte für User-Review
 

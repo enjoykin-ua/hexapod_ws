@@ -13,10 +13,13 @@ Shutdown stromlos). Code- + Final-Review ohne 🔴 (zwei 🟡-Merker: T5b-Live +
 0.7-Boden-limp). **Bereit für Commit (User).**
 
 **+ Sub-Stage 0.4 ✅ FERTIG (2026-05-30):** Gait Stand-up = **all-6 simultan**
-ab power_on_mid (STARTUP_RAMP existierte bereits → Validierung statt Neubau, DL-7
-korrigiert Tripod-3+3→all-6). Fixture suspended→power_on_mid, 5 neue Tests
-(in-limits/endpoint/all-6/monoton/sanity), **colcon test hexapod_gait 51/0/0**,
-README aktualisiert, Self-Review ohne 🔴. Nächste: 0.5 (Sim-Visualisierung).
+ab power_on_mid (STARTUP_RAMP existierte → Validierung, DL-7 Tripod-3+3→all-6).
+**+ Korrektur (bei 0.5-Vorbereitung entdeckt):** Stand-Pose-Limit-Bug behoben —
+alte Pose (radial 0.27/bh −0.052) verletzte das Tibia-Limit (1.33>1.161 rad,
+HW-Freeze, in lenienter Sim nie sichtbar) → **radial 0.295 / bh −0.080**; plus
+falsche Limit-Quelle im Test korrigiert (echte URDF-Limits statt config.py).
+**colcon test hexapod_gait 357/0/25**, Regression-Test ergänzt, README + Plan
+(§3 + Höhentabelle) aktualisiert, Self-Review ohne offene 🔴. Nächste: 0.5.
 
 ---
 
@@ -207,18 +210,18 @@ Boden-limp) sind bewusste Merker für spätere Stages, kein Blocker für 0.3.
 ## Sub-Stage 0.4 — Gait Stand-up (all-6 simultan, ab power_on_mid) ✅ FERTIG (2026-05-30)
 
 Plan: [`phase_13_stage_0_4_standup_plan.md`](phase_13_stage_0_4_standup_plan.md).
-Pure-Python (kein Engine-Rewrite — STARTUP_RAMP existierte, all-6, in-limits
-garantiert; 0.4 = Fixture-Realität + Beweis-Tests + Doku + Vertrags-Korrektur).
+Pure-Python (STARTUP_RAMP-Mechanik existierte; 0.4 = Fixture-Realität +
+Beweis-Tests + Doku + Vertrags-Korrektur + **Stand-Pose-Limit-Bug-Fix**).
 
 - [x] 0.4.1  Design all-6 (nicht 3+3) im Stage-0-Plan §3/§6/§7 + DL-7 korrigiert
-- [x] 0.4.2  test_startup_ramp.py: suspended-Fixture (femur=1.45) → power_on_mid-Fixture (reale 0.3-Init-Pose, 8 Call-Sites umgestellt)
-- [x] 0.4.3  Test `power_on_mid_start_ramp_in_limits` (21 Samples × 18 Joints ∈ URDF-Limits)
+- [x] 0.4.2  test_startup_ramp.py: suspended-Fixture → **power_on_mid-Fixture mit ECHTEN URDF-Limits** (coxa ±0.415/tibia ±1.161, NICHT config.py ±1.57/±1.50; Slope-Formel limit-abhängig)
+- [x] 0.4.3  Test `power_on_mid_start_ramp_in_limits` (21 Samples × 18 Joints ∈ echte URDF-Limits)
 - [x] 0.4.4  Test `power_on_mid_ramp_endpoint_is_stand_pose`
 - [x] 0.4.5  Test `power_on_mid_ramp_all_six_simultaneous` (gleicher smooth-step-Faktor alle 6 Beine)
-- [x] 0.4.6  Test `power_on_mid_ramp_monotonic` + `power_on_mid_matches_calibration_roundtrip` (Sanity)
-- [x] 0.4.7  Kein Engine/Node-Fix nötig (Analyse + grüne Tests bestätigen)
-- [x] 0.4.8  colcon test hexapod_gait grün (**51/0/0**, inkl. flake8/pep257/copyright + 5 neue Tests)
-- [x] 0.4.9  gait README: STARTUP_RAMP-State + Stand-up-Abschnitt (all-6, in-limits, power_on_mid, suspended obsolet)
+- [x] 0.4.6  Test `power_on_mid_ramp_monotonic` + **`test_stand_pose_in_limits_for_all_legs`** (Regression: faengt Stand-Pose-Limit-Verletzung)
+- [x] 0.4.7  **Stand-Pose-Limit-Bug behoben** (kein Engine-Rewrite, aber Default-Fix): radial 0.27→0.295, body_height −0.052→−0.080 in gait_node.py + gait.launch.py + stand_node.py + stand.launch.py; body_height_min −0.080→−0.115
+- [x] 0.4.8  colcon test hexapod_gait grün (**357/0/25 skip**, inkl. flake8/pep257/copyright + neue Tests)
+- [x] 0.4.9  gait README: STARTUP_RAMP-State + Stand-up-Abschnitt (all-6, in-limits, neue Stand-Pose + Bug-Hinweis, suspended obsolet)
 - [x] 0.4.10 Self-Review (unten), keine offenen 🔴
 
 ### Sub-Stage 0.4 — Post-Review (2026-05-30)
@@ -231,9 +234,12 @@ garantiert; 0.4 = Fixture-Realität + Beweis-Tests + Doku + Vertrags-Korrektur).
 | R4 | all-6-simultan per Test belegt (gleicher smooth-step-Faktor) → Abgrenzung zu 3+3 maschinell gesichert | OK |
 | R5 | Startpunkt = real gemessene `/joint_states`-Pose (nicht hartkodiert); Fixture spiegelt das nur für den Test | OK |
 | R6 | Lerp joint-space-start-agnostisch: kleine HW-Cal-Toleranz ggü. Fixture bleibt korrekt/in-limits | OK |
-| R7 | Stand-Pose-Param radial=0.27/body_height=−0.052 aus Sim; HW-Feintuning 0.6 live | 🟡 → 0.6 (kein Blocker) |
-| R8 | `auto_standup_duration` 4.0 s: größte Bewegung Tibia ~57–64° → ~0.25–0.28 rad/s ≪ 2.0 rad/s URDF-Cap | OK (konservativ) |
-| R9 | gait.launch.py `use_sim_time`-Default (Memory `project_phase13_gait_launch_sim_time_default`) blockt rclpy-Timer auf HW ohne /clock | 🟡 → ab 0.6 HW (Workaround `use_sim_time:=false`), nicht 0.4 |
+| R7 | **🔴→behoben: Stand-Pose-Limit-Bug.** Alte Pose (radial 0.27/bh −0.052) verlangte tibia **1.33 rad > URDF-Limit 1.161** → auf HW Stage-0.5-Freeze rechte Beine (PWM 751<cal-min 870). In lenienter Phase-5-Sim nie sichtbar; bei Stage-F-Limit-Verengung (2026-05-25) Stand-Pose nicht mitgezogen. **Fix:** radial→0.295, bh→−0.080 (tibia 0.758, in-limit), alle 4 Default-Stellen + min/max. Regression-Test `test_stand_pose_in_limits_for_all_legs` | OK (gefixt + Test) |
+| R8 | **Zweiter Fehler in 0.4-Erstfassung: falsche Limit-Quelle.** power_on_mid-Fixture + In-Limits-Test nutzten config.py-Limits (±1.57/±1.50) statt echter URDF-Limits (coxa ±0.415/tibia ±1.161). Slope-Formel ist limit-abhängig → coxa/tibia falsch skaliert. **Fix:** `_URDF_LIMITS` + Fixture neu berechnet | OK (gefixt) |
+| R9 | Stand-Höhen-Tabelle (Plan §3.3): 7 gültige (body_height, radial)-Paare, per Param live anfahrbar (0.6) | OK |
+| R10 | Konsumenten-Check: 7 Walking-Presets (`config/presets/`) nutzen bereits radial=0.30/bh −0.055..−0.06 → in-limit, vom Default-Wechsel unberührt | OK (verifiziert) |
+| R11 | `auto_standup_duration` 4.0 s: größte Bewegung Tibia ~57–64° → ~0.25–0.28 rad/s ≪ 2.0 rad/s URDF-Cap | OK (konservativ) |
+| R12 | gait.launch.py `use_sim_time`-Default (Memory `project_phase13_gait_launch_sim_time_default`) blockt rclpy-Timer auf HW ohne /clock | 🟡 → ab 0.6 HW (Workaround `use_sim_time:=false`), nicht 0.4 |
 
 **Ergebnis:** keine 🔴. Zwei 🟡 (R7 Stand-Pose-Feintuning, R9 use_sim_time) sind
 Live-Themen für 0.6, kein Blocker für die Pure-Python-Logik-Stage 0.4.

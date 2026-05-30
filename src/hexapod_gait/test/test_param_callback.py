@@ -159,15 +159,15 @@ def test_param_set_body_height_out_of_constraint_rejected(node):
     """
     body_height außerhalb [min, max] wird abgelehnt.
 
-    Default-Range ist [-0.080, -0.030], -0.029 ist out.
+    Default-Range ist [-0.115, -0.030], -0.029 ist out.
     """
     result = node.set_parameters([
         Parameter('body_height', Parameter.Type.DOUBLE, -0.029),
     ])
     assert not result[0].successful
     assert 'outside' in result[0].reason
-    # body_height unverändert (war -0.052)
-    assert node._body_height == pytest.approx(-0.052)
+    # body_height unverändert (Stage-0.4-Default -0.080)
+    assert node._body_height == pytest.approx(-0.080)
 
 
 def test_param_set_min_above_max_rejected(node):
@@ -177,7 +177,7 @@ def test_param_set_min_above_max_rejected(node):
     ])
     assert not result[0].successful
     assert 'must be <' in result[0].reason
-    assert node._body_height_min == pytest.approx(-0.080)
+    assert node._body_height_min == pytest.approx(-0.115)
 
 
 def test_param_set_atomic_rollback_one_invalid(node):
@@ -238,7 +238,7 @@ def test_param_set_body_height_rejected_while_walking(node):
     ])
     assert not result[0].successful
     assert 'STATE_STANDING' in result[0].reason
-    assert node._body_height == pytest.approx(-0.052)  # unverändert
+    assert node._body_height == pytest.approx(-0.080)  # unverändert (Stage-0.4-Default)
 
 
 def test_param_set_step_height_allowed_while_walking(node):

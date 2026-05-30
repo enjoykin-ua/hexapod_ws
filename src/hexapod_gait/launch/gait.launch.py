@@ -63,18 +63,23 @@ def generate_launch_description() -> LaunchDescription:
 
     body_height_arg = DeclareLaunchArgument(
         'body_height',
-        default_value='-0.052',
+        default_value='-0.080',
         description=(
-            'Stand-Pose Foot-Z im Bein-Frame (m). Default -0.052 = '
-            'Phase-4-Stand -0.047 minus 5 mm globale Penetration '
-            '(Stufe-F-Design-Entscheidung 1).'
+            'Stand-Pose Foot-Z im Bein-Frame (m). Phase 13 Stage 0.4: '
+            'Default -0.080 (mit radial 0.295). Der alte -0.052 verletzte '
+            'mit radial 0.27 das Tibia-Limit (1.33>1.161 rad). Gueltige '
+            '(body_height, radial)-Paare: phase_13_stage_0_4_standup_plan.md.'
         ),
     )
 
     radial_distance_arg = DeclareLaunchArgument(
         'radial_distance',
-        default_value='0.27',
-        description='Stand-Pose Foot-X im Bein-Frame (m). Default 0.27.',
+        default_value='0.295',
+        description=(
+            'Stand-Pose Foot-X im Bein-Frame (m). Phase 13 Stage 0.4: '
+            'Default 0.295 (war 0.27) — weiter gestreckt, Tibia in '
+            'URDF-Limit +-1.161.'
+        ),
     )
 
     tfs_factor_arg = DeclareLaunchArgument(
@@ -141,11 +146,12 @@ def generate_launch_description() -> LaunchDescription:
 
     body_height_min_arg = DeclareLaunchArgument(
         'body_height_min',
-        default_value='-0.080',
+        default_value='-0.115',
         description=(
             'Untere Schranke für body_height (m, Bein-Frame Z). '
-            'Für /cmd_body_height-Subscriber (Phase 6). Default -0.080 '
-            'm = 28 mm tiefer als Default Stand-Pose.'
+            'Für /cmd_body_height-Subscriber (Phase 6). Phase 13 Stage 0.4: '
+            'Default -0.115 (war -0.080) — innerhalb des bei radial 0.295 '
+            'gültigen Bereichs (bis -0.120).'
         ),
     )
 
@@ -155,7 +161,7 @@ def generate_launch_description() -> LaunchDescription:
         description=(
             'Obere Schranke für body_height (m, Bein-Frame Z). '
             'Für /cmd_body_height-Subscriber (Phase 6). Default -0.030 '
-            'm = 22 mm höher als Default Stand-Pose.'
+            'm = 50 mm höher als Default Stand-Pose (-0.080).'
         ),
     )
 
