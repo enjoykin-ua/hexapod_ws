@@ -34,6 +34,21 @@ rclcpp::Logger plugin_logger()
   return rclcpp::get_logger("hexapod_hardware");
 }
 
+// Phase 13 Stage 0.3 — servo power-on centre pulse. Hobby servos (Miuzei MS61 /
+// Diymore 8120MG) hardware-snap to ~1500 µs on power-up regardless of any PWM we
+// send (exhaustively confirmed in ~/pimoroni_servo_fix/). The 35° femur remount
+// (Stage 0.2) makes that unavoidable centre the safe init pose. Commanding
+// exactly 1500 µs to all 18 pins on activate therefore means *zero* movement
+// when the relay closes (servos are physically already there) — and the JTC
+// startup-race becomes irrelevant (every JTC freezes the same pose). 1500 µs is
+// inside [pulse_min, pulse_max] for all 18 pins of the current calibration, so
+// it never trips the Stage-0.5 safety_freeze. See phase_13_stage_0_3_*_plan.md.
+constexpr int16_t SERVO_POWER_ON_MID_US = 1500;
+
+// Preset name that selects the built-in "all pins → SERVO_POWER_ON_MID_US"
+// init mode (vs. a rad-valued preset loaded from initial_poses.yaml).
+constexpr const char * POWER_ON_MID_PRESET = "power_on_mid";
+
 // Case-insensitive bool-string parser for hardware_parameters values.
 // Accepts: "true"/"false", "1"/"0", "yes"/"no". Throws on anything else
 // so a typo in the URDF doesn't silently fall back to the default.
@@ -112,11 +127,15 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
     const std::string lb = param_or(info_.hardware_parameters, "loopback_mode", "false");
     loopback_mode_ = parse_bool(lb, "loopback_mode");
 
-    // Phase 13 Stage A: Initial-Pose-Preset (optional, default
-    // "suspended"). Wenn initial_poses_file leer oder nicht vorhanden,
-    // fallback auf pulse_zero pro Pin in load_initial_pose_preset().
+    // Phase 13 Stage 0.3: Initial-Pose-Preset. Default ist jetzt
+    // "power_on_mid" — der built-in Modus, der alle 18 Pins auf die
+    // Servo-Power-On-Mitte (1500 µs) setzt (zero-jerk, race-immun nach dem
+    // 35°-Femur-Umbau). Das alte rad-Preset "suspended" (femur=+1.45) ist
+    // nach dem Umbau obsolet, bleibt aber als Legacy-rad-Preset in
+    // initial_poses.yaml verfügbar. Bei einem rad-Preset-Namen lädt
+    // load_initial_pose_preset() weiterhin aus der YAML (Fallback pulse_zero).
     initial_pose_name_ = param_or(
-      info_.hardware_parameters, "initial_pose", "suspended");
+      info_.hardware_parameters, "initial_pose", POWER_ON_MID_PRESET);
     initial_poses_file_ = param_or(
       info_.hardware_parameters, "initial_poses_file", "");
   } catch (const std::exception & e) {
@@ -253,6 +272,47 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
 
   // Commit. std::vector move-assignment is no-throw.
   joint_to_output_idx_ = std::move(new_table);
+
+  // ─── 5b) Phase 13 Stage 0.3 — Build joint-group enable lists ───────────
+  // The relay-gated on_activate sequence (0.3) enables servos in segment
+  // groups — femur → relay-on → coxa → tibia — to stage inrush current.
+  // Classify each URDF joint by name suffix into its servo-pin group; sort
+  // each group ascending by pin so the wire order is deterministic
+  // regardless of URDF joint ordering (coxa = lowest pin of each leg-triple,
+  // femur = middle, tibia = highest — servo_mapping.yaml convention).
+  coxa_pins_.clear();
+  femur_pins_.clear();
+  tibia_pins_.clear();
+  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
+    const std::string & jn = info_.joints[i].name;
+    const auto pin = static_cast<uint8_t>(joint_to_output_idx_[i]);
+    if (jn.size() >= 11 && jn.compare(jn.size() - 11, 11, "_coxa_joint") == 0) {
+      coxa_pins_.push_back(pin);
+    } else if (jn.size() >= 12 && jn.compare(jn.size() - 12, 12, "_femur_joint") == 0) {
+      femur_pins_.push_back(pin);
+    } else if (jn.size() >= 12 && jn.compare(jn.size() - 12, 12, "_tibia_joint") == 0) {
+      tibia_pins_.push_back(pin);
+    } else {
+      // Unknown segment — fold into the last (tibia) group so it still gets
+      // enabled. Mirrors load_initial_pose_preset's tolerant classification.
+      RCLCPP_WARN(
+        plugin_logger(),
+        "Joint '%s' does not match leg_<n>_{coxa,femur,tibia}_joint; "
+        "enabling it in the tibia (last) group", jn.c_str());
+      tibia_pins_.push_back(pin);
+    }
+  }
+  std::sort(coxa_pins_.begin(), coxa_pins_.end());
+  std::sort(femur_pins_.begin(), femur_pins_.end());
+  std::sort(tibia_pins_.begin(), tibia_pins_.end());
+  if (coxa_pins_.size() + femur_pins_.size() + tibia_pins_.size() != NUM_SERVOS) {
+    RCLCPP_FATAL(
+      plugin_logger(),
+      "Joint-group partition incomplete: %zu coxa + %zu femur + %zu tibia "
+      "!= %zu servos — check URDF joint names",
+      coxa_pins_.size(), femur_pins_.size(), tibia_pins_.size(), NUM_SERVOS);
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
   // ─── 6) Allocate state vectors (URDF-indexed) ──────────────────────────
   // Allocated once, never resized — ros2_control captures the element
@@ -466,13 +526,26 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
     loopback_mode_ ? "true" : "false");
 
   // In loopback mode we still walk the boot sequence to keep code paths
-  // identical (seq_ increments, last_command_pulse_us_ is set to pulse_zero)
-  // but skip wire I/O and the 50 ms stagger. CI stays fast (< 100 ms) and
-  // a test can assert seq_ increments by 21 (1 RESET + 1 SET_TARGETS (pre-enable)
-  // + 18 ENABLE + 1 SET_TARGETS (reaffirm)).
+  // identical (seq_ increments, frames are encoded) but skip wire I/O and
+  // every wait. CI stays fast (< 100 ms) while a test can still assert the
+  // full frame order. Phase 13 Stage 0.3: the sequence now sends 22 frames —
+  // 1 RESET + 1 SET_TARGETS (pre-enable) + 6 ENABLE (femur) + 1 RELAY_CONTROL
+  // (on) + 6 ENABLE (coxa) + 6 ENABLE (tibia) + 1 SET_TARGETS (reaffirm).
   const auto stagger = loopback_mode_ ?
     std::chrono::milliseconds(0) :
     std::chrono::milliseconds(50);
+
+  // Phase 13 Stage 0.3 — inter-group settle delays. After the femur group is
+  // powered (relay-on) we let the rail current settle before adding the next
+  // group, so the staggered groups draw in observable stages. 700 ms ≥ the
+  // firmware's 400 ms current-sense warmup gate (re-armed on relay-on in
+  // main.cpp set_relay) so the over-current trip is armed AND the IIR filter
+  // settled before the coxa group draws. Tunable starting values (plan §4.2);
+  // zero in loopback so CI stays fast.
+  const auto femur_settle = loopback_mode_ ?
+    std::chrono::milliseconds(0) : std::chrono::milliseconds(700);
+  const auto coxa_settle = loopback_mode_ ?
+    std::chrono::milliseconds(0) : std::chrono::milliseconds(400);
 
   // Defensive helper: any write_all() call goes through this. If the reader
   // thread died (USB just got unplugged), bail out before throwing on the
@@ -494,6 +567,57 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
         RCLCPP_FATAL(plugin_logger(),
           "Failed to send %s frame: %s", what, e.what());
         return false;
+      }
+      return true;
+    };
+
+  // Phase 13 Stage 0.3 — enable one joint-segment group with the per-servo
+  // host stagger. Returns false (and logs) if a frame fails to send so the
+  // caller can abort on_activate cleanly. Each ENABLE_SERVO also kicks the
+  // firmware's 200 ms watchdog, keeping it warm across the longer sequence.
+  auto enable_group =
+    [&](const std::vector<uint8_t> & pins, const char * group) -> bool {
+      for (const uint8_t pin : pins) {
+        auto frame = encode_enable_servo(seq_.fetch_add(1), pin, /*enable=*/true);
+        if (!send_frame(frame, "ENABLE_SERVO")) {
+          RCLCPP_FATAL(plugin_logger(),
+            "on_activate aborted while enabling the %s group (pin %u)",
+            group, static_cast<unsigned>(pin));
+          return false;
+        }
+        std::this_thread::sleep_for(stagger);
+      }
+      return true;
+    };
+
+  // Phase 13 Stage 0.3 — CRITICAL: the firmware watchdog (cfg::WATCHDOG_TIMEOUT_MS
+  // = 200 ms) disables all servos AND drops the relay if no valid frame arrives
+  // within the timeout. on_activate blocks the controller_manager update thread,
+  // so write() does NOT tick during the settle sleeps — a naked 700 ms sleep
+  // therefore lets the watchdog trip mid-sequence (observed live 2026-05-30:
+  // relay clicks on, then off ~200 ms later). The 50 ms enable stagger keeps the
+  // watchdog warm during the enable groups, but the settle gaps need their own
+  // heartbeat. This helper breaks a settle into <=100 ms slices, re-sending the
+  // (idempotent) initial-pose SET_TARGETS between slices: it holds the exact same
+  // target (no movement) while resetting last_valid_frame_time in the firmware.
+  // 100 ms << 200 ms gives a 2x safety margin against scheduler jitter.
+  auto settle_with_heartbeat =
+    [&](std::chrono::milliseconds total, const char * phase) -> bool {
+      if (loopback_mode_ || total.count() == 0) {return true;}
+      constexpr auto kSlice = std::chrono::milliseconds(100);
+      auto remaining = total;
+      while (remaining.count() > 0) {
+        const auto step = std::min(remaining, kSlice);
+        std::this_thread::sleep_for(step);
+        remaining -= step;
+        // Heartbeat: idempotent SET_TARGETS(initial pose) keeps the watchdog fed
+        // without moving anything (target unchanged from the pre-enable frame).
+        auto hb = encode_set_targets(seq_.fetch_add(1), initial_pulse_us_);
+        if (!send_frame(hb, "SET_TARGETS (settle heartbeat)")) {
+          RCLCPP_FATAL(plugin_logger(),
+            "on_activate aborted during %s settle heartbeat", phase);
+          return false;
+        }
       }
       return true;
     };
@@ -530,14 +654,14 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   //     dahin sind alle Servos schon ~1 s in der horizontalen T-Pose
   //     gegen Schwerkraft (mechanischer Stress).
   //
-  // Mit SET_TARGETS davor: target_pulse_us[i] ist sofort auf die
-  // suspended-PWMs eingestellt. Jeder ENABLE_SERVO aktiviert dann den
-  // Servo, der direkt zur suspended-PWM rampt (~0.3 s fuer 641 µs
-  // Differenz bei 2000 µs/s) — kein T-Pose-Zwischenstadium.
+  // Mit SET_TARGETS davor: target_pulse_us[i] ist sofort auf die Init-Pose-
+  // PWMs eingestellt. Im Default-Modus power_on_mid ist das 1500 µs (Servo-
+  // Mitte) fuer alle 18 Pins — die Servos stehen beim Power-On physisch schon
+  // dort, also rampt beim ENABLE/Relay-On nichts (zero-jerk). Bei einem
+  // rad-Preset rampt jeder Servo nach seinem ENABLE zur Preset-PWM.
   //
-  // ``initial_pulse_us_`` wurde in on_init aus initial_poses.yaml +
-  // ``initial_pose``-Param gefuellt; bei missing-YAML/unknown-Preset ist
-  // es per Pin pulse_zero (= Legacy-Verhalten ohne Stage A).
+  // ``initial_pulse_us_`` wurde in on_init gefuellt: power_on_mid → 1500 alle
+  // Pins; rad-Preset → aus initial_poses.yaml; missing/unknown → pulse_zero.
   auto init_frame = encode_set_targets(seq_.fetch_add(1), initial_pulse_us_);
   if (!send_frame(init_frame, "SET_TARGETS (initial-pose, pre-enable)")) {
     return hardware_interface::CallbackReturn::ERROR;
@@ -551,23 +675,51 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   // Siehe docs_raspi/phase_13_servo2040_fix.md.
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-  // ─── 3) 18× ENABLE_SERVO with 50 ms host-side stagger ──────────────────
-  // Phase-7 design decision D.1: the host paces the per-servo enables to
-  // spread inrush current across ~900 ms. Each frame also resets the
-  // firmware's 200 ms watchdog (PROTOCOL.md §6), so the watchdog stays warm
-  // throughout the boot.
-  //
-  // Mit dem vorangehenden SET_TARGETS (Schritt 2) rampt jeder Servo direkt
-  // nach seinem ENABLE zur initial-pose-PWM via FW-Soft-Ramp.
-  for (uint8_t pin = 0; pin < NUM_SERVOS; ++pin) {
-    auto frame = encode_enable_servo(seq_.fetch_add(1), pin, /*enable=*/true);
-    if (!send_frame(frame, "ENABLE_SERVO")) {
-      return hardware_interface::CallbackReturn::ERROR;
-    }
-    std::this_thread::sleep_for(stagger);
+  // ─── 3) Enable FEMUR group (relay still OFF → PWM present, no current) ──
+  // Phase 13 Stage 0.3 relay-gated sequence. The femurs carry the leg weight
+  // in the 35°-up init pose, so they are powered first: enable their PWM
+  // while the rail is still dead (no movement, no current), then close the
+  // relay. Because every pin's FW target was set to 1500 µs in step 2 (and
+  // the FW syncs current=target for disabled pins), no servo ramps on enable.
+  if (!enable_group(femur_pins_, "femur")) {
+    return hardware_interface::CallbackReturn::ERROR;
   }
 
-  // ─── 4) Re-send SET_TARGETS as safety-net + watchdog-kick ──────────────
+  // ─── 4) RELAY_CONTROL(on): close the V+ rail ───────────────────────────
+  // Only the femur pins have live PWM at this point, so closing the relay
+  // energises just those 6 servos — all already commanded 1500 µs and
+  // physically at the servo power-on centre → they hold, no jump. The other
+  // 12 pins have V+ but no PWM (disabled) → limp until enabled below. RESET
+  // in step 1 cleared any latched trip, so relay-on is safe here (no
+  // relay-on-during-latched-trip hazard; cf. Stage 0.1 review R6).
+  {
+    auto relay_frame = encode_relay_control(seq_.fetch_add(1), /*on=*/true);
+    if (!send_frame(relay_frame, "RELAY_CONTROL(on)")) {
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+  }
+
+  // Let the femur rail current settle (and the FW sense-warmup gate expire)
+  // before adding the next group — see femur_settle rationale above. The
+  // heartbeat keeps the firmware watchdog fed across the 700 ms gap.
+  if (!settle_with_heartbeat(femur_settle, "femur")) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  // ─── 5) Enable COXA group (rail now live → each draws on enable) ────────
+  if (!enable_group(coxa_pins_, "coxa")) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+  if (!settle_with_heartbeat(coxa_settle, "coxa")) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  // ─── 6) Enable TIBIA group ─────────────────────────────────────────────
+  if (!enable_group(tibia_pins_, "tibia")) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  // ─── 7) Re-send SET_TARGETS as safety-net + watchdog-kick ──────────────
   // Belt-and-suspenders: ein zweites SET_TARGETS am Ende der Boot-Sequenz
   // stellt sicher dass target_pulse_us konsistent ist und kickt den
   // Watchdog (200 ms Timer) noch einmal. Wichtig falls zwischen on_activate
@@ -586,7 +738,7 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   // Phase 13 Stage A — hw_command_positions_ + hw_state_positions_ auf die
   // Initial-Pose-rad-Werte syncen. SONST kommt es zur folgenden Race:
   //   1. on_init setzt hw_command_positions_ = 0.0 fuer alle Joints
-  //   2. on_activate sendet zwar suspended-PWMs an Servo2040, aber das
+  //   2. on_activate sendet zwar die Init-Pose-PWMs (1500) an Servo2040, aber das
   //      controller_manager triggert SOFORT die write()/read()-Loop
   //   3. JTC-on_activate (das hw_state_positions_ → hw_command_positions_
   //      als hold-position setzt) passiert NACH Plugin-on_activate
@@ -613,10 +765,11 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
   is_active_.store(true);
 
   RCLCPP_INFO(plugin_logger(),
-    "on_activate complete — %s (seq counter advanced by 21)",
+    "on_activate complete — %s (seq counter advanced by 22)",
     loopback_mode_ ?
     "loopback path traced, no wire frames sent" :
-    "18 servos enabled, neutral pose commanded");
+    "relay closed, 18 servos enabled (femur->coxa->tibia staggered), "
+    "init pose held");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -1261,6 +1414,25 @@ void HexapodSystemHardware::handle_relay_set(
 // matchen (Future-Variant, fixed joints) werden ignoriert + WARN.
 void HexapodSystemHardware::load_initial_pose_preset()
 {
+  // Phase 13 Stage 0.3 — built-in "power_on_mid" mode (the default). Command
+  // the servo power-on centre (1500 µs) to ALL 18 pins. This is NOT a
+  // rad-valued YAML preset — it's the zero-jerk, race-immune init pose (see
+  // SERVO_POWER_ON_MID_US docstring): after the 35° femur remount (Stage 0.2)
+  // the unavoidable servo centre IS the safe init pose, so no YAML lookup is
+  // needed and no initial_poses_file has to be present. on_activate then
+  // relay-gates + staggers the enable so this pose comes up without inrush.
+  if (initial_pose_name_ == POWER_ON_MID_PRESET) {
+    for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+      initial_pulse_us_[pin] = SERVO_POWER_ON_MID_US;
+    }
+    RCLCPP_INFO(
+      plugin_logger(),
+      "initial pose 'power_on_mid': all %zu pins set to servo centre %d µs "
+      "(zero-jerk init; relay-gated staggered enable in on_activate)",
+      NUM_SERVOS, static_cast<int>(SERVO_POWER_ON_MID_US));
+    return;
+  }
+
   // Fall 0: kein File-Pfad gegeben → Legacy-Verhalten (alles pulse_zero)
   if (initial_poses_file_.empty()) {
     RCLCPP_WARN(plugin_logger(),

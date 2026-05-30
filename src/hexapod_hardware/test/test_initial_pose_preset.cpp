@@ -9,12 +9,12 @@
 // actually committed during on_activate (Stage A: initial_pulse_us_),
 // converted back to radians via Calibration::pulse_us_to_radians.
 //
-// Test matrix:
-//   T1 (combined w/ T2): suspended preset → femurs ~ 1.45 rad, others ~ 0
-//   T7:                  missing YAML file → all joints ~ 0 rad (pulse_zero
-//                        fallback)
-//   Plus:                unknown preset name → fallback pulse_zero
-//   Plus:                explicit "pulse_zero" preset → 0 rad (legacy path)
+// Test matrix (Phase 13 Stage 0.3: default is now power_on_mid):
+//   Default mode:        power_on_mid -> all 18 pins at 1500 us (servo centre)
+//   suspended preset:    legacy rad-preset -> femurs ~ 1.45 rad, others ~ 0
+//   missing YAML file:   all joints ~ 0 rad (pulse_zero fallback)
+//   unknown preset name: fallback pulse_zero
+//   explicit pulse_zero: 0 rad (legacy path)
 
 #include <gtest/gtest.h>
 
@@ -26,6 +26,7 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "hexapod_hardware/hexapod_system.hpp"
+#include "hexapod_hardware/calibration.hpp"
 #include "hexapod_hardware/servo2040_protocol.hpp"
 
 #include "test_helpers.hpp"
@@ -109,6 +110,25 @@ constexpr std::size_t tibia_idx(int leg) {return (leg - 1) * 3 + 2;}
 // (~0.6°) which is generous.
 constexpr double TOLERANCE_RAD = 0.01;
 
+// Expected per-pin echo-rad for the default power_on_mid mode, which
+// commands SERVO_POWER_ON_MID_US (1500 us) to every pin. Computed with the
+// SAME calibration + uniform +/-1.57 limits the plugin uses
+// (servo_mapping.yaml + make_joint), so the comparison is exact up to int16
+// quantisation.
+inline std::vector<double> power_on_mid_expected_rads()
+{
+  hexapod_hardware::Calibration cal;
+  cal.load_from_file(YAML_PATH);
+  for (const auto & name : CANONICAL_JOINT_NAMES) {
+    cal.set_joint_limits(name, -1.57, 1.57);
+  }
+  std::vector<double> rads(NUM_SERVOS, 0.0);
+  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    rads[pin] = cal.pulse_us_to_radians(static_cast<int>(pin), 1500.0);
+  }
+  return rads;
+}
+
 }  // namespace
 
 // ============================================================================
@@ -184,20 +204,45 @@ TEST(InitialPosePreset, PulseZeroPresetGivesZeroRadians)
 }
 
 // ============================================================================
-// Empty initial_poses_file param (= URDF without Stage-A wiring) →
-// Legacy pulse_zero (kein Crash, kein Fehler)
+// Default mode (no initial_pose param) -> power_on_mid: all 18 pins at the
+// servo centre 1500 us. Phase 13 Stage 0.3 default; replaced the old
+// "suspended" rad-preset. make_valid_info() sets no initial_pose param.
 // ============================================================================
 
-TEST(InitialPosePreset, EmptyFileParamFallsBackQuietly)
+TEST(InitialPosePreset, DefaultModeIsPowerOnMid)
 {
-  // Use make_valid_info() unchanged (no initial_pose / initial_poses_file
-  // entries → empty string). on_init must succeed; activate path must
-  // commit pulse_zero per pin.
-  auto info = make_valid_info();
+  auto info = make_valid_info();  // no initial_pose -> default power_on_mid
   auto state = activate_and_read_state(info);
+  const auto expected = power_on_mid_expected_rads();
 
+  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    EXPECT_NEAR(state[pin], expected[pin], 1e-6)
+      << "pin " << pin << ": power_on_mid must echo pulse_us_to_radians(1500)";
+  }
+  // Sanity: the femurs are NOT at rad=0 anymore (1500 us != femur pulse_zero
+  // after the 35-degree remount) -- guards against a silent regress to
+  // pulse_zero.
   for (int leg = 1; leg <= 6; ++leg) {
-    EXPECT_NEAR(state[femur_idx(leg)], 0.0, TOLERANCE_RAD);
+    EXPECT_GT(std::abs(state[femur_idx(leg)]), 0.1)
+      << "leg " << leg << " femur should be clearly off-zero at 1500 us";
+  }
+}
+
+// ============================================================================
+// Explicit initial_pose=power_on_mid needs NO initial_poses_file (built-in
+// mode, not a YAML rad-preset).
+// ============================================================================
+
+TEST(InitialPosePreset, PowerOnMidExplicitNeedsNoYaml)
+{
+  auto info = make_valid_info();
+  info.hardware_parameters["initial_pose"] = "power_on_mid";
+  // deliberately no initial_poses_file set
+  auto state = activate_and_read_state(info);
+  const auto expected = power_on_mid_expected_rads();
+
+  for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
+    EXPECT_NEAR(state[pin], expected[pin], 1e-6) << "pin " << pin;
   }
 }
 

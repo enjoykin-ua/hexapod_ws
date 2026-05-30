@@ -1,27 +1,40 @@
-# Initial-Pose-Presets fuer hexapod_hardware-Plugin (Phase 13 Stage A).
+# Initial-Pose-Presets fuer hexapod_hardware-Plugin.
 #
-# Plugin sendet diese rad-Werte beim on_activate als erste SET_TARGETS-
-# Frame. Die rad-Werte werden via Calibration::radians_to_pulse_us pro
-# Servo zu PWM konvertiert — direction-Map + Slope-Formel handhaben die
-# per-Bein-Spiegelung automatisch, deshalb sind hier fuer alle 6 Beine
-# identische rad-Werte hinterlegt.
+# Plugin sendet beim on_activate eine erste SET_TARGETS-Frame mit der
+# Init-Pose. Es gibt ZWEI Modi:
+#
+#  1. Built-in "power_on_mid" (DEFAULT, Phase 13 Stage 0.3) — KEIN Eintrag in
+#     dieser Datei noetig. Setzt alle 18 Pins direkt auf die Servo-Power-On-
+#     Mitte (1500 us). Nach dem 35-Grad-Femur-Umbau (Stage 0.2) ist genau
+#     diese unvermeidbare Mitte die sichere Init-Pose: zero-jerk (Servos
+#     stehen beim Einschalten physisch schon dort) und race-immun. on_activate
+#     faehrt sie relay-gated + gestaffelt hoch. Siehe
+#     phase_13_stage_0_3_init_sequence_plan.md.
+#
+#  2. rad-Presets (unten) — historischer/optionaler Pfad. Die rad-Werte werden
+#     via Calibration::radians_to_pulse_us pro Servo zu PWM konvertiert
+#     (direction-Map + Slope-Formel spiegeln pro Bein automatisch, daher fuer
+#     alle 6 Beine identische rad-Werte). Aktiviert via
+#     <param name="initial_pose"> = <Preset-Name>.
 #
 # Preset-Wahl per URDF-<param name="initial_pose">. Default in
-# hexapod.urdf.xacro: "suspended". Fallback bei missing-file oder
-# unknown-name: pulse_zero (Legacy-Pre-Stage-A-Verhalten, WARN-Log).
+# hexapod.urdf.xacro: "power_on_mid" (Modus 1). Fallback bei rad-Preset mit
+# missing-file oder unknown-name: pulse_zero (Legacy, WARN-Log).
 
 poses:
   suspended:
     description: >
-      Roboter aufgebockt, Beine haengen frei nach unten durch Schwerkraft.
-      Vorzeichen-Konvention femur+1.45: URDF-femur-Achse ist (0,1,0). Bei
-      rad=0 zeigt der Femur radial nach AUSSEN (horizontal). Bei +pi/2
-      ≈ +1.5708 ist der Femur vertikal nach UNTEN (Rotation um Y dreht
-      +X nach -Z, rechte-Hand-Regel). rad=+1.45 ist nahe an diesem Anschlag
-      (Stage-F-Limit upper=+1.493) mit Safety-Margin. direction-Map im
-      servo_mapping.yaml spiegelt fuer linke Beine (4/5/6, direction=-1)
-      automatisch zur korrekten Servo-Drehrichtung. Tibia=0 = in
-      Verlaengerung des Femurs → ganzes Bein vertikal nach unten.
+      WARN LEGACY/OBSOLET fuer HW nach dem 35-Grad-Femur-Umbau (Stage 0.2).
+      femur=+1.45 hiess "Beine haengen ~90 Grad nach unten" fuer die ALTE
+      Montage. Nach dem Umbau ist rad=+1.45 ~83 Grad unter Horizontal (immer
+      noch "Beine unten", aber NICHT mehr die Init-Pose — die ist jetzt der
+      built-in Modus power_on_mid = Servo-Mitte = ~35 Grad HOCH). Bleibt nur
+      als rad-Preset-Beispiel / Loader-Testfixture erhalten. NICHT als
+      initial_pose fuer den echten Roboter verwenden.
+      [Vorzeichen-Konvention:] URDF-femur-Achse ist (0,1,0); rad=0 → Femur
+      horizontal/aussen; +pi/2 ≈ +1.5708 → Femur vertikal nach unten
+      (Rotation um Y dreht +X nach -Z, rechte-Hand-Regel). direction-Map im
+      servo_mapping.yaml spiegelt fuer linke Beine (4/5/6) automatisch.
     joints:
       coxa: 0.0
       femur: 1.45

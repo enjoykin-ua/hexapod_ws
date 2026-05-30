@@ -246,6 +246,15 @@ private:
   // (last_command_pulse_us_, encode_set_targets payload).
   std::vector<int> joint_to_output_idx_{};
 
+  // ─── Phase 13 Stage 0.3 — Joint-group enable lists (servo-pin indexed) ──
+  // Built in on_init by classifying joint names by segment. The relay-gated
+  // on_activate sequence enables them in order femur → (relay-on) → coxa →
+  // tibia to stage inrush current across the rail. Each is sorted ascending
+  // by pin for a deterministic wire order. Together they partition 0..17.
+  std::vector<uint8_t> coxa_pins_{};
+  std::vector<uint8_t> femur_pins_{};
+  std::vector<uint8_t> tibia_pins_{};
+
   // ─── State exposed to ros2_control via export_*_interfaces ───────────────
   // Indexed by URDF slot (i.e. info_.joints[i]). ros2_control captures
   // the addresses of these elements when on_init returns, so the vectors

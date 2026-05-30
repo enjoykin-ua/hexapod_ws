@@ -93,11 +93,12 @@ def generate_launch_description() -> LaunchDescription:
 
     declare_initial_pose = DeclareLaunchArgument(
         'initial_pose',
-        default_value='suspended',
+        default_value='power_on_mid',
         description=(
-            'Initial-Pose-Preset fuer Plugin-on_activate (Phase 13 Stage A). '
-            'Default "suspended" = Beine haengen frei nach unten (kein ruckartiges '
-            'Hochspringen). Alternative "pulse_zero" = Legacy-T-Pose. Presets in '
+            'Initial-Pose-Modus fuer Plugin-on_activate (Phase 13 Stage 0.3). '
+            'Default "power_on_mid" = built-in Modus, alle 18 Pins auf Servo-Mitte '
+            '1500us (zero-jerk, race-immun nach dem 35-Grad-Femur-Umbau). '
+            'Alternativen: Legacy-rad-Presets "suspended" / "pulse_zero" aus '
             'hexapod_hardware/config/initial_poses.yaml.'
         ),
     )

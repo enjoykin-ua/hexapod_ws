@@ -27,12 +27,12 @@
   <xacro:arg name="serial_port" default="/dev/ttyACM0"/>
   <xacro:arg name="loopback_mode" default="false"/>
 
-  <!-- Phase 13 Stage A: Initial-Pose-Preset, das das hexapod_hardware-
-       Plugin beim on_activate als erstes SET_TARGETS-Frame sendet. Default
-       "suspended" = Beine haengen frei (kein ruckartiges Hochspringen).
-       Legacy "pulse_zero" = horizontale T-Pose. Preset-Definitionen in
-       hexapod_hardware/config/initial_poses.yaml. -->
-  <xacro:arg name="initial_pose" default="suspended"/>
+  <!-- Phase 13 Stage 0.3: Initial-Pose-Preset, das das hexapod_hardware-
+       Plugin beim on_activate sendet. Default "power_on_mid" = built-in
+       Modus, alle 18 Pins auf Servo-Mitte 1500us (zero-jerk, race-immun nach
+       dem 35-Grad-Femur-Umbau). rad-Presets (z.B. Legacy "suspended",
+       "pulse_zero") stehen in hexapod_hardware/config/initial_poses.yaml. -->
+  <xacro:arg name="initial_pose" default="power_on_mid"/>
 
   <xacro:include filename="hexapod_physical_properties.xacro"/>
   <xacro:include filename="materials.xacro"/>

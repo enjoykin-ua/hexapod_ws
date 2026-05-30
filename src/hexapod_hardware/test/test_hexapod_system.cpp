@@ -541,9 +541,9 @@ TEST(HexapodSystemConfigure, DestructorCleansUpAutomatically)
 // ============================================================================
 // on_activate / on_deactivate (Sub-Stage D.5)
 //
-// Boot sequence under test (PROTOCOL.md §5 / §6, phase_9_stage_d_plan §D.5):
-//   1× RESET → 18× ENABLE_SERVO(pin, true) with 50 ms stagger →
-//   1× SET_TARGETS with all pulses at pulse_zero.
+// Boot sequence under test (Phase 13 Stage 0.3 relay-gated, joint-group):
+//   RESET -> SET_TARGETS(1500) -> 6x ENABLE(femur) -> RELAY_CONTROL(on) ->
+//   6x ENABLE(coxa) -> 6x ENABLE(tibia) -> SET_TARGETS(1500). 22 frames.
 //
 // Two test paths:
 //   - Loopback: only checks timing/SUCCESS — no wire I/O to inspect.
@@ -631,7 +631,7 @@ TEST(HexapodSystemActivate, LoopbackActivateAndDeactivateAreFast)
     std::chrono::duration_cast<std::chrono::milliseconds>(deactivate_dt).count() << " ms";
 }
 
-TEST(HexapodSystemActivate, PtyActivateSendsBootSequenceInOrder)
+TEST(HexapodSystemActivate, PtyActivateRelayGatedSequenceOrder)
 {
   int master_fd;
   std::string slave_name;
@@ -652,69 +652,119 @@ TEST(HexapodSystemActivate, PtyActivateSendsBootSequenceInOrder)
     plugin.on_activate(rclcpp_lifecycle::State{}),
     hardware_interface::CallbackReturn::SUCCESS);
 
-  // Idle-timeout must be larger than the 50 ms stagger so we don't
-  // declare "idle" between two consecutive ENABLE_SERVO frames.
+  // on_activate blocks until every frame is written, so they are all sitting
+  // in the pty buffer by the time it returns; a short idle timeout drains them
+  // (the 700 ms femur settle happened *inside* on_activate, not on the wire).
   const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(200));
   const auto frames = split_and_decode_frames(bytes);
 
-  // Phase 13 Stage A — Frame-Reihenfolge geaendert um T-Pose-Zwischenstadium
-  // zu vermeiden:
-  //   Frame 0:        RESET
-  //   Frame 1:        SET_TARGETS (initial-pose, pre-enable) ← NEU
-  //   Frames 2..19:   ENABLE_SERVO(pin 0..17), 50 ms stagger
-  //   Frame 20:       SET_TARGETS (initial-pose, reaffirm)
-  // Total 21 frames. Hintergrund: FW-Soft-Ramp (20 µs/tick @ 100 Hz)
-  // braucht target_pulse_us ungleich pulse_zero VOR dem Enable, sonst
-  // fahren alle Servos erst auf horizontale T-Pose (pulse_zero default
-  // nach RESET) bevor das alte End-SET_TARGETS sie auf die Initial-Pose
-  // bewegt.
-  ASSERT_EQ(frames.size(), 21u)
-    << "Expected 1 RESET + 1 SET_TARGETS (pre-enable) + 18 ENABLE_SERVO + "
-       "1 SET_TARGETS (reaffirm) (got " << frames.size() << ")";
+  // Phase 13 Stage 0.3 relay-gated, joint-group-staggered boot sequence.
+  // STRUCTURE frames in fixed order:
+  //   RESET -> SET_TARGETS(1500 pre-enable) -> 6x ENABLE(femur) ->
+  //   RELAY_CONTROL(on) -> 6x ENABLE(coxa) -> 6x ENABLE(tibia) ->
+  //   SET_TARGETS(1500 reaffirm).
+  // BETWEEN the femur->coxa and coxa->tibia groups the plugin emits watchdog
+  // HEARTBEAT frames: extra SET_TARGETS(1500) every 100 ms during the 700 ms /
+  // 400 ms settles (so the 200 ms firmware watchdog does not trip + drop the
+  // relay mid-sequence). They are idempotent (same 1500 payload). We therefore
+  // walk a cursor over the structure frames and SKIP any interleaved
+  // SET_TARGETS(1500) that appears where a settle heartbeat is allowed.
+  // make_valid_info() sets no initial_pose param -> default power_on_mid
+  // commands SERVO_POWER_ON_MID_US (1500) to all 18 pins.
+  constexpr int16_t kInitPulse = 1500;  // power_on_mid servo centre
+  const std::vector<uint8_t> femur_pins = {1, 4, 7, 10, 13, 16};
+  const std::vector<uint8_t> coxa_pins = {0, 3, 6, 9, 12, 15};
+  const std::vector<uint8_t> tibia_pins = {2, 5, 8, 11, 14, 17};
 
-  // Frame 0: RESET (payload empty).
-  EXPECT_EQ(frames[0].cmd, hexapod_hardware::opcode::RESET);
-  EXPECT_EQ(frames[0].payload.size(), 0u);
+  // Minimum frame count: 22 structure frames + >=1 heartbeat per settle
+  // (2 settles) = at least 24 on real (non-loopback) timing.
+  ASSERT_GE(frames.size(), 22u)
+    << "fewer than the 22 structure frames (got " << frames.size() << ")";
 
-  // Frame 1: SET_TARGETS (initial-pose, pre-enable). Mit make_valid_info()
-  // ohne initial_pose-/initial_poses_file-Params faellt der Plugin-Loader
-  // auf pulse_zero pro Pin zurueck (Legacy-Verhalten) — Payload-Bytes
-  // entsprechen kExpectedPulseZero.
-  EXPECT_EQ(frames[1].cmd, hexapod_hardware::opcode::SET_TARGETS);
-  ASSERT_EQ(frames[1].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
-  for (std::size_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
-    const uint8_t lo = frames[1].payload[2 * pin];
-    const uint8_t hi = frames[1].payload[2 * pin + 1];
-    const int16_t pulse = static_cast<int16_t>(
-      static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
-    EXPECT_EQ(pulse, kExpectedPulseZero[pin])
-      << "pre-enable SET_TARGETS pulse mismatch at servo pin " << pin;
-  }
+  auto is_set_targets_1500 = [kInitPulse](const hexapod_hardware::DecodedFrame & f) {
+      if (f.cmd != hexapod_hardware::opcode::SET_TARGETS) {return false;}
+      if (f.payload.size() != 2u * hexapod_hardware::NUM_SERVOS) {return false;}
+      for (std::size_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
+        const int16_t pulse = static_cast<int16_t>(
+          static_cast<uint16_t>(f.payload[2 * pin]) |
+          (static_cast<uint16_t>(f.payload[2 * pin + 1]) << 8));
+        if (pulse != kInitPulse) {return false;}
+      }
+      return true;
+    };
 
-  // Frames 2..19: ENABLE_SERVO(pin, enable=0x01), pin = 0..17 in order.
-  for (uint8_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
-    const auto & f = frames[2 + pin];
-    EXPECT_EQ(f.cmd, hexapod_hardware::opcode::ENABLE_SERVO)
-      << "at wire index " << static_cast<int>(2 + pin);
-    ASSERT_EQ(f.payload.size(), 2u);
-    EXPECT_EQ(f.payload[0], pin) << "servo_idx mismatch at pin " << static_cast<int>(pin);
-    EXPECT_EQ(f.payload[1], 0x01) << "expected enable=true at pin " << static_cast<int>(pin);
-  }
+  std::size_t cur = 0;  // cursor into frames
+  auto skip_heartbeats = [&]() {
+      while (cur < frames.size() && is_set_targets_1500(frames[cur])) {++cur;}
+    };
+  auto expect_set_targets = [&](const char * label) {
+      ASSERT_LT(cur, frames.size()) << label << ": ran out of frames";
+      EXPECT_TRUE(is_set_targets_1500(frames[cur]))
+        << label << ": expected SET_TARGETS(1500) at frame " << cur
+        << " (cmd=" << static_cast<int>(frames[cur].cmd) << ")";
+      ++cur;
+    };
+  auto expect_enable = [&](uint8_t pin, const char * group) {
+      ASSERT_LT(cur, frames.size()) << group << ": ran out of frames";
+      EXPECT_EQ(frames[cur].cmd, hexapod_hardware::opcode::ENABLE_SERVO)
+        << group << " at frame " << cur;
+      ASSERT_EQ(frames[cur].payload.size(), 2u);
+      EXPECT_EQ(frames[cur].payload[0], pin)
+        << group << " servo_idx mismatch at frame " << cur;
+      EXPECT_EQ(frames[cur].payload[1], 0x01)
+        << group << " expected enable=true at frame " << cur;
+      ++cur;
+    };
 
-  // Frame 20: SET_TARGETS (reaffirm) — identische Pulses wie Frame 1.
-  EXPECT_EQ(frames[20].cmd, hexapod_hardware::opcode::SET_TARGETS);
-  ASSERT_EQ(frames[20].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
-  for (std::size_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
-    const uint8_t lo = frames[20].payload[2 * pin];
-    const uint8_t hi = frames[20].payload[2 * pin + 1];
-    const int16_t pulse = static_cast<int16_t>(
-      static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
-    EXPECT_EQ(pulse, kExpectedPulseZero[pin])
-      << "reaffirm SET_TARGETS pulse mismatch at servo pin " << pin;
-  }
+  // RESET (empty payload).
+  ASSERT_LT(cur, frames.size());
+  EXPECT_EQ(frames[cur].cmd, hexapod_hardware::opcode::RESET);
+  EXPECT_EQ(frames[cur].payload.size(), 0u);
+  ++cur;
 
-  // SEQ starts at 0; fetch_add returns pre-increment value. So the wire
-  // sequence is 0, 1, 2, …, 20 in order.
+  // SET_TARGETS pre-enable.
+  expect_set_targets("pre-enable SET_TARGETS");
+
+  // Femur group (relay still open, no current). No heartbeats here (the 50 ms
+  // enable stagger keeps the watchdog warm during enable groups).
+  for (const uint8_t pin : femur_pins) {
+    expect_enable(pin, "femur");
+                                                                    }
+
+  // RELAY_CONTROL(on) right after the femur group.
+  ASSERT_LT(cur, frames.size());
+  EXPECT_EQ(frames[cur].cmd, hexapod_hardware::opcode::RELAY_CONTROL)
+    << "relay must close right after the femur group (frame " << cur << ")";
+  ASSERT_EQ(frames[cur].payload.size(), 1u);
+  EXPECT_EQ(frames[cur].payload[0], 0x01) << "relay frame payload must be ON";
+  ++cur;
+
+  // femur settle heartbeats (>=1 on real timing, 0 in loopback) -> skip them.
+  skip_heartbeats();
+
+  // Coxa group (rail now live).
+  for (const uint8_t pin : coxa_pins) {
+    expect_enable(pin, "coxa");
+                                                                  }
+
+  // coxa settle heartbeats -> skip.
+  skip_heartbeats();
+
+  // Tibia group.
+  for (const uint8_t pin : tibia_pins) {
+    expect_enable(pin, "tibia");
+                                                                    }
+
+  // SET_TARGETS reaffirm (the final structure frame; skip_heartbeats already
+  // consumed any preceding heartbeats so this is the last 1500-frame).
+  expect_set_targets("reaffirm SET_TARGETS");
+
+  // All structure frames consumed; nothing but (already-skipped) heartbeats
+  // may remain — and none should, since reaffirm is last.
+  EXPECT_EQ(cur, frames.size())
+    << "unexpected trailing frames after reaffirm SET_TARGETS";
+
+  // SEQ is monotonic across ALL frames (structure + heartbeats), starting at 0.
   for (std::size_t i = 0; i < frames.size(); ++i) {
     EXPECT_EQ(static_cast<int>(frames[i].seq), static_cast<int>(i))
       << "SEQ mismatch at frame " << i;
@@ -731,10 +781,11 @@ TEST(HexapodSystemActivate, PtyActivateRespectsStaggerTiming)
   // Without the 50 ms stagger, the boot sequence would finish in single
   // digits of milliseconds — verify the wall-clock duration matches the
   // designed cadence.
-  // Budget (Phase 13 FW-Fix): 10 ms (RESET breather) +
-  //                           10 ms (SET_TARGETS pre-enable breather) +
-  //                           18 × 50 ms (ENABLE_SERVO stagger) = ~920 ms.
-  // Allow ±200 ms band for scheduler jitter on busy CI machines.
+  // Budget (Phase 13 Stage 0.3 relay-gated sequence):
+  //   10 ms (RESET breather) + 10 ms (SET_TARGETS breather)
+  //   + 18 x 50 ms (ENABLE stagger, 6 per group) = 900 ms
+  //   + 700 ms (femur settle) + 400 ms (coxa settle) = ~2020 ms.
+  // Wide band for scheduler jitter on busy CI machines.
   int master_fd;
   std::string slave_name;
   open_pty_for_serial_port(&master_fd, &slave_name);
@@ -756,8 +807,8 @@ TEST(HexapodSystemActivate, PtyActivateRespectsStaggerTiming)
     hardware_interface::CallbackReturn::SUCCESS);
   const auto dt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now() - t0).count();
-  EXPECT_GT(dt_ms, 800) << "Activate completed in " << dt_ms << " ms — no stagger?";
-  EXPECT_LT(dt_ms, 1200) << "Activate took " << dt_ms << " ms — too slow?";
+  EXPECT_GT(dt_ms, 1700) << "Activate completed in " << dt_ms << " ms - settles skipped?";
+  EXPECT_LT(dt_ms, 2700) << "Activate took " << dt_ms << " ms - too slow?";
 
   drain_master_until_idle(master_fd, std::chrono::milliseconds(50));
   EXPECT_EQ(

@@ -4,10 +4,13 @@
 > erledigtem Schritt sofort `[ ]`→`[x]` (Memory `feedback_phase_progress_tracking`).
 > Plan-Übersicht: [`phase_13_stage_0_plan.md`](phase_13_stage_0_plan.md).
 
-**Stand:** 2026-05-30 — Sub-Stage 0.1 ✅ + Sub-Stage 0.2 ✅ FERTIG (Umbau +
-Re-Cal + Femur-Limits ±1.57 + FW UV/OC-Relay-Gate-Fix; Live verifiziert,
-Tests 351/0, Self-Review ohne 🔴). Bereit für Commit. Nächste: 0.3
-(relay-gated Init-Sequenz — löst Init-Race + K3-Init-Pose).
+**Stand:** 2026-05-30 — 0.1 ✅ + 0.2 ✅ + **Sub-Stage 0.3 ✅ FERTIG**:
+`power_on_mid`-Init (1500 µs alle 18 Pins, zero-jerk), relay-gated gestaffelte
+on_activate-Sequenz (RESET→SET_TARGETS→6×femur→RELAY→coxa→tibia→reaffirm) mit
+Settle-Heartbeat gegen FW-Watchdog (R16). Tests **352/0/25-skip**, uncrustify
+clean. Live T2–T5 aufgebockt verifiziert (Relay hält, Race weg, kein Trip,
+Shutdown stromlos). Code- + Final-Review ohne 🔴 (zwei 🟡-Merker: T5b-Live +
+0.7-Boden-limp). **Bereit für Commit (User).** Nächste: 0.4 (Gait Stand-up).
 
 ---
 
@@ -91,18 +94,18 @@ Plan: [`phase_13_stage_0_2_remount_recal_plan.md`](phase_13_stage_0_2_remount_re
 Plan: [`phase_13_stage_0_3_init_sequence_plan.md`](phase_13_stage_0_3_init_sequence_plan.md)
 + `_test_commands.md`. Löst Init-Race (0.2-Finding) + K3.
 
-- [ ] 0.3.1  on_activate: init_pulse = 1500 µs (Servo-Mitte) für alle 18 Pins (K3)
-- [ ] 0.3.2  on_activate: hw_state_positions_ = rad(1500) → Race-Fix (JTC liest echte Pose)
-- [ ] 0.3.3  on_activate: gestaffelte Sequenz RESET→SET_TARGETS→6×Femur-ENABLE→RELAY-ON→Coxa→Tibia→reaffirm
-- [ ] 0.3.4  initial_poses.yaml: "suspended" (+1.45) obsolet → power_on_mid / Doku
-- [ ] 0.3.5  initial_pose-Default-Param (urdf.xacro) angepasst
-- [ ] 0.3.6  Unit-Tests (Sequenz-Order, init=1500, hw_state) + bestehende angepasst
-- [ ] 0.3.7  colcon build + test hexapod_hardware grün
-- [ ] 0.3.8  Live T2: Init-Sequenz fährt alle 6 sauber hoch, kein Ruck, kein Trip
-- [ ] 0.3.9  Live T3: 5× Restart → nie bleibt ein Bein unten (Race weg)
-- [ ] 0.3.10 Live T4: Strom beim Staffel-Enable unter Limit
-- [ ] 0.3.11 Live T5: on_deactivate Relay-off (Regression)
-- [ ] 0.3.12 Self-Review-Tabelle, Fixe erledigt
+- [x] 0.3.1  on_activate: init_pulse = 1500 µs (Servo-Mitte) für alle 18 Pins (K3) — `power_on_mid`-Modus in `load_initial_pose_preset()`, Konstante `SERVO_POWER_ON_MID_US`
+- [x] 0.3.2  on_activate: hw_state_positions_ = rad(1500) → Race-Fix — bestehender Sync-Block rechnet aus `initial_pulse_us_`; Test `DefaultModeIsPowerOnMid` prüft echo-State
+- [x] 0.3.3  on_activate: gestaffelte Sequenz RESET→SET_TARGETS→6×Femur-ENABLE→RELAY-ON→settle→Coxa→settle→Tibia→reaffirm (`enable_group`-Lambda, Pin-Gruppen aus on_init)
+- [x] 0.3.4  initial_poses.yaml: "suspended" (+1.45) als Legacy markiert; `power_on_mid` als built-in Default dokumentiert
+- [x] 0.3.5  initial_pose-Default-Param `power_on_mid` (urdf.xacro + ros2_control.xacro Kommentar)
+- [x] 0.3.6  Unit-Tests: `PtyActivateRelayGatedSequenceOrder` (22 Frames/Order/1500), `DefaultModeIsPowerOnMid`, `PowerOnMidExplicitNeedsNoYaml`, Timing-Band ~2020 ms; bestehende angepasst (write-Tests unberührt — rufen on_activate nicht)
+- [x] 0.3.7  colcon build (exit 0) + test hexapod_hardware grün (**352/0/25 skip**) + uncrustify clean
+- [x] 0.3.8  Live T2: Init-Sequenz fährt alle 6 sauber hoch, Relay bleibt an, kein Ruck, kein Trip (2026-05-30, nach R16-Heartbeat-Fix)
+- [x] 0.3.9  Live T3: 5× Restart → nie bleibt ein Bein unten (Race weg)
+- [x] 0.3.10 Live T4: Strom beim Staffel-Enable unter Limit (kein Overcurrent-Trip)
+- [x] 0.3.11 Live T5: Shutdown depowert die Rail ✅ — bei Strg+C via FW-Watchdog-Fail-safe (kein expliziter Relay-Klick, da SIGINT on_deactivate nicht sauber durchfährt). Safety-Ziel erfüllt; expliziter Frame-Pfad 🟡 (T5b separat, kein Blocker)
+- [x] 0.3.12 Self-Review-Tabelle (Code ✅ vor Live + Final-Review unten nach T2–T5), Fixe erledigt
 - **K3-Pendenz (aus 0.2):** Init-Pose-Femur-Wert NICHT hartkodiert −0.611,
   sondern pro Pin aus `pulse_us_to_radians(1500)` (echte Servo-Power-On-Mitte),
   damit `/joint_states` die wahre Startpose meldet und Stand-up (0.4) sauber
@@ -112,6 +115,88 @@ Plan: [`phase_13_stage_0_3_init_sequence_plan.md`](phase_13_stage_0_3_init_seque
   und muss in 0.3 ersetzt werden. Zusätzlich JTC-Startup-Race (read() echot
   pulse_zero bis erster read-Tick) → leg_1 (timing-flaky) folgte beim Init dem
   Down-Target statt der Race-Pose. Beides in der 0.3-Init-Sequenz sauber lösen.
+
+### Sub-Stage 0.3 — Post-Review (Code, vor Live-Tests) (2026-05-30)
+
+> Code-Level-Self-Review nach Implementierung + grünen Unit-Tests, **vor** den
+> Live-Tests T2–T5 (de-riskt die HW-Session). Final-Review (mit Live-Findings)
+> schließt 0.3.12 nach T2–T5.
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | Init=1500 ∈ [pulse_min,pulse_max] **aller 18 Pins** (jeden durchgerechnet) → kein Stage-0.5-`safety_freeze` beim Init-Send; Roundtrip `rad→pulse` exakt (gleiche Slope-Branch beidseitig) → JTC hält konsistent | OK (`DefaultModeIsPowerOnMid` prüft echo-State = rad(1500)) |
+| R2 | Frame-Sequenz byteweise: 22 Frames RESET→SET_TARGETS(1500)→6×femur-ENABLE→**RELAY(on)**→6×coxa→6×tibia→SET_TARGETS; SEQ 0..21 monoton | OK (`PtyActivateRelayGatedSequenceOrder`) |
+| R3 | Pin-Gruppen partitionieren 0..17 (FATAL-Check sum≠18); per Joint-Name klassifiziert + sortiert → deterministische Wire-Order auch bei permutierter URDF | OK (`AcceptsPermutedJointOrder` weiter grün) |
+| R4 | Femur-Settle 700 ms ≥ FW-Sense-Warmup 400 ms (re-armed bei Relay-On) → Überstrom-Trip scharf + IIR gesettled bevor Coxa-Gruppe zieht | OK (bewusst aligned, Plan §4.2/4.3) |
+| R5 | Coxa/Tibia **limp-Fenster** (V+ an, PWM aus) zwischen Relay-On und ihrem Enable → kleines Nachsetzen beim Enable | 🟡 vormerken **0.7 (Boden)**: dort relevanter (Beine gesplayed) — ggf. Sequenz/Reihenfolge anpassen. Aufgebockt unkritisch; in test_commands T2 dokumentiert |
+| R6 | Abort nach Relay-On (USB weg, send_frame=false) → **kein** explizites Relay-Off (Wire ist tot, Frame ginge eh nicht); FW-Watchdog (200 ms) droppt Relay autonom | OK (designter Backstop; `ActivateFailsCleanlyIfPortIsBroken` grün) |
+| R7 | write-Tests unberührt — sie rufen on_activate **nicht** + setzen hw_command explizit → `kExpectedPulseZero`-Erwartung bei rad=0 bleibt korrekt | OK (geprüft, alle WriteRead-Tests grün) |
+| R8 | Loopback: alle Delays (stagger+settle) = 0 → `LoopbackActivateAndDeactivateAreFast` < 100 ms; seq +22 | OK |
+| R9 | 0.1-Review-R6 (relay-on bei latched Trip) durch **RESET vor Relay-On** im Design abgedeckt — RESET cleart Trips + droppt Relay (FW), dann erst relay-on | OK |
+| R10 | `safety_freeze_` wird von on_activate nicht gecleart (pre-existing) — bei Fresh-Launch `false`, für Live irrelevant; in-process Re-Activate nach Freeze hielte Init-Pose | 🟢 pre-existing, out-of-scope (Recovery = /hexapod_safety_reset oder Re-Launch) |
+| R11 | Legacy "suspended" femur=1.45 mit **neuer** Femur-Cal weiter in-range (alle 6 Pins gerechnet, ~45–50 µs Margin rechts) → kein OoR-Fallback | OK (`SuspendedPresetLoadsAndApplies` grün) |
+| R12 | PTY-Activate-Tests jetzt ~3 s (Settles real in non-loopback), Suite +~13 s | 🟢 akzeptabel für HW-Paket |
+| R13 | Servo-MID-on-Power-On bleibt physikalisch unvermeidbar — power_on_mid macht genau das zum Feature (zero-jerk), löst Init-Race per Design statt per Timing | OK (Kern-Designentscheidung) |
+
+**Ergebnis Code-Review:** keine 🔴. Ein 🟡 (R5) ist ein bewusster Merker für die
+Boden-Stage 0.7, kein Blocker für die aufgebockten Tests T2–T5. Bereit für Live.
+
+**Live-Debug-Findings (T2, 2026-05-30):**
+- **R14 🔴→gefixt:** `real.launch.py` deklarierte `initial_pose` mit Default
+  **`suspended`** und reichte ihn an xacro durch → überschrieb den neuen
+  URDF-Default `power_on_mid`. Plugin lief also mit dem Legacy-Preset (Beine
+  runter) statt 1500. Fix: Launch-Default → `power_on_mid`. **Lektion:** beim
+  Ändern eines xacro-Default-Args **immer** die Launch-Arg-Defaults mitziehen,
+  die ihn shadowen.
+- **R15 🔴→gefixt:** `*_test_commands.md` **Vorbereitung** baute nur
+  `hexapod_hardware` — aber 0.3 änderte auch `hexapod_bringup` (Launch) +
+  `hexapod_description` (URDF). Wer nur das Plugin baut, fährt mit altem
+  Launch/URDF. Fix: Build-Schritt + Diagnose-D-T2 bauen alle 3 Pakete; T2/T3
+  setzen `initial_pose:=power_on_mid` explizit; redundantes `use_sim_time:=false`
+  (von real.launch.py nicht deklariert) entfernt. (User-Catch, danke.)
+- **R16 🔴→gefixt (Watchdog-Trip in der Settle-Lücke):** Live T2 zeigte „Relay
+  klickt an, ~200 ms später wieder aus, mitten in der Sequenz". Wurzel: der
+  FW-Watchdog ([main.cpp:385-403](../../hexapod_servo_driver/src/main.cpp#L385-L403),
+  `WATCHDOG_TIMEOUT_MS=200`) disabled alle Servos **+ `set_relay(false)`**, wenn
+  >200 ms kein gültiger Frame kommt. Meine 700-ms-`femur_settle` (und 400-ms-
+  `coxa_settle`) waren **nackte `sleep_for`** ohne Frame → on_activate blockt die
+  write()-Loop → Watchdog trippt nach 200 ms. Mein Code-Review **R4** wog Settle
+  gegen das 400-ms-Sense-Warmup-Gate ab, **übersah aber das 200-ms-Watchdog-
+  Timeout** (der alte 50-ms-Stagger hatte den Watchdog implizit warm gehalten).
+  **Fix (host-only, kein FW-Change):** `settle_with_heartbeat()` schläft in
+  100-ms-Slices und sendet zwischen den Slices ein **idempotentes
+  `SET_TARGETS(1500)`** (Target unverändert → keine Bewegung, füttert aber den
+  Watchdog). 100 ms ≪ 200 ms = 2× Margin. **Lektion:** jede Frame-Stille
+  >200 ms in on_activate = Watchdog-Trip; Heartbeat ist Pflicht.
+- **Test-Anpassung:** `PtyActivateRelayGatedSequenceOrder` von starrer
+  22-Frame-Assertion auf **Cursor-Walk** umgestellt, der die Heartbeat-
+  SET_TARGETS(1500) zwischen den Gruppen toleriert (`skip_heartbeats()`);
+  Struktur-Frame-Order + SEQ-Monotonie weiter streng geprüft. Loopback bleibt
+  22 Frames (settle=0). Tests **352/0/25**, uncrustify clean.
+- **Offen:** Live-Re-Test T2 nach Rebuild — Relay muss jetzt **an bleiben** über
+  die ganze Sequenz (Heartbeat verhindert den Watchdog-Trip).
+
+### Sub-Stage 0.3 — Final-Review (nach Live T2–T5) (2026-05-30)
+
+> Abschluss-Review mit Live-Findings (CLAUDE.md §4). Ergänzt den Code-Review oben.
+
+| # | Punkt | Status |
+|---|---|---|
+| F1 | **R16-Fix live validiert:** on_activate 327.761→329.785 = **2,024 s**, Relay bleibt durchgehend an, kein Watchdog-Trip. Heartbeats ändern die Gesamtdauer nicht (laufen in den Sleeps) | OK |
+| F2 | **Beweis neuer Code:** Log `on_activate complete — relay closed, … (seq counter advanced by 22)` + `initial_pose=power_on_mid` + `all 18 pins … 1500 µs` | OK |
+| F3 | **T2 Init-Pose:** alle 6 Beine kommen sauber hoch, kein Bein bleibt unten, kein Ruck (Race per Design weg) | OK |
+| F4 | **T3 5× Restart:** jedes Mal identisch, nie hängt ein Bein → Init-Race endgültig gelöst | OK |
+| F5 | **T4 Strom:** gestaffeltes Enable, kein Overcurrent-/Undervoltage-Trip | OK |
+| F6 | **T5 Shutdown-Safety:** Rail wird stromlos. Bei Strg+C über **FW-Watchdog-Fail-safe** (200 ms), nicht über den expliziten on_deactivate-Frame (SIGINT killt den Node bevor on_deactivate sauber läuft). Servos limp = sicher | OK (Safety-Ziel) |
+| F7 | **Expliziter on_deactivate-Relay-off-Pfad** (RELAY_CONTROL(off) vor Disable) nur unit-getestet (`PtyDeactivateSendsDisableForAllServos`), live mit Strg+C nicht nachgewiesen | 🟡 vormerken: **T5b** (`set_hardware_component_state … inactive`) live nachziehen, wenn 0.6 sowieso am HW läuft. Kein Blocker — Watchdog ist redundanter Backstop (DL-3) |
+| F8 | **R5 (limp-Fenster Coxa/Tibia 700 ms):** aufgebockt beobachtet — nur „kleines Nachsetzen" beim Enable, kein hartes Springen, wie erwartet | OK aufgebockt; bleibt 🟡-Merker für **0.7 Boden** |
+| F9 | Tests nach R16-Fix weiter grün (352/0/25), uncrustify clean, Sequenz-Test heartbeat-tolerant (cursor-walk) | OK |
+
+**Ergebnis Final-Review:** keine 🔴. Zwei 🟡 (F7 T5b-Live-Nachweis, F8/R5
+Boden-limp) sind bewusste Merker für spätere Stages, kein Blocker für 0.3.
+**Sub-Stage 0.3 fertig.** Geänderte Dateien bereit für User-Commit.
+
+---
 
 ## Sub-Stage 0.4 — Gait Stand-up (Tripod 3+3)
 

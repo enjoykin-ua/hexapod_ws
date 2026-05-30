@@ -4,7 +4,7 @@
 > **Vorbedingung:** 0.1 (Relay-Frame + Service) ✅, 0.2 (Re-Cal + Femur-Limits
 > ±1.57) ✅.
 > **Test-Anleitung:** [`phase_13_stage_0_3_init_sequence_test_commands.md`](phase_13_stage_0_3_init_sequence_test_commands.md).
-> **Status:** ⚪ offen, wartet auf Freigabe.
+> **Status:** 🟢 §4 geklärt + freigegeben (2026-05-30) → Implementierung.
 
 **Ziel:** Das Plugin `on_activate` fährt beim Start **zuverlässig** (kein
 Race, kein hängendes Bein) in eine **sichere Init-Pose**, indem es den Relay
@@ -99,15 +99,21 @@ Pseudocode (ersetzt die aktuelle on_activate-Frame-Folge):
 - **Stand-up / Aufstehen** → 0.4.
 - **Sim-Visualisierung** → 0.5.
 
-## 4. Offene Punkte für User-Review
+## 4. Offene Punkte für User-Review — ✅ GEKLÄRT (2026-05-30)
 
-| # | Frage | Vorschlag |
+| # | Frage | Entscheidung |
 |---|---|---|
-| 4.1 | Init-Pose = **1500 µs alle Pins** (Servo-Mitte, zero-jerk, race-immun) vs. definierte rad-Pose (femur mid-rad, coxa/tibia rad=0) | **1500 µs alle** — simpelste race-immune Lösung; Stand-Pose macht 0.4 |
-| 4.2 | Gestaffelte Gruppen-Delays (femur 700 ms, coxa 400 ms)? | Startwerte; live justieren falls Overcurrent |
-| 4.3 | Overcurrent-Risiko: 18 Servos holding > 3500 mA? | Gestaffeltes Enable + Live-Strom beobachten; falls nötig `SET_CURRENT_LIMIT` hochsetzen (FW-Frame existiert) — separat entscheiden |
-| 4.4 | „suspended"-Preset löschen oder als Legacy behalten? | **Ersetzen** durch `power_on_mid`; rad-Loader bleibt für evtl. spätere Presets |
-| 4.5 | Femur-vor-Relay-Enable-Reihenfolge ok (brainstorm §4) oder andere Gruppe zuerst? | **Femur zuerst** (brainstorm), dann Coxa, dann Tibia |
+| 4.1 | Init-Pose = **1500 µs alle Pins** (Servo-Mitte, zero-jerk, race-immun) vs. definierte rad-Pose | ✅ **1500 µs alle**. Verifiziert: 1500 ∈ [pulse_min,pulse_max] aller 18 Pins → kein safety_freeze; Roundtrip exakt → JTC hält konsistent (Race-Mechanismus existiert schon in on_activate, nur Wert ändert sich). Coxa/Tibia landen nicht exakt auf rad=0 (kosmetisch), 0.4 rampt von der echten Pose |
+| 4.2 | Gestaffelte Gruppen-Delays (femur 700 ms, coxa 400 ms)? | ✅ Startwerte als benannte Konstanten, in Loopback = 0 (CI schnell). Femur-Settle 700 ms ist bewusst ≥ 400 ms FW-Warmup-Gate (s. 4.3), damit der Trip scharf ist bevor die Coxas dazukommen |
+| 4.3 | Overcurrent-Risiko: 18 Servos holding > 3500 mA? | ✅ **Observation-driven**. FW-Trip ist **bereits zeit-gemittelt**: Gesamt-Rail-Strom (nur HW-Sense), 20 Hz Sampling, IIR α=1/8 (τ≈400 ms) → kurze Inrush-Peaks trippen nicht; nötig ist ~400 ms Dauerlast. Zusätzlich re-armed `set_relay(true)` ein 400-ms-Warmup-Gate (trip-frei). `SET_CURRENT_LIMIT` **nicht** vorab — FW kann den Frame schon, „Encoder" wäre nur host-seitig ~5 Zeilen; erst falls T4 trippt. 3500 mA bleibt als Schutz scharf |
+| 4.4 | „suspended"-Preset löschen oder als Legacy behalten? | ✅ Default → **`power_on_mid`** (built-in 1500-µs-Modus, kein rad-Preset). `"suspended"` bleibt als **Legacy-rad-Preset** in der YAML (femur=1.45 mappt mit neuer Cal weiter in-range → erhält rad-Loader-Test-Abdeckung), nicht mehr Default |
+| 4.5 | Femur-vor-Relay-Enable-Reihenfolge ok? | ✅ **Femur zuerst** → Relay-On → Coxa → Tibia |
+
+**FW-Befund (relevant für 4.2/4.3, dokumentiert für spätere Stages):** Der
+Überstrom-Schutz vergleicht NICHT den Rohsample, sondern `rail_current_ma_smooth`
+(IIR, [main.cpp:451-455](../../hexapod_servo_driver/src/main.cpp#L451-L455)) gegen
+`runtime_current_max_ma` ([main.cpp:484](../../hexapod_servo_driver/src/main.cpp#L484)).
+Per-Servo-Strom gibt es in HW nicht (ein Shared-ADC-Mux, nur Gesamtstrom).
 
 ## 5. Cross-References
 - [`phase_13_stage_0_plan.md`](phase_13_stage_0_plan.md) §6 · [`phase_13_stage_0_progress.md`](phase_13_stage_0_progress.md) (0.2-Findings: Init-Race + K3)

@@ -20,8 +20,10 @@ mit ros2_control-name-Rename (J). Aktuell:
   Lower-<-Upper-Limit-Validation, Strong-EH-Guarantee bei Re-Init)
 - `on_configure` / `on_cleanup` (6 Tests: Loopback-Skip, pty-Open + Reader-Start,
   Bad-Path-Reject, Configure/Cleanup-Cycle 3×, RAII-Destructor)
-- `on_activate` / `on_deactivate` (6 Tests: Loopback-Fast, Pty-Boot-Sequence-Order
-  verifiziert byteweise, Stagger-Timing 900 ms ± 100 ms, Deactivate-Disable-All,
+- `on_activate` / `on_deactivate` (6 Tests: Loopback-Fast, Pty-Relay-Gated-
+  Sequence-Order byteweise verifiziert (22 Frames: RESET → SET_TARGETS(1500) →
+  6× femur-ENABLE → RELAY(on) → 6× coxa → 6× tibia → SET_TARGETS), Stagger+
+  Settle-Timing ~2020 ms, Deactivate-Relay-off+Disable-All,
   Activate/Deactivate-Cycle 2×, Activate-Fails-Clean bei Port-Broken)
 - `read()` / `write()` mit Pulse-Konversion (9 Tests: Loopback-Roundtrip ±2 mrad,
   Permutations-Aware-Mapping mit reversed URDF, NaN-Sanity, Int16-Clamp,
@@ -496,7 +498,7 @@ Subklasse von `hardware_interface::SystemInterface`. Wird zur Laufzeit
 |---|---|
 | `on_init`        | ✅ URDF-Joint-Liste validieren, Joint→Pin-Tabelle bauen, Kalibrierung laden, Limits injizieren, last_command_pulse_us_ auf pulse_zero |
 | `on_configure`   | ✅ Serial-Port öffnen, Reader-Thread starten (in Loopback: skipt beides) |
-| `on_activate`    | ✅ RESET → 18× ENABLE_SERVO mit 50 ms Stagger → SET_TARGETS neutral (Watchdog warmhalten + definierte Initial-Pose) |
+| `on_activate`    | ✅ Phase 13 Stage 0.3 relay-gated: RESET → SET_TARGETS(init 1500 µs) → 6× femur-ENABLE → **RELAY_CONTROL(on)** → settle → 6× coxa-ENABLE → settle → 6× tibia-ENABLE → SET_TARGETS reaffirm. Gestaffelt nach Joint-Gruppe gegen Inrush; init=Servo-Mitte (zero-jerk, race-immun) |
 | `on_deactivate`  | ✅ 18× DISABLE_SERVO ohne Stagger (Best-Effort — Torque-off so schnell wie möglich) |
 | `on_cleanup`     | ✅ Reader-Thread stoppen, Serial-Port schließen (in dieser Reihenfolge) |
 | `read`           | ✅ Echo via Calibration::pulse_us_to_radians (rad-Konsumenten sehen letzten Sollwert als „Istwert"); ERROR_REPORT-Drain mit per-Code Severity-Routing (siehe „Firmware-Error-Diagnose"); reader.died() → return_type::ERROR |
@@ -505,10 +507,42 @@ Subklasse von `hardware_interface::SystemInterface`. Wird zur Laufzeit
 Plus die `export_*_interfaces`-Methoden, die dem `controller_manager`
 sagen, welche Joints welche Position-Interfaces haben.
 
-**Aktuell (Stufe A):** Alle Methoden sind **Stubs**, die SUCCESS / OK /
-0 zurückgeben. `read` reflektiert `command` direkt nach `state` (das
-strukturelle Echo-Verhalten ist schon eingebaut, aber ohne
-Pulse-Konversion).
+**Hinweis:** Die obige Tabelle ist der aktuelle Stand (Phase 9 D.5/8 +
+Phase 11 Live-Cal + Phase 13 Stage 0.x Safety/Relay). Die Hooks sind
+vollständig implementiert — der „Stub"-Hinweis früherer Stufen ist überholt.
+
+#### Phase 13 Stage 0.3 — Relay-gated Init-Sequenz + `power_on_mid`
+
+Hobby-Servos (Miuzei MS61 / Diymore 8120MG) fahren beim **Power-On
+hardware-bedingt zur Servo-Mitte (~1500 µs)** — nicht software-vermeidbar.
+Nach dem mechanischen 35°-Femur-Umbau (Stage 0.2) ist genau diese Mitte die
+sichere Init-Pose (Femurs ~35° hoch). Daraus die Init-Strategie:
+
+- **`initial_pose` Default `power_on_mid`** (built-in Modus, kein YAML-Preset):
+  `initial_pulse_us_` = **1500 µs für alle 18 Pins**. Weil die Servos beim
+  Einschalten physisch schon dort stehen, gibt es beim Bestromen **null
+  Bewegung** (zero-jerk) und der JTC-Startup-Race ist irrelevant (jeder JTC
+  friert dieselbe Pose ein). 1500 µs liegt für alle 18 Pins in
+  `[pulse_min, pulse_max]`, triggert also nie den Stage-0.5-`safety_freeze`.
+  Race-Fix: `hw_state/command_positions_ = pulse_us_to_radians(1500)` →
+  `/joint_states` meldet die echte Startpose, Stand-up (0.4) rampt von dort.
+
+- **Relay-Gate (GP26):** Default stromlos. Das Plugin schaltet die V+-Rail
+  erst in `on_activate` zu, nachdem die PWM-Signale sauber stehen. Fail-safe:
+  FW droppt den Relay bei jedem Trip/RESET, `on_deactivate` schaltet ihn ab.
+
+- **Gestaffelte Enable-Sequenz** (gegen Inrush): Servos werden nach
+  Joint-Gruppe enabled — zuerst **Femur** (tragen die Beinlast), dann
+  **Relay-On**, dann **Coxa**, dann **Tibia** — je 50 ms Host-Stagger plus
+  700 ms / 400 ms Settle zwischen den Gruppen. Das 700-ms-Femur-Settle ist
+  bewusst ≥ dem 400-ms-Sense-Warmup-Gate der FW (re-armed bei Relay-On), damit
+  der Überstrom-Trip scharf + der Strom-IIR gesettled ist, bevor die nächste
+  Gruppe dazukommt. In Loopback sind alle Delays 0 (CI < 100 ms).
+
+`rad_femur = 0` bleibt **Femur horizontal** (Weg A, Stage 0.2): der 35°-Offset
+lebt allein in der Kalibrierung, die IK-Mathematik ist unberührt. Das
+Legacy-rad-Preset `"suspended"` (femur=+1.45) ist nach dem Umbau obsolet und
+nur noch ein rad-Loader-Beispiel in `config/initial_poses.yaml`.
 
 ### `hexapod_hardware::Calibration`
 
