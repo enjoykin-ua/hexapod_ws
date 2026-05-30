@@ -4,9 +4,10 @@
 > erledigtem Schritt sofort `[ ]`→`[x]` (Memory `feedback_phase_progress_tracking`).
 > Plan-Übersicht: [`phase_13_stage_0_plan.md`](phase_13_stage_0_plan.md).
 
-**Stand:** 2026-05-30 — Sub-Stage 0.1 ✅ FERTIG. Sub-Stage 0.2 **Plan +
-test_commands finalisiert** (K1–K6 eingearbeitet, Decisions geklärt), bereit
-für den Umbau nach Commit. Implementierung/Umbau noch nicht begonnen.
+**Stand:** 2026-05-30 — Sub-Stage 0.1 ✅ + Sub-Stage 0.2 ✅ FERTIG (Umbau +
+Re-Cal + Femur-Limits ±1.57 + FW UV/OC-Relay-Gate-Fix; Live verifiziert,
+Tests 351/0, Self-Review ohne 🔴). Bereit für Commit. Nächste: 0.3
+(relay-gated Init-Sequenz — löst Init-Race + K3-Init-Pose).
 
 ---
 
@@ -46,28 +47,44 @@ Plan: [`phase_13_stage_0_1_relay_plan.md`](phase_13_stage_0_1_relay_plan.md)
 | R8 | GET_STATE-Payload-Größe durch RELAY_ON geändert? | OK — RELAY_ON ist nur ein Bit im bestehenden `status_flags`-Byte, Payload-Layout unverändert |
 | R9 | Encoder-Korrektheit (opcode 0x51, len 1, payload) | OK — `Frame.RoundtripRelayControlOn/Off` grün |
 
-## Sub-Stage 0.2 — Mech-Umbau + Re-Cal + Femur-Limits
+## Sub-Stage 0.2 — Mech-Umbau + Re-Cal + Femur-Limits ✅ FERTIG (2026-05-30)
 
 Plan: [`phase_13_stage_0_2_remount_recal_plan.md`](phase_13_stage_0_2_remount_recal_plan.md)
 
-- [ ] 0.2.1  Mech-Umbau alle 6 Femurs (§6-Trick), Direction pro Bein verifiziert
-- [ ] 0.2.2  35°-Ruhepose pro Bein kollisionsfrei bestätigt (K2)
-- [ ] 0.2.3  rqt-Clamp-Range geweitet (K4) zum Anschlag-Suchen
-- [ ] 0.2.4  Re-Cal pulse_zero (=horizontal) für 6 Femur-Pins
-- [ ] 0.2.5  Re-Cal up-/down-Anschlag → pulse_min/max direction-aware zugeordnet (K1)
-- [ ] 0.2.6  servo_mapping.yaml 6 Femur-Einträge aktualisiert + pulse_min<zero<max ok
-- [ ] 0.2.7  k pro Pin (alt) + joint_lower/upper hergeleitet (Magnituden, §1.3) — notiert
-- [ ] 0.2.8  Entscheidung global vs per-Bein-Limits (Offene Punkte 4.3)
-- [ ] 0.2.9  hexapod_physical_properties.xacro Femur-Limits aktualisiert
-- [ ] 0.2.10 config.py _FEMUR_LIMITS identisch zur xacro
-- [ ] 0.2.11 colcon build (description/kinematics/hardware) grün
-- [ ] 0.2.12 colcon test kinematics + hardware grün (IK-Regression)
-- [ ] 0.2.13 Live: rad=0 → horizontal (HW + RViz identisch)
-- [ ] 0.2.14 Live: rad=-0.611 → ~35° hoch (HW + RViz identisch, ≈ Servo-Mitte)
-- [ ] 0.2.15 Live: rad-Sweep über Limits → kein OoR-Freeze, kein Stall
-- [ ] 0.2.16 Live: Power-On via Relay → Femurs ~35° hoch, kein Horizontal-Sprung
-- [ ] 0.2.17 Self-Review-Tabelle, Fixe erledigt
+- [x] 0.2.1  Mech-Umbau alle 6 Femurs (§6-Trick), Direction pro Bein verifiziert
+- [x] 0.2.2  35°-Ruhepose kollisionsfrei (Femurs erreichen ±90° beidseitig)
+- [x] 0.2.3  rqt zum Messen genutzt (Range real [500,2500], kein Clamp-Problem)
+- [x] 0.2.4  Re-Cal pulse_zero (=horizontal) für 6 Femur-Pins gemessen
+- [x] 0.2.5  Re-Cal up/down bei ±90° gemessen → pulse_min/max numerisch zugeordnet
+- [x] 0.2.6  servo_mapping.yaml 6 Femur-Einträge aktualisiert + pulse_min<zero<max ok
+- [x] 0.2.7  k cross-checked (~415–427 µs/rad vs alt ~420 @±1.57) — konsistent
+- [x] 0.2.8  Limits **global symmetrisch** entschieden (User maß beidseitig ±90°)
+- [x] 0.2.9  **KORREKTUR:** Femur-Limits werden per **per-Bein-Override** gesetzt (nicht der `femur_lower`-Property!). Stage-F-Overrides standen stale auf ±1.493 → in `hexapod.urdf.xacro` (6×) + `hexapod.ros2_control.xacro` (6×) auf **±1.57** korrigiert. Generierte URDF verifiziert ±1.57. Nötig weil pulse_min/max bei ±90° gemessen → joint_limit MUSS = 90° (sonst Skalenfehler + Freeze bei rad<−1.493)
+- [x] 0.2.10 config.py _FEMUR_LIMITS = (-1.57, 1.57) — war schon 1.57, jetzt konsistent mit dem korrigierten Override (vorher IK 1.57 ↔ Plugin 1.493 inkonsistent)
+- [x] 0.2.11 colcon build hardware + kinematics grün
+- [x] 0.2.12 colcon test grün (351, 0 Failures; Fixture kExpectedPulseZero nachgezogen)
+- [x] 0.2.13 Live: rad=0 → horizontal (alle 6, HW + RViz) ✓ 2026-05-30
+- [x] 0.2.14 Live: rad=-0.611 → ~35° hoch (alle 6, HW + RViz) ✓ 2026-05-30
+- [x] 0.2.15 Live: rad-Sweep ±1.5 über Range → sauber, kein Stall (nach Limit-Fix ±1.57)
+- [x] 0.2.16 Live: Power-On via Relay → Servos kommen hoch (Servo-Mitte ~27° hoch); Init-Race (1 Bein bleibt zufällig unten) bekannt → 0.3
+- [x] 0.2.17 Self-Review (unten), keine offenen 🔴
   (K3: initial_poses.yaml Femur-Wert aus pulse_us_to_radians(1500) → Stage 0.3)
+
+### Sub-Stage 0.2 — Post-Review (2026-05-30)
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | Femur-Cal (6 Pins) in servo_mapping.yaml, `pulse_min<zero<max`, Tests 351/0 | OK |
+| R2 | Re-Cal/Weg A live verifiziert: rad=0→horizontal, rad=−0.611→~35°, Sweep ±1.5 ohne Freeze, HW=RViz | OK |
+| R3 | **Limit-Override-Miss:** anfangs „±1.57, keine Änderung" behauptet, aber per-Bein-Overrides standen ±1.493 → Sweep-Freeze. Lektion: **echte generierte URDF prüfen, nicht nur die Property** | OK (gefixt: ±1.57, URDF verifiziert) + Lektion |
+| R4 | IK↔Plugin-Limit-Konsistenz: vorher config.py 1.57 ↔ Override 1.493 inkonsistent | OK (jetzt beide 1.57) |
+| R5 | ±1.57 vs exakt π/2=1.5708 (90°): 0.046° Label-Fehler, ~0.2 µs im Arbeitsbereich | 🟢 vernachlässigbar, dokumentiert |
+| R6 | leg_2 down-slope 376 vs Rest ~404–414 (~9% Ausreißer) — Messimpräzision leg_2 down-µs/zero | 🟡 vormerken: falls leg_2 im Walking asymmetrisch auffällt → leg_2 down-µs neu messen |
+| R7 | Init-Race „1 Bein bleibt zufällig unten": obsoletes +1.45-Preset + JTC/read-Startup-Race | 🟡 → 0.3 (K3 Init-Pose + relay-gated Sequenz löst es per Design) |
+| R8 | FW UV/OC-Trip-Gate (DL-6) — Schutz bei Relay-AN noch intakt? | OK (`if(!relay_on) return` nur bei AUS; bei AN trippt UV/OC normal + droppt Relay) |
+| R9 | Femur-Range ±1.493→±1.57 (etwas weiter): invalidiert sim_walk.yaml-Envelope? | 🟢 weiter = permissiver, bestehende Posen ⊂ Range gültig; Envelope-Regen nur falls Walking >±1.493 nutzt |
+| R10 | Tibia/Coxa unverändert trotz Femur-Umbau | OK (IK rechnet Kette; tibia relativ zu femur unverändert) |
+| R11 | Servo-Mitte real ~27° hoch statt nominal 35° (§6-Trick-Toleranz) | 🟢 sichere erhöhte Pose; exakter Init-Wert kommt via K3 (0.3) |
 
 ## Sub-Stage 0.3 — Plugin on_activate Relay-gated Init-Sequenz
 
@@ -77,6 +94,11 @@ Relay-ON → Coxa → Tibia._
   sondern pro Pin aus `pulse_us_to_radians(1500)` (echte Servo-Power-On-Mitte),
   damit `/joint_states` die wahre Startpose meldet und Stand-up (0.4) sauber
   rampt.
+- **Init-Pose-Finding (0.2 live):** das alte `initial_poses.yaml`-Preset
+  "suspended" (femur=**+1.45** ≈ 90° runter) ist nach dem Umbau obsolet/falsch
+  und muss in 0.3 ersetzt werden. Zusätzlich JTC-Startup-Race (read() echot
+  pulse_zero bis erster read-Tick) → leg_1 (timing-flaky) folgte beim Init dem
+  Down-Target statt der Race-Pose. Beides in der 0.3-Init-Sequenz sauber lösen.
 
 ## Sub-Stage 0.4 — Gait Stand-up (Tripod 3+3)
 
@@ -105,6 +127,7 @@ _test_commands just-in-time._
 | DL-3 | **Relay fail-safe depower** (Boot-LOW + Off bei 3 Trips + RESET + Deactivate) | Relay HIGH halten / nur explizit per Service | Sicherster Default; Host-Tod → FW erkennt autonom (200 ms Watchdog) → stromlos | 2026-05-30 |
 | DL-4 | **servo2040_fix behalten** als Fundament | verwerfen | Gated PWM auf disabled Pins ist Voraussetzung für Relay-Ansatz; löst nicht MID-on-Power, aber komplementär | 2026-05-30 |
 | DL-5 | **Femur-Limits asymmetrisch**, datengetrieben nach Re-Cal | symmetrisch ±X (Stage-F-Stil) | Mechanik ist nach Umbau real asymmetrisch (mehr Range unten); Symmetrie wäre künstliche Beschränkung | 2026-05-30 |
+| DL-6 | **UV/OC-Trips nur scharf wenn `relay_on`** (FW) + Sense-Warmup-Reset beim Relay-On | Trips immer scharf (0.1-Stand) | **0.2-Blocker-Fix:** Relay default-OFF → Rail liest ~0 V (gemessen 129 mV) → FW trippte Undervoltage **sofort nach Boot** → latch-disable aller Servos → Servos kamen trotz späterem Relay-On nie hoch. Relay bricht die „Rail immer bestromt"-Annahme der Schutzlogik. Gehört zur sauberen Relay-Integration (in 0.1 übersehen) | 2026-05-30 |
 
 ## Offene Punkte (cross-Sub-Stage, zu klären wenn erreicht)
 

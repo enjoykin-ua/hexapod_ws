@@ -46,16 +46,18 @@ using hexapod_hardware_test::make_params;
 
 // pulse_zero per servo pin, mirroring the committed servo_mapping.yaml.
 // Values from Cal-Session 2026-05-21 + leg_2/leg_5 re-cal 2026-05-24
-// (Mount-Tausch). See docs_raspi/servo_real_calibration_todos.md Tab. 3.2.
+// (Mount-Tausch) + Phase 13 Stage 0.2 femur re-cal 2026-05-30 (35° remount,
+// Weg A — femur pulse_zero shifted ~+240 µs; coxa/tibia unchanged).
+// See docs_raspi/servo_real_calibration_todos.md + phase_13_stage_0_2_*.
 // Tests that exercise the boot/neutral-pulse path use this table so YAML
-// edits in Stage B / future Cal-Sessions don't trigger spurious failures.
+// edits in future Cal-Sessions don't trigger spurious failures.
 constexpr int16_t kExpectedPulseZero[NUM_SERVOS] = {
-  1460, 1460, 1680,   // leg_1 (pins  0,  1,  2)
-  1575, 1550, 1680,   // leg_2 (pins  3,  4,  5) — post Mount-Tausch
-  1410, 1445, 1620,   // leg_3 (pins  6,  7,  8)
-  1520, 1560, 1320,   // leg_4 (pins  9, 10, 11)
-  1550, 1530, 1390,   // leg_5 (pins 12, 13, 14) — post Mount-Tausch
-  1530, 1540, 1340,   // leg_6 (pins 15, 16, 17)
+  1460, 1700, 1680,   // leg_1 (pins  0,  1,  2) — femur re-cal 0.2
+  1575, 1780, 1680,   // leg_2 (pins  3,  4,  5) — post Mount-Tausch + femur 0.2
+  1410, 1690, 1620,   // leg_3 (pins  6,  7,  8) — femur re-cal 0.2
+  1520, 1295, 1320,   // leg_4 (pins  9, 10, 11) — femur re-cal 0.2
+  1550, 1325, 1390,   // leg_5 (pins 12, 13, 14) — post Mount-Tausch + femur 0.2
+  1530, 1290, 1340,   // leg_6 (pins 15, 16, 17) — femur re-cal 0.2
 };
 
 // ============================================================================

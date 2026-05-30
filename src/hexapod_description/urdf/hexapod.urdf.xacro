@@ -58,8 +58,9 @@
 
   <!-- ===== Beine (Mountpunkte + yaw aus 00_conventions.md §11.3) =====
        Stage F (2026-05-25): rad-Limits strict-symmetrisch für alle 6
-       Beine identisch (coxa ±0.415 / femur ±1.493 / tibia ±1.161) —
-       behebt die in Stage E2.3 entdeckte visuelle Asymmetrie rechts/
+       Beine identisch (coxa ±0.415 / tibia ±1.161). Femur seit Phase 13
+       Stage 0.2 (2026-05-30) = ±1.57 (±90°, nach 35°-Umbau neu gemessen;
+       war Stage-F ±1.493) — behebt die in Stage E2.3 entdeckte Asymmetrie/
        links während Walking. Hintergrund: Plugin-Slope-Formel skaliert
        rad→pulse über joint_lower/upper; per-Bein-Asymmetrie aus Stage D
        erzeugte ~28° physische Differenz im Tibia. Werte = strict-min
@@ -72,37 +73,37 @@
              mount_x="${ body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
-             femur_lower="-1.493" femur_upper="1.493"
+             femur_lower="-1.57"  femur_upper="1.57"
              tibia_lower="-1.161" tibia_upper="1.161"/>
   <xacro:leg id="2"
              mount_x="0"                 mount_y="${-body_width_middle/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/2}"
              coxa_lower="-0.415"  coxa_upper="0.415"
-             femur_lower="-1.493" femur_upper="1.493"
+             femur_lower="-1.57"  femur_upper="1.57"
              tibia_lower="-1.161" tibia_upper="1.161"/>
   <xacro:leg id="3"
              mount_x="${-body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-3*pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
-             femur_lower="-1.493" femur_upper="1.493"
+             femur_lower="-1.57"  femur_upper="1.57"
              tibia_lower="-1.161" tibia_upper="1.161"/>
   <xacro:leg id="4"
              mount_x="${-body_length/2}" mount_y="${ body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ 3*pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
-             femur_lower="-1.493" femur_upper="1.493"
+             femur_lower="-1.57"  femur_upper="1.57"
              tibia_lower="-1.161" tibia_upper="1.161"/>
   <xacro:leg id="5"
              mount_x="0"                 mount_y="${ body_width_middle/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ pi/2}"
              coxa_lower="-0.415"  coxa_upper="0.415"
-             femur_lower="-1.493" femur_upper="1.493"
+             femur_lower="-1.57"  femur_upper="1.57"
              tibia_lower="-1.161" tibia_upper="1.161"/>
   <xacro:leg id="6"
              mount_x="${ body_length/2}" mount_y="${ body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
-             femur_lower="-1.493" femur_upper="1.493"
+             femur_lower="-1.57"  femur_upper="1.57"
              tibia_lower="-1.161" tibia_upper="1.161"/>
 
   <!-- ===== Gazebo-spezifische Eigenschaften (Reibung an Foot-Kugeln) ===== -->

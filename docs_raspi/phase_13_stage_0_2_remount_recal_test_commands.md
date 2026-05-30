@@ -83,57 +83,161 @@ Pro Pin messen (PWM am `/servo_pulses`-Topic ablesen):
 `pulse_max = max(up, down)`. Rechts (1/4/7… dir +1): up=min, down=max.
 Links (10/13/16… dir −1): down=min, up=max.
 
-**Messwerte-Tabelle (User füllt aus):**
+**Messwerte (gemessen 2026-05-30; up/down bei ±90° zur Horizontalen):**
 
-| Pin | Bein | dir | pulse_zero (horiz) | up-µs | down-µs | → pulse_min | → pulse_max |
+| Pin | Bein | dir | pulse_zero (horiz) | up-µs (90° hoch) | down-µs (90° runter) | → pulse_min | → pulse_max |
 |---|---|---|---|---|---|---|---|
-| 1  | leg_1 femur | +1 | | | | | |
-| 4  | leg_2 femur | +1 | | | | | |
-| 7  | leg_3 femur | +1 | | | | | |
-| 10 | leg_4 femur | −1 | | | | | |
-| 13 | leg_5 femur | −1 | | | | | |
-| 16 | leg_6 femur | −1 | | | | | |
+| 1  | leg_1 femur | +1 | 1700 | 1030 | 2350 | 1030 | 2350 |
+| 4  | leg_2 femur | +1 | 1780 | 1090 | 2370 | 1090 | 2370 |
+| 7  | leg_3 femur | +1 | 1690 | 1010 | 2340 | 1010 | 2340 |
+| 10 | leg_4 femur | −1 | 1295 | 1970 | 670  | 670  | 1970 |
+| 13 | leg_5 femur | −1 | 1325 | 1980 | 690  | 690  | 1980 |
+| 16 | leg_6 femur | −1 | 1290 | 1955 | 655  | 655  | 1955 |
 
-**(0.2.6) Speichern** (Pre-Check `pulse_min < pulse_zero < pulse_max` pro Pin):
+→ in `servo_mapping.yaml` eingetragen (Pins 1/4/7/10/13/16), `pulse_min<zero<max` ✓.
+
+**(0.2.6) Gespeichert:** Werte wurden **direkt von Claude in `servo_mapping.yaml`
+geschrieben** (Pins 1/4/7/10/13/16). ⚠️ **NICHT** `/save_calibration` /
+`hexapod-save-cal` aufrufen — das würde die yaml mit den rqt-Live-Werten
+überschreiben.
+
+---
+
+## 3 — Limits + Steigungs-Cross-Check (Ist 2026-05-30)
+
+Da up/down bei **±90° (=1.5708 rad)** gemessen wurden, ergibt sich die Steigung
+**direkt** aus den 3 Referenzpunkten (−90° / 0° / +90°): `slope = |Δµs| / 1.5708`.
+
+| Pin | Bein | slope_up µs/rad | slope_down µs/rad |
+|---|---|---|---|
+| 1  | leg_1 | 427 | 414 |
+| 4  | leg_2 | 439 | 376 |
+| 7  | leg_3 | 433 | 414 |
+| 10 | leg_4 | 430 | 398 |
+| 13 | leg_5 | 417 | 404 |
+| 16 | leg_6 | 423 | 404 |
+
+**Cross-Check:** alle ~376–439, Schnitt ~415 µs/rad → passt zur alten Steigung
+(2120−1460)/1.57 ≈ **420** → Messungen konsistent. (Leg_2 down 376 leicht
+flacher, unkritisch — per-Pin-Cal fängt's ab.)
+
+**(0.2.8) Limit-Entscheidung: GLOBAL symmetrisch.** Da beidseitig saubere ±90°
+gemessen wurden, sind die Limits für alle 6 Beine gleich:
+`joint_lower = −1.57`, `joint_upper = +1.57`.
+
+**(0.2.9/0.2.10) KORREKTUR (nach Sweep-Freeze):** die Femur-Limits werden über
+**per-Bein-Overrides** gesetzt, NICHT über die `femur_lower`-Property. Die
+Stage-F-Overrides standen stale auf **±1.493** in `hexapod.urdf.xacro` (6×) +
+`hexapod.ros2_control.xacro` (6×). Da pulse_min/max bei **±90°** gemessen wurden,
+MUSS `joint_limit = ±1.57` (≈90°) sein (Cal-Formel: rad=joint_lower→pulse_min) —
+sonst Skalenfehler + Freeze bei rad<−1.493. → Overrides auf **±1.57** korrigiert,
+`hexapod_description` neu gebaut, generierte URDF verifiziert (alle 6 Femur-Joints
+`lower=-1.57 upper=1.57`). `config.py` war schon (-1.57,1.57) → jetzt konsistent.
+IK-Regression: 351 Tests, 0 Failures.
+
+---
+
+## 4 — Verifikation (nach Re-Cal + Build, **kein FW-Reflash** — nur yaml geändert)
+
+> **Ist-Stand 2026-05-30:** up/down bei **±90°** gemessen. Geändert:
+> `servo_mapping.yaml` (6 Femur-Pins) **+** Femur-Joint-Limits ±1.493→±1.57
+> (per-Bein-Overrides in `hexapod.urdf.xacro` + `hexapod.ros2_control.xacro`,
+> siehe §3-Korrektur). `colcon test` 351/0 grün. **Kein FW-Reflash** (nur
+> Host-Seite); aber **Relaunch nötig** damit die neue URDF (±1.57) lädt.
+
+**A — Plugin neu starten (lädt neue yaml).** Terminal 1: `Strg+C`, dann:
 ```bash
-hexapod-save-cal        # Alias (Memory project_phase11_convenience_aliases), sonst:
-ros2 service call /save_calibration std_srvs/srv/Trigger {}
+cd ~/hexapod_ws && source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py use_sim_time:=false
 ```
 
----
+**B — RViz (HW↔Sim-Vergleich).** Terminal 3:
+```bash
+cd ~/hexapod_ws && source install/setup.bash
+rviz2
+```
+Einmalig: **Add → RobotModel**, *Description Topic* = `/robot_description`;
+**Fixed Frame** = `base_link`.
 
-## 3 — Limit-Herleitung (§1.3, Magnituden)
+**C — Relay an.** Terminal 2:
+```bash
+cd ~/hexapod_ws && source install/setup.bash
+ros2 service call /hexapod_relay_set std_srvs/srv/SetBool "{data: true}"
+```
 
-Pro Pin `k` aus **altem** Cal: `k = (pulse_max_alt − pulse_min_alt) / 2.986`
-(alte Limits ±1.493). Dann:
-- `joint_upper = |down_µs − pulse_zero_neu| / k`
-- `joint_lower = −|up_µs − pulse_zero_neu| / k`
+**D — [0.2.13] rad=0 → horizontal.** Terminal 2:
+```bash
+for n in 1 2 3 4 5 6; do
+  ros2 topic pub --once /leg_${n}_controller/joint_trajectory \
+    trajectory_msgs/msg/JointTrajectory \
+    "{joint_names: [leg_${n}_coxa_joint, leg_${n}_femur_joint, leg_${n}_tibia_joint],
+      points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}"
+done
+```
+**Erwartung:** alle 6 Femurs physisch **horizontal** UND RViz identisch.
 
-| Pin | k (alt) | joint_lower (−) | joint_upper (+) |
-|---|---|---|---|
-| 1  | | | |
-| 4  | | | |
-| 7  | | | |
-| 10 | | | |
-| 13 | | | |
-| 16 | | | |
+**E — [0.2.14] rad=−0.611 → ~35° hoch.** Terminal 2 (Femur-Wert `-0.611`):
+```bash
+for n in 1 2 3 4 5 6; do
+  ros2 topic pub --once /leg_${n}_controller/joint_trajectory \
+    trajectory_msgs/msg/JointTrajectory \
+    "{joint_names: [leg_${n}_coxa_joint, leg_${n}_femur_joint, leg_${n}_tibia_joint],
+      points: [{positions: [0.0, -0.611, 0.0], time_from_start: {sec: 2}}]}"
+done
+```
+**Erwartung:** Femurs **~35° hoch** (HW) UND RViz identisch. Kein OoR-Freeze in Terminal 1.
 
-**(0.2.8) Entscheidung global vs per-Bein:** streuen die 6 `joint_upper`/
-`joint_lower` < ~2° → **global** (konservativstes Min). Sonst → **per-Bein**.
-→ Claude trägt die Werte in `hexapod_physical_properties.xacro` + `config.py`
-ein (0.2.9/0.2.10), Build + IK-Regression-Tests (0.2.11/0.2.12).
+**F — [0.2.15] Sweep über die Range.** Terminal 2 (90° hoch → horizontal → 90° runter):
+```bash
+# Femur 90° hoch (knapp innerhalb Limit ±1.57)
+for n in 1 2 3 4 5 6; do
+  ros2 topic pub --once /leg_${n}_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
+    "{joint_names: [leg_${n}_coxa_joint, leg_${n}_femur_joint, leg_${n}_tibia_joint], points: [{positions: [0.0, -1.5, 0.0], time_from_start: {sec: 2}}]}"
+done
+sleep 4
+# horizontal
+for n in 1 2 3 4 5 6; do
+  ros2 topic pub --once /leg_${n}_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
+    "{joint_names: [leg_${n}_coxa_joint, leg_${n}_femur_joint, leg_${n}_tibia_joint], points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}"
+done
+sleep 4
+# Femur 90° runter (knapp innerhalb Limit)
+for n in 1 2 3 4 5 6; do
+  ros2 topic pub --once /leg_${n}_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
+    "{joint_names: [leg_${n}_coxa_joint, leg_${n}_femur_joint, leg_${n}_tibia_joint], points: [{positions: [0.0, 1.5, 0.0], time_from_start: {sec: 2}}]}"
+done
+```
+**Erwartung:** Femurs fahren 90° hoch ↔ horizontal ↔ 90° runter, **kein**
+OoR-Freeze (`SAFETY FREEZE` in Terminal 1), **kein** Stall/Brummen am Anschlag.
 
----
+**G — [0.2.16] Power-On-Check.**
+```bash
+# Terminal 2: Relay aus
+ros2 service call /hexapod_relay_set std_srvs/srv/SetBool "{data: false}"
+# Terminal 1: Strg+C, dann
+ros2 launch hexapod_bringup real.launch.py use_sim_time:=false
+# Terminal 2: Relay an
+ros2 service call /hexapod_relay_set std_srvs/srv/SetBool "{data: true}"
+```
+**Erwartung:** Servo-Mitte (1500 µs) liegt im **erhöhten** Bereich (≈ ~27° hoch
+nach Messung, nicht exakt 35°), nicht horizontal/unten.
+⚠️ **Bekannt (→ Stage 0.3):** das Startup-Verhalten ist hier noch messy — das
+alte Preset "suspended" (femur=+1.45 ≈ 90° runter) ist nach dem Umbau obsolet,
+und ein JTC-read-Race kann einzelne Beine (v.a. leg_1) abweichen lassen. Wird in
+0.3 (relay-gated Init-Sequenz + K3-Init-Pose) gelöst. Für 0.2 irrelevant —
+explizite Befehle (D/E/F) funktionieren korrekt.
 
-## 4 — Verifikation (nach Re-Cal + Limit-Update + Build)
+**(optional)** Protraktor an 1–2 Beinen bei rad=+1.5708 (90° runter) gegen
+`joint_upper·180/π` — Abweichung ≤ ±2°.
 
-| # | Befehl / Aktion | Erwartung |
+## Findings-Tabelle Verifikation (User)
+
+| Schritt | Status | Beobachtung |
 |---|---|---|
-| 0.2.13 | alle Femurs `rad=0` (JTC, wie §1) + RViz offen | HW **horizontal** UND RViz horizontal — identisch |
-| 0.2.14 | alle Femurs `rad=-0.611` | HW **~35° hoch** UND RViz identisch; PWM ≈ Servo-Mitte (~1500) |
-| 0.2.15 | Femur langsam über `[joint_lower, joint_upper]` sweepen | kein PWM-OoR-Freeze, kein Servo-Stall am Anschlag |
-| 0.2.16 | Relay aus → Plugin neu → `/hexapod_relay_set true` | Femurs fahren auf ~35° hoch (= Servo-Mitte), **kein** Sprung Richtung horizontal |
-| (opt.) | Protraktor an 1–2 Beinen am Down-Anschlag vs. `joint_upper·180/π` | Abweichung ≤ ±2° |
+| D rad=0 → horizontal (HW=RViz) | | |
+| E rad=−0.611 → 35° hoch (HW=RViz) | | |
+| F Sweep ±1.5 ohne Freeze/Stall | | |
+| G Power-On erhöht | | |
 
 ---
 

@@ -62,7 +62,8 @@
     </xacro:macro>
 
     <!-- Stage F (2026-05-25): rad-Limits strict-symmetrisch fuer alle
-         6 Beine identisch (coxa ±0.415 / femur ±1.493 / tibia ±1.161).
+         6 Beine identisch (coxa ±0.415 / tibia ±1.161). Femur seit Phase 13
+         Stage 0.2 (2026-05-30) = ±1.57 (±90°, nach 35°-Umbau; war ±1.493).
          Behebt visuelle Asymmetrie aus Stage E2.3 — siehe
          docs_raspi/servo_real_cal_stage_f_urdf_symmetrize_plan.md.
          Werte sind synchron zu hexapod.urdf.xacro <xacro:leg ...>-
@@ -71,32 +72,32 @@
 
     <!-- Bein 1 (front-right) -->
     <xacro:joint_iface name="leg_1_coxa_joint"  lower="-0.415" upper="0.415"/>
-    <xacro:joint_iface name="leg_1_femur_joint" lower="-1.493" upper="1.493"/>
+    <xacro:joint_iface name="leg_1_femur_joint" lower="-1.57" upper="1.57"/>
     <xacro:joint_iface name="leg_1_tibia_joint" lower="-1.161" upper="1.161"/>
 
     <!-- Bein 2 (mid-right) -->
     <xacro:joint_iface name="leg_2_coxa_joint"  lower="-0.415" upper="0.415"/>
-    <xacro:joint_iface name="leg_2_femur_joint" lower="-1.493" upper="1.493"/>
+    <xacro:joint_iface name="leg_2_femur_joint" lower="-1.57" upper="1.57"/>
     <xacro:joint_iface name="leg_2_tibia_joint" lower="-1.161" upper="1.161"/>
 
     <!-- Bein 3 (back-right) -->
     <xacro:joint_iface name="leg_3_coxa_joint"  lower="-0.415" upper="0.415"/>
-    <xacro:joint_iface name="leg_3_femur_joint" lower="-1.493" upper="1.493"/>
+    <xacro:joint_iface name="leg_3_femur_joint" lower="-1.57" upper="1.57"/>
     <xacro:joint_iface name="leg_3_tibia_joint" lower="-1.161" upper="1.161"/>
 
     <!-- Bein 4 (back-left) -->
     <xacro:joint_iface name="leg_4_coxa_joint"  lower="-0.415" upper="0.415"/>
-    <xacro:joint_iface name="leg_4_femur_joint" lower="-1.493" upper="1.493"/>
+    <xacro:joint_iface name="leg_4_femur_joint" lower="-1.57" upper="1.57"/>
     <xacro:joint_iface name="leg_4_tibia_joint" lower="-1.161" upper="1.161"/>
 
     <!-- Bein 5 (mid-left) -->
     <xacro:joint_iface name="leg_5_coxa_joint"  lower="-0.415" upper="0.415"/>
-    <xacro:joint_iface name="leg_5_femur_joint" lower="-1.493" upper="1.493"/>
+    <xacro:joint_iface name="leg_5_femur_joint" lower="-1.57" upper="1.57"/>
     <xacro:joint_iface name="leg_5_tibia_joint" lower="-1.161" upper="1.161"/>
 
     <!-- Bein 6 (front-left) -->
     <xacro:joint_iface name="leg_6_coxa_joint"  lower="-0.415" upper="0.415"/>
-    <xacro:joint_iface name="leg_6_femur_joint" lower="-1.493" upper="1.493"/>
+    <xacro:joint_iface name="leg_6_femur_joint" lower="-1.57" upper="1.57"/>
     <xacro:joint_iface name="leg_6_tibia_joint" lower="-1.161" upper="1.161"/>
   </ros2_control>
 
