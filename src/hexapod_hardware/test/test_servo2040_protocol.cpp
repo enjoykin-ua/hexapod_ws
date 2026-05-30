@@ -24,6 +24,7 @@ using hexapod_hardware::decode_state;
 using hexapod_hardware::encode_enable_servo;
 using hexapod_hardware::encode_frame;
 using hexapod_hardware::encode_get_state;
+using hexapod_hardware::encode_relay_control;
 using hexapod_hardware::encode_reset;
 using hexapod_hardware::encode_set_targets;
 using hexapod_hardware::ErrorReport;
@@ -31,6 +32,7 @@ using hexapod_hardware::MAX_PAYLOAD_LEN;
 using hexapod_hardware::NUM_SERVOS;
 using hexapod_hardware::opcode::ENABLE_SERVO;
 using hexapod_hardware::opcode::GET_STATE;
+using hexapod_hardware::opcode::RELAY_CONTROL;
 using hexapod_hardware::opcode::RESET;
 using hexapod_hardware::opcode::SET_TARGETS;
 using hexapod_hardware::StatePayload;
@@ -211,6 +213,28 @@ TEST(Frame, RoundtripEnableServo)
   ASSERT_EQ(decoded->payload.size(), 2u);
   EXPECT_EQ(decoded->payload[0], 5);
   EXPECT_EQ(decoded->payload[1], 1);
+}
+
+TEST(Frame, RoundtripRelayControlOn)
+{
+  auto wire = encode_relay_control(7, /*on=*/true);
+  auto decoded = decode_frame(wire);
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_EQ(decoded->seq, 7);
+  EXPECT_EQ(decoded->cmd, RELAY_CONTROL);  // 0x51
+  ASSERT_EQ(decoded->payload.size(), 1u);
+  EXPECT_EQ(decoded->payload[0], 1);
+}
+
+TEST(Frame, RoundtripRelayControlOff)
+{
+  auto wire = encode_relay_control(200, /*on=*/false);
+  auto decoded = decode_frame(wire);
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_EQ(decoded->seq, 200);
+  EXPECT_EQ(decoded->cmd, RELAY_CONTROL);
+  ASSERT_EQ(decoded->payload.size(), 1u);
+  EXPECT_EQ(decoded->payload[0], 0);
 }
 
 TEST(Frame, RoundtripDisableServo)

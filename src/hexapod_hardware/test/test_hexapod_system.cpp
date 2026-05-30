@@ -799,9 +799,15 @@ TEST(HexapodSystemActivate, PtyDeactivateSendsDisableForAllServos)
 
   const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(100));
   const auto frames = split_and_decode_frames(bytes);
-  ASSERT_EQ(frames.size(), hexapod_hardware::NUM_SERVOS);
+  // Stage 0.1: deactivate now sends 1 RELAY_CONTROL(off) first (fail-safe
+  // depower), then 18 ENABLE_SERVO(false).
+  ASSERT_EQ(frames.size(), hexapod_hardware::NUM_SERVOS + 1u);
+  EXPECT_EQ(frames[0].cmd, hexapod_hardware::opcode::RELAY_CONTROL)
+    << "first deactivate frame must drop the relay";
+  ASSERT_EQ(frames[0].payload.size(), 1u);
+  EXPECT_EQ(frames[0].payload[0], 0x00) << "relay frame payload must be OFF";
   for (uint8_t pin = 0; pin < hexapod_hardware::NUM_SERVOS; ++pin) {
-    const auto & f = frames[pin];
+    const auto & f = frames[pin + 1];
     EXPECT_EQ(f.cmd, hexapod_hardware::opcode::ENABLE_SERVO);
     ASSERT_EQ(f.payload.size(), 2u);
     EXPECT_EQ(f.payload[0], pin);

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 #include "hexapod_hardware/calibration.hpp"
@@ -160,6 +162,18 @@ private:
     std_srvs::srv::Trigger::Request::ConstSharedPtr request,
     std_srvs::srv::Trigger::Response::SharedPtr response);
 
+  // Phase 13 Stage 0.1: /hexapod_relay_set service — gate the servo V+ rail
+  // via the Servo2040 relay (RELAY_CONTROL frame → GP26). req.data=true closes
+  // the relay (servos powered). Fail-safe is firmware-side (relay drops on any
+  // trip/RESET) plus on_deactivate sends relay-off. Manual control is what the
+  // Stage-0.2 femur remount uses; the automatic on_activate relay sequence is
+  // Stage 0.3.
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr relay_set_service_{};
+
+  void handle_relay_set(
+    std_srvs::srv::SetBool::Request::ConstSharedPtr request,
+    std_srvs::srv::SetBool::Response::SharedPtr response);
+
   // ─── Phase 11 Stage C — /servo_pulses Diagnostic-Topic ─────────────────
   // Live-Toggle für Cal-Session / Debugging. Default `false` —
   // im Normalbetrieb keine Topic-Last (4 KB/s gespart auf dem Pi).
@@ -279,6 +293,12 @@ private:
   // In loopback_mode_ neither is actually used; both stay default-constructed
   // (port not open, reader not started).
   SerialPort serial_port_{};
+
+  // Stage 0.1 — serialises serial_port_.write_all() across threads. write()
+  // runs on the controller_manager update thread; service callbacks (relay,
+  // …) run on the node executor thread. Without this lock two frames could
+  // interleave on the wire and corrupt the COBS stream.
+  mutable std::mutex serial_write_mutex_{};
   Servo2040Reader reader_{};
 };
 

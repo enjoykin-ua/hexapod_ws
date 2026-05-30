@@ -221,6 +221,12 @@ std::vector<uint8_t> encode_reset(uint8_t seq)
   return encode_frame(seq, opcode::RESET, {});
 }
 
+std::vector<uint8_t> encode_relay_control(uint8_t seq, bool on)
+{
+  std::vector<uint8_t> payload{static_cast<uint8_t>(on ? 1 : 0)};
+  return encode_frame(seq, opcode::RELAY_CONTROL, payload);
+}
+
 // ---------------------------------------------------------------------------
 // Payload decoders. Layout per PROTOCOL.md §3.1 / §3.4.
 // ---------------------------------------------------------------------------

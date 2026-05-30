@@ -26,6 +26,7 @@ constexpr uint8_t SET_LEDS_ALL = 0x31;
 constexpr uint8_t GET_INPUTS = 0x40;
 constexpr uint8_t INPUTS_RESPONSE = 0xC0;
 constexpr uint8_t RESET = 0x50;
+constexpr uint8_t RELAY_CONTROL = 0x51;  // Stage 0.1: payload 1 byte (1=on, 0=off)
 constexpr uint8_t ERROR_REPORT = 0x7F;
 constexpr uint8_t NACK = 0xFE;
 constexpr uint8_t ACK = 0xFF;
@@ -52,6 +53,7 @@ constexpr uint8_t TOTAL_OVERCURRENT_TRIPPED = 1u << 2;
 constexpr uint8_t ANY_SERVO_OVERCURRENT_TRIPPED = 1u << 3;
 constexpr uint8_t ANY_SERVO_DISABLED = 1u << 4;
 constexpr uint8_t UNDERVOLTAGE_WARNING = 1u << 5;
+constexpr uint8_t RELAY_ON = 1u << 6;  // Stage 0.1: relay power-gate closed
 }  // namespace status_flag
 
 constexpr std::size_t NUM_SERVOS = 18;
@@ -93,6 +95,8 @@ std::vector<uint8_t> encode_set_targets(
 std::vector<uint8_t> encode_get_state(uint8_t seq);
 std::vector<uint8_t> encode_enable_servo(uint8_t seq, uint8_t servo_idx, bool enable);
 std::vector<uint8_t> encode_reset(uint8_t seq);
+// Stage 0.1 — gate the servo V+ rail via the Servo2040 relay (GP26).
+std::vector<uint8_t> encode_relay_control(uint8_t seq, bool on);
 
 // Generic frame encoder. Builds SEQ ‖ CMD ‖ LEN ‖ PAYLOAD ‖ CRC16-LE,
 // COBS-encodes the lot, appends one trailing 0x00 delimiter.

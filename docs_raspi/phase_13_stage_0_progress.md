@@ -4,38 +4,68 @@
 > erledigtem Schritt sofort `[ ]`→`[x]` (Memory `feedback_phase_progress_tracking`).
 > Plan-Übersicht: [`phase_13_stage_0_plan.md`](phase_13_stage_0_plan.md).
 
-**Stand:** 2026-05-30 — Stage-0-Pläne (Übersicht + 0.1) angelegt, noch
-nichts implementiert.
+**Stand:** 2026-05-30 — Sub-Stage 0.1 ✅ **FERTIG** (FW + Plugin gebaut,
+Unit-Tests 12/12, Live T1–T6 alle grün auf HW, Self-Review ohne 🔴).
+Bereit für Commit. Nächste: Sub-Stage 0.2 (Mech-Umbau + Re-Cal).
 
 ---
 
-## Sub-Stage 0.1 — Relay-Frame + Fail-safe + Plugin-Service
+## Sub-Stage 0.1 — Relay-Frame + Fail-safe + Plugin-Service ✅ FERTIG (2026-05-30)
 
 Plan: [`phase_13_stage_0_1_relay_plan.md`](phase_13_stage_0_1_relay_plan.md)
 
-- [ ] 0.1.1  FW: RELAY_CONTROL=0x51 in config.hpp cmd-namespace
-- [ ] 0.1.2  FW: RELAY_PIN/relay_on Globals + GP26-Boot-LOW vor servos.init()
-- [ ] 0.1.3  FW: set_relay() Helper + handle_relay_control() + dispatch-Case
-- [ ] 0.1.4  FW: Fail-safe set_relay(false) in handle_reset + 3 Trip-Blöcke
-- [ ] 0.1.5  FW: (optional) RELAY_ON Status-Bit in GET_STATE
-- [ ] 0.1.6  FW: Build clean (cmake .. && make -j$(nproc))
-- [ ] 0.1.7  FW: tools/test_servo2040.py RELAY_CONTROL-Tests grün
-- [ ] 0.1.8  FW: vom User geflasht (picotool load + reboot)
-- [ ] 0.1.9  Plugin: encode_relay_control + opcode in servo2040_protocol
-- [ ] 0.1.10 Plugin: /hexapod_relay_set Service (SetBool)
-- [ ] 0.1.11 Plugin: on_deactivate sendet RELAY_CONTROL(off)
-- [ ] 0.1.12 Plugin: colcon build hexapod_hardware grün
-- [ ] 0.1.13 Plugin: colcon test hexapod_hardware grün (neue + alte Tests)
-- [ ] 0.1.14 Live: Relay klickt on/off via Service ✓
-- [ ] 0.1.15 Live: Watchdog-Trip (pkill) droppt Relay ✓
-- [ ] 0.1.16 Live: RESET-Frame droppt Relay ✓
-- [ ] 0.1.17 Self-Review-Tabelle, Fixe erledigt
+- [x] 0.1.1  FW: RELAY_CONTROL=0x51 in config.hpp cmd-namespace
+- [x] 0.1.2  FW: RELAY_PIN/relay_on Globals + GP26-Boot-LOW vor servos.init()
+- [x] 0.1.3  FW: set_relay() Helper + handle_relay_control() + dispatch-Case
+- [x] 0.1.4  FW: Fail-safe set_relay(false) in handle_reset + 3 Trip-Blöcke
+- [x] 0.1.5  FW: RELAY_ON Status-Bit (1u<<6) in status-namespace + GET_STATE
+- [x] 0.1.6  FW: Build clean (cmake .. && make -j$(nproc)) → exit=0, .elf gelinkt
+- [x] 0.1.7  FW: tools/test_servo2040.py test_relay_control() grün auf HW (T1); C.3 soft-ramp-Fix (enable-vor-Ramp) grün
+- [x] 0.1.8  FW: vom User geflasht (python3 tools/flash_and_verify.py)
+- [x] 0.1.9  Plugin: encode_relay_control + opcode + RELAY_ON in servo2040_protocol
+- [x] 0.1.10 Plugin: /hexapod_relay_set Service (SetBool) + serial_write_mutex_
+- [x] 0.1.11 Plugin: on_deactivate sendet RELAY_CONTROL(off) vor Disable
+- [x] 0.1.12 Plugin: colcon build hexapod_hardware grün
+- [x] 0.1.13 Plugin: colcon test hexapod_hardware grün (12/12, neue Relay-Tests inkl.)
+- [x] 0.1.14 Live: Relay klickt on/off via Service ✓ (T3)
+- [x] 0.1.15 Live: Watchdog-Trip (pkill) droppt Relay ✓ (T4)
+- [x] 0.1.16 RESET-Frame droppt Relay — FW-verifiziert in T1 (test_relay_control: "after RESET relay is OFF" ✓); kein Laufzeit-RESET-Service
+- [x] 0.1.17 Self-Review-Tabelle (unten), keine 🔴-Fixe offen
+
+### Sub-Stage 0.1 — Post-Review (2026-05-30)
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | Serial-Write Thread-Safety: `write()` (CM-Thread) vs. Service-Callback (Executor-Thread) | OK — `serial_write_mutex_` an allen 4 `write_all`-Stellen, je Frame atomar (kein Lock über Sleeps) |
+| R2 | `handle_reset` RELAY_ON-Bit-Clobber durch `status_flags = …`-Reassign | OK — `set_relay(false)` davor; beide ergeben Bit=0, konsistent |
+| R3 | Boot: GP26 LOW vor `servos.init()` (Floating-Window) | OK — erste Statements in `main()`, direkt `gpio_put(...,0)` |
+| R4 | Loopback `on_deactivate` darf keinen Relay-Frame senden | OK — Relay-Block liegt nach dem Loopback-Early-Return; `LoopbackActivateAndDeactivateAreFast` grün |
+| R5 | `on_deactivate` Relay-Off wenn Reader tot | OK — `if(!reader_.died())` geguarded; FW-Watchdog ist Backstop |
+| R6 | RELAY_CONTROL(on) **während latched Trip** → Rail an + Servos disabled (PWM aus) → MID-Drift-Risiko | 🟡 vormerken für 0.3 — kein Normalpfad (Recovery ist RESET, der Relay droppt; `on_activate` sendet RESET zuerst). Ggf. Guard „kein relay-on bei latched Trip" in 0.3 |
+| R7 | Service-Callback hat keinen dedizierten Unit-Test (Executor+Client schwer) | 🟢 später — encode+write-Glue ist via `PtyDeactivateSendsDisableForAllServos` (sendet echten Relay-Frame über PTY) abgedeckt; Callback selbst live in T3 |
+| R8 | GET_STATE-Payload-Größe durch RELAY_ON geändert? | OK — RELAY_ON ist nur ein Bit im bestehenden `status_flags`-Byte, Payload-Layout unverändert |
+| R9 | Encoder-Korrektheit (opcode 0x51, len 1, payload) | OK — `Frame.RoundtripRelayControlOn/Off` grün |
 
 ## Sub-Stage 0.2 — Mech-Umbau + Re-Cal + Femur-Limits
 
-_Plan just-in-time nach 0.1. Inhalt: §6-Servo-Trick (Weg-A-Variante),
-Re-Cal pulse_zero/min/max der 6 Femurs → servo_mapping.yaml, asymmetrische
-Femur-Limits → physical_properties.xacro + config.py._
+Plan: [`phase_13_stage_0_2_remount_recal_plan.md`](phase_13_stage_0_2_remount_recal_plan.md)
+
+- [ ] 0.2.1  Mech-Umbau alle 6 Femurs (§6-Trick), Direction pro Bein verifiziert
+- [ ] 0.2.2  Re-Cal pulse_zero (=horizontal) für 6 Femur-Pins
+- [ ] 0.2.3  Re-Cal pulse_min (oben-Anschlag) + pulse_max (unten) für 6 Pins
+- [ ] 0.2.4  servo_mapping.yaml 6 Femur-Einträge aktualisiert + pulse_min<zero<max ok
+- [ ] 0.2.5  Femur joint_lower/upper hergeleitet (Steigung erhalten) — pro Pin notiert
+- [ ] 0.2.6  Entscheidung global vs per-Bein-Limits (Offene Punkte 4.3)
+- [ ] 0.2.7  hexapod_physical_properties.xacro Femur-Limits aktualisiert
+- [ ] 0.2.8  config.py _FEMUR_LIMITS identisch zur xacro
+- [ ] 0.2.9  initial_poses.yaml Femur → -0.611
+- [ ] 0.2.10 colcon build (description/kinematics/hardware) grün
+- [ ] 0.2.11 colcon test kinematics + hardware grün (IK-Regression)
+- [ ] 0.2.12 Live: rad=0 → horizontal (HW + RViz identisch)
+- [ ] 0.2.13 Live: rad=-0.611 → 35° hoch (HW + RViz identisch, ≈ Servo-Mitte)
+- [ ] 0.2.14 Live: rad-Sweep über Limits → kein OoR-Freeze, kein Stall
+- [ ] 0.2.15 Live: Power-On via Relay → Femurs ~35° hoch, kein Horizontal-Sprung
+- [ ] 0.2.16 Self-Review-Tabelle, Fixe erledigt
 
 ## Sub-Stage 0.3 — Plugin on_activate Relay-gated Init-Sequenz
 

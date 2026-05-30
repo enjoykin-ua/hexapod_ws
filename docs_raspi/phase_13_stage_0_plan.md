@@ -102,7 +102,7 @@ außer in der expliziten `on_activate`-Sequenz. Aktiv abgeschaltet wird bei:
 | Watchdog-Trip | Host sendet >200 ms keinen gültigen Frame (Plugin-Crash, `pkill`, USB ab, Host-Hänger) — FW erkennt das autonom | disable_all **+ Relay LOW** |
 | Overcurrent-Trip | Gesamt-Rail-Strom > Limit (latched) | disable_all **+ Relay LOW** |
 | Undervoltage-Crit-Trip | Rail < 5.0 V (latched) | disable_all **+ Relay LOW** |
-| RESET-Frame | Plugin beim Activate / `/hexapod_safety_reset` | disable_all **+ Relay LOW** |
+| RESET-Frame | Plugin beim Activate (`on_activate` Schritt 1). **Nicht** `/hexapod_safety_reset` — der löscht nur das plugin-seitige `safety_freeze_`-Flag, sendet keinen FW-Frame | disable_all **+ Relay LOW** |
 | `on_deactivate` | sauberer Plugin-Stop | Plugin sendet RELAY_CONTROL(off) vor Servo-Disable |
 
 Relay HIGH **nur** explizit in der `on_activate`-Sequenz (0.3), nachdem die

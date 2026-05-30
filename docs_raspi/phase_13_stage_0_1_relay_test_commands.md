@@ -15,11 +15,11 @@ nicht sinnvoll fahren (Mech-Umbau erst 0.2).
 ## Vorbereitung
 
 ```bash
-# FW-Build + Flash (User)
-cd ~/hexapod_servo_driver/build
-cp Hexapod_servo_driver.uf2 Hexapod_servo_driver.uf2.pre-0.1   # Rollback-Sicherung
-cmake .. && make -j$(nproc)
-sudo picotool load Hexapod_servo_driver.uf2 && sudo picotool reboot
+# FW-Build + Flash (User) — flash_and_verify.py macht Reboot→Flash→Execute→Boot-Verify
+cd ~/hexapod_servo_driver
+cp build/Hexapod_servo_driver.uf2 build/Hexapod_servo_driver.uf2.pre-0.1   # Rollback-Sicherung
+cd build && cmake .. && make -j$(nproc) && cd ..
+python3 tools/flash_and_verify.py           # default: build/Hexapod_servo_driver.uf2
 
 # Plugin-Build
 cd ~/hexapod_ws
@@ -66,14 +66,19 @@ pkill -9 -f ros2     # Host hört abrupt auf zu senden → FW-Watchdog nach 200 
 **Erfolg:** ~200 ms nach pkill klickt der Relay **selbstständig AUS**
 (FW-autonom, kein Plugin nötig).
 
-## T5 — RESET-Frame droppt Relay
+## T5 — RESET-Frame droppt Relay (FW-verifiziert)
 
-```bash
-ros2 launch hexapod_bringup real.launch.py use_sim_time:=false
-ros2 service call /hexapod_relay_set std_srvs/srv/SetBool "{data: true}"   # Relay EIN
-ros2 service call /hexapod_safety_reset std_srvs/srv/Trigger {}            # sendet RESET
-```
-**Erfolg:** Relay klickt bei RESET AUS.
+> **Hinweis:** Es gibt **keinen** Laufzeit-ROS-Service, der einen FW-RESET
+> schickt — `/hexapod_safety_reset` löscht nur das plugin-seitige
+> `safety_freeze_`-Flag (kein FW-Frame). Ein FW-RESET wird ausschließlich in
+> `on_activate` (Schritt 1) gesendet. Daher wird „RESET → Relay LOW" **im
+> FW-Host-Test verifiziert** (T1 `test_relay_control`: „after RESET relay is
+> OFF" ✓), nicht über einen separaten Service-Call.
+
+Optionaler Live-Cross-Check über den on_activate-RESET-Pfad: Relay via T3 EIN,
+dann Plugin neu starten (Strg+C + erneutes `real.launch.py`) — beim Re-Activate
+sendet das Plugin RESET → Relay ist danach AUS. (Überlappt mit T6, da
+on_deactivate den Relay ohnehin droppt.)
 
 ## T6 — on_deactivate droppt Relay
 
@@ -99,6 +104,6 @@ ros2 service call /hexapod_safety_reset std_srvs/srv/Trigger {}            # sen
 ## Rollback (falls FW Probleme macht)
 
 ```bash
-sudo picotool load ~/hexapod_servo_driver/build/Hexapod_servo_driver.uf2.pre-0.1
-sudo picotool reboot
+cd ~/hexapod_servo_driver
+python3 tools/flash_and_verify.py build/Hexapod_servo_driver.uf2.pre-0.1
 ```

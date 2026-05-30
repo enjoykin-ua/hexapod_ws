@@ -147,7 +147,7 @@ RESET droppt Relay.
 - [ ] 0.1.5  FW: (optional) RELAY_ON Status-Bit in GET_STATE
 - [ ] 0.1.6  FW: Build clean (cmake .. && make -j$(nproc))
 - [ ] 0.1.7  FW: tools/test_servo2040.py RELAY_CONTROL-Tests grün
-- [ ] 0.1.8  FW: vom User geflasht (picotool load + reboot)
+- [ ] 0.1.8  FW: vom User geflasht (python3 tools/flash_and_verify.py)
 - [ ] 0.1.9  Plugin: encode_relay_control + opcode in servo2040_protocol
 - [ ] 0.1.10 Plugin: /hexapod_relay_set Service (SetBool)
 - [ ] 0.1.11 Plugin: on_deactivate sendet RELAY_CONTROL(off)

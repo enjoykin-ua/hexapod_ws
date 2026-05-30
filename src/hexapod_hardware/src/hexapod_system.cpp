@@ -355,6 +355,16 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_configure(
     RCLCPP_INFO(
       plugin_logger(),
       "Stage 0.6: /hexapod_safety_freeze service ready");
+
+    // Phase 13 Stage 0.1 — /hexapod_relay_set: gate the servo V+ rail.
+    relay_set_service_ = node->create_service<std_srvs::srv::SetBool>(
+      "hexapod_relay_set",
+      std::bind(
+        &HexapodSystemHardware::handle_relay_set, this,
+        std::placeholders::_1, std::placeholders::_2));
+    RCLCPP_INFO(
+      plugin_logger(),
+      "Stage 0.1: /hexapod_relay_set service ready (relay default OFF)");
   } else {
     RCLCPP_WARN(
       plugin_logger(),
@@ -478,6 +488,7 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_activate(
         return false;
       }
       try {
+        std::lock_guard<std::mutex> lk(serial_write_mutex_);
         serial_port_.write_all(frame.data(), frame.size());
       } catch (const std::exception & e) {
         RCLCPP_FATAL(plugin_logger(),
@@ -636,6 +647,21 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_deactivate(
     return hardware_interface::CallbackReturn::SUCCESS;
   }
 
+  // Stage 0.1 — fail-safe: drop the relay (depower rail) BEFORE the disable
+  // frames so the servos lose torque immediately. Best-effort; the firmware
+  // also drops the relay on the watchdog trip that follows a lost connection.
+  if (!reader_.died()) {
+    auto relay_frame = encode_relay_control(seq_.fetch_add(1), /*on=*/false);
+    try {
+      std::lock_guard<std::mutex> lk(serial_write_mutex_);
+      serial_port_.write_all(relay_frame.data(), relay_frame.size());
+      RCLCPP_INFO(plugin_logger(), "on_deactivate: relay OFF frame sent");
+    } catch (const std::exception & e) {
+      RCLCPP_WARN(plugin_logger(),
+        "on_deactivate: failed to send relay-off frame: %s", e.what());
+    }
+  }
+
   std::size_t failures = 0;
   for (uint8_t pin = 0; pin < NUM_SERVOS; ++pin) {
     if (reader_.died()) {
@@ -647,6 +673,7 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_deactivate(
     }
     auto frame = encode_enable_servo(seq_.fetch_add(1), pin, /*enable=*/false);
     try {
+      std::lock_guard<std::mutex> lk(serial_write_mutex_);
       serial_port_.write_all(frame.data(), frame.size());
     } catch (const std::exception & e) {
       ++failures;
@@ -860,6 +887,7 @@ hardware_interface::return_type HexapodSystemHardware::write(
 
   auto frame = encode_set_targets(seq_.fetch_add(1), last_command_pulse_us_);
   try {
+    std::lock_guard<std::mutex> lk(serial_write_mutex_);
     serial_port_.write_all(frame.data(), frame.size());
   } catch (const std::exception & e) {
     RCLCPP_ERROR(plugin_logger(),
@@ -1172,6 +1200,47 @@ void HexapodSystemHardware::handle_safety_freeze(
       "safety_freeze was already active — no change";
     RCLCPP_INFO(plugin_logger(), "%s", response->message.c_str());
   }
+}
+
+void HexapodSystemHardware::handle_relay_set(
+  std_srvs::srv::SetBool::Request::ConstSharedPtr request,
+  std_srvs::srv::SetBool::Response::SharedPtr response)
+{
+  // Phase 13 Stage 0.1 — gate the servo V+ rail via RELAY_CONTROL (GP26).
+  const bool on = request->data;
+  const char * what = on ? "ON" : "OFF";
+
+  if (loopback_mode_) {
+    // No serial port in loopback — report success so service-plumbing unit
+    // tests pass without hardware. PTY-based tests exercise the wire frame.
+    response->success = true;
+    response->message = std::string("loopback: relay ") + what + " (no wire I/O)";
+    RCLCPP_INFO(plugin_logger(), "%s", response->message.c_str());
+    return;
+  }
+
+  if (reader_.died()) {
+    response->success = false;
+    response->message =
+      "reader thread died (USB disconnect?) — relay frame not sent";
+    RCLCPP_ERROR(plugin_logger(), "%s", response->message.c_str());
+    return;
+  }
+
+  auto frame = encode_relay_control(seq_.fetch_add(1), on);
+  try {
+    std::lock_guard<std::mutex> lk(serial_write_mutex_);
+    serial_port_.write_all(frame.data(), frame.size());
+  } catch (const std::exception & e) {
+    response->success = false;
+    response->message = std::string("failed to send relay frame: ") + e.what();
+    RCLCPP_ERROR(plugin_logger(), "%s", response->message.c_str());
+    return;
+  }
+
+  response->success = true;
+  response->message = std::string("relay set to ") + what;
+  RCLCPP_INFO(plugin_logger(), "Stage 0.1: relay set %s", what);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
