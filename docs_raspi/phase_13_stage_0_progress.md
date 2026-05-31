@@ -308,13 +308,56 @@ HW-Verify-Merker für 0.6/0.7 mit klarem (software-only) Fix-Pfad, kein Blocker
 für 0.5. **Sub-Stage 0.5 fertig** (Sim-Aufstehen validiert: Init-Pose echt,
 Stand-up stabil + horizontal). Geänderte Dateien bereit für User-Commit.
 
-## Sub-Stage 0.6 — HW Live aufgebockt
+## Sub-Stage 0.6 — HW Live aufgebockt (Init + Stand-up) ✅ FERTIG (2026-05-31)
 
-_test_commands just-in-time._
+Test: [`phase_13_stage_0_6_hw_standup_test_commands.md`](phase_13_stage_0_6_hw_standup_test_commands.md).
+HW-Pendant zu 0.5: real.launch.py (0.3-Init) → gait.launch.py (0.4-Stand-up),
+echter Roboter aufgebockt. **Live durch User:** Init + Stand-up all-6 sauber,
+Endpose stabil, Shutdown stromlos, kein Stall/Freeze/IKError/Trip. **T4 = Füße
+wandern sichtbar einwärts → Schürf-Befund auf HW bestätigt → Stage 0.8
+(kartesisches Aufstehen) ist getriggert, Umnummerierung steht an.**
+
+```
+- [x] 0.6.1  Build hexapod_hardware + bringup + description + gait grün, gesourct
+- [x] 0.6.2  T1: Init-Sequenz aufgebockt — alle 6 power_on_mid, Relay an, kein Trip
+- [x] 0.6.3  T2: Stand-up all-6 sauber — kein Stall/hartes Springen/IKError/Watchdog/Overcurrent
+- [x] 0.6.4  T3: Endpose stabil (≈ coxa 0 / femur −0.24 / tibia +0.76), Relay bleibt an
+- [x] 0.6.5  T4: Schürf-Beurteilung — Füße wandern sichtbar einwärts → **Stage 0.8 aktivieren + Umnummerierung**
+- [x] 0.6.6  T5: Shutdown stromlos (Servos limp)
+- [x] 0.6.7  Self-Review (unten), keine offenen 🔴
+```
+
+### Sub-Stage 0.6 — Post-Review (2026-05-31)
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | Init + Stand-up auf echter HW = konsistent zur Sim (0.5): power_on_mid-Init, all-6-Stand-up, Endpose stabil | OK |
+| R2 | Kein Stall/Freeze/IKError/Watchdog/Overcurrent über Init + Stand-up + Endpose (aufgebockt) | OK |
+| R3 | `use_sim_time:=false` + `robot_description_file` (nicht-lenienter Limit-Check) live korrekt — kein stiller Timer-Block, kein Limit-Freeze | OK |
+| R4 | **T4 Schürf-Befund HW-bestätigt:** Füße wandern beim Aufstehen sichtbar einwärts (wie 0.5-FK-Prognose) → **Stage 0.8 aktiviert** (kartesisches Aufstehen), Umnummerierung 0.8→0.7 / Boden→0.8 ist die nächste Arbeit | 🟡 → Stage 0.8 (geplant) |
+| R5 | Strom-Limit-Thema (Default 3500 mA) separat angefasst: User hebt auf 7000 mA an — FW-`config.hpp` + test_stage_e.py-Spiegel, Re-Flash nötig | 🟡 → eigener Change (gleich) |
+
+**Ergebnis:** keine 🔴. Zwei 🟡 (R4 → Stage 0.8 als nächste Arbeit, R5 → Limit-
+Change) sind bewusste Folge-Schritte. **Sub-Stage 0.6 fertig.** Bereit für
+User-Commit.
+
+**→ Nächste Arbeit:** Stage 0.8 (kartesisches Aufstehen) ist durch T4 getriggert.
+Bei Beginn: Umnummerierung nach Plan §9 ausführen (0.8→0.7, Boden-Test 0.7→0.8).
 
 ## Sub-Stage 0.7 — Boden-Test
 
-_test_commands just-in-time._
+_test_commands just-in-time._ ⚠️ Wird bei 0.8-Aktivierung auf **0.8** umnummeriert
+(läuft dann mit dem schürffreien Aufstehen statt dem joint-space-Schürf-Aufstehen).
+
+## Sub-Stage (0.8) — Kartesisches schürffreies Aufstehen ⚪ NOTIZ / Vorab-Plan
+
+Plan: [`phase_13_stage_0_8_cartesian_standup_plan.md`](phase_13_stage_0_8_cartesian_standup_plan.md).
+**Status:** noch kein Code, nicht freigegeben. **Trigger:** 0.6-Live-Blick
+bestätigt Umbau-Bedarf. Konzept: zwei-Phasen-Aufstehen (Touchdown bauch-gestützt
+→ Push mit fixen Füßen, radial fix/nur body_height → schürffrei by design),
+nutzt vorhandene cartesian-IK; **keine** Geometrie-Änderung (Tibia kürzen = §7.7
+TABU, per Math als falsche Stellschraube widerlegt). Bei Aktivierung **Tausch**:
+0.8→0.7, aktueller Boden-Test 0.7→0.8 (Plan §9).
 
 ---
 

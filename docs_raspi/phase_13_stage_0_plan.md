@@ -124,6 +124,7 @@ Pipeline.
 | **0.5** | Sim-Visualisierung Init + Stand-up (Gazebo + RViz), Sim startet bei power_on_mid | interaktiv | [`phase_13_stage_0_5_sim_standup_plan.md`](phase_13_stage_0_5_sim_standup_plan.md) |
 | **0.6** | HW Live aufgebockt — Init + Stand-up | interaktiv | _just-in-time test_commands_ |
 | **0.7** | Boden-Test — Hexapod liegt am Bauch, Aufstehen **all-6** | interaktiv | _just-in-time test_commands_ |
+| **(0.8)** | **Kartesisches schürffreies Aufstehen** (provisorisch, Trigger = 0.6-Befund). Bei Aktivierung Umnummerierung: wird zur **0.7**, Boden-Test → **0.8** | Code + Tests | [`phase_13_stage_0_8_cartesian_standup_plan.md`](phase_13_stage_0_8_cartesian_standup_plan.md) |
 
 Die Pläne für 0.2–0.7 werden **just-in-time** erstellt, weil ihre Inhalte
 (asymmetrische Limits, Init-Pose-Start) von Mess-/Vorergebnissen abhängen.
