@@ -121,7 +121,7 @@ Pipeline.
 | **0.2** | Mech-Umbau (§6-Servo-Trick, an Weg A angepasst) + Re-Cal Femurs (pulse_zero/min/max) + asymm. Femur-Limits | User-Mechanik + Cal | _just-in-time_ |
 | **0.3** | Plugin `on_activate` Relay-gated Init-Sequenz (Init-Target → Femur-Enable gestaffelt → Relay-ON → Coxa → Tibia); Init-Pose-Wert rad −0.611 | Code + Unit-Tests | _just-in-time_ |
 | **0.4** | Gait Stand-up **all-6 simultan** ab power_on_mid (STARTUP_RAMP — DL-7) | Pure-Python + Unit-Tests | [`phase_13_stage_0_4_standup_plan.md`](phase_13_stage_0_4_standup_plan.md) |
-| **0.5** | Sim-Visualisierung Init + Stand-up (Gazebo + RViz) | interaktiv | _just-in-time test_commands_ |
+| **0.5** | Sim-Visualisierung Init + Stand-up (Gazebo + RViz), Sim startet bei power_on_mid | interaktiv | [`phase_13_stage_0_5_sim_standup_plan.md`](phase_13_stage_0_5_sim_standup_plan.md) |
 | **0.6** | HW Live aufgebockt — Init + Stand-up | interaktiv | _just-in-time test_commands_ |
 | **0.7** | Boden-Test — Hexapod liegt am Bauch, Aufstehen **all-6** | interaktiv | _just-in-time test_commands_ |
 

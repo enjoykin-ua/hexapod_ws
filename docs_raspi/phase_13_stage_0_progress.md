@@ -245,9 +245,13 @@ Beweis-Tests + Doku + Vertrags-Korrektur + **Stand-Pose-Limit-Bug-Fix**).
 Live-Themen für 0.6, kein Blocker für die Pure-Python-Logik-Stage 0.4.
 **Sub-Stage 0.4 fertig.** Bereit für User-Commit. Nächste: 0.5 (Sim-Visualisierung).
 
-## Sub-Stage 0.5 — Sim-Visualisierung
+## Sub-Stage 0.5 — Sim-Visualisierung (Init→Aufstehen) ⚪ OFFEN
 
-_test_commands just-in-time._
+Plan: [`phase_13_stage_0_5_sim_standup_plan.md`](phase_13_stage_0_5_sim_standup_plan.md)
+(vollständiges Übergabe-Dokument mit Lese-Reihenfolge + offenen Punkten §7).
+**Status:** Plan geschrieben, wartet auf Klärung §7 + Freigabe. Kern: Sim
+startet bei power_on_mid (via `initial_value` sim-only in ros2_control.xacro) +
+gait STARTUP_RAMP all-6 → Stand-Pose, in Gazebo+RViz validieren. Kein HW-Risiko.
 
 ## Sub-Stage 0.6 — HW Live aufgebockt
 
