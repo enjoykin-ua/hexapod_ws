@@ -168,6 +168,26 @@ compute_cartesian_standup_angles(t):
 | E | Offline-Tool (Stil `walking_envelope_check.py`): Touchdown-Punkte + Zielhöhe + In-Limits-Envelope vorab rechnen | klein-mittel |
 | F | **Strom-Validierung am Boden** (mit Strom-Logging): Aufsteh-Peak nahe Stand-Niveau statt >3,5 A? **Das eigentliche Done-Kriterium** | mittel — Live-Beweis |
 
+## 5a. Paket E — Tool-Ergebnisse (✅ erledigt 2026-05-31)
+
+Tool: [`tools/standup_envelope_check.py`](../tools/standup_envelope_check.py) —
+rechnet den kartesischen Aufsteh-Pfad mit der echten `leg_ik`/`leg_fk` +
+URDF-Limits (via xacro) durch. Lauf mit Default (radial 0.295 / bh_final −0.080 /
+20 Schritte): **GRÜN für alle 6 Beine.**
+
+| Befund | Wert | Klärt |
+|---|---|---|
+| `body_height_start` | **−13,5 mm** (Coxa 21,5 mm über Grund − Foot-R 8 mm) | §8.7 |
+| Phase 1 (direkter cart. Lerp) | alle Posen ∈ Limits + erreichbar; min Fuß-Welt-z **+8,0 mm** = Boden-Niveau → Fuß berührt **erst am Touchdown**, **kein** vorzeitiges Schürfen | §8.1 |
+| Phase 2 (Push, radial fix) | alle Posen ∈ Limits; Knie **43°→58°** (keine Singularität) | §1a bestätigt |
+| Limitierender Joint | **Tibia**, rad-Margin **0,13–0,15** (≈ 7,6–8,6° Reserve) | Reachability |
+
+**Schlussfolgerung:** Der direkte cartesian Lerp für Phase 1 reicht (kein z-Bogen,
+kein joint-space nötig), weil die Füße bei power_on_mid eingezogen/hoch (~+100 mm)
+sind und fast senkrecht herunterfahren. **Caveat:** GRÜN ist *kinematisch* —
+`body_height_start` muss real getroffen (Sim/Boden) und der Strom am Boden
+gemessen werden (Done-Kriterium 0.7.9).
+
 ## 6. Tests-Liste mit Begründung
 
 ### 6.1 Pure-Python (pytest)
@@ -193,7 +213,7 @@ compute_cartesian_standup_angles(t):
 ## 7. Progress-Checkliste (vorläufig, → progress-File als 0.7.x)
 
 ```
-- [ ] 0.7.1  Offline-Tool: Touchdown-Punkte + body_height_start + In-Limits-Envelope
+- [x] 0.7.1  Offline-Tool `tools/standup_envelope_check.py`: body_height_start −13,5 mm, Phase 1+2 GRÜN (§5a) ✅
 - [ ] 0.7.2  STATE_CARTESIAN_STANDUP + Phase-1 Touchdown-Logik (kein vorzeitiger Bodenkontakt)
 - [ ] 0.7.3  Phase-2 cartesian Push (radial fix, body_height-Rampe)
 - [ ] 0.7.4  In-Limits/Reachability-Tests über ganzen Pfad (ersetzt 0.4-Monotonie-Beweis)
@@ -208,16 +228,18 @@ compute_cartesian_standup_angles(t):
 
 ## 8. Offene Punkte für User-Review (vor Code-Start, nach 0.6-Trigger)
 
-| # | Frage | Tendenz |
+| # | Frage | Status (nach Tool E, 2026-05-31) |
 |---|---|---|
-| 8.1 | Phase-1-Methode: joint-space-lerp vs. kartesisch-mit-z-Bogen vs. `swing_traj`-reuse? | erst Reachability prüfen (E), dann wählen |
-| 8.2 | `body_height_start`: analytisch aus Bauch-Box oder in Sim messen? | beides — analytisch + 1× Sim-Gegenprobe |
-| 8.3 | Ein State mit zwei Phasen oder zwei States? | ein State, zwei Phasen (einfacher, ein Trigger) |
-| 8.4 | Reicht all-6 in beiden Phasen (Platzierung vor Abheben) → kein Tripod? | Erwartung **ja** (§2 Design-Regel) — in D verifizieren |
-| 8.5 | Duration-Aufteilung Phase1/Phase2 + Gesamtdauer? | Param, Default ~40/60 %, gesamt ≥ heutige ~4 s (User: nicht schneller) |
-| 8.6 | Joint-space STARTUP_RAMP als Legacy-Fallback behalten oder ersetzen? | behalten (aufgebockt nützlich), cartesian als neuer Default |
-| 8.7 | **`body_height_start` real treffen:** −0.0135 m ist Geometrie-Rechnung. Wie kalibrieren (Sim-Drop-Ruhelage messen? Boden-Feintuning-Param?) ohne dass Phase 1 schürft oder der Körper am Übergang fällt? | Param + Sim-Messung, Boden-Feintuning |
-| 8.8 | **Strom-Logging-Quelle am Boden:** Diagnostic-Topic (`publish_servo_pulses`/Strom-Telemetrie) vs. PSU-Anzeige — welche Granularität reicht für den Peak-Nachweis? | beides, PSU für Peak |
+| 8.1 | Phase-1-Methode: joint-space-lerp vs. kartesisch-mit-z-Bogen vs. `swing_traj`-reuse? | ✅ **ENTSCHIEDEN: direkter kartesischer Lerp.** Tool E zeigt: in-limits + kein vorzeitiger Bodenkontakt (min Fuß-Welt-z = Boden-Niveau erst am Touchdown). Kein z-Bogen nötig |
+| 8.2 / 8.7 | `body_height_start`: Wert + real treffen | ✅ **Wert −13,5 mm** (Tool E, analytisch). Offen bleibt nur das **reale Treffen**: Sim-Gegenprobe (0.7.7) + Boden-Feintuning-Param (0.7.9) — zu tief → Phase 1 schürft, zu hoch → Körper fällt am Übergang |
+| 8.3 | Ein State mit zwei Phasen oder zwei States? | ✅ **ENTSCHIEDEN: ein State, zwei Phasen** (einfacher, ein Trigger) |
+| 8.4 | Reicht all-6 in beiden Phasen → kein Tripod? | ✅ **JA** — Tool E: alle 6 Beine über beide Phasen in-limits + erreichbar, kein Fuß-Umsetzen unter Last |
+| 8.5 | Duration-Aufteilung Phase1/Phase2 + Gesamtdauer? | Param, Default ~40/60 %, gesamt ≥ heutige ~4 s (User: nicht schneller). Live justierbar |
+| 8.6 | Joint-space STARTUP_RAMP als Legacy-Fallback behalten oder ersetzen? | ✅ **behalten** (aufgebockt nützlich), cartesian als neuer Default |
+| 8.8 | **Strom-Logging-Quelle am Boden:** Diagnostic-Topic vs. PSU-Anzeige? | offen (HW) — beides, PSU für Peak. Klärt sich beim Boden-Test |
+
+> **Limitierender Joint = Tibia** (rad-Margin 0,13–0,15 ≈ 8°). Solide, aber die
+> engste Stelle → bei realer Cal-Abweichung im Auge behalten.
 
 ## 9. Umnummerierung — ✅ AUSGEFÜHRT (2026-05-31)
 

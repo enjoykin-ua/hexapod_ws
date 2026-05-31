@@ -344,16 +344,24 @@ User-Commit.
 **→ Nächste Arbeit:** Stage 0.7 (kartesisches Aufstehen) ist durch T4 + den
 Strom-Befund getriggert; Umnummerierung ausgeführt (DL-8).
 
-## Sub-Stage 0.7 — Kartesisches schürffreies Aufstehen 🟡 AKTIV (Plan, Code offen)
+## Sub-Stage 0.7 — Kartesisches schürffreies Aufstehen 🟡 AKTIV (E erledigt, A+B offen)
 
 Plan: [`phase_13_stage_0_7_cartesian_standup_plan.md`](phase_13_stage_0_7_cartesian_standup_plan.md).
-**Status:** Plan ausgearbeitet (inkl. §1a HW-Strom-Analyse), Code offen, §8 offene
-Punkte vor Code mit User klären. Konzept: zwei-Phasen-Aufstehen (Phase 1 Touchdown
-bauch-gestützt → Phase 2 Push mit fixen Füßen, radial fix/nur body_height →
-schürffrei by design), nutzt vorhandene cartesian-IK; **keine** Geometrie-Änderung
-(Tibia kürzen = §7.7 TABU, per Math widerlegt). **Done-Kriterium:** Aufsteh-Strom
-am Boden nahe Stand-Niveau (~400 mA) statt >3,5 A, kein Trip/Voltage-Drop.
-Checkliste 0.7.1–0.7.11 im Plan §7. Erster Schritt: Offline-Tool (Paket E).
+**Status:** Plan ausgearbeitet (§1a HW-Strom-Analyse), Paket E (Offline-Tool) ✅,
+§8 datengetrieben geklärt; Engine-Code (A+B) + Tests (D) offen. Konzept:
+zwei-Phasen-Aufstehen (Phase 1 Touchdown bauch-gestützt → Phase 2 Push mit fixen
+Füßen, radial fix/nur body_height → schürffrei by design), nutzt vorhandene
+cartesian-IK; **keine** Geometrie-Änderung (Tibia kürzen = §7.7 TABU, per Math
+widerlegt). **Done-Kriterium:** Aufsteh-Strom am Boden nahe Stand-Niveau
+(~400 mA) statt >3,5 A, kein Trip/Voltage-Drop. Checkliste 0.7.1–0.7.11 im Plan §7.
+
+**Fortschritt:**
+- [x] 0.7.1  Offline-Tool `tools/standup_envelope_check.py` (Paket E) — **GRÜN**:
+  body_height_start **−13,5 mm**; Phase 1 (direkter cart. Lerp, kein vorzeitiger
+  Bodenkontakt) + Phase 2 (Push, Knie 43–58°, keine Singularität) für alle 6
+  Beine in-limits/erreichbar; limitierend Tibia (rad-Margin 0,13–0,15).
+  §8.1/8.3/8.4 datengetrieben entschieden (Plan §5a/§8). Kinematisch ok ≠ Strom ok.
+- [ ] 0.7.2 ff. Engine-Implementierung (A+B) + Tests (D) — nächster Schritt.
 
 ## Sub-Stage 0.8 — Boden-Test (Hexapod liegt am Bauch, Aufstehen all-6)
 
