@@ -245,13 +245,68 @@ Beweis-Tests + Doku + Vertrags-Korrektur + **Stand-Pose-Limit-Bug-Fix**).
 Live-Themen für 0.6, kein Blocker für die Pure-Python-Logik-Stage 0.4.
 **Sub-Stage 0.4 fertig.** Bereit für User-Commit. Nächste: 0.5 (Sim-Visualisierung).
 
-## Sub-Stage 0.5 — Sim-Visualisierung (Init→Aufstehen) ⚪ OFFEN
+## Sub-Stage 0.5 — Sim-Visualisierung (Init→Aufstehen) ✅ FERTIG (2026-05-31)
 
-Plan: [`phase_13_stage_0_5_sim_standup_plan.md`](phase_13_stage_0_5_sim_standup_plan.md)
-(vollständiges Übergabe-Dokument mit Lese-Reihenfolge + offenen Punkten §7).
-**Status:** Plan geschrieben, wartet auf Klärung §7 + Freigabe. Kern: Sim
-startet bei power_on_mid (via `initial_value` sim-only in ros2_control.xacro) +
-gait STARTUP_RAMP all-6 → Stand-Pose, in Gazebo+RViz validieren. Kein HW-Risiko.
+Plan: [`phase_13_stage_0_5_sim_standup_plan.md`](phase_13_stage_0_5_sim_standup_plan.md) ·
+Test: [`phase_13_stage_0_5_sim_standup_test_commands.md`](phase_13_stage_0_5_sim_standup_test_commands.md)
+
+**§7-Klärung (User 2026-05-31):** 7.6 → **nur Gazebo** (RViz-tf-Check → 0.6).
+Restliche §7 wie im Plan: 7.1✅ exakte HW-Cal-Werte · 7.2✅ spawn_z live · 7.3✅
+Stand-Pose −0.080/0.295 · 7.7✅ HW-Pfad kompatibel · 7.4/7.5 Live-Punkte.
+
+**Code-Änderungen (2026-05-31):** `initial_value` (18 power_on_mid-rad) **sim-only**
+ins `joint_iface`-Macro (`<xacro:if use_sim>`) + 18 Calls; `spawn_z` 0.20→0.05.
+Werte 1:1 aus `test_startup_ramp.py::_POWER_ON_MID` (= Plan-0.4 §3.1). Kein
+Gait-/Plugin-Change.
+
+- [x] 0.5.1  initial_value (18 power_on_mid-rad) sim-only in ros2_control.xacro
+- [x] 0.5.2  xacro use_sim:=true → 18× initial_value da; use_sim:=false → 0× (HW-Pfad nackte position-state_interface, nur HexapodSystemHardware-Plugin)
+- [x] 0.5.3  spawn_z angepasst (0.20→0.05, Bauch ~am Boden nach Drop; live iterierbar §7.2)
+- [x] 0.5.4  colcon build hexapod_description + hexapod_bringup grün
+- [x] 0.5.5  Live T1 ✅: Sim startet in power_on_mid — /joint_states **exakt** = power_on_mid (femur −0.468/−0.636/−0.438/−0.476/−0.418/−0.495, NICHT ≈0). **R4 aufgelöst: gz_ros2_control wendet `initial_value` an.** Bauch liegt auf, Femurs schräg hoch, ruhig
+- [x] 0.5.6  Live T2 ✅: all-6 Stand-up, Körper hebt gleichmäßig, **stabil, Körper horizontal**, kein Kippen/Durchsacken, kein IKError. 🟡 **Befund: Füße schürfen ~15-22mm horizontal nach innen** beim Hochdrücken (s. Final-Review F-Scrape)
+- [x] 0.5.7  Live T3 ✅: Endpose stabil — /joint_states = coxa ≈0 / femur −0.2404 / tibia +0.7584 alle 6, kein Drift
+- [x] 0.5.8  ~~Live T4: RViz~~ — **N/A in 0.5 (§7.6 nur Gazebo)** → RViz-tf-Check in 0.6
+- [x] 0.5.9  Final-Review (unten), keine offenen 🔴
+
+### Sub-Stage 0.5 — Code-Review (vor Live-Tests) (2026-05-31)
+
+> Code-Level-Self-Review nach Implementierung + grünen Parse-/Build-Checks,
+> **vor** den Live-Tests T1–T3 (de-riskt die Sim-Session). Final-Review (mit
+> Live-Findings) schließt 0.5.9 nach T1–T3.
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | **HW-Pfad unberührt:** `initial_value` + velocity-state_interface liegen im `<xacro:if use_sim>`; im `<xacro:unless>` bleibt `<state_interface name="position"/>` nackt. Parse-Check use_sim:=false: 0× initial_value, 0× velocity, 18× nackte position, nur HexapodSystemHardware-Plugin (GazeboSimSystem nur in 2 Kommentarzeilen) | OK (verifiziert) |
+| R2 | **18 Werte = Single Source:** exakt `_POWER_ON_MID` aus test_startup_ramp.py kopiert (kein Abtippen aus Prosa); Reihenfolge im generierten URDF stimmt (leg_1 c/f/t … leg_6 c/f/t) | OK |
+| R3 | **Alle 18 ∈ URDF-Limits:** coxa −0.111…+0.156 ∈ ±0.415; femur −0.419…−0.637 ∈ ±1.57; tibia +0.156…+0.258 ∈ ±1.161 → kein Spawn-Clamp, kein Stage-0.5-`safety_freeze`-Äquivalent | OK |
+| R4 | **gz_ros2_control liest `initial_value`?** Binär-Paket, Source nicht einsehbar → versionsabhängig. Mechanismus (param am position-state_interface) ist Standard-Jazzy | 🟡 Live-Verify **T1** + Fallback §7.5 dokumentiert (kein Blocker, kein Sys-Eingriff) |
+| R5 | **Macro-Default `initial:=0.0`:** falls ein Call den Param vergisst → 0.0 (T-Pose-Joint), kein Parse-Fehler. Alle 18 Calls setzen ihn explizit | OK (defensiv) |
+| R6 | **base_link ohne explizite Reibung** (nur Füße μ=1.0) → Bauch könnte beim Abheben kleben | 🟡 Live-Beobachtung **T2** (§7.4); Fix B (μ≈0.2 gazebo-only) nur falls nötig |
+| R7 | **Stand-Pose in-limit:** Ziel radial 0.295/bh −0.080 (tibia 0.758 ≪ 1.161) — der in 0.4 gefixte Wert, nicht der alte buggy 0.27/−0.052 | OK (0.4-Fix aktiv) |
+| R8 | **Sim-Limit-Check aktiv:** test_commands T2 setzt `robot_description_file:=$HEX_URDF` → gait_engine nicht-lenient, maskiert keine Limit-Verletzung (Memory `project_two_joint_limit_sources`) | OK (im Test-Doc verankert) |
+| R9 | **use_sim_time-Falle:** test_commands T2 setzt `use_sim_time:=true` explizit (Memory `project_phase13_gait_launch_sim_time_default`) | OK (im Test-Doc verankert) |
+| R10 | **Build-Vollständigkeit (0.3-R15-Lektion):** 0.5 ändert description+bringup; Test-Doc baut beide, nicht nur eins | OK (im Test-Doc verankert) |
+
+**Ergebnis Code-Review:** keine 🔴. Zwei 🟡 (R4 gz-initial_value-Live-Verify,
+R6 Bauch-Reibung) sind dokumentierte Live-Punkte mit Fallback, kein Blocker.
+**Bereit für Live T1–T3 (User).**
+
+### Sub-Stage 0.5 — Final-Review (nach Live T1–T3) (2026-05-31)
+
+| # | Punkt | Status |
+|---|---|---|
+| F1 | **T1 — R4 aufgelöst:** /joint_states beim Spawn = power_on_mid bis auf <1e-3 (femur −0.468…−0.636, tibia +0.156…+0.258). gz_ros2_control wendet `initial_value` in dieser Jazzy/Harmonic-Version an → §7.5-Fallback **nicht** nötig | OK |
+| F2 | **T2 — Stand-up funktioniert:** all-6 simultan, Körper hebt gleichmäßig, steht stabil, **Körper horizontal ausgerichtet**, kein Kippen/Durchsacken/Wegrutschen-zur-Seite, kein IKError | OK |
+| F3 | **T3 — Endpose exakt + stabil:** alle 6 Beine coxa ≈0 / femur −0.2404 / tibia +0.7584 (= IK-Stand-Pose radial 0.295 / bh −0.080), velocity ~1e-10, kein Drift | OK |
+| F4 | **R6 (Bauch-Reibung):** Bauch hob sauber ab, kein „Kleben"/Rucken → §7.4-Fix-B (μ≈0.2) nicht nötig | OK |
+| F-Scrape | 🟡 **Füße schürfen horizontal nach innen** beim Hochdrücken. Code-Math (leg_fk über den Ramp): rx 0.310→0.295 mit Bulge 0.317 @p≈0.4, dann −15…−22mm nach innen in der **belasteten** zweiten Hälfte (rz +0.078→−0.080). **Wurzel = joint-space-Ramp** (Winkel-Lerp hält Fuß-x nicht konstant), **NICHT** Tibia-Länge — Tibia (0.2m) verstärkt nur den Hebel. User-Hypothese „Tibia kürzen" per Math falsifiziert | 🟡 → **0.6 (aufgebockt: kein Bodenkontakt, nur Bewegung) + 0.7 (Boden: echtes Schürfen messen)**. Fix falls nötig = cartesian/zwei-Phasen-Aufstehen, **NICHT** Tibia kürzen (§7.7 Geometrie-TABU bricht IK/FK/Cal). Memory `project_phase13_standup_foot_scrape` |
+| F5 | **spawn_z=0.05:** Bauch kam nahe Boden zur Ruhe; User sah Spawn-Höhe nicht (Drop zu kurz) — unkritisch (§7.2 live), Ruhelage passt | OK |
+
+**Ergebnis Final-Review:** keine 🔴. Ein 🟡 (F-Scrape) ist ein bewusster
+HW-Verify-Merker für 0.6/0.7 mit klarem (software-only) Fix-Pfad, kein Blocker
+für 0.5. **Sub-Stage 0.5 fertig** (Sim-Aufstehen validiert: Init-Pose echt,
+Stand-up stabil + horizontal). Geänderte Dateien bereit für User-Commit.
 
 ## Sub-Stage 0.6 — HW Live aufgebockt
 

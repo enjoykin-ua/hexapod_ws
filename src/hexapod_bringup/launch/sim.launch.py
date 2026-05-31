@@ -76,8 +76,13 @@ def generate_launch_description() -> LaunchDescription:
     )
     declare_spawn_z = DeclareLaunchArgument(
         'spawn_z',
-        default_value='0.20',
-        description='Initial spawn height in meters; robot drops to ground.',
+        default_value='0.05',
+        description=(
+            'Initial spawn height in meters; robot drops to ground. '
+            'Phase 13 Stage 0.5: niedrig (5 cm) gewaehlt, damit der Bauch '
+            'in der power_on_mid-Startpose nahe am Boden zur Ruhe kommt und '
+            'das "Aufstehen vom Bauch" sichtbar ist. Live justierbar (7.2).'
+        ),
     )
     declare_enable_foot_contact = DeclareLaunchArgument(
         'enable_foot_contact',

@@ -1,8 +1,12 @@
 # Phase 13 — Stage 0.5: Sim-Visualisierung (Init-Pose → Aufstehen)
 
-> **STATUS: ⚪ offen — Plan geschrieben, wartet auf finale Klärung + Freigabe.**
-> Erstellt 2026-05-30 als Übergabe-Dokument. Es gibt **noch offene Fragen** (§7),
-> die VOR der Implementierung mit dem User geklärt werden müssen.
+> **STATUS: ✅ FERTIG (2026-05-31).** Live T1–T3 durch User grün: Sim startet
+> exakt in power_on_mid (gz_ros2_control wendet `initial_value` an → §7.5-Fallback
+> nicht nötig), all-6 Stand-up stabil + Körper horizontal, Endpose exakt
+> Stand-Pose. **1 🟡-Befund:** Füße schürfen ~15-22mm horizontal nach innen
+> (joint-space-Ramp, NICHT Tibia-Länge — per Math falsifiziert) → HW-Verify in
+> 0.6/0.7. Details: `phase_13_stage_0_progress.md` Final-Review + Memory
+> `project_phase13_standup_foot_scrape`.
 
 ---
 
@@ -189,8 +193,8 @@ damit der User die Auswirkung versteht.
 
 > **Entscheidungs-Status (2026-05-30):**
 > 7.1 ✅ exakte Cal-Werte · 7.2 ✅ live iterieren · 7.3 ✅ Default −0.080/0.295 ·
-> 7.7 ✅ Sim↔HW kompatibel (Geometrie tabu) · 7.6 ⏳ Empfehlung nur Gazebo
-> (bestätigen) · 7.4/7.5 ⏳ Live-Punkte (erst beim Sim-Start).
+> 7.7 ✅ Sim↔HW kompatibel (Geometrie tabu) · 7.6 ✅ nur Gazebo (User 2026-05-31)
+> · 7.4/7.5 ⏳ Live-Punkte (erst beim Sim-Start).
 
 ### 7.1 — Welche power_on_mid-Werte als Sim-Startpose? — ✅ Option A
 **ENTSCHIEDEN (User 2026-05-30): Option A (18 exakte HW-Cal-Werte).** Begründung:
