@@ -361,7 +361,43 @@ widerlegt). **Done-Kriterium:** Aufsteh-Strom am Boden nahe Stand-Niveau
   Bodenkontakt) + Phase 2 (Push, Knie 43–58°, keine Singularität) für alle 6
   Beine in-limits/erreichbar; limitierend Tibia (rad-Margin 0,13–0,15).
   §8.1/8.3/8.4 datengetrieben entschieden (Plan §5a/§8). Kinematisch ok ≠ Strom ok.
-- [ ] 0.7.2 ff. Engine-Implementierung (A+B) + Tests (D) — nächster Schritt.
+- [x] 0.7.2–0.7.6, 0.7.10  **Engine + gait_node + Tests + README** (A+B+D):
+  neuer `STATE_CARTESIAN_STANDUP` (`start_cartesian_standup` Phase 1 cart. Lerp,
+  `_compute_cartesian_standup_angles` Phase 2 Push radial-fix); gait_node-Params
+  `standup_mode` (Default cartesian) / `standup_phase1_fraction` / `body_height_start`
+  + Trigger-Switch + Validierung; 17 neue Tests (path_in_limits, reachable,
+  phase2_foot_xy_constant = Schürf-frei, phase1_no_premature_contact, endpoint,
+  handover-stetig, cmd_vel-ignore, Param-Validierung). **colcon test 61/0/1-skip**,
+  flake8/pep257/param_callback grün. gait README CARTESIAN_STANDUP-Abschnitt.
+- [ ] 0.7.7–0.7.9  Sim-Visualisierung + HW aufgebockt + **HW Boden + Strom-Logging**
+  (Done-Kriterium) — nächste Schritte (interaktiv). Sim-Anleitung:
+  [`phase_13_stage_0_7_sim_standup_test_commands.md`](phase_13_stage_0_7_sim_standup_test_commands.md).
+
+> **Verständnis-/Entstehungs-Doku** (didaktisch, Code-Ausschnitte):
+> [`phase_13_stage_0_7_cartesian_standup_creation_steps_description.md`](phase_13_stage_0_7_cartesian_standup_creation_steps_description.md).
+
+### Sub-Stage 0.7 — Code-Review (vor Sim/HW) (2026-05-31)
+
+> Code-Self-Review nach Implementierung + grünen Tests, **vor** den Sim/HW-Tests
+> (CLAUDE.md §4). Final-Review folgt nach 0.7.7–0.7.9.
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | **Phase1→Phase2-Übergang stetig** (Touchdown = Phase-2-Start, kein Foot-Sprung) | OK (`test_phase1_phase2_continuous_at_handover`) |
+| R2 | **cmd_vel ignoriert** in CARTESIAN_STANDUP (wie STARTUP_RAMP) → kein Walking-Start vor STANDING | OK (set_command-Guard + Test) |
+| R3 | **IKError-Fang:** cartesian-IK wirft IKError mit Bein-Kontext via `compute_joint_angles`; `_tick` (gait_node:754) fängt ihn → `/hexapod_safety_freeze`, kein Node-Crash | OK (verifiziert, gleicher Pfad wie Walking) |
+| R4 | **Endpose == Stand-Pose** (radial 0.295/−0.080), identisch zum joint-space-Ramp → keine andere Pose nötig | OK (`test_endpoint_is_stand_pose`) |
+| R5 | **Schürf-frei by design:** Phase 2 hält rx + y konstant (nur z rampt) | OK (`test_phase2_foot_xy_constant`, <1e-6) |
+| R6 | **🟡 Default-Wechsel cartesian:** ändert das Aufstehen auch in 0.5 (Sim) + 0.6 (HW aufgebockt). Aufgebockt fahren die Füße in Phase 1 „zum Boden" der nicht da ist (in der Luft) — valide, sieht aber anders aus. Für reine aufgebockt-Wiederholung ggf. `standup_mode:=joint_space` | 🟡 vormerken für 0.7.8 (HW aufgebockt) |
+| R7 | **🟡 Tibia-Margin** über den Pfad 0,13–0,15 rad (≈ 8°) — engste Stelle; bei realer Cal-Abweichung könnte es enger werden. Phase-2-Start (bh −0.0135) ist am gestrecktesten (Knie 58°) | 🟡 in Sim/Boden beobachten |
+| R8 | **body_height_start step 0.0005** (nicht 0.001) — sonst rclpy-FloatingPointRange lehnt den Default −0.0135 ab (nicht auf Step-Raster) | OK (gefixt, param_callback grün) |
+| R9 | **Fehlendes Bein** → start_foot = touchdown (Phase 1 bewegungslos), Phase 2 hebt trotzdem; gait_node triggert eh nur bei allen 18 Joints | OK (`test_missing_leg_no_movement`, doppelt abgesichert) |
+| R10 | **Geschwindigkeit:** `auto_standup_duration` (≥4 s) = Gesamtdauer beider Phasen → User-Constraint „nicht schneller" erfüllt | OK |
+| R11 | **start_foot via leg_fk** aus real gemessener /joint_states-Pose (nicht hartkodiert) → start-agnostisch wie STARTUP_RAMP; Test-Fixture spiegelt power_on_mid nur | OK |
+
+**Ergebnis Code-Review:** keine 🔴. Zwei 🟡 (R6 Default-Wechsel aufgebockt,
+R7 Tibia-Margin) sind bewusste Beobachtungs-Merker für die Sim/HW-Tests, kein
+Blocker. **Bereit für 0.7.7 (Sim-Visualisierung).**
 
 ## Sub-Stage 0.8 — Boden-Test (Hexapod liegt am Bauch, Aufstehen all-6)
 

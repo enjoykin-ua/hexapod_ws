@@ -37,7 +37,14 @@ import math
 
 from hexapod_gait.gait_patterns import GaitPattern
 from hexapod_gait.trajectory_gen import stance_traj, stand_pose, swing_traj
-from hexapod_kinematics import HEXAPOD, IKError, JointLimits, leg_ik, rotate_z
+from hexapod_kinematics import (
+    HEXAPOD,
+    IKError,
+    JointLimits,
+    leg_fk,
+    leg_ik,
+    rotate_z,
+)
 
 
 JointAngles = tuple[float, float, float]
@@ -68,6 +75,17 @@ class GaitEngine:
     # ignoriert set_command() cmd_vel komplett, und compute_joint_angles()
     # liefert den Lerp-Punkt — kein IK-Aufruf waehrend Ramp.
     STATE_STARTUP_RAMP = 'STARTUP_RAMP'
+    # Phase 13 Stage 0.7: kartesisches schürffreies Aufstehen vom Bauch.
+    # Zwei Phasen in EINEM State (via start_cartesian_standup() getriggert):
+    #   Phase 1 (Touchdown, bauch-gestützt): Füße kartesisch von der
+    #     power_on_mid-Pose nach unten zu den Boden-Aufsetzpunkten
+    #     (radial_distance, 0, body_height_start) — Füße noch unbelastet.
+    #   Phase 2 (Push, Füße fix): x+y bleiben am Aufsetzpunkt, nur
+    #     body_height rampt zu self.body_height → Körper hebt senkrecht
+    #     über den fixen Füßen, kein Schürfen unter Last.
+    # Ersetzt für das HW-Aufstehen den joint-space-STARTUP_RAMP (der bleibt
+    # als Legacy-Mode erhalten). Wie STARTUP_RAMP wird cmd_vel ignoriert.
+    STATE_CARTESIAN_STANDUP = 'CARTESIAN_STANDUP'
 
     def __init__(
         self,
@@ -114,6 +132,16 @@ class GaitEngine:
         self._ramp_target_joints: dict[str, JointAngles] = {}
         self._ramp_start_t: float = 0.0
         self._ramp_duration: float = 0.0
+
+        # Phase 13 Stage 0.7 — CARTESIAN_STANDUP-State-Daten (Foot-Targets
+        # im Bein-Frame pro Bein). start_foot = power_on_mid via leg_fk,
+        # touchdown = Boden-Aufsetzpunkt, push_end = Stand-Pose.
+        self._cart_start_foot: dict[str, Point3] = {}
+        self._cart_touchdown: dict[str, Point3] = {}
+        self._cart_push_end: dict[str, Point3] = {}
+        self._cart_start_t: float = 0.0
+        self._cart_duration: float = 0.0
+        self._cart_phase1_frac: float = 0.4
 
     @property
     def state(self) -> str:
@@ -197,6 +225,58 @@ class GaitEngine:
         self._ramp_duration = duration
         self._state = self.STATE_STARTUP_RAMP
 
+    def start_cartesian_standup(
+        self,
+        start_joints: dict[str, JointAngles],
+        t: float,
+        duration: float,
+        phase1_fraction: float = 0.4,
+        body_height_start: float = -0.0135,
+    ) -> None:
+        """
+        Phase 13 Stage 0.7: kartesisches schürffreies Aufstehen einleiten.
+
+        ``start_joints`` ist die gemessene Start-Pose pro Bein (vom ersten
+        /joint_states-Empfang, = power_on_mid). Sie wird via ``leg_fk`` in
+        kartesische Foot-Targets übersetzt. ``duration`` = Gesamtdauer (s),
+        davon entfallen ``phase1_fraction`` auf Phase 1 (Touchdown), der Rest
+        auf Phase 2 (Push). ``body_height_start`` = Foot-z relativ Coxa bei
+        aufliegendem Bauch (≈ −0.0135 m, siehe standup_envelope_check.py).
+
+        Touchdown- und Push-Ziel nutzen die aktuellen Engine-Parameter
+        ``radial_distance`` / ``body_height`` — die Endpose ist damit
+        identisch zur Stand-Pose des joint-space-Ramps.
+
+        Fehlt ein Bein in ``start_joints``, wird seine Start-Pose = Touchdown
+        gesetzt (Phase 1 bewegungslos für dieses Bein).
+        """
+        if duration <= 0.0:
+            raise ValueError(f'standup duration must be > 0, got {duration}')
+        if not 0.0 < phase1_fraction < 1.0:
+            raise ValueError(
+                f'phase1_fraction must be in (0,1), got {phase1_fraction}'
+            )
+        touchdown_z = body_height_start
+        self._cart_start_foot = {}
+        self._cart_touchdown = {}
+        self._cart_push_end = {}
+        for leg in HEXAPOD.legs:
+            touchdown = (self.radial_distance, 0.0, touchdown_z)
+            sj = start_joints.get(leg.name)
+            if sj is None:
+                start_foot: Point3 = touchdown
+            else:
+                start_foot = leg_fk(sj[0], sj[1], sj[2], leg)
+            self._cart_start_foot[leg.name] = start_foot
+            self._cart_touchdown[leg.name] = touchdown
+            self._cart_push_end[leg.name] = stand_pose(
+                self.radial_distance, self.body_height,
+            )
+        self._cart_start_t = t
+        self._cart_duration = duration
+        self._cart_phase1_frac = phase1_fraction
+        self._state = self.STATE_CARTESIAN_STANDUP
+
     def _compute_stand_pose_joints(self) -> dict[str, JointAngles]:
         """
         Stand-Pose-Joint-Angles via IK pro Bein.
@@ -235,8 +315,11 @@ class GaitEngine:
         muss warten bis Ramp fertig ist und Engine selbsttaetig auf
         STANDING wechselt.
         """
-        # Phase 13 Stage A: cmd_vel waehrend Ramp komplett verwerfen.
-        if self._state == self.STATE_STARTUP_RAMP:
+        # Phase 13 Stage A/0.7: cmd_vel waehrend Aufsteh-Sequenz (joint-space
+        # ODER kartesisch) komplett verwerfen — erst STANDING nimmt cmd_vel an.
+        if self._state in (
+            self.STATE_STARTUP_RAMP, self.STATE_CARTESIAN_STANDUP,
+        ):
             return False
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
         clamped = False
@@ -487,6 +570,9 @@ class GaitEngine:
         # Phase 13 Stage A — STARTUP_RAMP: Joint-Space-Lerp ohne IK
         if self._state == self.STATE_STARTUP_RAMP:
             return self._compute_startup_ramp_angles(t)
+        # Phase 13 Stage 0.7 — kartesisches Aufstehen (zwei Phasen, IK).
+        if self._state == self.STATE_CARTESIAN_STANDUP:
+            return self._compute_cartesian_standup_angles(t)
 
         targets = self.compute_foot_targets(t)
         angles = {}
@@ -542,6 +628,70 @@ class GaitEngine:
                 start[1] + (target[1] - start[1]) * s,
                 start[2] + (target[2] - start[2]) * s,
             )
+        return angles
+
+    def _compute_cartesian_standup_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        Kartesisches Aufstehen: pro Tick Foot-Targets → IK (Stage 0.7).
+
+        ``progress = (t - _cart_start_t) / _cart_duration``.
+        - Phase 1 (progress < phase1_frac): Foot kartesisch von start_foot
+          → touchdown (Smooth-Step) — bauch-gestützt, Füße unbelastet.
+        - Phase 2 (sonst): x+y FIX am Touchdown, nur z (body_height) von
+          touchdown_z → push_end_z (Smooth-Step) → Körper hebt senkrecht
+          über den fixen Füßen, kein Schürfen.
+        Bei progress >= 1: State → STANDING, Stand-Pose-IK geliefert.
+        IK-Limit-/Reach-Verletzung wirft IKError mit Bein-Kontext (wie
+        compute_joint_angles) → gait_node fängt sie im Tick-Handler.
+        """
+        tau = t - self._cart_start_t
+        if self._cart_duration <= 0.0:
+            # Defensive: start_cartesian_standup() prueft duration > 0.
+            self._state = self.STATE_STANDING
+            return self._cartesian_standup_ik(self._cart_push_end, t)
+        progress = tau / self._cart_duration
+        if progress >= 1.0:
+            self._state = self.STATE_STANDING
+            return self._cartesian_standup_ik(self._cart_push_end, t)
+
+        p1 = self._cart_phase1_frac
+        targets: dict[str, Point3] = {}
+        for leg in HEXAPOD.legs:
+            touchdown = self._cart_touchdown[leg.name]
+            if progress < p1:
+                # Phase 1 — Touchdown: kartesischer Smooth-Step-Lerp.
+                sub = progress / p1
+                s = sub * sub * (3.0 - 2.0 * sub)
+                targets[leg.name] = _lerp(
+                    self._cart_start_foot[leg.name], touchdown, s,
+                )
+            else:
+                # Phase 2 — Push: x+y fix, nur body_height (z) rampen.
+                sub = (progress - p1) / (1.0 - p1)
+                s = sub * sub * (3.0 - 2.0 * sub)
+                end = self._cart_push_end[leg.name]
+                z = touchdown[2] + (end[2] - touchdown[2]) * s
+                targets[leg.name] = (touchdown[0], touchdown[1], z)
+        return self._cartesian_standup_ik(targets, t)
+
+    def _cartesian_standup_ik(
+        self, foot_targets: dict[str, Point3], t: float,
+    ) -> dict[str, JointAngles]:
+        """IK pro Bein fuer die Standup-Targets, IKError mit Bein-Kontext."""
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            leg_limits = self.joint_limits.get(leg.name)
+            try:
+                angles[leg.name] = leg_ik(
+                    *foot_targets[leg.name], leg, leg_limits,
+                )
+            except IKError as exc:
+                raise IKError(
+                    f'cartesian standup IK failed for {leg.name} at '
+                    f't={t:.3f}s, target={foot_targets[leg.name]}: {exc}'
+                ) from exc
         return angles
 
 

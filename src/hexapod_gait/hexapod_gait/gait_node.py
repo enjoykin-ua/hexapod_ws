@@ -272,6 +272,36 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             'Ramp-Ende moeglich).'
         ),
     ),
+    _ParamSpec(
+        name='standup_mode', default='cartesian', standing_only=True,
+        string_constraint='valid values: cartesian | joint_space',
+        description=(
+            'Phase 13 Stage 0.7: Aufsteh-Modus. "cartesian" (default) = '
+            'schuerffreies Zwei-Phasen-Aufstehen (Touchdown + senkrechter '
+            'Push mit fixen Fuessen). "joint_space" = Legacy-STARTUP_RAMP '
+            '(joint-space-Lerp, schuerft am Boden). STANDING-only.'
+        ),
+    ),
+    _ParamSpec(
+        name='standup_phase1_fraction', default=0.4, standing_only=True,
+        fp_range=(0.1, 0.9, 0.05),
+        description=(
+            'Phase 13 Stage 0.7: Anteil der Aufsteh-Dauer auf Phase 1 '
+            '(Touchdown), Rest = Phase 2 (Push). Nur bei standup_mode='
+            'cartesian. Default 0.4. STANDING-only.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_height_start', default=-0.0135, standing_only=True,
+        fp_range=(-0.030, 0.005, 0.0005),
+        description=(
+            'Phase 13 Stage 0.7: Foot-z relativ Coxa beim Touchdown '
+            '(Coxa-Hoehe bei aufliegendem Bauch, negativ). Default '
+            '-0.0135 m (Bauch-Box 0.043 / Foot-R 0.008, siehe '
+            'standup_envelope_check.py). Nur bei standup_mode=cartesian. '
+            'Real justierbar. STANDING-only.'
+        ),
+    ),
 )
 
 # Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.
@@ -336,6 +366,16 @@ class GaitNode(Node):
         )
         self._auto_standup_duration = float(
             self.get_parameter('auto_standup_duration').value
+        )
+        # Phase 13 Stage 0.7 — Aufsteh-Modus + cartesian-Parameter.
+        self._standup_mode = str(
+            self.get_parameter('standup_mode').value
+        )
+        self._standup_phase1_fraction = float(
+            self.get_parameter('standup_phase1_fraction').value
+        )
+        self._body_height_start = float(
+            self.get_parameter('body_height_start').value
         )
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
@@ -546,31 +586,49 @@ class GaitNode(Node):
                 float(positions[tibia_name]),
             )
 
-        # Alle 18 Joints da → Ramp triggern
+        # Alle 18 Joints da → Aufstehen triggern. Stage 0.7: Modus-Switch
+        # cartesian (default, schuerffrei) vs. joint_space (Legacy-Ramp).
         now = time.monotonic()
         t = now - self._t_start
+        cartesian = self._standup_mode == 'cartesian'
         try:
-            self._engine.start_ramp(
-                start_joints, t, self._auto_standup_duration,
-            )
+            if cartesian:
+                self._engine.start_cartesian_standup(
+                    start_joints, t, self._auto_standup_duration,
+                    self._standup_phase1_fraction, self._body_height_start,
+                )
+            else:
+                self._engine.start_ramp(
+                    start_joints, t, self._auto_standup_duration,
+                )
         except (ValueError, IKError) as exc:
-            # IKError bei Stand-Pose-Berechnung waere ein
-            # Configuration-Bug (radial/body_height nicht erreichbar) —
-            # log + drop. Engine bleibt in STANDING (Default). User
-            # muss params korrigieren.
+            # IKError/ValueError bei der Aufsteh-Initialisierung waere ein
+            # Configuration-Bug (radial/body_height/phase1 nicht gueltig) —
+            # log + drop. Engine bleibt in STANDING (Default). User muss
+            # params korrigieren.
             self.get_logger().error(
-                f'Auto-Stand-Pose-Ramp failed to start: {exc}'
+                f'Auto-Standup ({self._standup_mode}) failed to start: {exc}'
             )
             self._ramp_triggered = True  # nicht nochmal versuchen
             return
 
         self._ramp_triggered = True
-        self.get_logger().info(
-            f'Auto-Stand-Pose-Ramp gestartet: '
-            f'{self._auto_standup_duration:.2f} s zur Default-Stand-Pose '
-            f'(radial={self._radial_distance:.3f}, '
-            f'body_height={self._body_height:.3f})'
-        )
+        if cartesian:
+            self.get_logger().info(
+                f'Cartesian-Standup gestartet: '
+                f'{self._auto_standup_duration:.2f} s '
+                f'(phase1={self._standup_phase1_fraction:.2f}, '
+                f'bh_start={self._body_height_start:.4f}) zur Stand-Pose '
+                f'(radial={self._radial_distance:.3f}, '
+                f'body_height={self._body_height:.3f})'
+            )
+        else:
+            self.get_logger().info(
+                f'Auto-Stand-Pose-Ramp (joint-space) gestartet: '
+                f'{self._auto_standup_duration:.2f} s zur Default-Stand-Pose '
+                f'(radial={self._radial_distance:.3f}, '
+                f'body_height={self._body_height:.3f})'
+            )
 
     def _on_cmd_body_height(self, msg: Float64) -> None:
         """
@@ -751,7 +809,7 @@ class GaitNode(Node):
 
     def _on_param_change(self, params) -> SetParametersResult:
         """
-        Live-Update-Callback für alle 14 gait-Parameter.
+        Live-Update-Callback für alle gait-Parameter.
 
         Phase 11 Stage A — atomic-all-or-nothing-Validation:
 
@@ -854,6 +912,19 @@ class GaitNode(Node):
                     ),
                 )
 
+        # 1g. standup_mode ∈ {cartesian, joint_space} (Stage 0.7)
+        for p in params:
+            if p.name == 'standup_mode' and p.value not in (
+                'cartesian', 'joint_space',
+            ):
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'unknown standup_mode {p.value!r}, '
+                        f'valid: cartesian | joint_space'
+                    ),
+                )
+
         # === 2. APPLY (kein Fail mehr möglich) ===
         for p in params:
             self._apply_param(p.name, p.value)
@@ -911,6 +982,12 @@ class GaitNode(Node):
             self._cmd_vel_timeout = value
         elif name == 'auto_standup_duration':
             self._auto_standup_duration = value
+        elif name == 'standup_mode':
+            self._standup_mode = value
+        elif name == 'standup_phase1_fraction':
+            self._standup_phase1_fraction = value
+        elif name == 'body_height_start':
+            self._body_height_start = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
 

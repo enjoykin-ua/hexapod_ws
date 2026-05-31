@@ -214,16 +214,16 @@ gemessen werden (Done-Kriterium 0.7.9).
 
 ```
 - [x] 0.7.1  Offline-Tool `tools/standup_envelope_check.py`: body_height_start −13,5 mm, Phase 1+2 GRÜN (§5a) ✅
-- [ ] 0.7.2  STATE_CARTESIAN_STANDUP + Phase-1 Touchdown-Logik (kein vorzeitiger Bodenkontakt)
-- [ ] 0.7.3  Phase-2 cartesian Push (radial fix, body_height-Rampe)
-- [ ] 0.7.4  In-Limits/Reachability-Tests über ganzen Pfad (ersetzt 0.4-Monotonie-Beweis)
-- [ ] 0.7.5  Schürf-frei-Test (rx in Phase 2 konstant) + Phase-1-kein-vorzeitiger-Kontakt-Test
-- [ ] 0.7.6  colcon test hexapod_gait grün (+ lint)
+- [x] 0.7.2  STATE_CARTESIAN_STANDUP + start_cartesian_standup (Phase-1 Touchdown-Logik) ✅
+- [x] 0.7.3  Phase-2 cartesian Push (_compute_cartesian_standup_angles, radial fix, body_height-Rampe) ✅
+- [x] 0.7.4  In-Limits/Reachability-Tests über ganzen Pfad (path_in_limits + reachable_no_ikerror) ✅
+- [x] 0.7.5  Schürf-frei-Test (phase2_foot_xy_constant) + Phase-1-kein-vorzeitiger-Kontakt-Test ✅
+- [x] 0.7.6  colcon test hexapod_gait grün (61/0/1-skip, inkl. flake8/pep257/param_callback) ✅
 - [ ] 0.7.7  Sim-Visualisierung: kein Einwärts-Schürfen mehr sichtbar; body_height_start-Gegenprobe
 - [ ] 0.7.8  HW aufgebockt: Bewegung sauber, Füße in Phase 2 senkrecht
 - [ ] 0.7.9  **HW Boden + Strom-Logging: Aufsteh-Peak nahe Stand-Niveau, kein Trip/Voltage-Drop** (Done-Kriterium)
-- [ ] 0.7.10 README/Doku: STARTUP_RAMP → cartesian standup, joint-space als Legacy
-- [ ] 0.7.11 Self-Review-Tabelle, Fixe erledigt
+- [x] 0.7.10 README/Doku: gait README CARTESIAN_STANDUP-Abschnitt (joint-space als Legacy) ✅
+- [x] 0.7.11 Code-Self-Review-Tabelle (Progress-File, 11 Punkte, keine 🔴) ✅ — Final-Review nach Sim/HW
 ```
 
 ## 8. Offene Punkte für User-Review (vor Code-Start, nach 0.6-Trigger)

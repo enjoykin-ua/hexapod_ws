@@ -10,7 +10,7 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 |---|---|
 | [stand_node.py](hexapod_gait/stand_node.py) | One-shot rclpy-Knoten: fährt alle 6 Beine in Stand-Pose und beendet sich |
 | [gait_node.py](hexapod_gait/gait_node.py) | 50 Hz Timer-Loop, cmd_vel-Subscriber, Engine-Tick → 6 JointTrajectory-Pubs |
-| [gait_engine.py](hexapod_gait/gait_engine.py) | Pure-Python State-Machine STANDING / WALKING / STOPPING / STARTUP_RAMP + Body-Frame-Mapping |
+| [gait_engine.py](hexapod_gait/gait_engine.py) | Pure-Python State-Machine STANDING / WALKING / STOPPING / STARTUP_RAMP / CARTESIAN_STANDUP + Body-Frame-Mapping |
 | [gait_patterns.py](hexapod_gait/gait_patterns.py) | `GaitPattern`-Dataclass + Presets `TRIPOD`, `SINGLE_LEG_1..6`, erweiterbar für Wave/Ripple |
 | [trajectory_gen.py](hexapod_gait/trajectory_gen.py) | Pure-Python `swing_traj` (Halbsinus) + `stance_traj` (linear) im Bein-Frame |
 
@@ -59,6 +59,38 @@ Aufsteh-Pfad — das macht der **STARTUP_RAMP-State** in `gait_node`/`gait_engin
 - Param `auto_standup_duration` (Default 4.0 s) steuert die Ramp-Dauer. Das
   obsolete `suspended`-Preset (femur=+1.45) ist **nicht** mehr der Startpunkt
   (war Pre-0.3).
+
+### Kartesisches schürffreies Aufstehen (Phase 13 Stage 0.7, **Default**)
+
+Der joint-space-STARTUP_RAMP (oben) interpoliert die **Winkel** linear — dadurch
+hält er die Fuß-x-Position **nicht** konstant: die Füße wandern beim Hochdrücken
+~15–22 mm nach innen. Am Boden = **Schürfen unter Last** → hoher Strom (>3,5 A
+gemessen, Bench-PSU bricht ein), obwohl das *Stehen* nur ~400 mA kostet. Wurzel
+ist also die Reibung, nicht die Hub-Last. Der **`CARTESIAN_STANDUP`-State** löst
+das (neuer Default, `standup_mode:=cartesian`):
+
+- **Phase 1 — Touchdown** (bauch-gestützt, Anteil `standup_phase1_fraction`,
+  Default 0.4): Füße kartesisch von power_on_mid (via `leg_fk`) nach unten zu den
+  Boden-Aufsetzpunkten `(radial, 0, body_height_start)`. Der Bauch trägt, die
+  Füße sind unbelastet/in der Luft → keine Reibung. `body_height_start ≈
+  −0.0135 m` = Coxa-Höhe bei aufliegendem Bauch (Bauch-Box 0.043 / Foot-R 0.008).
+- **Phase 2 — Push** (Füße fix): x+y bleiben am Aufsetzpunkt, nur `body_height`
+  rampt zu −0.080 → Körper hebt **senkrecht** über den fixen Füßen. Da der
+  horizontale Hebelarm (= radial) konstant bleibt, bleibt das Stütz-Drehmoment
+  auf Stand-Niveau → **kein Schürfen, kein Strom-Peak** (by design).
+- **Endpose identisch** zum joint-space-Ramp (radial 0.295 / −0.080) — nur der
+  *Weg* dorthin ist schürffrei. `cmd_vel` wird wie beim STARTUP_RAMP ignoriert,
+  Auto-Übergang → STANDING bei `progress ≥ 1`.
+- **In-Limits/Reachability** ist hier (anders als beim monotonen joint-space-Lerp)
+  nicht trivial — daher per Test über den ganzen Pfad belegt
+  (`test_cartesian_standup.py`: `path_in_limits`, `reachable_no_ikerror`,
+  `phase2_foot_xy_constant` = Schürf-frei-Beweis, `phase1_no_premature_ground_contact`,
+  `endpoint_is_stand_pose`). Vorab-Validierung: `tools/standup_envelope_check.py`.
+- **Mode-Switch:** `standup_mode` ∈ {`cartesian` (Default), `joint_space`
+  (Legacy-STARTUP_RAMP, aufgebockt nützlich)}. Params `standup_phase1_fraction`,
+  `body_height_start` sind STANDING-only + live-justierbar.
+- **Done-Kriterium** (Stage 0.7): Aufsteh-Strom am **Boden** nahe Stand-Niveau
+  statt >3,5 A — das misst erst der HW-Boden-Test (Stage 0.8), nicht die Sim.
 
 ### Gait starten
 
