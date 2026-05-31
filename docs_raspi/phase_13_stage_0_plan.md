@@ -13,7 +13,7 @@
 >
 > **Dieser Plan ist der Vertrag** für Stage 0. Pro Sub-Stage (0.1–0.4) gibt
 > es ein eigenes Detail-Plan-File (CLAUDE.md §4: Plan → Freigabe →
-> Implementierung → Tests → Self-Review). Die interaktiven Stages (0.5–0.7)
+> Implementierung → Tests → Self-Review). Die interaktiven Stages (0.5, 0.6, 0.8)
 > bekommen nur `*_test_commands.md`.
 
 ---
@@ -122,21 +122,23 @@ Pipeline.
 | **0.3** | Plugin `on_activate` Relay-gated Init-Sequenz (Init-Target → Femur-Enable gestaffelt → Relay-ON → Coxa → Tibia); Init-Pose-Wert rad −0.611 | Code + Unit-Tests | _just-in-time_ |
 | **0.4** | Gait Stand-up **all-6 simultan** ab power_on_mid (STARTUP_RAMP — DL-7) | Pure-Python + Unit-Tests | [`phase_13_stage_0_4_standup_plan.md`](phase_13_stage_0_4_standup_plan.md) |
 | **0.5** | Sim-Visualisierung Init + Stand-up (Gazebo + RViz), Sim startet bei power_on_mid | interaktiv | [`phase_13_stage_0_5_sim_standup_plan.md`](phase_13_stage_0_5_sim_standup_plan.md) |
-| **0.6** | HW Live aufgebockt — Init + Stand-up | interaktiv | _just-in-time test_commands_ |
-| **0.7** | Boden-Test — Hexapod liegt am Bauch, Aufstehen **all-6** | interaktiv | _just-in-time test_commands_ |
-| **(0.8)** | **Kartesisches schürffreies Aufstehen** (provisorisch, Trigger = 0.6-Befund). Bei Aktivierung Umnummerierung: wird zur **0.7**, Boden-Test → **0.8** | Code + Tests | [`phase_13_stage_0_8_cartesian_standup_plan.md`](phase_13_stage_0_8_cartesian_standup_plan.md) |
+| **0.6** | HW Live aufgebockt — Init + Stand-up ✅ | interaktiv | [`phase_13_stage_0_6_hw_standup_test_commands.md`](phase_13_stage_0_6_hw_standup_test_commands.md) |
+| **0.7** | **Kartesisches schürffreies Aufstehen** (umnummeriert von 0.8 am 2026-05-31, Trigger = 0.6-Schürf+Strom-Befund) | Code + Tests | [`phase_13_stage_0_7_cartesian_standup_plan.md`](phase_13_stage_0_7_cartesian_standup_plan.md) |
+| **0.8** | Boden-Test — Hexapod liegt am Bauch, Aufstehen **all-6** (läuft mit dem 0.7-Aufstehen) | interaktiv | _just-in-time test_commands_ |
 
-Die Pläne für 0.2–0.7 werden **just-in-time** erstellt, weil ihre Inhalte
+Die Pläne für die HW-/interaktiven Stages (0.2, 0.6, 0.8) werden **just-in-time**
+erstellt, weil ihre Inhalte
 (asymmetrische Limits, Init-Pose-Start) von Mess-/Vorergebnissen abhängen.
 
 ## 7. Done-Kriterium Stage 0
 
-Alle Sub-Stages 0.1–0.7 grün laut
+Alle Sub-Stages 0.1–0.8 grün laut
 [`phase_13_stage_0_progress.md`](phase_13_stage_0_progress.md):
 Roboter fährt beim Plugin-Start ruckfrei in die 35°-Init-Pose (aufgebockt
-**und** liegend) und steht **mit allen 6 Beinen gleichzeitig** (STARTUP_RAMP,
-all-6 — siehe DL-7) vom Bauch auf, ohne Foot-Schramm, ohne IKError, ohne
-Servo-Stall.
+**und** liegend) und steht **mit allen 6 Beinen gleichzeitig** **kartesisch
+schürffrei** (Stage 0.7 — DL-8; ersetzt den joint-space-STARTUP_RAMP für das
+HW-Aufstehen) vom Bauch auf, ohne Foot-Schramm, ohne IKError, ohne Servo-Stall,
+**ohne Overcurrent/Voltage-Drop**.
 
 ## 8. Cross-References
 

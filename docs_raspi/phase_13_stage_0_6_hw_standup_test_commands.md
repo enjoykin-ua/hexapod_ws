@@ -7,7 +7,7 @@
 > **Form:** User führt aus dem Doc aus, knappe Status (Memory
 > [[feedback_test_commands_in_doc_not_chat]], [[feedback_interactive_stage_test_doc]]).
 > **Status:** 🟢 final (2026-05-31) — Live durch User: T1–T3 + T5 ✅, T4 = Füße
-> wandern sichtbar einwärts → **Schürf-Befund auf HW bestätigt, Stage 0.8 getriggert.**
+> wandern sichtbar einwärts → **Schürf-Befund auf HW bestätigt, kartesisches Aufstehen (neue Stage 0.7) getriggert.**
 
 ## ⚠️ Safety (CLAUDE.md §9 — erster HW-Stand-up)
 - **Roboter aufgebockt** (Beine frei in der Luft, kein Bodenkontakt).
@@ -101,10 +101,10 @@ ros2 topic echo /joint_states --once
 
 ---
 
-## T4 — Schürf-Beurteilung (visuell) → Trigger für Stage 0.8
+## T4 — Schürf-Beurteilung (visuell) → Trigger für das kartesische Aufstehen
 > Zweck: entscheiden, ob das kartesische Aufstehen
-> ([`phase_13_stage_0_8_cartesian_standup_plan.md`](phase_13_stage_0_8_cartesian_standup_plan.md))
-> aktiviert + die Umnummerierung ausgelöst wird (Schürf-Befund aus 0.5,
+> ([`phase_13_stage_0_7_cartesian_standup_plan.md`](phase_13_stage_0_7_cartesian_standup_plan.md),
+> nach Trigger als Stage 0.7 umnummeriert) aktiviert wird (Schürf-Befund aus 0.5,
 > Memory `project_phase13_standup_foot_scrape`).
 
 Während T2 (Stand-up) die **Fußspitzen** beobachten:
@@ -113,8 +113,8 @@ Während T2 (Stand-up) die **Fußspitzen** beobachten:
 
 **Bewertung:**
 - **Füße wandern sichtbar einwärts** → Schürf-Befund auf HW bestätigt →
-  **Stage 0.8 aktivieren** (kartesisches Aufstehen) + Umnummerierung (0.8→0.7, Boden→0.8).
-- **Kaum/keine Einwärts-Wanderung** → am Boden ggf. unkritisch → 0.8 zurückstellen,
+  kartesisches Aufstehen aktivieren (wird **Stage 0.7**, Boden-Test → 0.8).
+- **Kaum/keine Einwärts-Wanderung** → am Boden ggf. unkritisch → zurückstellen,
   endgültige Entscheidung am Boden-Test.
 
 > Hinweis: Aufgebockt tritt **kein** echtes Schürfen auf (kein Bodenkontakt) — du
@@ -141,7 +141,7 @@ pgrep -af "ros2 launch|gait_node|ros2_control_node" || echo "alle Prozesse beend
 | T1 Init-Sequenz aufgebockt (alle 6 power_on_mid, Relay an) | 0.6.2 |
 | T2 Stand-up all-6 sauber, kein Stall/Freeze/IKError/Trip | 0.6.3 |
 | T3 Endpose stabil | 0.6.4 |
-| T4 Schürf-Beurteilung → 0.8-Entscheidung notiert | 0.6.5 |
+| T4 Schürf-Beurteilung → 0.7-Entscheidung notiert | 0.6.5 |
 | T5 Shutdown stromlos | 0.6.6 |
 | Self-Review nach Live | 0.6.7 |
 
@@ -151,5 +151,5 @@ pgrep -af "ros2 launch|gait_node|ros2_control_node" || echo "alle Prozesse beend
 | T1 Init aufgebockt | ✅ | alle 6 power_on_mid, Relay an, kein Trip |
 | T2 Stand-up all-6 | ✅ | sauber hochgefahren, kein Stall/Freeze/IKError/Trip |
 | T3 Endpose stabil | ✅ | stabil, kein Drift |
-| T4 Schürf-Wanderung (0.8?) | ✅ Befund | **Füße wandern sichtbar einwärts → Schürf-Befund HW-bestätigt → Stage 0.8 aktivieren + Umnummerierung** |
+| T4 Schürf-Wanderung (0.7?) | ✅ Befund | **Füße wandern sichtbar einwärts → Schürf-Befund HW-bestätigt → kartesisches Aufstehen aktiviert (neue Stage 0.7)** |
 | T5 Shutdown stromlos | ✅ | Rail aus, Servos limp |

@@ -314,15 +314,15 @@ Test: [`phase_13_stage_0_6_hw_standup_test_commands.md`](phase_13_stage_0_6_hw_s
 HW-Pendant zu 0.5: real.launch.py (0.3-Init) → gait.launch.py (0.4-Stand-up),
 echter Roboter aufgebockt. **Live durch User:** Init + Stand-up all-6 sauber,
 Endpose stabil, Shutdown stromlos, kein Stall/Freeze/IKError/Trip. **T4 = Füße
-wandern sichtbar einwärts → Schürf-Befund auf HW bestätigt → Stage 0.8
-(kartesisches Aufstehen) ist getriggert, Umnummerierung steht an.**
+wandern sichtbar einwärts → Schürf-Befund auf HW bestätigt → kartesisches
+Aufstehen als neue Stage 0.7 aktiviert (Umnummerierung 2026-05-31 ausgeführt).**
 
 ```
 - [x] 0.6.1  Build hexapod_hardware + bringup + description + gait grün, gesourct
 - [x] 0.6.2  T1: Init-Sequenz aufgebockt — alle 6 power_on_mid, Relay an, kein Trip
 - [x] 0.6.3  T2: Stand-up all-6 sauber — kein Stall/hartes Springen/IKError/Watchdog/Overcurrent
 - [x] 0.6.4  T3: Endpose stabil (≈ coxa 0 / femur −0.24 / tibia +0.76), Relay bleibt an
-- [x] 0.6.5  T4: Schürf-Beurteilung — Füße wandern sichtbar einwärts → **Stage 0.8 aktivieren + Umnummerierung**
+- [x] 0.6.5  T4: Schürf-Beurteilung — Füße wandern sichtbar einwärts → **kartesisches Aufstehen aktiviert (neue Stage 0.7)**
 - [x] 0.6.6  T5: Shutdown stromlos (Servos limp)
 - [x] 0.6.7  Self-Review (unten), keine offenen 🔴
 ```
@@ -334,30 +334,32 @@ wandern sichtbar einwärts → Schürf-Befund auf HW bestätigt → Stage 0.8
 | R1 | Init + Stand-up auf echter HW = konsistent zur Sim (0.5): power_on_mid-Init, all-6-Stand-up, Endpose stabil | OK |
 | R2 | Kein Stall/Freeze/IKError/Watchdog/Overcurrent über Init + Stand-up + Endpose (aufgebockt) | OK |
 | R3 | `use_sim_time:=false` + `robot_description_file` (nicht-lenienter Limit-Check) live korrekt — kein stiller Timer-Block, kein Limit-Freeze | OK |
-| R4 | **T4 Schürf-Befund HW-bestätigt:** Füße wandern beim Aufstehen sichtbar einwärts (wie 0.5-FK-Prognose) → **Stage 0.8 aktiviert** (kartesisches Aufstehen), Umnummerierung 0.8→0.7 / Boden→0.8 ist die nächste Arbeit | 🟡 → Stage 0.8 (geplant) |
-| R5 | Strom-Limit-Thema (Default 3500 mA) separat angefasst: User hebt auf 7000 mA an — FW-`config.hpp` + test_stage_e.py-Spiegel, Re-Flash nötig | 🟡 → eigener Change (gleich) |
+| R4 | **T4 Schürf-Befund HW-bestätigt:** Füße wandern beim Aufstehen sichtbar einwärts (wie 0.5-FK-Prognose); Strom-Befund: Aufstehen >3,5 A / Stehen ~400 mA → kartesisches Aufstehen als **neue Stage 0.7** aktiviert, Umnummerierung 2026-05-31 ausgeführt | 🟡 → Stage 0.7 (DL-8) |
+| R5 | Strom-Limit-Thema (Default 3500 mA) separat angefasst: User hebt auf 7000 mA an — FW-`config.hpp` + test_stage_e.py-Spiegel, Re-Flash (rebuild!) nötig | 🟡 → erledigt + Memory `project_fw_rebuild_before_flash` |
 
-**Ergebnis:** keine 🔴. Zwei 🟡 (R4 → Stage 0.8 als nächste Arbeit, R5 → Limit-
+**Ergebnis:** keine 🔴. Zwei 🟡 (R4 → Stage 0.7 als nächste Arbeit, R5 → Limit-
 Change) sind bewusste Folge-Schritte. **Sub-Stage 0.6 fertig.** Bereit für
 User-Commit.
 
-**→ Nächste Arbeit:** Stage 0.8 (kartesisches Aufstehen) ist durch T4 getriggert.
-Bei Beginn: Umnummerierung nach Plan §9 ausführen (0.8→0.7, Boden-Test 0.7→0.8).
+**→ Nächste Arbeit:** Stage 0.7 (kartesisches Aufstehen) ist durch T4 + den
+Strom-Befund getriggert; Umnummerierung ausgeführt (DL-8).
 
-## Sub-Stage 0.7 — Boden-Test
+## Sub-Stage 0.7 — Kartesisches schürffreies Aufstehen 🟡 AKTIV (Plan, Code offen)
 
-_test_commands just-in-time._ ⚠️ Wird bei 0.8-Aktivierung auf **0.8** umnummeriert
-(läuft dann mit dem schürffreien Aufstehen statt dem joint-space-Schürf-Aufstehen).
+Plan: [`phase_13_stage_0_7_cartesian_standup_plan.md`](phase_13_stage_0_7_cartesian_standup_plan.md).
+**Status:** Plan ausgearbeitet (inkl. §1a HW-Strom-Analyse), Code offen, §8 offene
+Punkte vor Code mit User klären. Konzept: zwei-Phasen-Aufstehen (Phase 1 Touchdown
+bauch-gestützt → Phase 2 Push mit fixen Füßen, radial fix/nur body_height →
+schürffrei by design), nutzt vorhandene cartesian-IK; **keine** Geometrie-Änderung
+(Tibia kürzen = §7.7 TABU, per Math widerlegt). **Done-Kriterium:** Aufsteh-Strom
+am Boden nahe Stand-Niveau (~400 mA) statt >3,5 A, kein Trip/Voltage-Drop.
+Checkliste 0.7.1–0.7.11 im Plan §7. Erster Schritt: Offline-Tool (Paket E).
 
-## Sub-Stage (0.8) — Kartesisches schürffreies Aufstehen ⚪ NOTIZ / Vorab-Plan
+## Sub-Stage 0.8 — Boden-Test (Hexapod liegt am Bauch, Aufstehen all-6)
 
-Plan: [`phase_13_stage_0_8_cartesian_standup_plan.md`](phase_13_stage_0_8_cartesian_standup_plan.md).
-**Status:** noch kein Code, nicht freigegeben. **Trigger:** 0.6-Live-Blick
-bestätigt Umbau-Bedarf. Konzept: zwei-Phasen-Aufstehen (Touchdown bauch-gestützt
-→ Push mit fixen Füßen, radial fix/nur body_height → schürffrei by design),
-nutzt vorhandene cartesian-IK; **keine** Geometrie-Änderung (Tibia kürzen = §7.7
-TABU, per Math als falsche Stellschraube widerlegt). Bei Aktivierung **Tausch**:
-0.8→0.7, aktueller Boden-Test 0.7→0.8 (Plan §9).
+_test_commands just-in-time._ Läuft mit dem **schürffreien 0.7-Aufstehen** (nicht
+dem joint-space-Schürf-Aufstehen). War vor der Umnummerierung 2026-05-31 als 0.7
+geführt.
 
 ---
 
@@ -372,6 +374,7 @@ TABU, per Math als falsche Stellschraube widerlegt). Bei Aktivierung **Tausch**:
 | DL-5 | **Femur-Limits asymmetrisch**, datengetrieben nach Re-Cal | symmetrisch ±X (Stage-F-Stil) | Mechanik ist nach Umbau real asymmetrisch (mehr Range unten); Symmetrie wäre künstliche Beschränkung | 2026-05-30 |
 | DL-6 | **UV/OC-Trips nur scharf wenn `relay_on`** (FW) + Sense-Warmup-Reset beim Relay-On | Trips immer scharf (0.1-Stand) | **0.2-Blocker-Fix:** Relay default-OFF → Rail liest ~0 V (gemessen 129 mV) → FW trippte Undervoltage **sofort nach Boot** → latch-disable aller Servos → Servos kamen trotz späterem Relay-On nie hoch. Relay bricht die „Rail immer bestromt"-Annahme der Schutzlogik. Gehört zur sauberen Relay-Integration (in 0.1 übersehen) | 2026-05-30 |
 | DL-7 | **Stand-up all-6 simultan** (STARTUP_RAMP) | Tripod 3+3 (urspr. Stage-0-Plan §6/§7) | Aufstehen erfolgt **vom Bauch** (bzw. aufgehängt-am-Bauch = Boden-Sim): Bauch/Boden ist die Stütze, nicht die Beine → kein Stativ-Bedarf. Tripod 3+3 ist für statische Stabilität nötig, wenn der Körper allein auf den Beinen steht + Füße umgesetzt werden (z. B. Bein-Radius-Änderung — kein 0.4-Thema). all-6 verteilt zudem die Lift-Last auf 6 statt 3 Servos (weniger Stall-Risiko). Stage-0-Plan §6/§7 entsprechend korrigiert | 2026-05-30 |
+| DL-8 | **Kartesisches schürffreies Aufstehen als neue Stage 0.7** (joint-space-STARTUP_RAMP bleibt als Legacy-Fallback); Boden-Test → 0.8 umnummeriert | joint-space-Aufstehen für HW behalten | 0.6-HW-Befund: joint-space-Ramp lässt Füße ~15–22 mm einwärts schürfen → am Boden >3,5 A + Voltage-Drop (Stehen kostet nur ~400 mA → Schürfen ist die Wurzel). Cartesian (Füße fix, nur body_height heben) eliminiert das Schürfen by design. Boden-Test muss mit dem schürffreien Aufstehen laufen → 0.7 schiebt sich davor, Boden→0.8. Plan: `phase_13_stage_0_7_cartesian_standup_plan.md` | 2026-05-31 |
 
 ## Offene Punkte (cross-Sub-Stage, zu klären wenn erreicht)
 

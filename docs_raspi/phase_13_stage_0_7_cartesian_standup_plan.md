@@ -1,16 +1,16 @@
-# Phase 13 — Stage 0.8 (provisorisch): Kartesisches schürffreies Aufstehen
+# Phase 13 — Stage 0.7: Kartesisches schürffreies Aufstehen
 
-> **STATUS: 🟡 GETRIGGERT (2026-05-31) — Plan steht, Code/Umnummerierung offen.**
+> **STATUS: 🟡 AKTIV (umnummeriert 2026-05-31) — Plan ausgearbeitet, Code offen.**
 > **Trigger erfüllt:** 0.6-Live (HW aufgebockt, T4) bestätigt, dass die Füße beim
 > joint-space-Aufstehen sichtbar einwärts wandern (Schürf-Befund 0.5, Memory
-> `project_phase13_standup_foot_scrape`). Nächste Arbeit: §8 offene Punkte mit
-> User klären → §9 Umnummerierung (0.8→0.7, Boden→0.8) → implementieren.
+> `project_phase13_standup_foot_scrape`). HW-Strom-Befund 0.6: Aufstehen >3,5 A,
+> Stehen nur ~400 mA → Schürfen ist die Wurzel (siehe §1a). Nächste Arbeit:
+> §8 offene Punkte mit User klären → implementieren.
 >
-> **⚠️ Nummerierung provisorisch:** Diese Datei heißt „0.8", damit die schon
-> definierten Stages 0.6 (HW aufgebockt) + 0.7 (Boden-Test) jetzt **nicht**
-> angefasst werden. Bei Aktivierung erfolgt ein **Tausch** (§9): dieser Plan
-> wird zur **0.7** (kommt VOR dem Boden-Test), der aktuelle Boden-Test wandert
-> auf **0.8**.
+> **Umnummerierung ausgeführt (2026-05-31, §9):** Diese Stage war provisorisch
+> als „0.8" geführt und ist jetzt **0.7** (kommt VOR dem Boden-Test, damit der
+> Boden-Test mit dem schürffreien Aufstehen läuft). Der frühere Boden-Test ist
+> nach **0.8** gewandert.
 
 ---
 
@@ -43,7 +43,7 @@ und **aufgebockt** (0.6) getestet. Befunde:
   Bench-PSU kann den Spitzenstrom nicht schnell genug liefern; LiPo könnte, dann
   aber >10 A — zu hoch). Strom-Limit musste auf 7000 mA, löst das aber nicht.
 
-**Schlussfolgerung (der eigentliche Grund für 0.8):** Da der Strom beim *Halten*
+**Schlussfolgerung (der eigentliche Grund für 0.7):** Da der Strom beim *Halten*
 verschwindet, ist der Aufsteh-Peak **fast vollständig Schürf-Reibung**, nicht
 Hub-Last. Das ist die Wurzel — und cartesian (schürffrei) eliminiert genau sie.
 
@@ -64,7 +64,7 @@ Hub-Last. Das ist die Wurzel — und cartesian (schürffrei) eliminiert genau si
 
 **Prognose:** cartesian-Aufstehen zieht nahe dem Stand-Strom (~400 mA) statt
 >3,5 A — der Schürf-Anteil (~3,1 A) fällt weg. **Zu verifizieren am Boden mit
-Strom-Logging (das ist das eigentliche Done-Kriterium von 0.8).**
+Strom-Logging (das ist das eigentliche Done-Kriterium von 0.7).**
 
 **Geschwindigkeit:** Der User-Constraint „nicht schneller als jetzt" wird
 eingehalten (auto_standup_duration ≥ heutige ~4 s). **Wichtig (Korrektur):** der
@@ -183,27 +183,27 @@ compute_cartesian_standup_angles(t):
 ### 6.2 Live (das eigentliche Done-Kriterium)
 - **Strom am Boden** (Paket F): Aufsteh-Peak nahe Stand-Niveau (~400 mA-Bereich),
   **kein** Overcurrent-Trip / Voltage-Drop mit der Bench-PSU. Schürf-frei visuell
-  bestätigt (Füße stehen in Phase 2 fix). Das ist der Beweis, dass 0.8 das
+  bestätigt (Füße stehen in Phase 2 fix). Das ist der Beweis, dass 0.7 das
   ursprüngliche Problem (>3,5 A) löst.
 
 ### 6.3 Bewusst NICHT testbar in Pure-Python (→ HW-Stages)
 - Servo-Stall-Moment, reale Reibung/Grip (bleibt Fuß real fix?), echte
   Bauch-Auflagehöhe → Sim + HW aufgebockt + Boden.
 
-## 7. Progress-Checkliste (vorläufig, → progress-File bei Aktivierung als 0.7.x nach Tausch)
+## 7. Progress-Checkliste (vorläufig, → progress-File als 0.7.x)
 
 ```
-- [ ] X.1  Offline-Tool: Touchdown-Punkte + body_height_start + In-Limits-Envelope
-- [ ] X.2  STATE_CARTESIAN_STANDUP + Phase-1 Touchdown-Logik (kein vorzeitiger Bodenkontakt)
-- [ ] X.3  Phase-2 cartesian Push (radial fix, body_height-Rampe)
-- [ ] X.4  In-Limits/Reachability-Tests über ganzen Pfad (ersetzt 0.4-Monotonie-Beweis)
-- [ ] X.5  Schürf-frei-Test (rx in Phase 2 konstant) + Phase-1-kein-vorzeitiger-Kontakt-Test
-- [ ] X.6  colcon test hexapod_gait grün (+ lint)
-- [ ] X.7  Sim-Visualisierung: kein Einwärts-Schürfen mehr sichtbar; body_height_start-Gegenprobe
-- [ ] X.8  HW aufgebockt: Bewegung sauber, Füße in Phase 2 senkrecht
-- [ ] X.9  **HW Boden + Strom-Logging: Aufsteh-Peak nahe Stand-Niveau, kein Trip/Voltage-Drop** (Done-Kriterium)
-- [ ] X.10 README/Doku: STARTUP_RAMP → cartesian standup, joint-space als Legacy
-- [ ] X.11 Self-Review-Tabelle, Fixe erledigt
+- [ ] 0.7.1  Offline-Tool: Touchdown-Punkte + body_height_start + In-Limits-Envelope
+- [ ] 0.7.2  STATE_CARTESIAN_STANDUP + Phase-1 Touchdown-Logik (kein vorzeitiger Bodenkontakt)
+- [ ] 0.7.3  Phase-2 cartesian Push (radial fix, body_height-Rampe)
+- [ ] 0.7.4  In-Limits/Reachability-Tests über ganzen Pfad (ersetzt 0.4-Monotonie-Beweis)
+- [ ] 0.7.5  Schürf-frei-Test (rx in Phase 2 konstant) + Phase-1-kein-vorzeitiger-Kontakt-Test
+- [ ] 0.7.6  colcon test hexapod_gait grün (+ lint)
+- [ ] 0.7.7  Sim-Visualisierung: kein Einwärts-Schürfen mehr sichtbar; body_height_start-Gegenprobe
+- [ ] 0.7.8  HW aufgebockt: Bewegung sauber, Füße in Phase 2 senkrecht
+- [ ] 0.7.9  **HW Boden + Strom-Logging: Aufsteh-Peak nahe Stand-Niveau, kein Trip/Voltage-Drop** (Done-Kriterium)
+- [ ] 0.7.10 README/Doku: STARTUP_RAMP → cartesian standup, joint-space als Legacy
+- [ ] 0.7.11 Self-Review-Tabelle, Fixe erledigt
 ```
 
 ## 8. Offene Punkte für User-Review (vor Code-Start, nach 0.6-Trigger)
@@ -219,27 +219,23 @@ compute_cartesian_standup_angles(t):
 | 8.7 | **`body_height_start` real treffen:** −0.0135 m ist Geometrie-Rechnung. Wie kalibrieren (Sim-Drop-Ruhelage messen? Boden-Feintuning-Param?) ohne dass Phase 1 schürft oder der Körper am Übergang fällt? | Param + Sim-Messung, Boden-Feintuning |
 | 8.8 | **Strom-Logging-Quelle am Boden:** Diagnostic-Topic (`publish_servo_pulses`/Strom-Telemetrie) vs. PSU-Anzeige — welche Granularität reicht für den Peak-Nachweis? | beides, PSU für Peak |
 
-## 9. Umnummerierungs-Plan (bei Aktivierung auszuführen)
+## 9. Umnummerierung — ✅ AUSGEFÜHRT (2026-05-31)
 
-**Aktueller Stand (Stage-0-Plan §6):**
-- 0.6 = HW Live aufgebockt (Init + Stand-up)
-- 0.7 = Boden-Test (Hexapod liegt am Bauch, Aufstehen all-6)
-
-**Nach Trigger (0.6 bestätigt Umbau-Bedarf):**
-- 0.6 = HW aufgebockt — **bleibt**
-- **0.7 = kartesisches schürffreies Aufstehen** (dieser Plan, umbenannt von 0.8)
-- **0.8 = Boden-Test** (der bisherige 0.7-Inhalt wandert hierher)
+**Vorher:** 0.6 = HW aufgebockt · 0.7 = Boden-Test · (0.8) = kartesisch (provisorisch).
+**Jetzt:** 0.6 = HW aufgebockt (bleibt) · **0.7 = kartesisches Aufstehen** (dieser
+Plan) · **0.8 = Boden-Test** (Inhalt von der alten 0.7 hierher gewandert).
 
 **Begründung der Reihenfolge:** Der Boden-Test soll mit dem **finalen,
 schürffreien** Aufstehen laufen — nicht mit dem joint-space-Schürf-Aufstehen.
 Also muss das bessere Aufstehen **vor** dem Boden-Test fertig sein → es schiebt
 sich als neue 0.7 davor, der Boden-Test rückt auf 0.8.
 
-**Konkrete Edits beim Tausch (NICHT jetzt):**
-1. `phase_13_stage_0_plan.md` §6-Tabelle: 0.7-Zeile = kartesisch, 0.8-Zeile = Boden.
-2. Diese Datei umbenennen `…_stage_0_8_…` → `…_stage_0_7_…`, Bullets X.→0.7.
-3. Boden-Test-Plan/test_commands auf 0.8 anlegen.
-4. `phase_13_stage_0_progress.md` + DL-Log entsprechend.
+**Erledigte Edits (2026-05-31):**
+1. ✅ Datei `…_stage_0_8_…` → `…_stage_0_7_…` umbenannt, Bullets X.→0.7.
+2. ✅ `phase_13_stage_0_plan.md` §6-Tabelle: 0.7 = kartesisch, 0.8 = Boden.
+3. ✅ `phase_13_stage_0_progress.md`: 0.7-Sektion = kartesisch, 0.8-Sektion = Boden, DL-8.
+4. ✅ Cross-Verweise (0.6 test_commands, Memory) auf 0.7 gezogen.
+5. ⏳ Boden-Test-Plan/test_commands wird als 0.8 just-in-time angelegt (bei 0.8-Start).
 
 ## 10. Aufwand-Einschätzung
 
