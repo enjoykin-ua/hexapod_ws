@@ -32,6 +32,51 @@ Last. Wurzel = Winkel-Lerp hält Fuß-x nicht konstant. **NICHT** die Tibia-Län
 (0.2 m verstärkt nur den Hebel) — Tibia kürzen wäre zudem URDF-Geometrie und
 damit §7.7-TABU (bricht IK/FK/Cal/sim↔HW).
 
+## 1a. HW-Befunde 0.6 + Strom-Analyse (entscheidend, 2026-05-31)
+
+Der User hat das aktuelle joint-space-Aufstehen am **Boden** (außerplanmäßig)
+und **aufgebockt** (0.6) getestet. Befunde:
+
+- **Stehen kostet nur ~400 mA** (18 Servos, = ~22 mA/Servo). Das **statische
+  Stützen** des Körpergewichts in der Stand-Pose ist also **billig**.
+- **Aufstehen am Boden zieht >3,5 A** → Overcurrent-Trip + Voltage-Drop (die
+  Bench-PSU kann den Spitzenstrom nicht schnell genug liefern; LiPo könnte, dann
+  aber >10 A — zu hoch). Strom-Limit musste auf 7000 mA, löst das aber nicht.
+
+**Schlussfolgerung (der eigentliche Grund für 0.8):** Da der Strom beim *Halten*
+verschwindet, ist der Aufsteh-Peak **fast vollständig Schürf-Reibung**, nicht
+Hub-Last. Das ist die Wurzel — und cartesian (schürffrei) eliminiert genau sie.
+
+**Geometrie-Rechnung (echte FK, bestätigt die Diagnose):**
+
+- Bauch-Box-Höhe 0.043 m, Coxa mittig (leg_mount_z=0) → bei aufliegendem Bauch
+  ist die Coxa nur **~21,5 mm** über Grund → **`body_height_start ≈ −0.0135 m`**
+  (Fuß am Boden, rz relativ Coxa; Foot-Radius 0.008 eingerechnet).
+  *(Anm.: Bauch-Box ist in der URDF schmaler als die Coxa-Spannweite beschrieben,
+  liegt aber auf dem Bauch auf — für die Höhe vernachlässigbar, so beibehalten.)*
+- Cartesian Phase 2 hält **rx = 0.295 konstant** = exakt der Hebelarm der
+  Stand-Pose (Fuß→Femur-Achse = 0.251 m). Da der Stand bei rx 0.295 nur 400 mA
+  zieht, bleibt das Stütz-Drehmoment über den **ganzen** Hub auf Stand-Niveau —
+  **kein** Drehmoment-Peak durch Geometrie.
+- Knie-Beugung über Phase 2: **43°→58°** (gebeugt, d/reach 90–94 %) → **keine**
+  Streckungs-Singularität. Die früher vermutete „gestrecktes-Bein-zieht-zu-viel"-
+  Sorge ist damit **widerlegt**.
+
+**Prognose:** cartesian-Aufstehen zieht nahe dem Stand-Strom (~400 mA) statt
+>3,5 A — der Schürf-Anteil (~3,1 A) fällt weg. **Zu verifizieren am Boden mit
+Strom-Logging (das ist das eigentliche Done-Kriterium von 0.8).**
+
+**Geschwindigkeit:** Der User-Constraint „nicht schneller als jetzt" wird
+eingehalten (auto_standup_duration ≥ heutige ~4 s). **Wichtig (Korrektur):** der
+Strom-Treiber ist das **Schürfen**, nicht die Geschwindigkeit — nur langsamer
+machen (ohne cartesian) würde weiter schürfen. Cartesian ist der Hebel, langsam
+bleiben ist das konservative Sahnehäubchen.
+
+**End-Pose-Frage (User):** Die gute Pose, die ihm beim Halten gefiel, **ist** die
+aktuelle Stand-Pose (radial 0.295 / bh −0.080) und **exakt der Endpunkt** von
+Phase 2 → mit cartesian **identisch erreichbar**, keine andere Position nötig.
+Cartesian ändert nur den **Weg** dorthin, nicht das Ziel.
+
 ## 2. Konzept: zwei Phasen, schürffrei by design
 
 Ein sauberes Aufstehen vom Bauch zerfällt zwingend in zwei Phasen, weil
@@ -107,13 +152,21 @@ compute_cartesian_standup_angles(t):
 
 ## 5. Arbeitspakete
 
+> **Risiko-Lage nach 0.6 verschoben:** Phase 2 (Push) ist dank konstantem
+> Hebelarm + 400-mA-Stand-Befund **gutartig** (kein Drehmoment-Peak, keine
+> Singularität). Der heikle Teil ist jetzt **B (Phase-1-Touchdown)** + **C
+> (body_height_start treffen)** — dort entscheidet sich, ob Phase 1 schürffrei
+> bleibt. Und **F (Strom-Validierung am Boden)** ist das **eigentliche
+> Done-Kriterium**, nicht die Sim.
+
 | # | Inhalt | Größe |
 |---|---|---|
 | A | Phase-2 cartesian Push (body_height-Rampe, radial fix, reuse `stand_pose`/`leg_ik`) | klein |
-| B | Phase-1 Touchdown-Platzierung (power_on_mid → Aufsetzpunkte, Methode wählen) | mittel — Kern-Design |
-| C | `body_height_start` (Bauch-Auflagehöhe) bestimmen — analytisch aus Bauch-Box + 1× Sim-Messung | klein-mittel |
+| B | **Phase-1 Touchdown-Platzierung** (power_on_mid → Aufsetzpunkte) — Füße fast senkrecht runter, **kein vorzeitiger Bodenkontakt** (sonst schürft Phase 1); ggf. z-Bogen | mittel — **Kern-Risiko** |
+| C | **`body_height_start ≈ −0.0135 m`** verifizieren/kalibrieren (Sim + Boden) — zu hoch → Körper fällt am Übergang, zu tief → Füße setzen zu früh + schürfen | klein-mittel — **Kern-Risiko** |
 | D | **In-Limits + Reachability über den GANZEN Pfad neu beweisen** — der 0.4-Monotonie-Beweis gilt bei cartesian nicht mehr; IK kann zwischendrin an Limits/Singularität | mittel — sicherheitskritisch |
 | E | Offline-Tool (Stil `walking_envelope_check.py`): Touchdown-Punkte + Zielhöhe + In-Limits-Envelope vorab rechnen | klein-mittel |
+| F | **Strom-Validierung am Boden** (mit Strom-Logging): Aufsteh-Peak nahe Stand-Niveau statt >3,5 A? **Das eigentliche Done-Kriterium** | mittel — Live-Beweis |
 
 ## 6. Tests-Liste mit Begründung
 
@@ -123,26 +176,34 @@ compute_cartesian_standup_angles(t):
 | `cartesian_standup_path_in_limits` | alle Zwischensamples (beide Phasen) × 18 Joints ∈ URDF-Limits | kein HW-Freeze (ersetzt den 0.4-Monotonie-Beweis, der hier nicht mehr greift) |
 | `cartesian_standup_reachable` | jeder Zwischen-Foot-Target hat gültige IK-Lösung (kein out-of-reach) | cartesian kann unerreichbare Punkte erzeugen |
 | `phase2_foot_xy_constant` | in Phase 2 ist rx (und y) über alle Samples konstant (±ε) | **der Schürf-frei-Beweis** |
-| `cartesian_standup_endpoint_is_stand_pose` | Ende == `stand_pose(radial_final, −0.080)` alle 6 Beine | korrektes Ziel |
+| `phase1_no_premature_ground_contact` | in Phase 1 bleibt der Fuß-Welt-z ≥ 0 bis zum Touchdown-Punkt (mit body_height_start + z-Bogen) | Phase 1 darf nicht selbst schürfen (Kern-Risiko B/C) |
+| `cartesian_standup_endpoint_is_stand_pose` | Ende == `stand_pose(radial_final, −0.080)` alle 6 Beine | korrektes Ziel (= die gute Pose) |
 | `phase2_body_height_monotonic` | body_height monoton start→ziel | kein Durchsacken |
 
-### 6.2 Bewusst NICHT hier (→ HW-Stages)
-- Servo-Stall-Moment beim Push, reale Reibung/Grip (bleibt Fuß real fix?),
-  echte Bauch-Auflagehöhe → HW aufgebockt + Boden.
+### 6.2 Live (das eigentliche Done-Kriterium)
+- **Strom am Boden** (Paket F): Aufsteh-Peak nahe Stand-Niveau (~400 mA-Bereich),
+  **kein** Overcurrent-Trip / Voltage-Drop mit der Bench-PSU. Schürf-frei visuell
+  bestätigt (Füße stehen in Phase 2 fix). Das ist der Beweis, dass 0.8 das
+  ursprüngliche Problem (>3,5 A) löst.
+
+### 6.3 Bewusst NICHT testbar in Pure-Python (→ HW-Stages)
+- Servo-Stall-Moment, reale Reibung/Grip (bleibt Fuß real fix?), echte
+  Bauch-Auflagehöhe → Sim + HW aufgebockt + Boden.
 
 ## 7. Progress-Checkliste (vorläufig, → progress-File bei Aktivierung als 0.7.x nach Tausch)
 
 ```
 - [ ] X.1  Offline-Tool: Touchdown-Punkte + body_height_start + In-Limits-Envelope
-- [ ] X.2  STATE_CARTESIAN_STANDUP + Phase-1 Touchdown-Logik
+- [ ] X.2  STATE_CARTESIAN_STANDUP + Phase-1 Touchdown-Logik (kein vorzeitiger Bodenkontakt)
 - [ ] X.3  Phase-2 cartesian Push (radial fix, body_height-Rampe)
 - [ ] X.4  In-Limits/Reachability-Tests über ganzen Pfad (ersetzt 0.4-Monotonie-Beweis)
-- [ ] X.5  Schürf-frei-Test (rx in Phase 2 konstant)
+- [ ] X.5  Schürf-frei-Test (rx in Phase 2 konstant) + Phase-1-kein-vorzeitiger-Kontakt-Test
 - [ ] X.6  colcon test hexapod_gait grün (+ lint)
-- [ ] X.7  Sim-Visualisierung: kein Einwärts-Schürfen mehr sichtbar
+- [ ] X.7  Sim-Visualisierung: kein Einwärts-Schürfen mehr sichtbar; body_height_start-Gegenprobe
 - [ ] X.8  HW aufgebockt: Bewegung sauber, Füße in Phase 2 senkrecht
-- [ ] X.9  README/Doku: STARTUP_RAMP → cartesian standup, joint-space als Legacy
-- [ ] X.10 Self-Review-Tabelle, Fixe erledigt
+- [ ] X.9  **HW Boden + Strom-Logging: Aufsteh-Peak nahe Stand-Niveau, kein Trip/Voltage-Drop** (Done-Kriterium)
+- [ ] X.10 README/Doku: STARTUP_RAMP → cartesian standup, joint-space als Legacy
+- [ ] X.11 Self-Review-Tabelle, Fixe erledigt
 ```
 
 ## 8. Offene Punkte für User-Review (vor Code-Start, nach 0.6-Trigger)
@@ -153,8 +214,10 @@ compute_cartesian_standup_angles(t):
 | 8.2 | `body_height_start`: analytisch aus Bauch-Box oder in Sim messen? | beides — analytisch + 1× Sim-Gegenprobe |
 | 8.3 | Ein State mit zwei Phasen oder zwei States? | ein State, zwei Phasen (einfacher, ein Trigger) |
 | 8.4 | Reicht all-6 in beiden Phasen (Platzierung vor Abheben) → kein Tripod? | Erwartung **ja** (§2 Design-Regel) — in D verifizieren |
-| 8.5 | Duration-Aufteilung Phase1/Phase2 + Gesamtdauer? | Param, Default ~40/60 %, gesamt ~4–5 s |
+| 8.5 | Duration-Aufteilung Phase1/Phase2 + Gesamtdauer? | Param, Default ~40/60 %, gesamt ≥ heutige ~4 s (User: nicht schneller) |
 | 8.6 | Joint-space STARTUP_RAMP als Legacy-Fallback behalten oder ersetzen? | behalten (aufgebockt nützlich), cartesian als neuer Default |
+| 8.7 | **`body_height_start` real treffen:** −0.0135 m ist Geometrie-Rechnung. Wie kalibrieren (Sim-Drop-Ruhelage messen? Boden-Feintuning-Param?) ohne dass Phase 1 schürft oder der Körper am Übergang fällt? | Param + Sim-Messung, Boden-Feintuning |
+| 8.8 | **Strom-Logging-Quelle am Boden:** Diagnostic-Topic (`publish_servo_pulses`/Strom-Telemetrie) vs. PSU-Anzeige — welche Granularität reicht für den Peak-Nachweis? | beides, PSU für Peak |
 
 ## 9. Umnummerierungs-Plan (bei Aktivierung auszuführen)
 
