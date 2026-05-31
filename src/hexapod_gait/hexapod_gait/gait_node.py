@@ -262,14 +262,15 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='auto_standup_duration', default=4.0, standing_only=True,
-        fp_range=(1.0, 10.0, 0.1),
+        name='auto_standup_duration', default=8.0, standing_only=True,
+        fp_range=(1.0, 15.0, 0.1),
         description=(
             'Phase 13 Stage A: Dauer der Auto-Stand-Pose-Ramp in s. '
             'Wird beim ersten /joint_states-Empfang getriggert; Engine '
             'lerpt von der aktuellen Joint-Pose smooth zur Default-Stand-'
-            'Pose. Default 4.0 s. STANDING-only (Live-Update nach '
-            'Ramp-Ende moeglich).'
+            'Pose. Default 8.0 s (Stage 0.7: langsamer = niedrigerer Strom-'
+            'Spitzenwert / weniger PSU-Spannungseinbruch beim Hochdruecken). '
+            'STANDING-only (Live-Update nach Ramp-Ende moeglich).'
         ),
     ),
     _ParamSpec(

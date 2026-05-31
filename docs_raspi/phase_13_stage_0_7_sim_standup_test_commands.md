@@ -1,4 +1,4 @@
-# Phase 13 Stage 0.7 — Test-Anleitung (0.7.7 Sim-Visualisierung)
+# Phase 13 Stage 0.7 — Test-Anleitung (0.7.7 Sim-Visualisierung) 🟢 FERTIG (2026-05-31)
 
 > Plan: [`phase_13_stage_0_7_cartesian_standup_plan.md`](phase_13_stage_0_7_cartesian_standup_plan.md).
 > Verständnis-Doku: [`phase_13_stage_0_7_cartesian_standup_creation_steps_description.md`](phase_13_stage_0_7_cartesian_standup_creation_steps_description.md).
@@ -135,11 +135,10 @@ pgrep -af "gz sim|ros2 launch|gait_node" || echo "alle Prozesse beendet"
 | T3 Endpose stabil | 0.7.7 |
 | T4 body_height_start passt | 0.7.7 |
 
-## Findings (User)
+## Findings (User, 2026-05-31) — 🟢 0.7.7 komplett
 | Test | Status | Beobachtung |
 |---|---|---|
-| T1 power_on_mid | | |
-| T2 Phase 1 Touchdown | | |
-| T2 Phase 2 Push (senkrecht, kein Schürfen) | | |
-| T3 Endpose stabil | | |
-| T4 body_height_start passt | | |
+| T1 power_on_mid | ✅ | Sim startet liegend in power_on_mid (wie 0.5) |
+| T2 Phase 1 + Phase 2 | ✅ | „sah sehr gut aus" — kartesisch schürffrei, Füße in Phase 2 senkrecht |
+| T3 Endpose stabil | ✅ | exakt coxa 0 / femur −0.240 / tibia +0.758, velocity ~1e-10, kein Drift |
+| T4 body_height_start passt | ✅ | kein Durchsacken/Rutschen am Übergang → −0.0135 m passt zur Sim-Auflage |

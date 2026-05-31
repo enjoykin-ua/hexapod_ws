@@ -219,7 +219,7 @@ gemessen werden (Done-Kriterium 0.7.9).
 - [x] 0.7.4  In-Limits/Reachability-Tests über ganzen Pfad (path_in_limits + reachable_no_ikerror) ✅
 - [x] 0.7.5  Schürf-frei-Test (phase2_foot_xy_constant) + Phase-1-kein-vorzeitiger-Kontakt-Test ✅
 - [x] 0.7.6  colcon test hexapod_gait grün (61/0/1-skip, inkl. flake8/pep257/param_callback) ✅
-- [ ] 0.7.7  Sim-Visualisierung: kein Einwärts-Schürfen mehr sichtbar; body_height_start-Gegenprobe
+- [x] 0.7.7  Sim-Visualisierung ✅ (User 2026-05-31): kartesisch schürffrei, Füße Phase 2 senkrecht, Endpose exakt, body_height_start −0.0135 passt
 - [ ] 0.7.8  HW aufgebockt: Bewegung sauber, Füße in Phase 2 senkrecht
 - [ ] 0.7.9  **HW Boden + Strom-Logging: Aufsteh-Peak nahe Stand-Niveau, kein Trip/Voltage-Drop** (Done-Kriterium)
 - [x] 0.7.10 README/Doku: gait README CARTESIAN_STANDUP-Abschnitt (joint-space als Legacy) ✅

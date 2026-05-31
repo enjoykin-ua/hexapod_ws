@@ -369,9 +369,12 @@ widerlegt). **Done-Kriterium:** Aufsteh-Strom am Boden nahe Stand-Niveau
   phase2_foot_xy_constant = Schürf-frei, phase1_no_premature_contact, endpoint,
   handover-stetig, cmd_vel-ignore, Param-Validierung). **colcon test 61/0/1-skip**,
   flake8/pep257/param_callback grün. gait README CARTESIAN_STANDUP-Abschnitt.
-- [ ] 0.7.7–0.7.9  Sim-Visualisierung + HW aufgebockt + **HW Boden + Strom-Logging**
-  (Done-Kriterium) — nächste Schritte (interaktiv). Sim-Anleitung:
+- [x] 0.7.7  **Sim-Visualisierung ✅** (User 2026-05-31): kartesisch schürffrei,
+  Füße in Phase 2 senkrecht, Endpose exakt (coxa 0 / femur −0.240 / tibia +0.758),
+  body_height_start −0.0135 passt zur Sim-Auflage.
   [`phase_13_stage_0_7_sim_standup_test_commands.md`](phase_13_stage_0_7_sim_standup_test_commands.md).
+- [ ] 0.7.8–0.7.9  HW aufgebockt + **HW Boden + Strom-Logging** (Done-Kriterium):
+  [`phase_13_stage_0_7_hw_standup_test_commands.md`](phase_13_stage_0_7_hw_standup_test_commands.md).
 
 > **Verständnis-/Entstehungs-Doku** (didaktisch, Code-Ausschnitte):
 > [`phase_13_stage_0_7_cartesian_standup_creation_steps_description.md`](phase_13_stage_0_7_cartesian_standup_creation_steps_description.md).
