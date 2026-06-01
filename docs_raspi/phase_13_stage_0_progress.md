@@ -426,7 +426,7 @@ Limit. Alle offenen Punkte sind **Tuning** (kein Defekt). **Sub-Stage 0.6.6 fert
 Geänderte Dateien bereit für User-Commit. → Topf 2 (Boden-Lauf-Tuning) als nächste
 Planung.
 
-## Sub-Stage 0.7 — Kartesisches schürffreies Aufstehen 🟡 AKTIV (E erledigt, A+B offen)
+## Sub-Stage 0.7 — Kartesisches schürffreies Aufstehen ✅ FERTIG (2026-06-01, via 0.6.6)
 
 Plan: [`phase_13_stage_0_7_cartesian_standup_plan.md`](phase_13_stage_0_7_cartesian_standup_plan.md).
 **Status:** Plan ausgearbeitet (§1a HW-Strom-Analyse), Paket E (Offline-Tool) ✅,
@@ -455,7 +455,14 @@ widerlegt). **Done-Kriterium:** Aufsteh-Strom am Boden nahe Stand-Niveau
   Füße in Phase 2 senkrecht, Endpose exakt (coxa 0 / femur −0.240 / tibia +0.758),
   body_height_start −0.0135 passt zur Sim-Auflage.
   [`phase_13_stage_0_7_sim_standup_test_commands.md`](phase_13_stage_0_7_sim_standup_test_commands.md).
-- [ ] 0.7.8–0.7.9  HW aufgebockt + **HW Boden + Strom-Logging** (Done-Kriterium):
+- [x] 0.7.8–0.7.9  HW aufgebockt + **HW Boden** ✅ via **0.6.6 T4/T5** (2026-06-01):
+  kartesisches Aufstehen (`standup_mode:=cartesian`) am Boden, Roboter steht stabil,
+  Strom **weit unter Limit** (kein Overcurrent/Trip/Voltage-Drop). Erst mit der
+  Tibia-Re-Cal (0.6.6) wurde der Über-Knick weg, der das Schürfen/den Strom trieb.
+  🟢 **Offen:** das *präzise* Strom-Profil (~400 mA-Ziel vs >3,5 A) wurde nicht
+  exakt geloggt (nur „weit unter Limit") → wird im **① Tuning-Re-Test** (besserer
+  Boden + finale Stand-/Gait-Werte) mitgemessen. Kern-Done (Aufstehen ohne
+  Schürf-Überstrom) erreicht.
   [`phase_13_stage_0_7_hw_standup_test_commands.md`](phase_13_stage_0_7_hw_standup_test_commands.md).
 
 > **Verständnis-/Entstehungs-Doku** (didaktisch, Code-Ausschnitte):
@@ -484,11 +491,18 @@ widerlegt). **Done-Kriterium:** Aufsteh-Strom am Boden nahe Stand-Niveau
 R7 Tibia-Margin) sind bewusste Beobachtungs-Merker für die Sim/HW-Tests, kein
 Blocker. **Bereit für 0.7.7 (Sim-Visualisierung).**
 
-## Sub-Stage 0.8 — Boden-Test (Hexapod liegt am Bauch, Aufstehen all-6)
+## Sub-Stage 0.8 — Boden-Test (Hexapod liegt am Bauch, Aufstehen all-6) ✅ FERTIG (2026-06-01, via 0.6.6)
 
-_test_commands just-in-time._ Läuft mit dem **schürffreien 0.7-Aufstehen** (nicht
-dem joint-space-Schürf-Aufstehen). War vor der Umnummerierung 2026-05-31 als 0.7
-geführt.
+Lief mit dem **schürffreien 0.7-Aufstehen** + der **Tibia-Re-Cal (0.6.6)**: in
+0.6.6 T4/T5 stand der Roboter vom Bauch am Boden mit allen 6 Beinen auf
+(`standup_mode:=cartesian`), stabil, **Strom weit unter Limit**, kein Trip. Das
+war das eigentliche Ziel des Boden-Tests. 🟢 Präzises Strom-Profil (~400 mA) →
+im ① Tuning-Re-Test (besserer Boden) mitmessen, wie bei 0.7.8–0.7.9.
+
+> **Stage-0-Bilanz:** Alle Sub-Stages (0.1–0.8 inkl. 0.6.5/0.6.6) ✅. Der Desktop-
+> HW-Hexapod **bootet → richtet sich auf → steht stabil am Boden** (korrekte
+> Geometrie, Strom unkritisch). Offen ist nur **Tuning** (höher/besser laufen) +
+> die Folge-Themen (Hinlegen, PS4, Pi) — siehe Next-Steps.
 
 ---
 

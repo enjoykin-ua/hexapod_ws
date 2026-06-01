@@ -1,7 +1,16 @@
 # Aktive Phase
 
-**Aktuell:** Phase 13 Desktop-Pre-Bringup — **Stage 0** (HW Init-Pose via Femur-Umbau + Relay)
-**Datei:** `docs_raspi/phase_13_stage_0_plan.md` (Übersicht) → Sub-Stage 0.1: `phase_13_stage_0_1_relay_plan.md`
+**Aktuell:** Phase 13 Desktop-Pre-Bringup — **Stage 1** (Lauf-Optimierung: kalibrierte Reichweite ausnutzen)
+**Datei:** `docs_raspi/phase_13_stage_1_walk_optimization_plan.md` (Handover-Plan mit Lese-Liste + Checkliste)
+
+> **Stage 0 ✅ FERTIG (2026-06-01):** Boot → Aufstehen → stabil am Boden. Alle
+> Sub-Stages 0.1–0.8 inkl. 0.6.5 (Tibia-Winkel-Messung) + 0.6.6 (Tibia-Re-Cal,
+> Limit −1.00/+1.30) abgeschlossen. Details: `phase_13_stage_0_progress.md`.
+>
+> **Stage 1** geht das **Laufen** an: der Roboter bewegt sich aktuell viel weniger
+> als er mechanisch kann (Coxa nur wenige Grad, Hub/Schrittweite ~2–3 cm), weil das
+> Tibia-Beuge-Limit (+1.30) konservativ gegenüber der kalibrierten Range (~150°)
+> gesetzt ist. Ziel: Reachability-Viz + Limit anheben + feet-closer Lauf-Pose.
 
 > Phase 13 Desktop-Pre-Bringup läuft **vor** Phase 12 (Pi-Plattform), siehe
 > `phase_13_desktop_pre_bringup_plan.md`. Stage A ("suspended"-Preset) ist
