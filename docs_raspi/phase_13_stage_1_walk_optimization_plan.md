@@ -187,11 +187,11 @@ erreichbaren Punkte als **`visualization_msgs/MarkerArray`** (Punkt-Wolke) im
 ## 6. Progress-Checkliste (Done-Kriterien-Vertrag — über Tage tragfähig)
 ```
 ### Teil 1 — Reachability-Viz-Tool
-- [ ] 1.1  Viz-Node: pro Bein Gelenk-Sweep → FK → MarkerArray (base_link)
-- [ ] 1.2  Zwei-Wolken-Overlay (aktuelles Limit vs mechanisch ~150°), Farben
-- [ ] 1.3  Pro-Bein-Umschaltung (Param), optional alle 6 transparent
-- [ ] 1.4  Launch/Doku; RViz-Config; FK-Stichprobe vs Modell stimmt
-- [ ] 1.5  User sieht die Hülle + den verschenkten roten Raum
+- [x] 1.1  Viz-Node `hexapod_gait/reachability_viz.py`: Sweep coxa/femur/tibia → leg_fk → MarkerArray (base_link, via mount_yaw/xyz)
+- [x] 1.2  Zwei-Wolken-Overlay: blau=aktuelles URDF-Limit (live xacro), rot=volle kalibrierte Tibia (`tibia_full_upper` default 2.60≈149°)
+- [x] 1.3  Param `leg` (leg_1..6 / 'all'), live umschaltbar (ros2 param set); `resolution`/`tibia_full_upper` parametrierbar
+- [x] 1.4  `reachability_viz.launch.py` (static_tf + rsp + jsp_gui + node + rviz `view_reach.rviz`); Build grün; FK-Stichprobe vs Modell verifiziert (leg_1 @0 → base (0.316,−0.294,0))
+- [ ] 1.5  User sieht die Hülle + den verschenkten roten Raum (RViz-Live)
 
 ### Teil 2 — Tibia-Beuge-Limit anheben (global)
 - [ ] 2.1  HW-Kollisions-Check aufgebockt: sicherer Beuge-Wert pro Bein gemessen
