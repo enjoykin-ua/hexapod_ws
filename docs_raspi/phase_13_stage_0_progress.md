@@ -344,6 +344,88 @@ User-Commit.
 **→ Nächste Arbeit:** Stage 0.7 (kartesisches Aufstehen) ist durch T4 + den
 Strom-Befund getriggert; Umnummerierung ausgeführt (DL-8).
 
+## Sub-Stage 0.6.5 — Tibia-Winkel-Messung (Femur-Stil, Decision-Gate) 🟡 AKTIV (Pilot ✅, Rest-4 offen)
+
+Plan: [`phase_13_stage_0_tibia_angle_offset_plan.md`](phase_13_stage_0_tibia_angle_offset_plan.md) §9 ·
+Test: [`phase_13_stage_0_6_5_tibia_measure_test_commands.md`](phase_13_stage_0_6_5_tibia_measure_test_commands.md).
+Vorgelagert zu 0.7 (Vorbedingung): die echte Tibia-rad-0-Lage messen, um den
+Schürf-Auslöser (Winkel-Versatz) datenbasiert zu korrigieren. Femur-Stil (zwei
+optische Referenzen → Slope `k`), reines Messen, kein Code/Cal-Edit.
+
+- [x] 0.6.5.1  Setup aufgebockt + Relay (on_activate schließt es) + publish_servo_pulses; Femur/Coxa rad=0 gehalten
+- [x] 0.6.5.2  Pilot leg_1 (Pin 2): A 1740 / B 1050 / C 500(floor) / D 2185 → k=439, Offset +7.8°, Streck-Stop −58°, Beuge ≥162°
+- [x] 0.6.5.3  Pilot leg_4 (Pin 11): A 1255 / B 1925 / C 2500(ceil) / D 815 → k=427, Offset −8.7°, Streck-Stop −59°, Beuge ≥167°
+- [x] 0.6.5.4  k + θ_bend + θ_ext berechnet, Cross-Check: gemessenes k≈alte rad<0-Slope (435), alte rad≥0-Slope (698) = Artefakt (§2.3 bestätigt)
+- [x] 0.6.5.5  Decision-Gate: **Cal-only** (User 2026-06-01) — Beuge ≫ Demand, Asymmetrie nur auf ungenutzter Streck-Seite, Versatz nur ~8° (nicht 23°) → Remount wäre reine Kosmetik
+- [ ] 0.6.5.6  Rest-4 messen (leg_2/3/5/6 = Pins 5/8/14/17): A/B + D (Streck-Stop) für vollen Re-Cal
+- [x] 0.6.5.7  Folge-Sub-Stage 0.6.6 „Tibia-Re-Cal" angelegt + DL-9. (0.6.6 Code ✅, Live offen.)
+
+## Sub-Stage 0.6.6 — Tibia-Re-Cal (Cal-only, Weg A) ✅ FERTIG (2026-06-01)
+
+Plan: [`phase_13_stage_0_6_6_tibia_recal_plan.md`](phase_13_stage_0_6_6_tibia_recal_plan.md).
+Behebt den ~33° Beuge-Über-Knick (alte Beuge-Slope ~700 statt echt ~425). Neu:
+`pulse_zero` = gemessene Gerade, durchgehende Slope k=425, asymmetrische Limits
+**-1.00 / +1.30** (einseitiges Knie). IK/FK/`_L_TIBIA`/FW unverändert.
+
+```
+- [x] 0.6.6.1  servo_mapping.yaml 6 Tibia-Pins (min/zero/max), pulse_min<zero<max ok
+- [x] 0.6.6.2  hexapod.urdf.xacro 6× Tibia-Limit -1.00/1.30 (per-Bein-Override)
+- [x] 0.6.6.3  hexapod.ros2_control.xacro 6× Tibia-Limit + initial (power_on_mid)
+- [x] 0.6.6.4  config.py + hexapod_physical_properties.xacro Property = (-1.00, 1.30)
+- [x] 0.6.6.5  test_startup_ramp.py + test_cartesian_standup.py _POWER_ON_MID + _URDF_LIMITS nachgezogen
+- [x] 0.6.6.6  tools/standup_envelope_check.py _POWER_ON_MID nachgezogen
+- [x] 0.6.6.7  colcon build (description/kinematics/hardware/gait/bringup) grün
+- [x] 0.6.6.8  colcon test 374 hardware+kinematics + 61 gait, 0 Failures; standup_envelope_check GRÜN (Tibia-Marge 0.13→0.29)
+- [x] 0.6.6.9  generierte URDF verifiziert (alle 6 Tibia lower=-1.0 upper=1.3); ros2_control min/max/initial ok
+- [x] 0.6.6.9b kExpectedPulseZero-Fixture (test_hexapod_system.cpp) nachgezogen (sonst Fail, wie Femur 0.2)
+- [x] 0.6.6.10 Live T1: rad=0 → alle 6 Tibias gerade (pulse_zero ok)
+- [x] 0.6.6.11 Live T2/T3: rad=+0.758 → ~43° (NICHT 75° — Slope-Fix sichtbar), Sweep ohne Freeze, power_on_mid ok
+- [x] 0.6.6.12 Live: Aufstehen am Boden ✓, Strom **weit unter Limit**, kein Trip/Voltage-Drop
+- [x] 0.6.6.13 Laufen-Re-Check: Beine bewegen, kein IKError/Freeze; Boden-Vortrieb = Tuning (→ Topf 2 Next-Steps, kein Re-Cal-Defekt)
+- [x] 0.6.6.14 Self-Review (Code-Review + Final-Review unten) + DL-10
+```
+
+### Sub-Stage 0.6.6 — Code-Review (vor Live) (2026-06-01)
+
+| # | Punkt | Status |
+|---|---|---|
+| R1 | servo_mapping.yaml 6 Tibia-Pins, `pulse_min<zero<max` (Loader-Guard), build+load ok | OK |
+| R2 | **Generierte URDF** geprüft (nicht nur Property — Femur-R3-Lektion): alle 6 Tibia `lower=-1.0 upper=1.3` | OK |
+| R3 | ros2_control (sim): Tibia min=-1.0/max=1.3 + initial_value = neue power_on_mid (0.1978–0.5181) | OK |
+| R4 | **Drei Limit-Quellen konsistent:** URDF-Override + property + config.py alle -1.00/1.30; `test_config.py`-Cross-Check grün | OK |
+| R5 | `kExpectedPulseZero`-Fixture nachgezogen (sonst `PtyWriteSendsSetTargetsFrame…`-Fail, wie Femur 0.2) → 374/0 | OK (gefixt) |
+| R6 | `_POWER_ON_MID` in 3 Dateien + `_URDF_LIMITS` in 2 Test-Files nachgezogen | OK |
+| R7 | Stand-Pose (+0.758) + cartesian-Aufstehpfad ∈ neuem Limit; **envelope GRÜN, Tibia-Marge 0.13→0.29** (komfortabler, alter R7-Merker entschärft) | OK (verbessert) |
+| R8 | **Boot-Pose physisch unverändert:** 1500 µs bleibt 1500 µs; nur das rad-Label (0.258→0.49) korrigiert sich. Standup rampt jetzt mit RICHTIGer Cal → kein Über-Knick mehr | OK (Kern-Fix) |
+| R9 | **sim_walk-Befund: Vorwärts-Walking treibt leg_3 tibia auf +1.185** — lag ÜBER altem 1.161 (hätte geklippt!), liegt sauber im neuen +1.30. Bestätigt +1.30 konkret | OK — ABER Presets für alte/falsche Cal getunt → **HW re-validieren (0.6.6.13)** |
+| R10 | Slope-Rundung: pulse_min/max ganzzahlig → Beuge-Slope 424.6 / Streck 425.0 (~0.1% Sprung am Nullpunkt) | 🟢 vernachlässigbar |
+| R11 | Sim-`initial_value` 0.4946 vs Plugin `pulse_us_to_radians(1500)` 0.49457 (3e-5 Diff) | 🟢 vernachlässigbar |
+| R12 | config.py **Coxa** weiter ±1.57 ≠ URDF-Override ±0.415 (pre-existing dual-source, Memory two_joint_limit_sources) | 🟡 out-of-scope (nicht Tibia); separat anfassen |
+| R13 | Stale Param-Desc „±1.161" in `stand.launch.py` + `gait.launch.py` (Kopien); `gait_node.py` gefixt | 🟡 kosmetisch, Launch-Kopien offen |
+| R14 | Live nicht verifiziert (rad=0→gerade, Strom, Laufen) — das ist 0.6.6.10–13 (HW-Stage), Test-Anleitung folgt | erwartet (Live folgt) |
+
+**Ergebnis Code-Review:** keine 🔴. Drei 🟡 (R12 Coxa-dual-source out-of-scope,
+R13 Launch-Doc-Kopien kosmetisch, R9→HW-Walking-Re-Check) sind Merker, kein
+Blocker. Build + 435 Tests grün, envelope GRÜN. **Bereit für Live 0.6.6.10–13.**
+
+### Sub-Stage 0.6.6 — Final-Review (nach Live, HW aufgebockt + Boden) (2026-06-01)
+
+| # | Punkt | Status |
+|---|---|---|
+| F1 | **T1 rad=0 → alle 6 Tibias gerade** (Knie→Fuß auf Femur-Linie), HW=RViz — pulse_zero korrekt, kein Bein-Feintuning nötig | OK |
+| F2 | **T2 rad=+0.758 → ~43°** (NICHT ~75° wie alte Cal) — der Über-Knick-Fix live bestätigt; Kern-Ziel der Stage erreicht | OK |
+| F3 | **T3 Sweep [−0.95, +1.25] + power_on_mid** sauber, kein `SAFETY FREEZE`/Stall | OK |
+| F4 | **Aufstehen am Boden funktioniert** — Roboter steht (nicht hoch, aber stabil), Beine tragen, bewegen sich | OK |
+| F5 | **Strom weit unter Limit** beim Aufstehen — kein Overcurrent/Voltage-Drop/Trip (Schürf-Strom-Problem aus 0.6 entschärft) | OK |
+| F6 | **Laufen aufgebockt:** Beine bewegen, kein IKError/Freeze. Boden-Vortrieb gering, weil (a) Test-Boden zu wenig Reibung („wie am Eis") + (b) Schritthöhe/-weite gering | 🟢 Tuning → Topf 2 |
+| F7 | **Offene Tuning-Wünsche** (User): höher aufstehen, Tibia senkrechter, Tibias näher am Körper, mehr Schritthöhe/-weite | 🟢 alle = Stand-Pose-/Gait-**Tuning** (radial/body_height + step_height/length), **kein Re-Cal-Defekt** → Next-Steps-Planung (Topf 2) |
+
+**Ergebnis Final-Review:** keine 🔴. Die Tibia-Re-Cal ist live validiert — rad=0
+gerade, Slope korrekt (~43° statt 75°), Aufstehen am Boden stabil, Strom weit unter
+Limit. Alle offenen Punkte sind **Tuning** (kein Defekt). **Sub-Stage 0.6.6 fertig.**
+Geänderte Dateien bereit für User-Commit. → Topf 2 (Boden-Lauf-Tuning) als nächste
+Planung.
+
 ## Sub-Stage 0.7 — Kartesisches schürffreies Aufstehen 🟡 AKTIV (E erledigt, A+B offen)
 
 Plan: [`phase_13_stage_0_7_cartesian_standup_plan.md`](phase_13_stage_0_7_cartesian_standup_plan.md).
@@ -422,6 +504,8 @@ geführt.
 | DL-6 | **UV/OC-Trips nur scharf wenn `relay_on`** (FW) + Sense-Warmup-Reset beim Relay-On | Trips immer scharf (0.1-Stand) | **0.2-Blocker-Fix:** Relay default-OFF → Rail liest ~0 V (gemessen 129 mV) → FW trippte Undervoltage **sofort nach Boot** → latch-disable aller Servos → Servos kamen trotz späterem Relay-On nie hoch. Relay bricht die „Rail immer bestromt"-Annahme der Schutzlogik. Gehört zur sauberen Relay-Integration (in 0.1 übersehen) | 2026-05-30 |
 | DL-7 | **Stand-up all-6 simultan** (STARTUP_RAMP) | Tripod 3+3 (urspr. Stage-0-Plan §6/§7) | Aufstehen erfolgt **vom Bauch** (bzw. aufgehängt-am-Bauch = Boden-Sim): Bauch/Boden ist die Stütze, nicht die Beine → kein Stativ-Bedarf. Tripod 3+3 ist für statische Stabilität nötig, wenn der Körper allein auf den Beinen steht + Füße umgesetzt werden (z. B. Bein-Radius-Änderung — kein 0.4-Thema). all-6 verteilt zudem die Lift-Last auf 6 statt 3 Servos (weniger Stall-Risiko). Stage-0-Plan §6/§7 entsprechend korrigiert | 2026-05-30 |
 | DL-8 | **Kartesisches schürffreies Aufstehen als neue Stage 0.7** (joint-space-STARTUP_RAMP bleibt als Legacy-Fallback); Boden-Test → 0.8 umnummeriert | joint-space-Aufstehen für HW behalten | 0.6-HW-Befund: joint-space-Ramp lässt Füße ~15–22 mm einwärts schürfen → am Boden >3,5 A + Voltage-Drop (Stehen kostet nur ~400 mA → Schürfen ist die Wurzel). Cartesian (Füße fix, nur body_height heben) eliminiert das Schürfen by design. Boden-Test muss mit dem schürffreien Aufstehen laufen → 0.7 schiebt sich davor, Boden→0.8. Plan: `phase_13_stage_0_7_cartesian_standup_plan.md` | 2026-05-31 |
+| DL-10 | **Tibia-Re-Cal: globales k=425 + asymmetrische Limits -1.00/+1.30** (global alle 6) | per-Bein-k aus Messung / symmetrisch ±1.00 | per-Bein-k war Mess-Rauschen (B-Peilung links systematisch unter-gedreht, k 378–451; Streck-Stop-Konsistenz bestätigt global 425 = Servo-Spec). Limits asymmetrisch weil einseitiges Knie: Beuge +1.30 nötig (sim_walk: Vorwärts-Walking braucht leg_3 tibia +1.185 > altem 1.161!), Streck -1.00 (nie kommandiert, innerhalb mech. Stop). Symmetrisch ±1.00 hätte Walking geklippt. pulse_zero=gemessene Gerade, Slope durchgehend (alte asymmetrische 698/435 war Artefakt) | 2026-06-01 |
+| DL-9 | **Tibia-Winkel-Versatz via Cal-only korrigieren** (volle Re-Cal: pulse_zero=echte Gerade + durchgehende Slope), **kein Remount** | Remount (mech. Tibias um ~8° versetzen, Servo-Mitte=gerade, symmetrische Limits) | **0.6.5-Messung (Pilot leg_1+leg_4)**: echter Versatz nur **~8°** (nicht die geometrisch vorhergesagten 23° — Phase-10-Cal war schon nah), Beuge-Bereich **≥162°** ≫ Standup-Demand (50°), Asymmetrie sitzt zu 100% auf der **nie genutzten Streck-Seite** (Knie streckt nicht über gerade). Remount entfernt damit **keine** Restriktion → wäre reine Kosmetik. Cal-only behebt das Schürfen ohne mech. Umbau. Gemessenes k (439/427) konsistent = echte Servo-Slope; alte asymmetrische Slope (698/435) war §2.3-Artefakt → durchgehende Slope nötig | 2026-06-01 |
 
 ## Offene Punkte (cross-Sub-Stage, zu klären wenn erreicht)
 

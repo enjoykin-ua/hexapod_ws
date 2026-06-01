@@ -55,7 +55,10 @@ _FOOT_RADIUS = 0.008
 
 _COXA_LIMITS = (-1.57, 1.57)
 _FEMUR_LIMITS = (-1.57, 1.57)
-_TIBIA_LIMITS = (-1.50, 1.50)
+# Phase 13 Stage 0.6.6 (2026-06-01): Tibia asymmetrisch (-1.00, 1.30) — konsistent
+# zur URDF (hexapod.urdf.xacro). Einseitiges Knie: Beuge +1.30 voll genutzt,
+# Streck -1.00 nie. War (-1.50, 1.50) — looser als URDF (Memory two_joint_limit_sources).
+_TIBIA_LIMITS = (-1.00, 1.30)
 
 # Body dimensions for mountpoint computation (mirrored from xacro).
 _BODY_LENGTH = 0.175

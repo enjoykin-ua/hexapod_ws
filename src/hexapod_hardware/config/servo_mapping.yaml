@@ -66,13 +66,21 @@
 
 version: 1
 phase: 12
-status: calibrated         # 2026-05-21 + Mount-Tausch 05-24 + Femur-Umbau Phase 13 Stage 0.2 (05-30)
-calibrated_at: "2026-05-30"
+status: calibrated         # 2026-05-21 + Mount-Tausch 05-24 + Femur-Umbau 0.2 (05-30) + Tibia-Re-Cal 0.6.6 (06-01)
+calibrated_at: "2026-06-01"
 
 # Phase 13 Stage 0.2 (2026-05-30): die 6 Femur-Pins (1/4/7/10/13/16) wurden
 # nach dem mechanischen 35°-Umbau neu kalibriert (Weg A — rad=0 bleibt
 # horizontal). pulse_zero = Femur horizontal; pulse_min/max = ±90° (gemessen,
 # = gewählte Grenzen). Coxa/Tibia unverändert. URDF/IK-Limits bleiben ±1.57.
+#
+# Phase 13 Stage 0.6.6 (2026-06-01): die 6 Tibia-Pins (2/5/8/11/14/17) re-
+# kalibriert (Cal-only, Weg A). Wurzel: die alte Beuge-Slope war ~700 µs/rad
+# statt echt ~425 (gemessen 0.6.5) -> Stand-Pose physisch 69-78° statt 43°.
+# Neu: pulse_zero = gemessene echte Gerade (Knie->Fuß kollinear mit Femur),
+# durchgehende Slope k=425, asymmetrische Limits Beuge +1.30 / Streck -1.00
+# (pulse_min/max = pulse_zero ∓ 425·limit, dir-abhängig). IK/FK/_L_TIBIA=0.200
+# unverändert. Mess-Daten + Herleitung: docs_raspi/phase_13_stage_0_6_6_*.
 
 # Cal-Session-Source: docs_raspi/servo_real_calibration_todos.md Tab. 3.2
 # (all 18 servos measured 2026-05-21, leg_2/leg_5 re-cal nach Mount-Tausch
@@ -102,29 +110,29 @@ servo2040_output_to_joint:
   # ---- Leg 1 — front-right ----
   0:  { joint: leg_1_coxa_joint,  pulse_min: 1145, pulse_zero: 1460, pulse_max: 1700, direction: -1 }
   1:  { joint: leg_1_femur_joint, pulse_min: 1030, pulse_zero: 1700, pulse_max: 2350, direction:  1 }
-  2:  { joint: leg_1_tibia_joint, pulse_min:  870, pulse_zero: 1680, pulse_max: 2185, direction: -1 }
+  2:  { joint: leg_1_tibia_joint, pulse_min: 1158, pulse_zero: 1710, pulse_max: 2135, direction: -1 }
 
   # ---- Leg 2 — mid-right (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
   3:  { joint: leg_2_coxa_joint,  pulse_min: 1375, pulse_zero: 1575, pulse_max: 1750, direction: -1 }
   4:  { joint: leg_2_femur_joint, pulse_min: 1090, pulse_zero: 1780, pulse_max: 2370, direction:  1 }
-  5:  { joint: leg_2_tibia_joint, pulse_min:  860, pulse_zero: 1680, pulse_max: 2200, direction: -1 }
+  5:  { joint: leg_2_tibia_joint, pulse_min: 1168, pulse_zero: 1720, pulse_max: 2145, direction: -1 }
 
   # ---- Leg 3 — back-right ----
   6:  { joint: leg_3_coxa_joint,  pulse_min: 1200, pulse_zero: 1410, pulse_max: 1745, direction: -1 }
   7:  { joint: leg_3_femur_joint, pulse_min: 1010, pulse_zero: 1690, pulse_max: 2340, direction:  1 }
-  8:  { joint: leg_3_tibia_joint, pulse_min:  790, pulse_zero: 1620, pulse_max: 2120, direction: -1 }
+  8:  { joint: leg_3_tibia_joint, pulse_min: 1058, pulse_zero: 1610, pulse_max: 2035, direction: -1 }
 
   # ---- Leg 4 — back-left ----
   9:  { joint: leg_4_coxa_joint,  pulse_min: 1200, pulse_zero: 1520, pulse_max: 1700, direction: -1 }
   10: { joint: leg_4_femur_joint, pulse_min:  670, pulse_zero: 1295, pulse_max: 1970, direction: -1 }
-  11: { joint: leg_4_tibia_joint, pulse_min:  815, pulse_zero: 1320, pulse_max: 2140, direction:  1 }
+  11: { joint: leg_4_tibia_joint, pulse_min:  893, pulse_zero: 1318, pulse_max: 1870, direction:  1 }
 
   # ---- Leg 5 — mid-left (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
   12: { joint: leg_5_coxa_joint,  pulse_min: 1350, pulse_zero: 1550, pulse_max: 1750, direction: -1 }
   13: { joint: leg_5_femur_joint, pulse_min:  690, pulse_zero: 1325, pulse_max: 1980, direction: -1 }
-  14: { joint: leg_5_tibia_joint, pulse_min:  885, pulse_zero: 1390, pulse_max: 2210, direction:  1 }
+  14: { joint: leg_5_tibia_joint, pulse_min:  991, pulse_zero: 1416, pulse_max: 1968, direction:  1 }
 
   # ---- Leg 6 — front-left (Phase 10 stack-verified + Stage C confirmed 2026-05-24) ----
   15: { joint: leg_6_coxa_joint,  pulse_min: 1290, pulse_zero: 1530, pulse_max: 1870, direction: -1 }
   16: { joint: leg_6_femur_joint, pulse_min:  655, pulse_zero: 1290, pulse_max: 1955, direction: -1 }
-  17: { joint: leg_6_tibia_joint, pulse_min:  850, pulse_zero: 1340, pulse_max: 2170, direction:  1 }
+  17: { joint: leg_6_tibia_joint, pulse_min:  926, pulse_zero: 1351, pulse_max: 1904, direction:  1 }

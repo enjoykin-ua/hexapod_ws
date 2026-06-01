@@ -53,7 +53,8 @@ def _make_engine() -> GaitEngine:
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.161, tibia_upper=1.161,
+    # Stage 0.6.6 (2026-06-01): Tibia asymmetrisch -1.00 / +1.30 (einseitiges Knie).
+    tibia_lower=-1.00, tibia_upper=1.30,
 )
 
 
@@ -65,12 +66,12 @@ _URDF_LIMITS = JointLimits(
 # wird, diese Werte nachziehen.
 # Source: docs_raspi/phase_13_stage_0_4_standup_plan.md §3.1.
 _POWER_ON_MID = {
-    'leg_1': (-0.069, -0.469, 0.258),
-    'leg_2': (0.156, -0.637, 0.255),
-    'leg_3': (-0.111, -0.439, 0.168),
-    'leg_4': (0.026, -0.477, 0.255),
-    'leg_5': (0.104, -0.419, 0.156),
-    'leg_6': (0.052, -0.496, 0.224),
+    'leg_1': (-0.069, -0.469, 0.4946),
+    'leg_2': (0.156, -0.637, 0.5181),
+    'leg_3': (-0.111, -0.439, 0.2591),
+    'leg_4': (0.026, -0.477, 0.4286),
+    'leg_5': (0.104, -0.419, 0.1978),
+    'leg_6': (0.052, -0.496, 0.3503),
 }
 
 

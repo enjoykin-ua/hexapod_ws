@@ -26,23 +26,25 @@ import pytest
 _TRIPOD = GAIT_PRESETS['tripod']
 
 # ECHTE URDF-Joint-Limits (wie das Plugin via set_joint_limits): coxa ±0.415,
-# femur ±1.57, tibia ±1.161. NICHT die config.py-Defaults — die IK-Slope haengt
-# von den Limits ab (siehe test_startup_ramp.py / Memory two_joint_limit_sources).
+# femur ±1.57, tibia -1.00/+1.30 (Stage 0.6.6, asymmetrisch). NICHT die
+# config.py-Defaults — die IK-Slope haengt von den Limits ab (siehe
+# test_startup_ramp.py / Memory two_joint_limit_sources).
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.161, tibia_upper=1.161,
+    tibia_lower=-1.00, tibia_upper=1.30,
 )
 
 # power_on_mid (1500 us) rad pro Bein — Quelle: phase_13_stage_0_4_standup_plan
-# §3.1 / test_startup_ramp.py::_POWER_ON_MID. Bei Neu-Cal der Femurs nachziehen.
+# §3.1 / test_startup_ramp.py::_POWER_ON_MID. Tibia (3. Wert) nach Stage 0.6.6
+# Re-Cal aktualisiert. Bei Neu-Cal nachziehen.
 _POWER_ON_MID = {
-    'leg_1': (-0.069, -0.469, 0.258),
-    'leg_2': (0.156, -0.637, 0.255),
-    'leg_3': (-0.111, -0.439, 0.168),
-    'leg_4': (0.026, -0.477, 0.255),
-    'leg_5': (0.104, -0.419, 0.156),
-    'leg_6': (0.052, -0.496, 0.224),
+    'leg_1': (-0.069, -0.469, 0.4946),
+    'leg_2': (0.156, -0.637, 0.5181),
+    'leg_3': (-0.111, -0.439, 0.2591),
+    'leg_4': (0.026, -0.477, 0.4286),
+    'leg_5': (0.104, -0.419, 0.1978),
+    'leg_6': (0.052, -0.496, 0.3503),
 }
 
 # Geometrie (hexapod_physical_properties.xacro + config.py); fuer den

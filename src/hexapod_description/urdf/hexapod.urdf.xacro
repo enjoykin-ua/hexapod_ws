@@ -68,43 +68,51 @@
        Joint-Typ). Siehe docs_raspi/servo_real_cal_stage_f_urdf_symmetrize_plan.md.
 
        Vorherige Stage D-Werte (per-Bein-asymmetrisch, archiviert in
-       git-Historie): leg_1 tibia +1.197 vs leg_4 tibia +1.943 etc. -->
+       git-Historie): leg_1 tibia +1.197 vs leg_4 tibia +1.943 etc.
+
+       Stage 0.6.6 (2026-06-01): Tibia jetzt ASYMMETRISCH -1.00 / +1.30
+       (global, alle 6 gleich). Begründung: die Tibia ist ein einseitiges
+       Knie — +rad (Beuge) wird voll genutzt (Standup/Walking bis +0.88),
+       -rad (Streck über gerade hinaus) NIE. Beuge +1.30 (74°, 24° Reserve
+       über Demand) / Streck -1.00 (innerhalb des mech. Anschlags ~58-72°).
+       Links/Rechts bleibt symmetrisch (Asymmetrie = Beuge≠Streck, analog
+       Femur DL-5). Cal: docs_raspi/phase_13_stage_0_6_6_tibia_recal_plan.md. -->
   <xacro:leg id="1"
              mount_x="${ body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.161" tibia_upper="1.161"/>
+             tibia_lower="-1.00"  tibia_upper="1.30"/>
   <xacro:leg id="2"
              mount_x="0"                 mount_y="${-body_width_middle/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/2}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.161" tibia_upper="1.161"/>
+             tibia_lower="-1.00"  tibia_upper="1.30"/>
   <xacro:leg id="3"
              mount_x="${-body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-3*pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.161" tibia_upper="1.161"/>
+             tibia_lower="-1.00"  tibia_upper="1.30"/>
   <xacro:leg id="4"
              mount_x="${-body_length/2}" mount_y="${ body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ 3*pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.161" tibia_upper="1.161"/>
+             tibia_lower="-1.00"  tibia_upper="1.30"/>
   <xacro:leg id="5"
              mount_x="0"                 mount_y="${ body_width_middle/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ pi/2}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.161" tibia_upper="1.161"/>
+             tibia_lower="-1.00"  tibia_upper="1.30"/>
   <xacro:leg id="6"
              mount_x="${ body_length/2}" mount_y="${ body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.161" tibia_upper="1.161"/>
+             tibia_lower="-1.00"  tibia_upper="1.30"/>
 
   <!-- ===== Gazebo-spezifische Eigenschaften (Reibung an Foot-Kugeln) ===== -->
   <xacro:include filename="hexapod.gazebo.xacro"/>

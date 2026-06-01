@@ -52,12 +52,12 @@ using hexapod_hardware_test::make_params;
 // Tests that exercise the boot/neutral-pulse path use this table so YAML
 // edits in future Cal-Sessions don't trigger spurious failures.
 constexpr int16_t kExpectedPulseZero[NUM_SERVOS] = {
-  1460, 1700, 1680,   // leg_1 (pins  0,  1,  2) — femur re-cal 0.2
-  1575, 1780, 1680,   // leg_2 (pins  3,  4,  5) — post Mount-Tausch + femur 0.2
-  1410, 1690, 1620,   // leg_3 (pins  6,  7,  8) — femur re-cal 0.2
-  1520, 1295, 1320,   // leg_4 (pins  9, 10, 11) — femur re-cal 0.2
-  1550, 1325, 1390,   // leg_5 (pins 12, 13, 14) — post Mount-Tausch + femur 0.2
-  1530, 1290, 1340,   // leg_6 (pins 15, 16, 17) — femur re-cal 0.2
+  1460, 1700, 1710,   // leg_1 (pins  0,  1,  2) — tibia re-cal 0.6.6
+  1575, 1780, 1720,   // leg_2 (pins  3,  4,  5) — tibia re-cal 0.6.6
+  1410, 1690, 1610,   // leg_3 (pins  6,  7,  8) — tibia re-cal 0.6.6
+  1520, 1295, 1318,   // leg_4 (pins  9, 10, 11) — tibia re-cal 0.6.6
+  1550, 1325, 1416,   // leg_5 (pins 12, 13, 14) — tibia re-cal 0.6.6
+  1530, 1290, 1351,   // leg_6 (pins 15, 16, 17) — tibia re-cal 0.6.6
 };
 
 // ============================================================================

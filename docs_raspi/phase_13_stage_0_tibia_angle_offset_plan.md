@@ -4,6 +4,20 @@
 > Quer-liegende Korrektur (betrifft 0.2/0.3/0.4/0.7 + Laufen). **Pausiert die
 > laufende Stage 0.7** (kartesisches Aufstehen) — 0.7 wartet auf die korrigierte
 > Geometrie. Erstellt 2026-05-31 als Übergabe an einen frischen Chat.
+>
+> **⚖️ ERSTE Entscheidung: Remount vs. reine Cal-Korrektur (§1a).** Tendenz nach
+> User-Diskussion: **Remount** (mechanisch sauber, symmetrische Limits ohne
+> Bewegungsverlust — wie Femur 0.2). Cal-Weg (§2) ist Fallback. Ein Mess-Schritt
+> (echter Tibia-Winkelbereich beidseitig ab dem geraden Punkt) entscheidet.
+>
+> **🔵 ENTSCHEIDUNGEN 2026-06-01 (User):** (1) **Mess-Schritt zuerst** — kein
+> HW-Umbau, bis Daten die Cal-vs-Remount-Frage tragen. (2) **Femur-Stil-Messung**
+> (zwei optische Referenzen „gerade" + „90°" der virtuellen Knie→Fuß-Linie → Slope
+> `k`; **kein Protraktor** — am geknickten Bein nicht sinnvoll messbar). (3) Diese
+> Korrektur = **Stage 0.6.5** (zwischen 0.6 und 0.7, Vorbedingung für 0.7-Boden;
+> Boden-Test bleibt 0.8). (4) **Branch-Entscheidung** (cal-only vs. remount)
+> **vertagt** bis nach der Messung. → Mess-Sub-Stage 0.6.5 in **§9**, Test-Anleitung
+> [`phase_13_stage_0_6_5_tibia_measure_test_commands.md`](phase_13_stage_0_6_5_tibia_measure_test_commands.md).
 
 ---
 
@@ -77,12 +91,17 @@
   **korrekt** (= `_L_TIBIA=0.200`). **Einziger Fehler = ein konstanter
   Winkel-Versatz von 23,2°** zwischen Servo-0rad-Richtung (kurzes Segment) und
   der echten Gelenk→Fuß-Linie.
-- **Korrektur (entschieden, Cal-Weg = Femur-Weg-A):** den Tibia-`pulse_zero` so
-  verschieben, dass „rad = 0" die echte gerade-Gelenk→Fuß-Pose trifft. **IK/FK-
-  Formel bleibt unberührt.** **KEIN mechanischer Umbau** — die Mechanik ist
-  korrekt, nur das Modell wird angepasst. **Der Init (1500 µs) bleibt physisch
-  unverändert** (FW kommandiert weiter 1500 µs), nur die rad-Zahl dazu verschiebt
-  sich.
+- **⚖️ ZUERST §1a klären: Remount vs. reine Cal-Korrektur.** Der 23°-Versatz macht
+  die Tibia-Bewegungsfreiheit **asymmetrisch** (~80°/27°) → kollidiert mit der
+  „strikt symmetrische Limits"-Konvention. **Tendenz: Remount** (wie Femur 0.2,
+  symmetrisch ohne Bewegungsverlust); reine Cal-Korrektur (§2) nur als Fallback.
+  Ein Mess-Schritt (echter Winkelbereich beidseitig) entscheidet.
+- **Cal-Weg (falls kein Remount):** Tibia-`pulse_zero` so verschieben, dass
+  „rad = 0" die echte gerade-Pose trifft; IK/FK-Formel bleibt unberührt (Femur-
+  Weg-A). ⚠️ asymmetrische Slope beachten (§2.3).
+- **Der Init (1500 µs) bleibt physisch unverändert** (FW kommandiert weiter
+  1500 µs); bei Remount wird die *Mechanik* versetzt, sodass 1500 µs dann die
+  grade Pose ist (wie Femur). Nur die rad-Zahlen werden nachgezogen.
 - **Die Re-Validierung ist der eigentliche Aufwand** (§5), nicht der Edit.
 
 ---
@@ -118,7 +137,42 @@ der echte Fuß/das Segment liegt 23° tiefer als das Modell denkt → schleift.
 
 ---
 
-## 2. Die Korrektur (Cal-Weg, entschieden)
+## 1a. ⚖️ GRUNDSATZ-ENTSCHEIDUNG ZUERST: Remount vs. reine Cal-Korrektur
+
+> **Diese Entscheidung kommt VOR allem anderen** — sie bestimmt, ob §2 (Cal)
+> überhaupt der richtige Weg ist. (Diskussion mit User 2026-05-31.)
+
+Der 23°-Versatz heißt: der echte „gerade" Punkt der Tibia liegt **nicht mittig**
+im mechanischen Servo-Bereich → die Bewegungsfreiheit ist **asymmetrisch** (grobe
+Schätzung leg_1: ~80° in die eine, ~27° in die andere Richtung).
+
+**Das kollidiert mit der Projekt-Konvention „strikt symmetrische Limits"**
+(Stage F / `servo_real_cal`: tibia ±1,161 für alle 6, gegen Links/Rechts-
+Asymmetrie). Ohne Remount bleiben nur:
+- **(a) symmetrisch begrenzen** → auf den **kleineren** Bereich kappen → viel
+  Beuge-Spielraum verschenkt.
+- **(b) asymmetrisch begrenzen** → bricht die Konvention, gespiegelte Seiten
+  sauber durchziehen, komplexer.
+
+**Option C — Remount (mechanisch, wie Femur 0.2):** Servo-Horn um ~23° versetzt
+neu aufsetzen → gerader Punkt wieder **mittig** → **symmetrischer** Bereich →
+symmetrische Limits **ohne Bewegungsverlust**, Servo-Mitte (1500 µs) = grade
+Bein-Pose. Aufwand: Horn ab + versetzt drauf + Re-Cal (pulse_zero/min/max), wie
+Femur Stage 0.2.
+
+**Mess-Schritt, der die Entscheidung trifft (ERSTER Schritt der Stage):**
+Per rqt die echte gerade-Pose (grüne Linie gerade) anfahren, dann bis `pulse_min`
+und bis `pulse_max` joggen und den **echten Tibia-Winkel in beide Richtungen
+messen**. Dann ist schwarz auf weiß: reicht der „kurze" Bereich für Aufstehen +
+Laufen (→ Cal genügt) oder nicht (→ Remount).
+
+> **Tendenz nach der Diskussion:** Der Remount ist die saubere Lösung (symmetrisch,
+> konsistent mit der Konvention, volle Reserve) — analog zum Femur. Die reine
+> Cal-Korrektur (§2) ist der Fallback, falls der Mess-Schritt zeigt, dass die
+> Asymmetrie unkritisch ist. **§2 unten beschreibt den Cal-Weg; bei Remount
+> kommt zusätzlich der Mech-Schritt + volle Re-Cal dazu (Muster: Stage 0.2).**
+
+## 2. Die Korrektur (Cal-Weg — nur falls §1a „kein Remount" ergibt)
 
 **Prinzip (= Femur-Weg-A / DL-1):** Der 23°-Offset ist die Diskrepanz zwischen
 „welcher Puls = rad 0" (Cal) und „was die IK als rad 0 erwartet" (Hypotenuse
@@ -268,6 +322,74 @@ erwarteten Ergebnis ändert:
 | 7.5 | Welche Walking-Presets re-tunen? | ⏳ nach dem Laufen-Re-Check entscheiden |
 | 7.6 | Stand-Pose-Höhe nach Korrektur noch optimal? | ⏳ am HW prüfen (0.4-Tabelle) |
 | 7.7 | Sind die aktuellen Tibia-Cal-Werte gültig? (User kalibrierte vor dem Femur-Umbau — Femur-Umbau ändert die Tibia-Mechanik nicht, also vermutlich ja, aber verifizieren) | ⏳ am Anfang prüfen |
+
+---
+
+## 9. Stage 0.6.5 — Mess-Sub-Stage (Plan, CLAUDE.md §4)
+
+> Vorgelagerte Mess-Stage, die §1a datengetrieben entscheidet. Ändert **keinen
+> Code, keine Cal** — nur Messen. Re-Cal/Limits/Init-Nachzug = eigene Folge-
+> Sub-Stage je nach Branch.
+
+### 9.1 Logik-Skizze
+**Ziel:** empirisch bestimmen, ob die Tibia ab der echt-geraden Pose den geforderten
+Beuge-Bereich (Standup-Demand **+0.16…+0.88 rad**, Ziel ≳ +1.05 rad / 60° mit
+Reserve) **innerhalb der mechanischen Grenzen** erreicht → Cal-only genügt; sonst
+Remount (§1a).
+
+1. **Setup:** aufgebockt, Relay an, `publish_servo_pulses=true`. Femur+Coxa des
+   Mess-Beins via JTC auf **rad=0** (Femur = horizontal nach 0.2). Nur die Tibia
+   wird bewegt.
+2. **Jog-Mechanismus:** pro Tibia-Pin (2/5/8/11/14/17) in rqt_reconfigure
+   `pin_N.pulse_zero` sweepen — da Tibia-rad=0 gehalten, ist **Ausgangs-Puls =
+   pulse_zero** → Servo folgt direkt; echten µs am `/servo_pulses` (Index = Pin)
+   ablesen. Vorher `pin_N.pulse_min`→500 / `pulse_max`→2500 weiten, sonst klemmt
+   der Clamp vor dem mech. Anschlag. (Param-Range ist [500,2500],
+   `hexapod_system.cpp:1104` — deckt den ganzen Bereich ab.)
+3. **4 Punkte je Bein** (virtuelle Knie→Fuß-Linie, Endpunkte physisch):
+   - **A gerade** (Fuß waagrecht max. ausgestreckt, Knie-Höhe) → `pulse_straight`
+   - **B 90°** (Fuß senkrecht unter Knie) → `pulse_perp`
+   - **C Beuge-Anschlag** → `pulse_bend`  · **D Streck-Anschlag** → `pulse_ext`
+4. **Auswertung:** `k = |pulse_perp − pulse_straight| / (π/2)`;
+   `θ_bend = |pulse_bend − pulse_straight| / k`; `θ_ext = |pulse_ext − pulse_straight| / k`.
+   **Cross-Check** `k` gegen die aktuelle Cal-Slope (Plausibilität ±~10 %, wie
+   Femur 0.2). Asymmetrie `θ_bend` vs `θ_ext` = Datenbasis für die Branch-Frage.
+5. **Pilot:** **leg_1 (Pin 2)** + **leg_4 (Pin 11)** zuerst (eine pro Seite,
+   dir −1/+1) → **Decision-Gate**. Rest nur falls cal-only (bei Remount eh
+   Re-Messung nach Umbau → kein Wegwerf-Aufwand).
+
+> ⚠️ **Kritisch:** „gerade"/„90°" beziehen sich auf die **virtuelle Knie→Fuß-Linie**
+> (Knie-Drehpunkt → Fußspitze), **nicht** das sichtbare geknickte Segment. Sonst
+> wird der 23°-Bug reproduziert. Die **Länge** (200 mm) wird nicht gemessen/
+> berührt — nur der **Winkel-Nullpunkt** (welcher Puls = gerade).
+
+### 9.2 Tests-Liste (was „fertig" markiert)
+- 8 Pilot-Werte (leg_1 + leg_4) vollständig erfasst.
+- `k`, `θ_bend`, `θ_ext` berechnet + `k`-Cross-Check gegen Cal-Slope plausibel.
+- Decision dokumentiert (`θ_bend` ≥/< Demand → cal-only/remount) mit Begründung.
+- (falls cal-only) restliche 4 Beine erfasst.
+- **Bewusst NICHT hier:** die eigentliche Re-Cal (pulse_zero/min/max-Edit),
+  URDF/config-Limits, Init-Pose-Nachzug, Sim/HW-Re-Validierung, Walking — alles
+  Folge-Sub-Stage je nach Branch.
+
+### 9.3 Progress-Checkliste (→ `phase_13_stage_0_progress.md`, 0.6.5.x)
+```
+### Sub-Stage 0.6.5 — Tibia-Winkel-Messung (Femur-Stil, Decision-Gate)
+- [ ] 0.6.5.1  Setup aufgebockt + Relay + publish_servo_pulses; Femur/Coxa rad=0 gehalten
+- [ ] 0.6.5.2  Pilot leg_1 (Pin 2): pulse_straight/perp/bend/ext gemessen
+- [ ] 0.6.5.3  Pilot leg_4 (Pin 11): pulse_straight/perp/bend/ext gemessen
+- [ ] 0.6.5.4  k + θ_bend + θ_ext berechnet, gegen aktuelle Cal-Slope cross-checked
+- [ ] 0.6.5.5  Decision-Gate: cal-only vs. remount (User + Claude, begründet)
+- [ ] 0.6.5.6  (falls cal-only) leg_2/3/5/6 (Pins 5/8/14/17) gemessen
+- [ ] 0.6.5.7  Folge-Sub-Stage angelegt (Re-Cal-Weg oder Remount-Weg) + Design-Log DL-9
+```
+
+### 9.4 Offene Punkte für User-Review
+| # | Frage | Status |
+|---|---|---|
+| 9.1 | Virtuelle-Linie-Peilung zuverlässig treffbar? | ✅ User bestätigt 2026-06-01 |
+| 9.2 | Falls Pilot-Beine widersprechen (eins reicht, eins nicht) → Mounting-Toleranz → spricht für Remount | ⏳ aus Pilot-Daten |
+| 9.3 | Reichweiten-Schwelle „θ_bend ≳ 60°" ok, oder mehr Reserve fürs Walking? | ⏳ Walking-Tibia-Range ist < Standup-Demand; final nach Laufen-Re-Check |
 
 ---
 
