@@ -196,6 +196,28 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
+        name='standup_radial_distance', default=0.295, standing_only=True,
+        fp_range=(0.10, 0.35, 0.001),
+        description=(
+            'Phase 13 Stage 1 Teil 2.3 (Zwei-Phasen): radialer Foot-Abstand '
+            'für die AUFSTEH-Pose (m). Breit genug, dass der Standup-Touchdown '
+            '(Bauch am Boden) den Femur nicht über ±90° zwingt. Nach dem '
+            'Aufstehen repositioniert die Engine per Tripod auf radial_distance '
+            '(die nähere Walk-Pose). standup==radial_distance → keine '
+            'Reposition (Default-Verhalten). Live nur in STANDING.'
+        ),
+    ),
+    _ParamSpec(
+        name='reposition_cycle_time', default=2.0, standing_only=True,
+        fp_range=(1.0, 10.0, 0.1),
+        description=(
+            'Phase 13 Stage 1 Teil 2.3: Dauer der Tripod-Reposition '
+            'standup_radial → radial_distance (s). Min 1.0 s gegen '
+            'Schnapp-Bewegung/Kipp-Risiko am Boden. Live nur in STANDING '
+            '(nicht mid-Reposition — Timing-Race).'
+        ),
+    ),
+    _ParamSpec(
         name='time_from_start_factor', default=2.0,
         fp_range=(1.0, 10.0, 0.1),
         description=(
@@ -342,6 +364,13 @@ class GaitNode(Node):
         self._radial_distance = float(
             self.get_parameter('radial_distance').value
         )
+        # Phase 13 Stage 1 Teil 2.3 — Zwei-Phasen Standup → Reposition.
+        self._standup_radial_distance = float(
+            self.get_parameter('standup_radial_distance').value
+        )
+        self._reposition_cycle_time = float(
+            self.get_parameter('reposition_cycle_time').value
+        )
         self._tfs_factor = float(
             self.get_parameter('time_from_start_factor').value
         )
@@ -417,6 +446,8 @@ class GaitNode(Node):
             body_height=self._body_height,
             step_length_max=self._step_length_max,
             joint_limits=joint_limits,
+            standup_radial_distance=self._standup_radial_distance,
+            reposition_cycle_time=self._reposition_cycle_time,
         )
 
         # Stage 0.6: async service-client for the hexapod_safety_freeze
@@ -965,6 +996,12 @@ class GaitNode(Node):
         elif name == 'radial_distance':
             self._radial_distance = value
             self._engine.radial_distance = value
+        elif name == 'standup_radial_distance':
+            self._standup_radial_distance = value
+            self._engine.standup_radial_distance = value
+        elif name == 'reposition_cycle_time':
+            self._reposition_cycle_time = value
+            self._engine.reposition_cycle_time = value
         elif name == 'step_height':
             self._step_height = value
             self._engine.step_height = value

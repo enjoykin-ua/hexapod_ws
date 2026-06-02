@@ -173,10 +173,27 @@ Nur falls 2.2 zeigt, dass der Aufsteh-Touchdown (Füße-draußen) mit der Lauf-P
 ### Teil 2.2 — Feet-closer Lauf-Pose + Re-Tune  (Sim VOR Hardware)
 - [x] 2.2.1  Envelope-Analyse (2026-06-02): Baseline radial 0.295 = ❌ out_of_reach (geometrisch, NICHT Tibia); Sweep → optimales radial 0.215–0.220, Schritt ~0.089 (2×). Tibia nie mehr Engpass.
 - [x] 2.2.2  **Variante B** gewählt (User): radial 0.220 / step_length 0.089 / step_height 0.040 / bh −0.080 / cycle 2.0. **§5.1 aufgelöst: omnidirektional-grün** (alle 4 cmd_vel ✓) → kein Sidestep-Opfer nötig. Preset `config/presets/feet_closer_walk.yaml` angelegt + installiert.
-- [ ] 2.2.3  **SIM (RViz + Gazebo): sichtbar größere Schritte/Hub, kein Freeze/IKError** — Gate vor HW. Anleitung: `phase_13_stage_1_feet_closer_walk_test_commands.md` §S
-- [ ] 2.2.4  DANACH HW aufgebockt: kein Freeze, größere Schritte/Hub (selbe Anleitung §T)
-- [ ] 2.2.5  HW griffiger Boden: echter Vortrieb
+- [x] 2.2.3  **SIM (RViz + Gazebo) ZWEI-PHASEN-QUICKTEST** ✅ User-bestätigt 2026-06-02:
+            Standup @ radial 0.295 → in STANDING live radial:=0.220 + step_length:=0.089 +
+            step_height:=0.040 → laufen. **Keine Fehler, größere Schritte, omni sauber.**
+            Prinzip bewiesen → Engine-Umsetzung in 2.3.
+- [~] 2.2.4  HW aufgebockt — **gefaltet in 2.3-Tests** (Sprung-Reset nicht für saubere Lösung)
+- [~] 2.2.5  HW griffiger Boden — **gefaltet in 2.3-Tests** (Sprung-Reset destabilisiert am Boden)
 - [ ] 2.2.6  Self-Review + Design-Log (Preset ist schon gespeichert)
+
+> **⭐ BEFUND 2026-06-02 (Sim S1 + standup_envelope --radial 0.220 = ROT):** Die
+> feet-closer-Pose 0.220 ist **NUR im Stand** (bh −0.080) erreichbar, **NICHT am
+> Standup-Touchdown** (Bauch am Boden bh −0.0135 → Femur müsste >90°, mech. Limit ±1.57
+> → IK-Fail). Walking (S2/S3) lief dagegen einwandfrei. → **Bestätigt die Zwei-Phasen-
+> Notwendigkeit** (Standup-radial ≠ Walk-radial). Validierungs-Lehre: bei Pose-Änderung
+> AUCH `standup_envelope_check --radial <neu>` fahren, nicht nur walking_envelope.
+
+### Teil 2.3 — Zwei-Phasen Standup → Reposition → Walk  (PROMOTED: jetzt nötig, war deferred)
+- [ ] 2.3.1  Konzept: Standup-radial (0.295) und Walk-radial (0.220) entkoppeln in der Engine
+- [ ] 2.3.2  Reposition als **Tripod 3+3** (smooth, kein Sprung) beim STANDING→Walk-Übergang
+- [ ] 2.3.3  Unit-Tests (Reposition-Pfad in-limit) + standup_envelope/walking_envelope grün
+- [ ] 2.3.4  SIM (RViz+Gazebo) → HW aufgebockt → HW Boden (echter Vortrieb)
+- [ ] 2.3.5  Self-Review + Design-Log
 ```
 
 ---

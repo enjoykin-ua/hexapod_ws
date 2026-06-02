@@ -167,8 +167,8 @@ class ReachabilityViz(Node):
             ColorRGBA(r=1.0, g=0.15, b=0.1, a=0.7)))
         self._pub.publish(arr)
         self.get_logger().info(
-            f"reachability: legs={legs} n={n} tibia_full={tibia_full:.2f} "
-            f"→ {len(blue)} blau (aktuell) + {len(red)} rot (extra Tibia-Beuge)")
+            f'reachability: legs={legs} n={n} tibia_full={tibia_full:.2f} '
+            f'→ {len(blue)} blau (aktuell) + {len(red)} rot (extra Tibia-Beuge)')
 
 
 def main(args=None) -> None:

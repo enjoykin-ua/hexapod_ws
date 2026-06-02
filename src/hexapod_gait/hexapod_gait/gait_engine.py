@@ -86,6 +86,13 @@ class GaitEngine:
     # Ersetzt für das HW-Aufstehen den joint-space-STARTUP_RAMP (der bleibt
     # als Legacy-Mode erhalten). Wie STARTUP_RAMP wird cmd_vel ignoriert.
     STATE_CARTESIAN_STANDUP = 'CARTESIAN_STANDUP'
+    # Phase 13 Stage 1 Teil 2.3: Tripod-Reposition nach dem Aufstehen — setzt
+    # die Fuesse von der breiten Aufsteh-Pose (standup_radial_distance) auf die
+    # naehere Walk-Pose (radial_distance) um, in zwei Tripod-Halb-Zyklen
+    # (Gruppe {1,3,5} schwingt, dann {2,4,6}; nie >3 Beine in der Luft).
+    # Auto-getriggert beim Standup-Ende, wenn sich die beiden radii
+    # unterscheiden (sonst direkt STANDING). cmd_vel wird ignoriert bis STANDING.
+    STATE_REPOSITION = 'REPOSITION'
 
     def __init__(
         self,
@@ -96,6 +103,8 @@ class GaitEngine:
         body_height: float,
         step_length_max: float,
         joint_limits: dict[str, JointLimits] | None = None,
+        standup_radial_distance: float | None = None,
+        reposition_cycle_time: float | None = None,
     ):
         if cycle_time <= 0.0:
             raise ValueError(
@@ -112,6 +121,22 @@ class GaitEngine:
         self.radial_distance = radial_distance
         self.body_height = body_height
         self.step_length_max = step_length_max
+
+        # Phase 13 Stage 1 Teil 2.3 (Zwei-Phasen): standup_radial_distance =
+        # breite, touchdown-sichere Aufsteh-Pose; reposition_cycle_time = Dauer
+        # der Tripod-Umsetz-Bewegung. Beide Werte kommen vom Node/Config —
+        # KEINE Pose-Zahl hier hartkodiert. Defaults (= radial_distance bzw.
+        # cycle_time) → keine Reposition / Reposition so schnell wie ein Cycle.
+        self.standup_radial_distance = (
+            standup_radial_distance
+            if standup_radial_distance is not None
+            else radial_distance
+        )
+        self.reposition_cycle_time = (
+            reposition_cycle_time
+            if reposition_cycle_time is not None
+            else cycle_time
+        )
 
         # Stage 0.6: optional per-leg joint_limits (keyed by leg.name).
         # If None: IK runs lenient (= phase-5 behaviour). gait_node passes
@@ -142,6 +167,12 @@ class GaitEngine:
         self._cart_start_t: float = 0.0
         self._cart_duration: float = 0.0
         self._cart_phase1_frac: float = 0.4
+
+        # Phase 13 Stage 1 Teil 2.3 — REPOSITION-State-Daten.
+        self._repos_from_radial: float = radial_distance
+        self._repos_to_radial: float = radial_distance
+        self._repos_start_t: float = 0.0
+        self._repos_duration: float = 0.0
 
     @property
     def state(self) -> str:
@@ -243,9 +274,11 @@ class GaitEngine:
         auf Phase 2 (Push). ``body_height_start`` = Foot-z relativ Coxa bei
         aufliegendem Bauch (≈ −0.0135 m, siehe standup_envelope_check.py).
 
-        Touchdown- und Push-Ziel nutzen die aktuellen Engine-Parameter
-        ``radial_distance`` / ``body_height`` — die Endpose ist damit
-        identisch zur Stand-Pose des joint-space-Ramps.
+        Touchdown- und Push-Ziel nutzen ``standup_radial_distance`` /
+        ``body_height`` — die breite, touchdown-sichere Aufsteh-Pose (Stage 1
+        Teil 2.3). Ist ``standup_radial_distance == radial_distance`` (Default),
+        ist die Endpose wie bisher die Stand-Pose; sonst folgt nach dem Standup
+        die Tripod-Reposition auf ``radial_distance`` (STATE_REPOSITION).
 
         Fehlt ein Bein in ``start_joints``, wird seine Start-Pose = Touchdown
         gesetzt (Phase 1 bewegungslos für dieses Bein).
@@ -261,7 +294,7 @@ class GaitEngine:
         self._cart_touchdown = {}
         self._cart_push_end = {}
         for leg in HEXAPOD.legs:
-            touchdown = (self.radial_distance, 0.0, touchdown_z)
+            touchdown = (self.standup_radial_distance, 0.0, touchdown_z)
             sj = start_joints.get(leg.name)
             if sj is None:
                 start_foot: Point3 = touchdown
@@ -270,7 +303,7 @@ class GaitEngine:
             self._cart_start_foot[leg.name] = start_foot
             self._cart_touchdown[leg.name] = touchdown
             self._cart_push_end[leg.name] = stand_pose(
-                self.radial_distance, self.body_height,
+                self.standup_radial_distance, self.body_height,
             )
         self._cart_start_t = t
         self._cart_duration = duration
@@ -315,10 +348,13 @@ class GaitEngine:
         muss warten bis Ramp fertig ist und Engine selbsttaetig auf
         STANDING wechselt.
         """
-        # Phase 13 Stage A/0.7: cmd_vel waehrend Aufsteh-Sequenz (joint-space
-        # ODER kartesisch) komplett verwerfen — erst STANDING nimmt cmd_vel an.
+        # Phase 13 Stage A/0.7/2.3: cmd_vel waehrend Aufsteh-Sequenz (joint-
+        # space ODER kartesisch) UND waehrend der Tripod-Reposition komplett
+        # verwerfen — erst STANDING nimmt cmd_vel an.
         if self._state in (
-            self.STATE_STARTUP_RAMP, self.STATE_CARTESIAN_STANDUP,
+            self.STATE_STARTUP_RAMP,
+            self.STATE_CARTESIAN_STANDUP,
+            self.STATE_REPOSITION,
         ):
             return False
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
@@ -573,6 +609,9 @@ class GaitEngine:
         # Phase 13 Stage 0.7 — kartesisches Aufstehen (zwei Phasen, IK).
         if self._state == self.STATE_CARTESIAN_STANDUP:
             return self._compute_cartesian_standup_angles(t)
+        # Phase 13 Stage 1 Teil 2.3 — Tripod-Reposition nach dem Aufstehen.
+        if self._state == self.STATE_REPOSITION:
+            return self._compute_reposition_angles(t)
 
         targets = self.compute_foot_targets(t)
         angles = {}
@@ -649,11 +688,11 @@ class GaitEngine:
         tau = t - self._cart_start_t
         if self._cart_duration <= 0.0:
             # Defensive: start_cartesian_standup() prueft duration > 0.
-            self._state = self.STATE_STANDING
+            self._finish_standup(t)
             return self._cartesian_standup_ik(self._cart_push_end, t)
         progress = tau / self._cart_duration
         if progress >= 1.0:
-            self._state = self.STATE_STANDING
+            self._finish_standup(t)
             return self._cartesian_standup_ik(self._cart_push_end, t)
 
         p1 = self._cart_phase1_frac
@@ -690,6 +729,127 @@ class GaitEngine:
             except IKError as exc:
                 raise IKError(
                     f'cartesian standup IK failed for {leg.name} at '
+                    f't={t:.3f}s, target={foot_targets[leg.name]}: {exc}'
+                ) from exc
+        return angles
+
+    # ----- Phase 13 Stage 1 Teil 2.3: Standup → Reposition → Walk -----
+
+    # Toleranz, ab der eine Reposition lohnt: < 1 mm radial-Differenz →
+    # direkt STANDING (kein unnötiger Tripod-Umsetz-Cycle).
+    _REPOSITION_EPS = 1e-3
+
+    def _finish_standup(self, t: float) -> None:
+        """
+        Übergang nach dem kartesischen Aufstehen.
+
+        Unterscheiden sich ``standup_radial_distance`` (Aufsteh-Pose) und
+        ``radial_distance`` (Walk-Pose) um mehr als ``_REPOSITION_EPS``, wird
+        die Tripod-Reposition gestartet (STATE_REPOSITION); sonst direkt
+        STANDING. Wertneutral — die konkreten radii kommen aus den Params.
+        """
+        if (
+            abs(self.standup_radial_distance - self.radial_distance)
+            > self._REPOSITION_EPS
+        ):
+            self.start_reposition(t)
+        else:
+            self._state = self.STATE_STANDING
+
+    def start_reposition(self, t: float) -> None:
+        """
+        Tripod-Reposition einleiten (Stage 1 Teil 2.3).
+
+        Füße von ``standup_radial_distance`` zu ``radial_distance`` (beide @
+        ``body_height``), in zwei Tripod-Halb-Zyklen. Dauer =
+        ``reposition_cycle_time``. Setzt STATE_REPOSITION.
+        """
+        self._repos_from_radial = self.standup_radial_distance
+        self._repos_to_radial = self.radial_distance
+        self._repos_start_t = t
+        self._repos_duration = self.reposition_cycle_time
+        self._state = self.STATE_REPOSITION
+
+    def _reposition_foot(self, leg_id: int, progress: float) -> Point3:
+        """
+        Foot-Target eines Beins während der Reposition (Bein-Frame).
+
+        Tripod: Gruppe mit phase_offset 0.0 ({1,3,5}) schwingt in der ersten
+        Hälfte [0, 0.5), Gruppe 0.5 ({2,4,6}) in der zweiten [0.5, 1.0). Je
+        Gruppe: nur die schwingenden 3 Beine in der Luft (statisch stabil).
+        Schwing-Bein: radial Smooth-Step ``from→to`` + Halbsinus-Hub
+        ``step_height``. Stütz-Bein: statisch auf ``from`` (vor seiner Hälfte)
+        bzw. ``to`` (nach seiner Hälfte).
+        """
+        frm = self._repos_from_radial
+        to = self._repos_to_radial
+        bh = self.body_height
+        offset = self.pattern.phase_offset_per_leg.get(leg_id)
+        if offset is None:
+            # Bein nicht im Pattern (z.B. single_leg) → direkt Ziel-Pose.
+            return stand_pose(to, bh)
+
+        swing_start = offset          # 0.0 (Gruppe A) oder 0.5 (Gruppe B)
+        swing_end = offset + 0.5
+        if progress < swing_start:
+            return stand_pose(frm, bh)          # noch nicht umgesetzt
+        if progress >= swing_end:
+            return stand_pose(to, bh)           # schon umgesetzt
+        # in der eigenen Schwing-Hälfte
+        sub = (progress - swing_start) / 0.5
+        s = sub * sub * (3.0 - 2.0 * sub)       # Smooth-Step für radial
+        x = frm + (to - frm) * s
+        z = bh + self.step_height * math.sin(math.pi * sub)  # Halbsinus-Hub
+        return (x, 0.0, z)
+
+    def _compute_reposition_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        STATE_REPOSITION: pro Tick Tripod-Foot-Targets → IK.
+
+        ``progress = (t - _repos_start_t) / _repos_duration``. Bei
+        progress >= 1: State → STANDING (Füße auf ``radial_distance``),
+        Walk-Pose-IK geliefert. IK-Verletzung wirft IKError mit Bein-Kontext
+        (wie der Standup) → gait_node fängt sie im Tick-Handler.
+        """
+        tau = t - self._repos_start_t
+        if self._repos_duration <= 0.0:
+            self._state = self.STATE_STANDING
+            return self._reposition_ik(
+                self._standing_targets(self._repos_to_radial), t,
+            )
+        progress = tau / self._repos_duration
+        if progress >= 1.0:
+            self._state = self.STATE_STANDING
+            return self._reposition_ik(
+                self._standing_targets(self._repos_to_radial), t,
+            )
+        targets: dict[str, Point3] = {}
+        for leg in HEXAPOD.legs:
+            leg_id = int(leg.name.split('_')[1])
+            targets[leg.name] = self._reposition_foot(leg_id, progress)
+        return self._reposition_ik(targets, t)
+
+    def _standing_targets(self, radial: float) -> dict[str, Point3]:
+        """Statische Stand-Pose-Foot-Targets bei gegebenem radial."""
+        neutral = stand_pose(radial, self.body_height)
+        return {leg.name: neutral for leg in HEXAPOD.legs}
+
+    def _reposition_ik(
+        self, foot_targets: dict[str, Point3], t: float,
+    ) -> dict[str, JointAngles]:
+        """IK pro Bein für die Reposition-Targets, IKError mit Bein-Kontext."""
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            leg_limits = self.joint_limits.get(leg.name)
+            try:
+                angles[leg.name] = leg_ik(
+                    *foot_targets[leg.name], leg, leg_limits,
+                )
+            except IKError as exc:
+                raise IKError(
+                    f'reposition IK failed for {leg.name} at '
                     f't={t:.3f}s, target={foot_targets[leg.name]}: {exc}'
                 ) from exc
         return angles

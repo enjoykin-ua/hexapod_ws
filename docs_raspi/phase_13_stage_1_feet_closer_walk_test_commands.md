@@ -12,7 +12,16 @@
 
 ---
 
-# §S — SIM-Gate (RViz + Gazebo)  [Checkliste 2.2.3]
+# §S — SIM-Gate (RViz + Gazebo) — ZWEI-PHASEN-QUICKTEST  [Checkliste 2.2.3]
+
+> **Wichtige Erkenntnis (2026-06-02):** Die feet-closer-Pose (radial 0.220) ist NUR
+> fürs **Laufen** (Körper hoch, bh −0.080) erreichbar — **NICHT für den Aufsteh-Touchdown**
+> (Bauch am Boden, bh_start −0.0135): dort müsste der Femur >90° (mech. Limit ±1.57) →
+> IK-Fail (genau das Log aus dem ersten S1-Versuch). Lösung = **Zwei-Phasen**: mit dem
+> standup-sicheren radial **0.295** aufstehen, dann in STANDING live auf **0.220**
+> reposition, dann laufen. Dieser Quicktest macht das **per Live-Param ohne Code** (das
+> Preset NICHT beim Standup laden!). Der Reset ist instantan (Fuß-Sprung) — in Sim ok;
+> die saubere Tripod-Reposition kommt mit Sub-Stage 2.3.
 
 ## S0 — Build + Sim starten
 
@@ -29,56 +38,68 @@ ros2 launch hexapod_bringup sim.launch.py
 ```
 Warten bis Gazebo offen + 7 Spawner aktiv.
 
-## S1 — Gait mit Feet-closer-Preset (Aufstehen → STANDING)
+## S1 — Aufstehen mit Default-radial 0.295 (OHNE Preset!) → STANDING
 
-**Terminal 2:**
+**Terminal 2** (kein `params_file` → radial 0.295, der standup-sichere Wert):
 ```bash
 cd ~/hexapod_ws && source install/setup.bash
 HEX_URDF="$(ros2 pkg prefix hexapod_description)/share/hexapod_description/urdf/hexapod.urdf.xacro"
-PRESET="$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/feet_closer_walk.yaml"
 ros2 launch hexapod_gait gait.launch.py \
     robot_description_file:="$HEX_URDF" \
-    params_file:="$PRESET" \
     standup_mode:=cartesian auto_standup_duration:=8
 ```
 warten bis `STATE_STANDING`.
-**Erwartung:** Roboter steht mit **Füßen näher am Körper** (radial 0.220) — die Beine
-sehen weniger gestreckt aus als bisher (sichtbar gebeugteres Knie).
+**Erwartung:** sauberes Aufstehen wie gehabt, **kein** IK-Fail (radial 0.295 ist
+standup-grün). Beine relativ gestreckt (Füße weit draußen).
 
-## S2 — Vorwärts laufen (sichtbar größere Schritte)
+## S2 — Phase 2: Füße nach innen reposition (Live-Param, in STANDING)
 
 **Terminal 3:**
 ```bash
 cd ~/hexapod_ws && source install/setup.bash
+# Füße nach innen (Stand-Pose-Reset, instantaner Sprung)
+ros2 param set /gait_node radial_distance 0.220
+# Schritt-Params der feet-closer-Pose live setzen
+ros2 param set /gait_node step_length_max 0.089
+ros2 param set /gait_node step_height 0.040
+```
+**Erwartung:** alle 6 Füße springen nach innen (radial 0.220), Knie sichtbar stärker
+gebeugt; jeder `param set` → Log `param updated: …` in Terminal 2, **kein** `require
+STATE_STANDING`-Reject (= Engine ist in STANDING), **kein** IK-Fail (0.220 bei bh −0.080
+ist erreichbar).
+
+## S3 — Vorwärts laufen (sichtbar größere Schritte)
+
+**Terminal 3:**
+```bash
 ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.08}}'
 ```
 ~10–15 s beobachten (Gazebo + RViz), dann `Strg+C`.
 **Erwartung:** deutlich **größere Schritte + mehr Hub** als vorher, sauberer Tripod,
-**kein** `IKError`/Freeze (Terminal 2), kein Umkippen. (0.08 m/s nutzt fast den vollen
-neuen linear_max 0.089.)
+**kein** `IKError`/Freeze, kein Umkippen.
 
-## S3 — Omnidirektional gegenprüfen (das war RED-kritisch)
+## S4 — Omnidirektional gegenprüfen (war RED-kritisch)
 
 ```bash
-# Seitwärts
-ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {y: 0.06}}'
-# (Strg+C, dann) Drehen
-ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{angular: {z: 0.3}}'
-# (Strg+C, dann) Diagonal
-ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.05, y: 0.04}}'
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {y: 0.06}}'      # seitwärts
+# Strg+C, dann:
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{angular: {z: 0.3}}'      # drehen
+# Strg+C, dann:
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.05, y: 0.04}}'  # diagonal
 ```
 Jeweils ~8 s, dann `Strg+C`.
-**Erwartung:** alle Richtungen sauber, **kein** `IKError`/Freeze (im Envelope offline
-alle ✓ grün — hier die Sim-Bestätigung).
+**Erwartung:** alle Richtungen sauber, **kein** `IKError`/Freeze (offline alle ✓ grün).
 
 ### Findings §S (User)
 | Test | Status | Notiz |
 |---|---|---|
-| S1 Stand-Pose Füße näher (radial 0.220), kein Freeze | | |
-| S2 Vorwärts: sichtbar größere Schritte/Hub, kein IKError | | |
-| S3 Seitwärts / Drehen / Diagonal sauber | | |
+| S1 Aufstehen @ radial 0.295 sauber (kein IK-Fail) | | |
+| S2 Reposition → 0.220 live, kein Reject/IK-Fail | | |
+| S3 Vorwärts: sichtbar größere Schritte/Hub | | |
+| S4 Seitwärts / Drehen / Diagonal sauber | | |
 
-> **→ Wenn §S grün: committen, dann §T (Hardware).**
+> **→ Wenn §S grün: das Zwei-Phasen-Prinzip ist bewiesen → committen, dann §T (HW)
+> bzw. Sub-Stage 2.3 (Zwei-Phasen sauber in die Engine bauen).**
 
 ---
 
@@ -87,7 +108,12 @@ alle ✓ grün — hier die Sim-Bestätigung).
 ⚠️ **Sicherheit (CLAUDE.md §9):** aufgebockt, PSU-Kill-Switch griffbereit. Erst
 langsam/kurz, bei Brummen/Stall/Body-Kontakt sofort `Strg+C`.
 
-## T0 — Hardware + Gait mit Preset
+> **Auch HW = Zwei-Phasen:** Standup mit radial 0.295 (OHNE Preset), dann in STANDING
+> live auf 0.220 reposition. **Der Reset ist ein instantaner Fuß-Sprung** — aufgebockt
+> unkritisch, aber **am Boden** (T2) erst mit der sauberen Tripod-Reposition (2.3) machen,
+> NICHT mit dem Sprung. T2 daher zunächst nur aufgebockt oder nach 2.3.
+
+## T0 — Hardware + Aufstehen (radial 0.295, OHNE Preset)
 
 **Terminal 1 — Hardware:**
 ```bash
@@ -99,35 +125,39 @@ ros2 launch hexapod_bringup real.launch.py initial_pose:=power_on_mid
 cd ~/hexapod_ws && source install/setup.bash
 rviz2 -d "$(ros2 pkg prefix --share hexapod_description)/config/view_hw.rviz"
 ```
-**Terminal 3 — Gait mit Preset (use_sim_time:=false!):**
+**Terminal 3 — Gait (use_sim_time:=false!, kein params_file):**
 ```bash
 cd ~/hexapod_ws && source install/setup.bash
 HEX_URDF="$(ros2 pkg prefix hexapod_description)/share/hexapod_description/urdf/hexapod.urdf.xacro"
-PRESET="$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/feet_closer_walk.yaml"
 ros2 launch hexapod_gait gait.launch.py \
     use_sim_time:=false \
     robot_description_file:="$HEX_URDF" \
-    params_file:="$PRESET" \
     standup_mode:=cartesian auto_standup_duration:=8
 ```
 warten bis `STATE_STANDING`.
 
-## T1 — Vorwärts aufgebockt
+## T1 — Reposition + Vorwärts aufgebockt
 **Terminal 4:**
 ```bash
 cd ~/hexapod_ws && source install/setup.bash
+ros2 param set /gait_node radial_distance 0.220
+ros2 param set /gait_node step_length_max 0.089
+ros2 param set /gait_node step_height 0.040
+sleep 1
 ros2 topic pub --rate 10 /cmd_vel geometry_msgs/Twist '{linear: {x: 0.06}}'
 ```
 ~10 s, dann `Strg+C`. Optional 0.08.
-**Erwartung:** größere Schritte/Hub als bisher, HW=RViz, kein `OVERCURRENT`/`WATCHDOG`/
-`SAFETY FREEZE` (T1) / `IKError` (T3), keine Body-Berührung.
+**Erwartung:** Füße springen nach innen (aufgebockt ok), dann größere Schritte/Hub,
+HW=RViz, kein `OVERCURRENT`/`WATCHDOG`/`SAFETY FREEZE` (T1) / `IKError` (T3), keine
+Body-Berührung.
 
-## T2 — (überlappt 2.2.5) griffiger Boden: echter Vortrieb
-Roboter auf griffigen Boden, T0+T1 wiederholen.
-**Erwartung:** echter Vortrieb (nicht „auf der Stelle"), Strom im Rahmen.
+## T2 — griffiger Boden: echter Vortrieb (erst nach 2.3 / NICHT mit Sprung-Reset)
+> Erst wenn die saubere Tripod-Reposition (2.3) existiert, am Boden testen — der
+> instantane radial-Sprung würde am Boden destabilisieren.
+**Erwartung (mit 2.3):** echter Vortrieb (nicht „auf der Stelle"), Strom im Rahmen.
 
 ### Findings §T (User)
 | Test | Status | Notiz |
 |---|---|---|
-| T1 Vorwärts aufgebockt, kein Freeze/Overcurrent | | |
-| T2 griffiger Boden: echter Vortrieb | | |
+| T1 Reposition + Vorwärts aufgebockt, kein Freeze/Overcurrent | | |
+| T2 griffiger Boden (nach 2.3): echter Vortrieb | | |

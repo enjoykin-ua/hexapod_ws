@@ -6,6 +6,12 @@
 # Füße ~8 cm NÄHER am Körper (radial 0.220 statt 0.295) → Bein weniger gestreckt
 # → größerer Stride bleibt in Reichweite. Doppelte Schrittweite + omnidirektional.
 #
+# Zwei-Phasen (Stage 1 Teil 2.3): Dieses Preset ist self-contained — es enthält
+# BEIDE radii. Die Engine steht mit standup_radial_distance (0.295, touchdown-
+# sicher) auf und repositioniert danach automatisch per Tripod auf radial_distance
+# (0.220, Walk-Pose). Daher beim Launch direkt ladbar (anders als vor 2.3, wo
+# radial 0.220 am Standup-Touchdown den Femur >90° gezwungen hätte → IK-Fail).
+#
 # Herkunft: tools/walking_envelope_check.py — Sweep + Variante-B-Check.
 #   ALLE 4 cmd_vel-Szenarien (forward/sidestep/yaw/diagonal) ✓ GRÜN.
 #   Vorher (radial 0.295 / step 0.05): ❌ RED out_of_reach (Fuß d=0.2812 > 0.2799).
@@ -32,7 +38,11 @@
 
 /gait_node:
   ros__parameters:
-    radial_distance: 0.220
+    # Zwei-Phasen (Stage 1 Teil 2.3): mit standup_radial_distance aufstehen,
+    # dann automatisch per Tripod auf radial_distance (Walk-Pose) reposition.
+    standup_radial_distance: 0.295   # breite, touchdown-sichere Aufsteh-Pose
+    radial_distance: 0.220           # Walk-Ziel (Tool-Ergebnis), Reposition dorthin
+    reposition_cycle_time: 2.00      # Dauer der Tripod-Umsetz-Bewegung (s, min 1.0)
     body_height: -0.080
     step_length_max: 0.089
     step_height: 0.040
