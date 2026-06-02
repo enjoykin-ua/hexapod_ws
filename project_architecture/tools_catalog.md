@@ -7,7 +7,7 @@
 |---|---|---|
 | `walking_envelope_check.py` | Prüft Lauf-Fußbahn gegen URDF-Limits + Reichweite (alle 4 cmd_vel-Szenarien). | `check` (eine Config), `sweep` (Übersicht radial×Höhe), `recommend` (fertiges Preset). Nutzt URDF-Limits **live**. README: `tools/walking_envelope_check.README.md`. |
 | `standup_envelope_check.py` | Prüft den **Aufsteh-Pfad** (Touchdown + Push) gegen Limits/Schürfen. | `--radial --bh-final`. **Eigener Konsument** — Walk-Pose ≠ Standup-Pfad separat prüfen. |
-| (geplant) `torque_viz` / Hitze-Tool | Quasi-statische Gelenk-Momente (Jᵀ·F) pro Pose → RViz Zahl+Farbe; Sweep für last-optimale Pose. | Hitze-Analyse, Body-Pose/CoG, Geometrie-Entscheidung. Siehe `../project_finalization/` (Block C). |
+| (geplant) `torque_viz` / Hitze-Tool | Quasi-statische Gelenk-Momente (Jᵀ·F) pro Pose → RViz Zahl+Farbe; Sweep für last-optimale Pose. | Hitze-Analyse, Body-Pose/CoG, Geometrie-Entscheidung. Siehe `../project_finalization/` (Block A1). |
 
 ## Visualisierung (RViz)
 | Tool | Zweck |
