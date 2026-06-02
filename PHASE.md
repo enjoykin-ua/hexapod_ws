@@ -3,6 +3,9 @@
 **Aktuell:** Phase 13 Desktop-Pre-Bringup — **Stage 1** (Lauf-Optimierung: kalibrierte Reichweite ausnutzen)
 **Datei:** `docs_raspi/phase_13_stage_1_walk_optimization_plan.md` (Handover-Plan mit Lese-Liste + Checkliste)
 
+> **📚 Projekt-Referenz (Architektur, AI-Navigation, Tools):** [`project_architecture/`](project_architecture/00_overview.md)
+> **🗂️ Finalisierungs-Backlog (offene Stages A–E nach Stage 1):** [`project_finalization/00_backlog.md`](project_finalization/00_backlog.md)
+
 > **Stage 0 ✅ FERTIG (2026-06-01):** Boot → Aufstehen → stabil am Boden. Alle
 > Sub-Stages 0.1–0.8 inkl. 0.6.5 (Tibia-Winkel-Messung) + 0.6.6 (Tibia-Re-Cal,
 > Limit −1.00/+1.30) abgeschlossen. Details: `phase_13_stage_0_progress.md`.

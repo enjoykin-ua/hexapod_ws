@@ -3,6 +3,12 @@
 > **Lies diese Datei und `PHASE.md` zu Beginn jeder Session.**
 > `PHASE.md` zeigt dir, in welcher Phase wir gerade arbeiten und verweist
 > auf die zugehörige Datei in `docs/`.
+>
+> **Projekt-Wissen / wo finde ich was:** [`project_architecture/`](project_architecture/00_overview.md)
+> — v.a. [`ai_navigation.md`](project_architecture/ai_navigation.md) („Ich ändere X → schau
+> hier, aktualisiere Y, validiere mit Z"). **Bei jeder Änderung zuerst dort nachsehen**,
+> welche Dateien/Tests betroffen sind (zwei Limit-Quellen, Cal-Pipeline, Validierungs-Gates).
+> Offene Aufgaben/Stages: [`project_finalization/00_backlog.md`](project_finalization/00_backlog.md).
 
 ---
 

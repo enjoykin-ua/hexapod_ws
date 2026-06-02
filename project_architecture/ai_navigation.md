@@ -1,0 +1,93 @@
+# AI-Navigation — „Ich ändere X, wo schaue ich, was muss ich nachziehen?"
+
+> **Zuerst lesen bei JEDER Änderung.** Diese Datei kodiert die Stolpersteine, über die
+> wir mehrfach gefallen sind. Sie ergänzt (nicht ersetzt) `CLAUDE.md` (Arbeitsweise) +
+> die Memory-Einträge. Architektur-Kontext: [`architecture.md`](architecture.md).
+
+## 0. Goldene Regeln (immer)
+1. **Zwei Limit-Quellen** — URDF (3 Dateien) **und** `config.py` müssen synchron sein
+   (Cross-Check `test_config.py`). [[project_two_joint_limit_sources]]
+2. **Sim ist lenient** — die Phase-5-Sim-IK prüft Limits nicht; ein Pose-Fehler, der in
+   Sim „grün" ist, **freezt auf HW**. Daher jede Pose mit den **URDF-Limits** + den
+   Envelope-Tools validieren. [[feedback_validate_hardware_hypothesis_via_code]]
+3. **Alle Konsumenten nachvalidieren** — `gait_node` (parst URDF live), `reachability_viz`,
+   `walking_envelope_check`, `standup_envelope_check` lesen die Limits/Geometrie unabhängig.
+   Nach einer Änderung **alle** prüfen, nicht nur Build/xacro-Parse. [[feedback_urdf_refactor_full_smoke]]
+4. **Tests grün + Lint grün vor Commit** (`colcon test`, `ament_flake8`/`ament_pep257`).
+   User committet selbst. [[feedback_user_does_commits]]
+5. **Sim VOR Hardware** verifizieren (RViz + Gazebo), dann aufgebockt, dann Boden.
+
+## 1. Änderungs-Landkarte (X → Dateien → Validierung)
+
+### Joint-Limit ändern (z.B. Tibia-Beuge)
+- **Dateien:** `hexapod_physical_properties.xacro` (Property) · `hexapod.urdf.xacro` (6×) ·
+  `hexapod.ros2_control.xacro` (6×) · `config.py` (`_*_LIMITS`) · `servo_mapping.yaml`
+  (Beuge-/Streck-Puls-Bound: `pulse = pulse_zero ∓ 425·limit`, in `[500,2500]`).
+- **Validieren:** generierte URDF prüfen (`xacro …`) · `colcon test hexapod_kinematics`
+  (`test_config`) + `hexapod_hardware` (Calibration-Roundtrip) · `standup_envelope_check`
+  + `walking_envelope_check` grün · Sim+RViz-Smoke. (Vorbild: Phase 13 Stage 1 Teil 2.1.)
+
+### Geometrie ändern (Bein-Längen, Body-Maße) — ⚠️ großer Rattenschwanz
+- **Dateien:** `physical_properties.xacro` + ggf. Meshes + `config.py` (`_L_*`, body-Maße).
+- **Folgen:** IK/FK, Reachability, **Re-Kalibrierung** der betroffenen Servos, alle Presets,
+  Stand-/Walk-Posen neu validieren. Nicht ohne Modell-Rechnung + bewusste Freigabe.
+  (Geometrie-TABU-nah.)
+
+### Servo getauscht / neu kalibriert
+- **Dateien:** `servo_mapping.yaml` (Pin: `pulse_min/zero/max`, `direction`).
+- **Validieren:** Calibration-Roundtrip-Test · rad=0 visuell gerade (HW=RViz) · Sweep ohne
+  Freeze. Detaillierter Workflow: [`change_workflows.md`](change_workflows.md) + `docs/01_hardware_change_workflow.md`.
+
+### Gait-Parameter tunen (radial, body_height, step_length/height, cycle …)
+- **Wo:** ein **Preset** in `hexapod_gait/config/presets/*.yaml` (bevorzugt) ODER
+  `gait.launch.py`-Defaults. Live-Tuning via `ros2 param set /gait_node …` (manche
+  `standing_only`!).
+- **Validieren:** `walking_envelope_check recommend/check` (nutzt URDF-Limits live) +
+  `standup_envelope_check` für den Aufsteh-Pfad (eigene Pose!). **Beide separat** — eine
+  Walk-Pose kann gehen, der Standup-Pfad dorthin aber nicht (Femur-90°-Befund 2.3).
+- **Constraint-Fallen:** `body_height` fp_range-Floor = −0.120; `body_height_min ≤ body_height ≤ body_height_max`; `standing_only`-Params nur im STANDING setzbar.
+
+### Neue Gangart
+- **Wo:** `gait_patterns.py` — neuer `GaitPattern(phase_offset_per_leg, swing_duty)` +
+  Eintrag in `GAIT_PRESETS`. Tripod-Gruppen-Konvention: {1,3,5}/{2,4,6}.
+- **Validieren:** Engine-/Walking-Tests, Envelope, Sim.
+
+### Teleop-Mapping / neue Controller-Funktion
+- **Dateien:** `hexapod_teleop/config/ps4_usb.yaml` (Indizes/Skalen) · `joy_to_twist.py` (Logik).
+- **Falle:** `joy_to_twist` publisht beim Start **einmalig** `/cmd_body_height = body_height_init`
+  → muss == Gait-`body_height` sein, sonst sackt der Stand ab. Bei Höhen-Änderung nachziehen.
+
+### Standup / Reposition / Zwei-Phasen-Logik
+- **Wo:** `gait_engine.py` (States `CARTESIAN_STANDUP`/`REPOSITION`, `start_*`, `_compute_*`).
+  Params: `standup_radial_distance` (breit, touchdown-sicher), `radial_distance` (Walk),
+  `reposition_cycle_time`. **Engine wertneutral** — Pose-Zahlen leben in Config/Preset.
+- **Falle:** cmd_vel muss in jedem neuen Aufsteh-/Reposition-State ignoriert werden
+  (sonst kippt es fälschlich auf WALKING) — siehe `set_command`-Guard.
+
+### Neuer Knoten / Topic
+- **Wo:** Bringup-Launch (`hexapod_bringup`), ggf. eigenes Paket. Topic-Konventionen aus
+  `architecture.md` §4 einhalten.
+
+## 2. Validierungs-Gates (Reihenfolge)
+1. `colcon build --packages-select <betroffen>` → grün.
+2. Generierte URDF prüfen (bei URDF-Änderung).
+3. `colcon test --packages-select <betroffen>` (Unit + `ament_flake8`/`ament_pep257`) → grün.
+4. Eigen-Tools: `walking_envelope_check`, `standup_envelope_check`, (geplant) torque-viz.
+5. **Sim** (RViz + Gazebo) — Modell lädt, kein Regress, läuft.
+6. **HW aufgebockt** → **HW Boden** (CLAUDE.md §9 Safety).
+
+## 3. Wo finde ich …?
+| Gesucht | Datei |
+|---|---|
+| IK/FK + Geometrie + Limits (Python) | `hexapod_kinematics/config.py`, `leg_ik.py` |
+| Joint-Limits (URDF) | `hexapod_description/urdf/hexapod.urdf.xacro` (+ `ros2_control.xacro`, `physical_properties.xacro`) |
+| Puls-Cal je Servo | `hexapod_hardware/config/servo_mapping.yaml` |
+| Gait-Logik / State-Machine | `hexapod_gait/hexapod_gait/gait_engine.py`, `gait_node.py` |
+| Gangmuster | `hexapod_gait/hexapod_gait/gait_patterns.py` |
+| Lauf-Presets | `hexapod_gait/config/presets/*.yaml` |
+| Controller-Config | `hexapod_control/config/controllers{,.real}.yaml` |
+| Teleop-Mapping | `hexapod_teleop/config/ps4_usb.yaml`, `joy_to_twist.py` |
+| Analyse-Tools | `tools/` (+ [`tools_catalog.md`](tools_catalog.md)) |
+
+## 4. Offene Stages / was als Nächstes
+→ [`../project_finalization/00_backlog.md`](../project_finalization/00_backlog.md)
