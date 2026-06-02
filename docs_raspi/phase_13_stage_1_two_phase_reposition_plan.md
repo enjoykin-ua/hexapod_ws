@@ -175,3 +175,10 @@ Stabilität, die der Gate-Test 2.3.9 (aufgebockt→Boden) absichert, bevor 2.3 f
   Smooth-Step für radial + Halbsinus-Hub (wie swing_traj-Charakter). Verworfen: alle 6
   gleichzeitig (instabil), oder instantaner Sprung (= der 2.2.3-Quicktest, am Boden untauglich).
 - **Reposition nur rein**: Rück-Reposition (raus vor Sitdown) deferred — kein Sitdown im Scope.
+- **High-Body-Retune (Weg 1, 2026-06-02):** Preset auf body_height −0.120 (4 cm höher) +
+  step_height 0.080 (Fuß-Hub 8 cm) + walk-radial 0.215 retuned (Envelope grün, reine
+  Config). −0.120 ist das max. direkt-aufstehbare bei standup_radial 0.295.
+- **Sub-Stage 2.4 (DEFERRED) — Body-Lift-in-Reposition für volle 5 cm (−0.130):** Standup
+  kann −0.130 nicht direkt (out-of-reach @ Touchdown-radial 0.295; kein radial erfüllt
+  beides). Lösung wäre: `standup_body_height` (moderat) + Reposition interpoliert
+  **body_height mit** (analog zum radialen). Erst bauen, wenn 4 cm nicht reichen.

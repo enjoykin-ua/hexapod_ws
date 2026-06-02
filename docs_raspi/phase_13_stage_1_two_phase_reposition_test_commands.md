@@ -8,6 +8,29 @@
 > wenn grün + committet — §T (HW).**
 >
 > **Self-contained Preset** `feet_closer_walk.yaml` trägt beide radii → einfach laden.
+>
+> **Update 2026-06-02 (Weg 1, 4 cm):** Preset jetzt **body_height −0.120 (Körper 4 cm
+> höher)** + **step_height 0.080 (Fuß-Hub 8 cm, gilt Lauf UND Reposition)** + walk-radial
+> 0.215. Envelope grün (standup @0.295→−0.120, walking @0.215/−0.120/0.080). Erwartung
+> visuell: höherer Stand, deutlich höher angehobene Füße bei Reposition + beim Laufen.
+> *(Volle 5 cm / −0.130 ist deferiert auf Sub-Stage 2.4 — Body-Lift-in-Reposition.)*
+
+---
+
+## 🎮 PS4-Controller (optional, statt manuellem cmd_vel) — gilt für Sim §S UND HW §T
+
+PS4 per USB anstecken (`ls /dev/input/js*` → `js0`), dann in einem **extra Terminal**
+(zusätzlich zu Gait/sim/HW). Derselbe Befehl für Sim und Hardware — die Teleop erzeugt
+nur `/cmd_vel`, egal ob Gazebo oder echter Roboter:
+
+```bash
+cd ~/hexapod_ws && source install/setup.bash && ros2 launch hexapod_teleop joy_teleop.launch.py
+```
+
+**Steuerung (nur Laufen):** **R1 halten** (Dead-Man, Pflicht) + **D-Pad ↑/↓** vor/zurück,
+**←/→** drehen. Wirkt erst wenn der Roboter **STANDING** ist (cmd_vel wird während
+Aufstehen/Reposition ignoriert). `body_height_init` ist auf −0.120 angeglichen → der hohe
+Stand sackt beim Teleop-Start nicht ab. (js-Index ≠ 0 → `joy_device_id:=1`.)
 
 ---
 

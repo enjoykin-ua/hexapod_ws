@@ -28,5 +28,10 @@ joy_to_twist:
     angular_z_scale: 0.46 # rad/s, ungefähr omega_max bei R_max=0.109
 
     # Body-Height
-    body_height_init: -0.052   # Default Stand-Pose
+    # Stage 1 Teil 2.2 (2026-06-02): an die feet-closer high Walk-Pose
+    # angeglichen (-0.120, = body_height im feet_closer_walk.yaml-Preset).
+    # Wichtig: joy_to_twist publisht beim Start EINMALIG /cmd_body_height mit
+    # diesem Wert → muss == Gait-body_height sein, sonst sackt der hohe Stand ab.
+    # Bei Gait-Höhen-Änderung hier nachziehen.
+    body_height_init: -0.120   # war -0.052
     body_height_step: 0.005    # 5 mm pro L2/R2-Press
