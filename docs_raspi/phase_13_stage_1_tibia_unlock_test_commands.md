@@ -88,12 +88,12 @@ Mit dem `joint_state_publisher_gui`-Slider die **leg_1-Tibia** auf Maximum ziehe
 fährt in die früher nur „rote" Zone. Die **blaue** Wolke reicht bis +2.5, **rot** ist
 nur noch der schmale Rest bis 2.6.
 
-### Findings §S (User)
+### Findings §S (User) — ✅ alle grün 2026-06-02
 | Test | Status | Notiz |
 |---|---|---|
-| S1 Gazebo Tibia → ~2.5 in /joint_states, kein Error | | |
-| S2 Aufstehen + Laufen wie gehabt (keine Regression) | | |
-| S3 RViz-Slider/Modell erreicht +2.5 | | |
+| S1 Gazebo Tibia → ~2.5 in /joint_states, kein Error | ✅ | |
+| S2 Aufstehen + Laufen wie gehabt (keine Regression) | ✅ | |
+| S3 RViz-Slider/Modell erreicht +2.5 | ✅ | |
 
 > **→ Wenn §S grün: committen, dann §T (Hardware).**
 
@@ -188,12 +188,12 @@ nicht weiter erhöhen.
 
 ---
 
-## Findings / Status (User) — Checkliste 2.1.6
+## Findings / Status (User) — Checkliste 2.1.8 — ✅ alle grün 2026-06-02
 
 | Test | Status | Notiz |
 |---|---|---|
-| T1 leg_1 0→+2.5 (Femur oben), HW=RViz, kein Freeze | | Fuß-Body-Abstand bei +2.5? |
-| T2 leg_5 +2.5 ohne Sättigung/Brummen | | puls-engster Servo |
-| T3 alle 6 zur Grenze + zurück, kein Freeze | | Symmetrie ok? |
-| T4 (optional) Body-Marge Femur-horizontal | | informiert Pose-Tuning 2.2 |
+| T1 leg_1 0→+2.5 (Femur oben), HW=RViz, kein Freeze | ✅ | |
+| T2 leg_5 +2.5 ohne Sättigung/Brummen | ✅ | puls-engster Servo ok |
+| T3 alle 6 zur Grenze + zurück, kein Freeze | ✅ | symmetrisch |
+| T4 (optional) Body-Marge Femur-horizontal | ✅ | informiert Pose-Tuning 2.2 |
 </content>

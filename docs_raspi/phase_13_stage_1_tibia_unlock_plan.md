@@ -161,25 +161,22 @@ Nur falls 2.2 zeigt, dass der Aufsteh-Touchdown (Füße-draußen) mit der Lauf-P
 - [x] 2.1.4  test_config.py (7) + kinematics (32, 1 skip) + hardware calibration-Roundtrip (44) + IK-Regression grün
 - [x] 2.1.5  standup_envelope_check GRÜN (alle 6 Beine)
 - [x] 2.1.6  Self-Review-Tabelle + Design-Log (s.u. §7 / §8)
-- [ ] 2.1.7  **SIM-Gate (RViz + Gazebo) — VOR Hardware:** Modell lädt mit +2.5; Tibia in
-            Gazebo bis +2.5 kommandierbar ohne Controller-Error; **bestehender Gait
-            läuft weiter (keine Regression)**; RViz-Slider/Modell erreicht +2.5.
-            (URDF-Refactor-Smoke [[feedback_urdf_refactor_full_smoke]]) — Anleitung:
-            `phase_13_stage_1_tibia_unlock_test_commands.md` §S
-- [ ] 2.1.8  **DANACH** HW aufgebockt: Tibia-Sweep 0→+2.5 ohne Freeze, RViz=HW, keine
-            Body-Berührung (Femur oben) — selbe Anleitung §T (User, nach Sim-Gate + Commit)
+- [x] 2.1.7  **SIM-Gate (RViz + Gazebo)** ✅ User-bestätigt 2026-06-02: Modell lädt mit +2.5,
+            Tibia in Gazebo bis +2.5 ohne Controller-Error, bestehender Gait läuft weiter
+            (keine Regression), RViz-Slider/Modell erreicht +2.5.
+- [x] 2.1.8  **HW aufgebockt** ✅ User-bestätigt 2026-06-02: Tibia-Sweep 0→+2.5 ohne Freeze,
+            HW=RViz, keine Body-Berührung (Femur oben), leg_5 ohne Sättigung.
 
-> **Stand 2026-06-02:** Desktop-Anteil (2.1.1–2.1.6) ✅ fertig. **Sequenz-Gate (User-Wunsch
-> 2026-06-02):** erst **Sim (RViz + Gazebo)** verifizieren (2.1.7), DANN echte Hardware
-> (2.1.8). Stale +1.30-Code-Referenzen mit-bereinigt + Doku 5.3/5.4 + Parent-Re-Decision.
+> **Stand 2026-06-02: Teil 2.1 KOMPLETT ✅** (Desktop + Sim-Gate + HW alle grün, User-
+> bestätigt). Sequenz Sim→HW eingehalten. Commit durch User. → weiter mit Teil 2.2.
 
 ### Teil 2.2 — Feet-closer Lauf-Pose + Re-Tune  (Sim VOR Hardware)
-- [ ] 2.2.1  walking_envelope_check recommend → validierte radial/step_length/step_height-Config
-- [ ] 2.2.2  gait_node-Params gesetzt (+ Sidestep-Entscheidung §5.1)
-- [ ] 2.2.3  **SIM (RViz + Gazebo): sichtbar größere Schritte/Hub, kein Freeze/IKError** — Gate vor HW
-- [ ] 2.2.4  DANACH HW aufgebockt: kein Freeze, größere Schritte/Hub
+- [x] 2.2.1  Envelope-Analyse (2026-06-02): Baseline radial 0.295 = ❌ out_of_reach (geometrisch, NICHT Tibia); Sweep → optimales radial 0.215–0.220, Schritt ~0.089 (2×). Tibia nie mehr Engpass.
+- [x] 2.2.2  **Variante B** gewählt (User): radial 0.220 / step_length 0.089 / step_height 0.040 / bh −0.080 / cycle 2.0. **§5.1 aufgelöst: omnidirektional-grün** (alle 4 cmd_vel ✓) → kein Sidestep-Opfer nötig. Preset `config/presets/feet_closer_walk.yaml` angelegt + installiert.
+- [ ] 2.2.3  **SIM (RViz + Gazebo): sichtbar größere Schritte/Hub, kein Freeze/IKError** — Gate vor HW. Anleitung: `phase_13_stage_1_feet_closer_walk_test_commands.md` §S
+- [ ] 2.2.4  DANACH HW aufgebockt: kein Freeze, größere Schritte/Hub (selbe Anleitung §T)
 - [ ] 2.2.5  HW griffiger Boden: echter Vortrieb
-- [ ] 2.2.6  Preset gespeichert + Self-Review
+- [ ] 2.2.6  Self-Review + Design-Log (Preset ist schon gespeichert)
 ```
 
 ---
