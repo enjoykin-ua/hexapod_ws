@@ -7,40 +7,41 @@
 
 > **Stand:** Phase 13 Stage 1 (Lauf-Optimierung) ist weit gediehen — Tibia-Unlock +2.50,
 > feet-closer high Walk-Pose (body −0.120, Hub 8 cm), Zwei-Phasen Standup→Reposition→Walk,
-> PS4-USB-Teleop laufen (Sim + aufgebockt). Dieser Backlog ist das, was *danach* noch kommt.
+> PS4-USB-Teleop laufen (Sim + aufgebockt).
 >
-> **Reihenfolge-Entscheidung (User 2026-06-02): Block A (Analyse) ZUERST** — vorgezogen vor
-> dem Lokomotion-Kern (Block C), weil eine bessere Darstellung der wirkenden Kräfte den
-> Lokomotion-Kern direkt informiert (last-optimale Pose, Wave-Gait-Nutzen, Geometrie-Frage).
+> **Reihenfolge (User 2026-06-02):** Block A (Analyse) war zuerst — **A1 (Torque-Tool)
+> erledigt; RViz zeigte keine kritischen Last-Extrempunkte → Rest von Block A pausiert.**
+> Danach: **erst Lokomotion-Kern (Block B), dann Teleop (Block C)** — diese Reihenfolge
+> macht mehr Sinn (Funktionalität vor Bedien-Komfort).
 
 ---
 
-## Block A — Analyse & Optimierung (Hitze, Kräfte)  🟡 START HIER
+## Block A — Analyse & Optimierung (Hitze, Kräfte)  ⏸️ PAUSIERT (außer A1 ✅)
+> A1 erledigt; Last-Auslastung niedrig (~15–30 %), keine Extrempunkte → Analyse vorerst genug.
 | # | Stage | Status | Notiz |
 |---|---|---|---|
-| A1 | **Torque-/Hitze-Viz-Tool** | 🟡 **aktiv (Plan)** | Quasi-statische Gelenk-Momente (Jᵀ·F) pro Pose → RViz Zahl+Farbe; Sweep → last-optimale (radial,Höhe). Coxa ~0 für Vertikallast (bestätigt User-Intuition). Femur+Tibia = gleicher Servo (35 kg·cm) → Ziel: Momente ausbalancieren. |
-| A2 | **Pose-Optimierung gegen Hitze** | ⚪ | Mit A1 die last-minimale/-gleichmäßige Pose finden; speist in den Lokomotion-Kern (C) ein. |
-| A3 | **Tibia-Längen-/Geometrie-Studie** | 💤 | L_femur 0.080 vs L_tibia 0.200 (2,5×!) → Tibia-lastig. Geometrie-Änderung könnte umverteilen, ABER HW-TABU (Rattenschwanz). **Erst A1 rechnen lassen**, dann entscheiden. |
-| A4 | **Strom-/Thermo-Messung** | ⚪ | Kann Servo2040 Servo-Strom lesen? → echte Messung gegen Modell A1. Belastbarste Hitze-Datenquelle. |
-| A5 | **Selbst-Kollisions-Check (Weg B)** | 💤 | **Bewusst deferiert — wir laufen erstmal OHNE (Weg A, Tibia hart freigeschaltet).** Nachrüsten bei Balance/Terrain/Body-Pose, wo der Check echt triggert. Plan existiert: `docs_raspi/phase_13_stage_1_collision_check_plan.md`. |
-| A6 | **IMU-Integration → Balance** | ⚪ | Eigenes Sensor-Plugin, `/imu/data`; Körper-Leveling, Kipp-Erkennung; Vorstufe Terrain. |
+| A1 | **Torque-/Hitze-Viz-Tool** | 🟢 | joint_load-Modell + Live-RViz (`torque_viz`, Last am Gelenk) + Sweep (`torque_sweep`). Plan/Tests: `A1_torque_viz_plan.md`. Befund: statisch Femur>Tibia, Peak niedrig. |
+| A2 | **Pose-Optimierung gegen Hitze** | ⏸️ | Mit A1 die last-minimale/-gleichmäßige Pose festziehen. Pausiert (keine Extrempunkte gesehen). |
+| A3 | **Tibia-Längen-/Geometrie-Studie** | ⏸️ | Nur falls Hitze später doch kritisch (HW-TABU, erst A1-Modell rechnen). |
+| A4 | **Selbst-Kollisions-Check (Weg B)** | ⏸️ | Bewusst OHNE (Weg A, Tibia hart freigeschaltet). Nachrüsten bei Balance/Terrain/Body-Pose. Plan: `docs_raspi/phase_13_stage_1_collision_check_plan.md`. |
+| A5 | **IMU-Integration → Balance** | ⏸️ | Eigenes Sensor-Plugin, `/imu/data`; Körper-Leveling, Kipp-Erkennung; Vorstufe Terrain. |
 
-## Block B — Teleop / Steuerungs-UX
+## Block B — Lokomotion-Kern  ⬅ ALS NÄCHSTES
 | # | Stage | Status | Notiz |
 |---|---|---|---|
-| B1 | **PS4 USB-Steuerung** | 🟢 | Läuft (Sim + aufgebockt). R1=Deadman + D-Pad. |
-| B2 | **Live-Verstell-Backend (Höhe/Schritt/Gangart)** | ⚪ | Backend großteils da (ROS-Params + cmd_body_height). Sauberer Param-Bridge-Pfad Controller→Param + STANDING-Schutz. |
-| B3 | **PS4-Belegung erweitern** | ⚪ | Tasten für Höhe/Schrittweite/Hub/Gangart/Tempo; klare Modi (Fahr- vs Trim-Modus). Nutzt B2. |
-| B4 | **Bluetooth** | ⚪ | `ps4_bt.yaml`-Profil + Pairing; erst wenn USB rund. + Comms-Loss → sicherer Stopp. |
+| B1 | **Hinsetz-/Abschalt-Sequenz** | ⚪ | Umkehrung des Aufstehens: Walk-Pose → Füße raus (Rück-Reposition) → Körper sanft absenken → Relay/Servos lösen. Inkl. graceful-shutdown VOR Stromtrennung (Servos zentrieren beim Power-Off). **Wichtig für sicheren Realbetrieb.** |
+| B2 | **Velocity-Feedforward (Zittern-Fix)** | ⚪ | Soll-Geschwindigkeit in die Trajectory-Punkte → JTC interpoliert durch statt Stop-pro-Punkt. `tfs_factor` mildert nur. |
+| B3 | **Weitere Gangarten** | ⚪ | Wave/metachronal (stabilste, 5 Beine tragen → senkt Tibia-Last ~40 %), Ripple, Tetrapod. Billig: `GaitPattern`-Einträge. + Gangart-Wechsel im Lauf. |
+| B4 | **Body-Pose ohne Laufen + „Show"-Pose** | ⚪ | Körper neigen/verlagern auf Stützbeinen; 2 Vorderbeine frei in der Luft bewegen (winken/„graben"/Spinnen-Pose). Statisch = CoG im Rest-Stützpolygon (nutzt joint_load CoG/Polygon aus A1). Erst gescriptete Posen, dann interaktiv. ⚠️ Framing mit User final klären. |
+| B5 | **Volle 5 cm Körperhöhe (−0.130)** | 💤 | Standup kann −0.130 nicht direkt; bräuchte Body-Lift-in-Reposition (`standup_body_height` + Reposition interpoliert Höhe mit). Erst falls 4 cm nicht reichen. |
 
-## Block C — Lokomotion-Kern
+## Block C — Teleop / Steuerungs-UX
 | # | Stage | Status | Notiz |
 |---|---|---|---|
-| C1 | **Hinsetz-/Abschalt-Sequenz** | ⚪ | Umkehrung des Aufstehens: Walk-Pose → Füße raus (Rück-Reposition) → Körper sanft absenken → Relay/Servos lösen. Inkl. graceful-shutdown VOR Stromtrennung (Servos zentrieren beim Power-Off). **Wichtig für sicheren Realbetrieb.** |
-| C2 | **Velocity-Feedforward (Zittern-Fix)** | ⚪ | Soll-Geschwindigkeit in die Trajectory-Punkte → JTC interpoliert durch statt Stop-pro-Punkt. `tfs_factor` mildert nur. |
-| C3 | **Weitere Gangarten** | ⚪ | Wave/metachronal (stabilste, 5 Beine tragen → **senkt Tibia-Last/Hitze ~40%**), Ripple, Tetrapod. Billig: `GaitPattern`-Einträge. + Gangart-Wechsel im Lauf. **Synergie mit Block A** (Last-Reduktion). |
-| C4 | **Body-Pose ohne Laufen + „Show"-Pose** | ⚪ | Körper neigen/verlagern auf Stützbeinen; 2 Vorderbeine frei in der Luft bewegen (winken/„graben"/Spinnen-Pose). Statisch = CoG muss im Rest-Stützpolygon bleiben (nutzt Torque/CoG-Tool A1). Erst gescriptete Posen, dann interaktiv. ⚠️ **Framing mit User final klären** (gescriptete Spaß-Pose vs. Balance-Capability). |
-| C5 | **Volle 5 cm Körperhöhe (−0.130)** | 💤 | Standup kann −0.130 nicht direkt; bräuchte Body-Lift-in-Reposition (`standup_body_height` + Reposition interpoliert Höhe mit). Erst falls 4 cm nicht reichen. |
+| C1 | **PS4 USB-Steuerung** | 🟢 | Läuft (Sim + aufgebockt). R1=Deadman + D-Pad. |
+| C2 | **Live-Verstell-Backend (Höhe/Schritt/Gangart)** | ⚪ | Backend großteils da (ROS-Params + cmd_body_height). Sauberer Param-Bridge-Pfad Controller→Param + STANDING-Schutz. |
+| C3 | **PS4-Belegung erweitern** | ⚪ | Tasten für Höhe/Schrittweite/Hub/Gangart/Tempo; klare Modi (Fahr- vs Trim-Modus). Nutzt C2. |
+| C4 | **Bluetooth** | ⚪ | `ps4_bt.yaml`-Profil + Pairing; erst wenn USB rund. + Comms-Loss → sicherer Stopp. |
 
 ## Block D — Hardware-Bring-up / Plattform
 | # | Stage | Status | Notiz |
@@ -55,17 +56,18 @@
 | # | Stage | Status | Notiz |
 |---|---|---|---|
 | E1 | **Fehler-/Safe-State im Realbetrieb** | ⚪ | Definiertes Verhalten bei Overcurrent/Watchdog/IKError/Comms-Loss im Lauf (freeze → hinsetzen?). |
-| E2 | **Terrain / Foot-Contact-Sensorik** | 💤 | Fuß-Schalter (im URDF conditional) → adaptiver Touchdown, unebener Boden, Schlupf/Sturz-Erkennung. **Binär = Kontakt, nicht Kraft** (nicht für Hitze). Auf flachem Boden jetzt kein Gewinn → mit Balance/Terrain. |
+| E2 | **Terrain / Foot-Contact-Sensorik** | 💤 | Fuß-Schalter (im URDF conditional) → adaptiver Touchdown, unebener Boden, Schlupf/Sturz-Erkennung. **Binär = Kontakt, nicht Kraft.** Auf flachem Boden jetzt kein Gewinn → mit Balance/Terrain. |
 | E3 | **Preset-/Config-Management** | ⚪ | „Default-Walk"-Preset, gespeicherte Profile, sauberes Laden. |
 
 ---
 
 ## Empfohlene Reihenfolge (grob, Abhängigkeiten)
-1. **A1 Torque-/Hitze-Tool** (+ **A2 Pose-Opt**) — Analyse zuerst; liefert die Datengrundlage für den Lokomotion-Kern + die Geometrie-Frage (A3).
-2. **C1 Hinsetzen** + **C3 Wave-Gait** — Betriebssicherheit + Last-Reduktion (nutzt A-Erkenntnisse).
-3. **C2 Feedforward** (Gangbild) · **B2/B3 Teleop-Verstellung**.
-4. **D1 Pi** · **D2 Elektrik** + **D3/D4** — Weg zu untethered (parallel vorbereitbar).
-5. **B4 BT · A5/A6 Balance · E** — nach dem Kern.
+1. **Block B — Lokomotion-Kern:** **B1 Hinsetzen** (Betriebssicherheit) + **B3 Wave-Gait**
+   (stabiler, last-ärmer), dann **B2 Feedforward** (Gangbild), **B4 Body-Pose/Show**.
+2. **Block C — Teleop:** **C2/C3 Live-Verstellung + Belegung**, dann **C4 BT**.
+3. **Block D — Plattform:** **D1 Pi** + **D2 Elektrik** + **D3/D4** (Weg zu untethered, parallel vorbereitbar).
+4. **Block E — Robustheit** + (bei Bedarf reaktiviert) **Block A** (A2/A3/A4/A5).
 
-> Bei Beginn einer Stage: Plan-Doku nach `CLAUDE.md` §4 (Plan→Freigabe→Tests→Self-Review),
-> Arbeits-Detail nach `docs_raspi/` (oder hier als Stage-Datei), Referenz nach `project_architecture/`.
+> Bei Beginn einer Stage: Plan-Doku nach `CLAUDE.md` §4 (Plan→Freigabe→Tests→Self-Review)
+> **+ eine Test-Markdown** (`<stage>_test_commands.md`, je Stage). Arbeits-Detail nach
+> `docs_raspi/` oder hier als Stage-Datei; Referenz nach `project_architecture/`.

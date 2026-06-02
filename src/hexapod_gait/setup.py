@@ -37,6 +37,8 @@ setup(
             'stand_node = hexapod_gait.stand_node:main',
             'gait_node = hexapod_gait.gait_node:main',
             'reachability_viz = hexapod_gait.reachability_viz:main',
+            'torque_viz = hexapod_gait.torque_viz:main',
+            'pose_publisher = hexapod_gait.pose_publisher:main',
         ],
     },
 )
