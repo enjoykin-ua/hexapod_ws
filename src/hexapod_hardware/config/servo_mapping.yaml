@@ -110,29 +110,29 @@ servo2040_output_to_joint:
   # ---- Leg 1 — front-right ----
   0:  { joint: leg_1_coxa_joint,  pulse_min: 1145, pulse_zero: 1460, pulse_max: 1700, direction: -1 }
   1:  { joint: leg_1_femur_joint, pulse_min: 1030, pulse_zero: 1700, pulse_max: 2350, direction:  1 }
-  2:  { joint: leg_1_tibia_joint, pulse_min: 1158, pulse_zero: 1710, pulse_max: 2135, direction: -1 }
+  2:  { joint: leg_1_tibia_joint, pulse_min:  648, pulse_zero: 1710, pulse_max: 2135, direction: -1 }
 
   # ---- Leg 2 — mid-right (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
   3:  { joint: leg_2_coxa_joint,  pulse_min: 1375, pulse_zero: 1575, pulse_max: 1750, direction: -1 }
   4:  { joint: leg_2_femur_joint, pulse_min: 1090, pulse_zero: 1780, pulse_max: 2370, direction:  1 }
-  5:  { joint: leg_2_tibia_joint, pulse_min: 1168, pulse_zero: 1720, pulse_max: 2145, direction: -1 }
+  5:  { joint: leg_2_tibia_joint, pulse_min:  658, pulse_zero: 1720, pulse_max: 2145, direction: -1 }
 
   # ---- Leg 3 — back-right ----
   6:  { joint: leg_3_coxa_joint,  pulse_min: 1200, pulse_zero: 1410, pulse_max: 1745, direction: -1 }
   7:  { joint: leg_3_femur_joint, pulse_min: 1010, pulse_zero: 1690, pulse_max: 2340, direction:  1 }
-  8:  { joint: leg_3_tibia_joint, pulse_min: 1058, pulse_zero: 1610, pulse_max: 2035, direction: -1 }
+  8:  { joint: leg_3_tibia_joint, pulse_min:  548, pulse_zero: 1610, pulse_max: 2035, direction: -1 }
 
   # ---- Leg 4 — back-left ----
   9:  { joint: leg_4_coxa_joint,  pulse_min: 1200, pulse_zero: 1520, pulse_max: 1700, direction: -1 }
   10: { joint: leg_4_femur_joint, pulse_min:  670, pulse_zero: 1295, pulse_max: 1970, direction: -1 }
-  11: { joint: leg_4_tibia_joint, pulse_min:  893, pulse_zero: 1318, pulse_max: 1870, direction:  1 }
+  11: { joint: leg_4_tibia_joint, pulse_min:  893, pulse_zero: 1318, pulse_max: 2381, direction:  1 }
 
   # ---- Leg 5 — mid-left (re-cal nach Mount-Tausch leg_2↔leg_5, 2026-05-24) ----
   12: { joint: leg_5_coxa_joint,  pulse_min: 1350, pulse_zero: 1550, pulse_max: 1750, direction: -1 }
   13: { joint: leg_5_femur_joint, pulse_min:  690, pulse_zero: 1325, pulse_max: 1980, direction: -1 }
-  14: { joint: leg_5_tibia_joint, pulse_min:  991, pulse_zero: 1416, pulse_max: 1968, direction:  1 }
+  14: { joint: leg_5_tibia_joint, pulse_min:  991, pulse_zero: 1416, pulse_max: 2479, direction:  1 }
 
   # ---- Leg 6 — front-left (Phase 10 stack-verified + Stage C confirmed 2026-05-24) ----
   15: { joint: leg_6_coxa_joint,  pulse_min: 1290, pulse_zero: 1530, pulse_max: 1870, direction: -1 }
   16: { joint: leg_6_femur_joint, pulse_min:  655, pulse_zero: 1290, pulse_max: 1955, direction: -1 }
-  17: { joint: leg_6_tibia_joint, pulse_min:  926, pulse_zero: 1351, pulse_max: 1904, direction:  1 }
+  17: { joint: leg_6_tibia_joint, pulse_min:  926, pulse_zero: 1351, pulse_max: 2414, direction:  1 }

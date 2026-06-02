@@ -32,11 +32,16 @@
   <xacro:property name="coxa_upper"   value=" 1.57"/>
   <xacro:property name="femur_lower"  value="-1.57"/>
   <xacro:property name="femur_upper"  value=" 1.57"/>
-  <!-- Stage 0.6.6 (2026-06-01): Tibia asymmetrisch -1.00 / +1.30 (einseitiges
-       Knie). Spiegelt config.py::_TIBIA_LIMITS (Cross-Check test_config.py) und
-       die per-Bein-Overrides in hexapod.urdf.xacro. -->
+  <!-- Stage 1 / Teil 2.1 (2026-06-02): Tibia-Beuge auf das strikt-symmetrische
+       Mechanik-Maximum +2.50 (143°) freigeschaltet (war +1.30, konservativ).
+       Einseitiges Knie: Streck -1.00 bleibt (nie genutzt). +2.50 = größter Wert,
+       den ALLE 6 Servos puls-seitig erreichen (leg_5-bound, Reserve fürs
+       pulse_zero-Peilrauschen). Spiegelt config.py::_TIBIA_LIMITS (Cross-Check
+       test_config.py) + die per-Bein-Overrides in hexapod.urdf.xacro.
+       Sicherheit pose-abhängig (Femur beim Laufen oben) per Design-Zeit-Envelope,
+       kein Laufzeit-Check (Weg B deferred). Plan: phase_13_stage_1_tibia_unlock_plan.md. -->
   <xacro:property name="tibia_lower"  value="-1.00"/>
-  <xacro:property name="tibia_upper"  value=" 1.30"/>
+  <xacro:property name="tibia_upper"  value=" 2.50"/>
   <xacro:property name="joint_effort"   value="5.0"/>  <!-- effort/velocity: vom Servo-DB -->
   <xacro:property name="joint_velocity" value="2.0"/>
 

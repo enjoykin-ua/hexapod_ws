@@ -55,10 +55,13 @@ _FOOT_RADIUS = 0.008
 
 _COXA_LIMITS = (-1.57, 1.57)
 _FEMUR_LIMITS = (-1.57, 1.57)
-# Phase 13 Stage 0.6.6 (2026-06-01): Tibia asymmetrisch (-1.00, 1.30) — konsistent
-# zur URDF (hexapod.urdf.xacro). Einseitiges Knie: Beuge +1.30 voll genutzt,
-# Streck -1.00 nie. War (-1.50, 1.50) — looser als URDF (Memory two_joint_limit_sources).
-_TIBIA_LIMITS = (-1.00, 1.30)
+# Phase 13 Stage 1 / Teil 2.1 (2026-06-02): Tibia-Beuge auf Mechanik-Max
+# (-1.00, 2.50) freigeschaltet (war 1.30) — konsistent zur URDF
+# (hexapod.urdf.xacro, Cross-Check test_config.py). Einseitiges Knie: Beuge +2.50
+# (143°) jetzt voll nutzbar (feet-closer Lauf-Pose), Streck -1.00 nie.
+# +2.50 = strikt-symmetrisch, von allen 6 Servos puls-seitig erreichbar (leg_5-bound).
+# Plan: docs_raspi/phase_13_stage_1_tibia_unlock_plan.md (Memory two_joint_limit_sources).
+_TIBIA_LIMITS = (-1.00, 2.50)
 
 # Body dimensions for mountpoint computation (mirrored from xacro).
 _BODY_LENGTH = 0.175

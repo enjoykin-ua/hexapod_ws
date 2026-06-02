@@ -21,8 +21,11 @@ base_link (via mount_yaw/mount_xyz), und publisht zwei Punkt-Wolken:
   - **rot**  : ZUSAETZLICH erreichbar mit der vollen kalibrierten Tibia-Beuge
                (``tibia_full_upper``, default ~150° aus Stage 0.6.5).
 
-Der rote Bereich = der verschenkte Fuss-Raum, den das konservative +1.30-Limit
-aktuell abschneidet (Stage-1-Motivation).
+Seit Stage 1 Teil 2.1 (2026-06-02) ist das URDF-Tibia-Limit auf +2.50 (143°)
+freigeschaltet (war +1.30) — die blaue Wolke reicht jetzt bis +2.50, rot zeigt
+nur noch den schmalen Rest bis zum Mechanik-Max (tibia_full_upper). Vor dem
+Unlock war der rote Bereich der vom konservativen +1.30-Limit abgeschnittene
+verschenkte Fuss-Raum (Stage-1-Motivation).
 
 Parameter (live setzbar, Re-Publish alle ~1.5 s):
   - ``leg``              : 'leg_1'..'leg_6' (default 'leg_1') oder 'all'.

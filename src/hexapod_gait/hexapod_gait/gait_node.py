@@ -189,7 +189,7 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             'Radialer Foot-Neutral-Abstand vom Coxa-Mount '
             'im Bein-Frame (m). Phase 13 Stage 0.4: Default 0.295 (war 0.27). '
             'Weiter gestreckt -> Tibia knickt weniger -> in URDF-Limit '
-            '(Tibia -1.00/+1.30 ab Stage 0.6.6). Gueltige '
+            '(Tibia -1.00/+2.50 ab Stage 1 Teil 2.1; war +1.30). Gueltige '
             '(body_height, radial)-Paare siehe '
             'phase_13_stage_0_4_standup_plan.md Tab. 3.3. '
             'Live-Update nur in STANDING (Stand-Pose-Reset).'

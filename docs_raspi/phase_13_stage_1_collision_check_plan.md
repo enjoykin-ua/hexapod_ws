@@ -1,11 +1,23 @@
 # Phase 13 Stage 1 / Teil 2 — Selbst-Kollisions-Check (Weg B-Voll) + Lauf-Reichweite freischalten
 
-> **STATUS: ⚪ PLAN — erstellt 2026-06-01. Zu reviewen NACH der RViz-Stage (Teil 1).**
-> Entscheidung (User 2026-06-01): **Weg B-Voll** — ein geometrie-getriebener
-> Selbst-Kollisions-Check (Fuß + Tibia-Segment vs Body) statt eines starren konstanten
-> Tibia-Limits. Begründung + Befund: `phase_13_stage_1_walk_optimization_plan.md` §4.2.0
-> (das Tibia-Beuge-Limit ist **femur-gekoppelt** → ein konstanter Wert ist konzeptionell
-> falsch; der Check hängt von Maßen/Längen ab, nicht hardkodiert).
+> **STATUS: ⏸️ DEFERRED — verschoben (Re-Decision User 2026-06-02).**
+> Für das **reine Vorwärts-/Omni-Laufen** (Stage 1) wird der Laufzeit-Kollisions-Check
+> **nicht gebraucht**: Gait + Standup halten den Femur immer oben und die Füße außen,
+> die kollisionsgefährdete Ecke wird nie kommandiert. Stattdessen wurde das Tibia-Limit
+> hart auf das strikt-symmetrische Mechanik-Max **+2.50** freigeschaltet (Weg A), mit
+> Design-Zeit-Sicherheit per Envelope-Check. Umsetzung:
+> **[`phase_13_stage_1_tibia_unlock_plan.md`](phase_13_stage_1_tibia_unlock_plan.md)**.
+>
+> **Dieser Plan (Weg B) bleibt gültig und wird nachgerüstet, wenn dynamische Posen
+> dazukommen** (Balance / unebener Boden / Body-Pose-Teleop) — dort triggert der Check
+> echt und ist die saubere, geometrie-getriebene Lösung. Begründung des femur-gekoppelten
+> Befunds weiter unten + in `phase_13_stage_1_walk_optimization_plan.md` §4.2.0.
+>
+> ---
+>
+> **(historisch) Entscheidung 2026-06-01:** Weg B-Voll — geometrie-getriebener
+> Selbst-Kollisions-Check (Fuß + Tibia-Segment vs Body) statt starrem konstantem
+> Tibia-Limit. Am 2026-06-02 für Stage 1 zugunsten Weg A (hart freischalten) zurückgestellt.
 
 ---
 

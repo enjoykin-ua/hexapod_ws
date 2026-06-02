@@ -13,11 +13,15 @@
 > `view_reach.rviz` + Benutzungs-Doku `phase_13_stage_1_reachability_viz_test_commands.md`.
 > Gebaut + getestet (FK verifiziert), committed. **Live umschaltbar** (`leg:=leg_N`/`all`).
 >
-> **➡️ TEIL 2+ — entschieden: Weg B-Voll (Selbst-Kollisions-Check).** Zentraler Befund
-> (User-Handtest): **das Tibia-Beuge-Limit ist FEMUR-GEKOPPELT** (Body-Kollision) → ein
-> konstantes Limit ist falsch (§4.2.0). Lösung = geometrie-getriebener Kollisions-Check.
-> **Eigener Plan (zu reviewen NACH der RViz-Stage):
-> [`phase_13_stage_1_collision_check_plan.md`](phase_13_stage_1_collision_check_plan.md).**
+> **➡️ TEIL 2 — RE-DECISION 2026-06-02: Weg A (hart freischalten).** Zentraler Befund
+> (User-Handtest): das Tibia-Beuge-Limit ist FEMUR-GEKOPPELT (Body-Kollision, §4.2.0).
+> **Aber:** beim Laufen/Aufstehen ist der Femur immer oben → die gefährliche Ecke wird
+> nie kommandiert. Daher wird das Tibia-Limit hart auf das strikt-symmetrische
+> Mechanik-Max **+2.50** freigeschaltet (Sicherheit per Design-Zeit-Envelope), statt
+> einen Laufzeit-Kollisions-Check zu bauen. **Umsetzungs-Plan:
+> [`phase_13_stage_1_tibia_unlock_plan.md`](phase_13_stage_1_tibia_unlock_plan.md).**
+> Der Kollisions-Check (Weg B) ist **deferred** auf Balance/Terrain
+> ([`phase_13_stage_1_collision_check_plan.md`](phase_13_stage_1_collision_check_plan.md)).
 
 ---
 
@@ -179,18 +183,21 @@ Femur beim Laufen oben ist.*
 > ⚠️ **Offene Sub-Frage (§7.10):** Kollidiert „Femur-unten + Tibia-90°" mit dem
 > **Body**, dem **Boden** oder dem eigenen **Femur**? (Boden = aufgebockt irrelevant.)
 
-#### 4.2.1 ✅ ENTSCHEIDUNG (User 2026-06-01): Weg B-Voll
-Statt eines starren konstanten Tibia-Limits → ein **geometrie-getriebener
-Selbst-Kollisions-Check** (Fuß + Tibia-Segment vs Body), der die Femur-Tibia-Kopplung
-exakt erfasst (hängt von Maßen/Längen ab, nicht hardkodiert). Das Tibia-Joint-Limit darf
-dann aufs mechanische Maximum, der Check macht die pose-abhängige Sicherheit. Damit wird
-die feet-closer Lauf-Pose sicher möglich.
+#### 4.2.1 ✅ RE-DECISION (User 2026-06-02): Weg A — hart freischalten auf +2.50
+Ursprünglich (2026-06-01) war Weg B-Voll (Laufzeit-Kollisions-Check) beschlossen. Nach
+Durcharbeiten der Reachability-Viz + Limit-Mechanik (siehe unten) **Re-Decision auf Weg A**:
+das Tibia-Limit wird hart auf das **strikt-symmetrische Mechanik-Max +2.50 (143°)**
+freigeschaltet. Begründung: beim Laufen/Aufstehen ist der Femur immer oben → die
+femur-gekoppelte Kollisions-Ecke wird **nie kommandiert**; die Sicherheit liefert die
+**Design-Zeit-Validierung** (`walking_`/`standup_envelope_check`) + HW-aufgebockt-Verify,
+nicht ein Laufzeit-Check. +2.50 statt +2.60, weil +2.60 puls-seitig nicht von allen 6
+Servos uniform erreichbar ist (leg_5-bound) → Stage-F-Symmetrie bliebe sonst nicht erhalten.
 
-> **→ Der gesamte „Rest" (Kollisions-Check, Limit-Anhebung, feet-closer Pose, Re-Tune,
-> Zwei-Phasen) ist im eigenen Plan ausgearbeitet:**
+> **→ Umsetzungs-Plan (Limit-Unlock + feet-closer Pose + Re-Tune):**
+> **[`phase_13_stage_1_tibia_unlock_plan.md`](phase_13_stage_1_tibia_unlock_plan.md)**
+> (freigegeben, in Umsetzung). Der Kollisions-Check (Weg B) ist **deferred**:
 > **[`phase_13_stage_1_collision_check_plan.md`](phase_13_stage_1_collision_check_plan.md)**
-> (zu reviewen NACH der RViz-Stage). Die alte Weg-A/B-Diskussion + die alten Teile 3/4
-> wurden dorthin überführt / sind dort als Teil 2a–2d strukturiert.
+> bleibt gültig für Balance/Terrain/Body-Teleop, wo der Check echt triggert.
 
 ---
 
@@ -209,7 +216,7 @@ die feet-closer Lauf-Pose sicher möglich.
 - [x] 1.2  Zwei-Wolken-Overlay: blau=aktuelles URDF-Limit (live xacro), rot=volle kalibrierte Tibia (`tibia_full_upper` default 2.60≈149°)
 - [x] 1.3  Param `leg` (leg_1..6 / 'all'), live umschaltbar; `resolution`/`tibia_full_upper` parametrierbar
 - [x] 1.4  `reachability_viz.launch.py` + `view_reach.rviz`; Build grün; FK-Stichprobe vs Modell verifiziert (leg_1 @0 → base (0.316,−0.294,0)); Benutzungs-Doku `phase_13_stage_1_reachability_viz_test_commands.md`
-- [ ] 1.5  User sieht die Hülle + den verschenkten roten Raum (RViz-Live)
+- [x] 1.5  User sieht die Hülle + den verschenkten roten Raum (RViz-Live, 2026-06-02): blau/rot unterscheidbar, rot wächst nach innen/unten (verschenkter Raum bestätigt), Beine umschaltbar + symmetrisch + nicht überlappend (Bein-Bein-Kollision moot), Slider klemmt bei +1.30 (= URDF-Wahrheit, Wolke nur Vorschau). Darstellung ok.
 ```
 **Teil 2+ (Kollisions-Check Weg B-Voll → Limit → feet-closer Pose → Re-Tune → Zwei-Phasen):**
 Checkliste (2a–2d) im **[`phase_13_stage_1_collision_check_plan.md`](phase_13_stage_1_collision_check_plan.md) §4.**

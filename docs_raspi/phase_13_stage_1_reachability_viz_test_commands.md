@@ -77,10 +77,14 @@ ros2 launch hexapod_gait reachability_viz.launch.py with_jsp_gui:=false   # ohne
 - Die **gesamte Wolke** (blau+rot) = das 3D-Volumen, in dem der Fuß *überhaupt* sein kann.
   - **Coxa** (±24°) fächert links-rechts, **Femur** (±90°) hoch-runter, **Tibia** nah↔fern.
 - 🔴 **Rot wächst nach innen/unten** — dorthin bringt die stärkere Beugung den Fuß
-  *näher an den Körper*. Genau das brauchen wir für die feet-closer Lauf-Pose (Teil 3):
-  rot = der Raum, den das konservative +1.30-Limit aktuell abschneidet.
-- Mit den **Slidern** ein Bein in die rote Zone fahren → du siehst, wie weit es *ginge*,
-  wenn wir das Limit anheben.
+  *näher an den Körper*. Genau das brauchen wir für die feet-closer Lauf-Pose (Teil 2.2).
+- **⚠️ Update Stage 1 Teil 2.1 (2026-06-02):** Das URDF-Tibia-Limit ist jetzt auf
+  **+2.50 (143°)** freigeschaltet (war +1.30). Damit reicht der **Slider** (er liest die
+  URDF-Limits) **jetzt bis +2.50** — du kannst das Bein also in den *früher* roten
+  Bereich fahren. Die **blaue** Wolke reicht entsprechend bis +2.50; **rot** zeigt nur
+  noch den schmalen Rest bis zum Mechanik-Max (`tibia_full_upper`, default 2.60).
+  *(Vor dem Unlock klemmte der Slider bei +1.30 und die rote Zone war Vorschau —
+  `tibia_full_upper` ändert nur die Wolke, nicht das URDF-Limit/den Slider.)*
 
 ---
 
