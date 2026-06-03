@@ -1,0 +1,53 @@
+# PS4-Controller via BLUETOOTH — joy_to_twist-Mapping (Block C4).
+#
+# Startwert = Kopie von ps4_usb.yaml. Auf Ubuntu 24.04 (Kernel-Treiber
+# hid-playstation) meldet der DS4 über USB und BT meist DASSELBE Achsen-/
+# Button-Layout → diese Indizes sollten passen.
+#
+# ⚠️ TROTZDEM LIVE VERIFIZIEREN (BT kann je nach Treiber/Kernel abweichen):
+#   ros2 topic echo /joy
+# Sticks/Buttons bewegen, Indizes + Vorzeichen prüfen, hier korrigieren.
+# Laden:  ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt
+joy_to_twist:
+  ros__parameters:
+    # --- Sticks (omnidirektional analog) ---
+    axis_lx: 0            # linker Stick X  → seitwärts (linear.y)
+    axis_ly: 1            # linker Stick Y  → vor/zurück (linear.x)
+    axis_rx: 3            # rechter Stick X → drehen (angular.z)
+    sign_lx: 1.0
+    sign_ly: 1.0
+    sign_rx: 1.0
+    deadzone: 0.10
+
+    # --- Trigger L2/R2 → Body-Höhe ---
+    axis_l2: 2            # L2 analog (idle=+1, gedrückt=-1)
+    axis_r2: 5            # R2 analog
+    trigger_threshold: 0.5
+
+    # --- Buttons ---
+    deadman_button: 5     # R1 — Fahren nur während gehalten
+    slow_button: 4        # L1 — langsam (Skalen × slow_factor)
+    button_triangle: 2    # Sit/Stand-Toggle (Druck)
+    button_circle: 1      # Shutdown (lang halten)
+    button_cross: 0       # Show-Pose-Hook (lang halten; Verhalten = B4)
+    longpress_sec: 0.8
+
+    # --- D-Pad (Gangart + Schrittweite) ---
+    axis_dpad_x: 6        # ←/→ : Gangart vorige/nächste (rechts=next)
+    axis_dpad_y: 7        # ↑/↓ : Schrittweite größer/kleiner
+    sign_dpad_x: 1.0
+    sign_dpad_y: 1.0
+    dpad_threshold: 0.5
+    dpad_lockout_sec: 0.3 # Debounce gegen Doppel-Trigger (HAT-Flackern)
+
+    # --- Skalen (matchen Engine-Limits) ---
+    linear_x_scale: 0.05
+    linear_y_scale: 0.05
+    angular_z_scale: 0.46
+    slow_factor: 0.5
+
+    # --- Body-Height (Topic-Pfad; gait_node clampt zusätzlich) ---
+    body_height_init: -0.120
+    body_height_step: 0.01
+    body_height_min: -0.120
+    body_height_max: -0.030

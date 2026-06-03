@@ -27,8 +27,9 @@ def generate_launch_description() -> LaunchDescription:
         'controller',
         default_value='ps4_usb',
         description=(
-            'Controller-Profilname (ohne .yaml). Aktuell verfügbar: '
-            'ps4_usb. Stufe B fügt ps4_bt + ps5 hinzu.'
+            'Controller-Profilname (ohne .yaml) aus config/. Verfügbar: '
+            'ps4_usb (USB) | ps4_bt (Bluetooth, C4). Lädt '
+            'config/<controller>.yaml.'
         ),
     )
 

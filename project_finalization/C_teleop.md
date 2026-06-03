@@ -15,7 +15,7 @@
 | C1 | PS4 USB Grund-Steuerung (Fahren/Höhe/Dead-Man) | 🟢 vorhanden (Phase 6); wird in **C1+** erweitert | `docs/phase_6_stage_A_test_commands.md` |
 | **C1+** | Sticks omnidirektional + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook | 🟢 **fertig** (SIM+HW 2026-06-03) | [`C1plus_test_commands.md`](C1plus_test_commands.md) |
 | C2 | Live-Param/Intent-Bridge (Gangart-Wechsel + Schrittweite) | 🟢 **fertig** (SIM 2026-06-03; HW via B3+C1+) | [`C2_test_commands.md`](C2_test_commands.md) |
-| C4 | Bluetooth (`ps4_bt.yaml` + Pairing) | ⚪ nach USB | (später) |
+| C4 | Bluetooth (`ps4_bt.yaml` + Pairing) | 🟢 **fertig** (DS4 via BT verbunden 2026-06-03) | [`C4_test_commands.md`](C4_test_commands.md) |
 
 > **Reihenfolge (User 2026-06-03):** erst **USB** komplett (C1+), dann **C2** (Param-Bridge),
 > dann **C4 Bluetooth**. Show-Pose-Verhalten hängt an **Block B4** (pausiert) — hier nur Hook.
@@ -203,10 +203,27 @@ Param-Mutation + State-Guards + Persistenz die komplexere Hälfte sind.
 
 ---
 
-## C4 — Bluetooth  ⚪ (nach USB)
-`ps4_bt.yaml` (BT-Achsen/Button-Indizes weichen ab → per `ros2 topic echo /joy` bestätigen) +
-Pairing-Anleitung. Comms-Loss → bestehender **B1-Fail-safe** (`comms_loss_sitdown_timeout`).
-`joy_teleop.launch.py` hat schon `controller:=`-Argument (Default `ps4_usb`) → `ps4_bt` ergänzen.
+## C4 — Bluetooth  🟡 (Profil+Doc fertig, Pairing/Live-Verify offen)
+
+**Erledigt (2026-06-03):** `config/ps4_bt.yaml` (Kopie von ps4_usb, da `hid-playstation` USB/BT
+meist gleich; live verifizierbar) + Konsistenz-Test (`test_bt_config.py`: gleiche Param-Keys) +
+Launch-Arg-Beschreibung + Test-Doc [`C4_test_commands.md`](C4_test_commands.md) (headless
+`bluetoothctl`-Pairing, Pi-tauglich). Kein Teleop-Code (liest `/joy` egal USB/BT). 22 Tests grün.
+
+**Checkliste:**
+```
+- [x] C4.1  config/ps4_bt.yaml (verifizierbare Kopie) + setup.py installiert config/*.yaml
+- [x] C4.2  Launch controller:=ps4_bt (lädt ps4_bt.yaml) — Arg schon vorhanden, Beschreibung ergänzt
+- [x] C4.3  Konsistenz-Test (ps4_bt == ps4_usb Param-Keys); Lint grün
+- [x] C4.4  Test-Doc: headless bluetoothctl-Pairing + Live-Index-Verify + Comms-Loss-Empfehlung
+- [x] C4.5  DS4 via bluetoothctl gekoppelt (bonded+trusted), `/dev/input/js0` über BT (User 2026-06-03)
+- [x] C4.6  BT-Layout = USB (hid-playstation, gleicher Treiber) → ps4_bt.yaml unverändert gültig; Funktionen ok
+```
+
+> **🟢 C4 ABGESCHLOSSEN (2026-06-03):** DS4 koppelt headless via `bluetoothctl` (bonded+trusted →
+> künftig Reconnect per PS-Taste), `/joy` kommt über BT, `hid-playstation`-Treiber meldet
+> identisches Layout wie USB → `ps4_bt.yaml` passt unverändert. Comms-Loss-Fail-safe für BT
+> empfohlen (`comms_loss_sitdown_timeout` >0). DS4-MAC: D0:27:88:3D:68:9A (v054C:p05C4).
 
 **Was sich bei BT bzw. Pi-Wechsel ändert (geklärt 2026-06-03) — Teleop-Logik bleibt gleich:**
 - **BT (C4):** nur das **Index-/Vorzeichen-Mapping** (DS4 meldet über BT ein anderes HID-Layout

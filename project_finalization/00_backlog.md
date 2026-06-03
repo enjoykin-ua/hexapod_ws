@@ -45,7 +45,7 @@
 | C1 | **PS4 USB-Grundsteuerung** | 🟢 | Fahren/Drehen + L2/R2-Höhe + R1-Dead-Man (Phase 6, Sim + aufgebockt). |
 | C2 | **USB-Steuerung erweitert** | 🟢 (2026-06-03) | Linker Stick omnidir. (x/y) + rechter Stick dreh, L1=langsam, L2/R2 ±1 cm Höhe, △ Sit/Stand-Toggle, ○-lang Shutdown, ✕-lang Show-Pose-Hook (B4). Neuer Service `/hexapod_sit_stand_toggle`. SIM+HW(USB) ok. Details: `C_teleop.md`. |
 | C3 | **Live-Verstellung: Gangart + Schrittweite** | 🟢 (2026-06-03) | D-Pad ←/→ Gangart, ↑/↓ Schrittweite via Intents `/hexapod_cycle_gait` + `/hexapod_adjust_step_length` (gait_node cyclt/clampt + STANDING-Schutz; Teleop-Debounce). SIM ok; HW via B3+C2 abgedeckt. |
-| C4 | **Bluetooth** | ⚪ | `ps4_bt.yaml`-Profil + Pairing; erst wenn USB rund. Comms-Loss → B1-Fail-safe. |
+| C4 | **Bluetooth** | 🟢 (2026-06-03) | DS4 via headless-`bluetoothctl` gekoppelt (bonded+trusted, Reconnect per PS-Taste), `/joy` über BT, `hid-playstation`-Layout = USB → `ps4_bt.yaml` unverändert. Doc: `C4_test_commands.md`. Comms-Loss → B1-Fail-safe. |
 
 > **Offen am Ende von Block C (Feinjustage, s. `C_teleop.md`):** Vorzeichen/Skalen/longpress/
 > deadzone; **+ nur envelope-gültige Kombinationen** aus Höhe×Schrittweite×Gangart zulassen
