@@ -35,10 +35,11 @@ können später dazukommen (`controller:=ps4_bt`, `controller:=ps5`).
 | **△ Triangle** (Druck) | **Sit/Stand-Toggle** → `/hexapod_sit_stand_toggle` | gait_node löst nach State auf |
 | **○ Circle** (lang) | **Shutdown** → `/hexapod_shutdown` | Long-Press, terminal (Relay aus) |
 | **✕ Cross** (lang) | **Show-Pose-HOOK** | nur Stub/Log — Verhalten kommt mit Block B4 |
-| **D-Pad** | (frei) | Gangart/Schrittweite folgen in C2 |
+| **D-Pad ←/→** | Gangart vorige/nächste (→ = next) | C2: Intent `/hexapod_cycle_gait`; nur STANDING |
+| **D-Pad ↑/↓** | Schrittweite größer/kleiner | C2: Intent `/hexapod_adjust_step_length`; clampt |
 
 **Tempo:** Dosierung über Stick-Auslenkung (analog) + L1=langsam. „Weiter/schneller"
-über Schrittweite (kommt in C2 auf D-Pad ↑/↓).
+über Schrittweite (D-Pad ↑/↓, C2).
 
 **Höhe-Constraint:** L2/R2 ändern ein lokales Ziel (geclampt auf
 `body_height_min/max`) und publishen `/cmd_body_height`; `gait_node` clampt
@@ -60,7 +61,7 @@ Skalen/Schwellen YAML-tunbar). Defaults:
 | 3 | Rechter Stick X → drehen | 3 | Square (frei) |
 | 4 | Rechter Stick Y (frei, B4) | 4 | L1 (langsam) |
 | 5 | R2 analog | 5 | R1 (Dead-Man) |
-| 6/7 | D-Pad X/Y (frei, C2) | … | … |
+| 6/7 | D-Pad X/Y → Gangart / Schrittweite (C2) | … | … |
 
 > Vorzeichen (`sign_lx/ly/rx`) und Indizes USB vs BT verifizieren:
 > `ros2 topic echo /joy` und Sticks/Buttons live bewegen.

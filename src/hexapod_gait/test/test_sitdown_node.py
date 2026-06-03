@@ -14,7 +14,7 @@ from hexapod_gait.gait_node import GaitNode
 from hexapod_kinematics import HEXAPOD
 import pytest
 import rclpy
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -38,6 +38,13 @@ def _rad0_joints():
 def _call(handler):
     """Service-Handler mit frischem Trigger.Request/Response aufrufen."""
     return handler(Trigger.Request(), Trigger.Response())
+
+
+def _setbool(handler, data):
+    """SetBool-Handler mit data aufrufen."""
+    req = SetBool.Request()
+    req.data = data
+    return handler(req, SetBool.Response())
 
 
 # ----- Params / Registrierung ----------------------------------------- #
@@ -182,6 +189,47 @@ def test_toggle_rejected_when_walking(node):
     resp = _call(node._on_sit_stand_toggle)
     assert resp.success is False
     assert node._engine.state == GaitEngine.STATE_WALKING
+
+
+# ----- C2: Gangart cyclen + Schrittweite trimmen ---------------------- #
+
+def test_cycle_gait_advances_and_wraps(node):
+    """cycle_gait (next) läuft tripod→wave→tetrapod→ripple→tripod (Wrap)."""
+    assert node._pattern.name == 'tripod'
+    seq = []
+    for _ in range(5):
+        _setbool(node._on_cycle_gait, True)
+        seq.append(node._pattern.name)
+    assert seq == ['wave', 'tetrapod', 'ripple', 'tripod', 'wave']
+    assert node._engine.pattern.name == 'wave'
+
+
+def test_cycle_gait_prev(node):
+    """cycle_gait (data=False) geht rückwärts (tripod→ripple)."""
+    assert node._pattern.name == 'tripod'
+    _setbool(node._on_cycle_gait, False)
+    assert node._pattern.name == 'ripple'
+
+
+def test_cycle_gait_rejected_when_not_standing(node):
+    """cycle_gait nur in STANDING."""
+    node._engine._state = GaitEngine.STATE_WALKING
+    resp = _setbool(node._on_cycle_gait, True)
+    assert resp.success is False
+    assert node._pattern.name == 'tripod'
+
+
+def test_adjust_step_length_clamps(node):
+    """Schrittweite +/- clampt auf [intent_min, intent_max]."""
+    for _ in range(100):
+        _setbool(node._on_adjust_step_length, True)
+    assert node._step_length_max == pytest.approx(node._step_length_intent_max)
+    assert node._engine.step_length_max == pytest.approx(
+        node._step_length_intent_max
+    )
+    for _ in range(100):
+        _setbool(node._on_adjust_step_length, False)
+    assert node._step_length_max == pytest.approx(node._step_length_intent_min)
 
 
 # ----- Comms-Loss-Fail-safe ------------------------------------------- #

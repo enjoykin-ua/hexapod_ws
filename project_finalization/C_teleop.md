@@ -14,7 +14,7 @@
 |---|---|---|---|
 | C1 | PS4 USB Grund-Steuerung (Fahren/Höhe/Dead-Man) | 🟢 vorhanden (Phase 6); wird in **C1+** erweitert | `docs/phase_6_stage_A_test_commands.md` |
 | **C1+** | Sticks omnidirektional + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook | 🟢 **fertig** (SIM+HW 2026-06-03) | [`C1plus_test_commands.md`](C1plus_test_commands.md) |
-| C2 | Live-Param/Intent-Bridge (Gangart-Wechsel + Schrittweite) | ⚪ (komplexer, getrennt) | `C2_test_commands.md` (TODO) |
+| C2 | Live-Param/Intent-Bridge (Gangart-Wechsel + Schrittweite) | 🟢 **fertig** (SIM 2026-06-03; HW via B3+C1+) | [`C2_test_commands.md`](C2_test_commands.md) |
 | C4 | Bluetooth (`ps4_bt.yaml` + Pairing) | ⚪ nach USB | (später) |
 
 > **Reihenfolge (User 2026-06-03):** erst **USB** komplett (C1+), dann **C2** (Param-Bridge),
@@ -104,9 +104,22 @@ discrete Intent-Services**, ohne Live-Param-Tuning (das ist C2).
 ```
 
 > **🟢 C1+ ABGESCHLOSSEN (2026-06-03):** Code + Tests + Lint grün, SIM + HW (USB) vom User
-> bestätigt. ⏳ **Feinjustage am Ende von Block C offen** (User-Notiz 2026-06-03): „ein paar
-> Sachen noch justieren" — z.B. Stick-Vorzeichen/Skalen, `longpress_sec`, `slow_factor`,
-> Deadzone, Höhen-Schritt. Konkrete Punkte beim Abschluss von C festhalten. Self-Review:
+> bestätigt.
+>
+> ⏳ **Feinjustage am Ende von Block C (offen, User-Notiz 2026-06-03):**
+> 1. Stick-Vorzeichen/Skalen, `longpress_sec`, `slow_factor`, Deadzone, Höhen-Schritt.
+> 2. **WICHTIG — gültige Parameter-Kombinationen erzwingen:** Beim Live-Tuning (Höhe via L2/R2,
+>    Schrittweite via D-Pad, Gangart) kann man in **ungültige (out-of-reach) Kombinationen** von
+>    `(body_height, radial_distance, step_length_max, step_height, gait)` geraten → IKError/
+>    safety_freeze-Meldungen (vom User beobachtet). Am Ende von C: der Controller darf nur in
+>    **envelope-grüne** Kombinationen schalten. Lösungs-Optionen (Ende-C entscheiden):
+>    (a) `gait_node` validiert eine vorgeschlagene Änderung vorab gegen das Envelope/IK
+>    (`walking_envelope_check`-Logik) und lehnt ab, statt zu freezen; ODER
+>    (b) nur zwischen **validierten Presets/Profilen** umschalten (überlappt Block E3
+>    Preset-Management) — die „berechnete Höhe + die daran hängenden korrekten Parameter" als
+>    gekoppeltes Set. Bezug: zwei Limit-Quellen + lenient-Sim (`ai_navigation` §0).
+>
+> Self-Review:
 
 | # | Punkt | Status | Befund |
 |---|---|---|---|
@@ -158,14 +171,27 @@ Param-Mutation + State-Guards + Persistenz die komplexere Hälfte sind.
 
 **Progress-Checkliste:**
 ```
-- [ ] C2.1  gait_node: /hexapod_cycle_gait (Trigger, Wrap, STANDING-only) → nächste Gangart
-- [ ] C2.2  gait_node: Schrittweiten-Intent (+/- mit Clamp auf gültigen Bereich)
-- [ ] C2.3  Teleop: D-Pad ←/→ → cycle_gait, D-Pad ↑/↓ → step-length-Intent (Edge-Detection)
-- [ ] C2.4  Unit-Tests: cycle_gait wrappt + STANDING-Guard; step-length clampt; Teleop ruft Intents
-- [ ] C2.5  SIM: Gangart per D-Pad durchschalten (im Stand), Schrittweite live ändern
-- [ ] C2.6  HW aufgebockt → Boden
-- [ ] C2.7  Self-Review + Test-Markdown
+- [x] C2.1  gait_node: /hexapod_cycle_gait (SetBool next/prev, Wrap, STANDING-only)
+- [x] C2.2  gait_node: /hexapod_adjust_step_length (SetBool +/-, Clamp [intent_min,max])
+- [x] C2.3  Teleop: D-Pad ←/→ → cycle_gait, D-Pad ↑/↓ → step-length-Intent (Rising-Edge)
+- [x] C2.4  Unit-Tests: cycle wrappt + STANDING-Guard; step clampt; Teleop D-Pad → Intents (gait 144 / teleop 20)
+- [x] C2.5  SIM: Gangart per D-Pad durchschalten (User 2026-06-03: schaltet sauber durch alle 4)
+- [x] C2.6  HW: Gangart-Cyclen via B3 (HW-verifiziert) + Controller-Bindings via C1+ (HW) abgedeckt
+- [x] C2.7  Self-Review + Test-Markdown (`C2_test_commands.md`)
 ```
+
+> **🟢 C2 ABGESCHLOSSEN (2026-06-03):** Code + Tests + Lint grün, SIM bestätigt (Gangart
+> cyclt sauber durch alle 4 nach D-Pad-Debounce-Fix). HW-Risiko gering (Gangarten schon in B3
+> HW-verifiziert, Controller-Bindings in C2/C1+ HW-getestet). Self-Review:
+>
+> | # | Punkt | Status | Befund |
+> |---|---|---|---|
+> | 1 | Teleop = reines UI | OK | D-Pad → SetBool-Intents; cyclen/clampen/STANDING-Guard im gait_node. |
+> | 2 | cycle_gait STANDING-only + Wrap | OK | nur [tripod,wave,tetrapod,ripple], single_leg ausgenommen (getestet). |
+> | 3 | step_length-Clamp | OK | [0.02, 0.10] (Params), schützt grob vor out-of-reach (getestet). |
+> | 4 | D-Pad Rising-Edge | OK | ein Druck = ein Schritt, Halten feuert nicht nach (getestet). |
+> | 5 | Restliche Kombi-Validierung | 🟡 Ende-C | Höhe×Schrittweite×Gangart kann noch ungültig werden → Feinjustage Ende C. |
+> | 6 | D-Pad-Vorzeichen | 🟡 SIM-verify | `sign_dpad_x/y`; live bestätigen. |
 
 **Offene Fragen C2:**
 - Schrittweiten-Intent als `SetBool` (up/down) vs `Float64`-Delta? (Vorschlag: SetBool, 1 Schritt

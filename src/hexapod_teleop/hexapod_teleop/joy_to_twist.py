@@ -30,7 +30,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Float64
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 
 
 class JoyToTwist(Node):
@@ -65,6 +65,17 @@ class JoyToTwist(Node):
         self.declare_parameter('trigger_threshold', 0.5)
         self.declare_parameter('longpress_sec', 0.8)
 
+        # --- D-Pad (C2: Gangart + Schrittweite) ---
+        self.declare_parameter('axis_dpad_x', 6)   # ←/→ : Gangart prev/next
+        self.declare_parameter('axis_dpad_y', 7)   # ↑/↓ : Schrittweite +/-
+        self.declare_parameter('sign_dpad_x', 1.0)
+        self.declare_parameter('sign_dpad_y', 1.0)
+        self.declare_parameter('dpad_threshold', 0.5)
+        # Debounce: nach einem D-Pad-Intent für diese Zeit kein weiterer (gegen
+        # Flackern des HAT-Achswerts beim Tippen → sonst Doppel-Auslöser →
+        # überspringt jede zweite Gangart).
+        self.declare_parameter('dpad_lockout_sec', 0.3)
+
         # --- Skalen (matchen Engine-Limits) ---
         self.declare_parameter('linear_x_scale', 0.05)
         self.declare_parameter('linear_y_scale', 0.05)
@@ -94,6 +105,12 @@ class JoyToTwist(Node):
         self._button_cross = int(g('button_cross').value)
         self._trigger_threshold = float(g('trigger_threshold').value)
         self._longpress_sec = float(g('longpress_sec').value)
+        self._axis_dpad_x = int(g('axis_dpad_x').value)
+        self._axis_dpad_y = int(g('axis_dpad_y').value)
+        self._sign_dpad_x = float(g('sign_dpad_x').value)
+        self._sign_dpad_y = float(g('sign_dpad_y').value)
+        self._dpad_threshold = float(g('dpad_threshold').value)
+        self._dpad_lockout_sec = float(g('dpad_lockout_sec').value)
         self._linear_x_scale = float(g('linear_x_scale').value)
         self._linear_y_scale = float(g('linear_y_scale').value)
         self._angular_z_scale = float(g('angular_z_scale').value)
@@ -110,6 +127,10 @@ class JoyToTwist(Node):
         self._btn_prev: dict[int, bool] = {}
         self._press_start: dict[int, float] = {}
         self._press_fired: dict[int, bool] = {}
+        self._dpad_x_prev = 0   # diskrete D-Pad-Richtung (-1/0/+1)
+        self._dpad_y_prev = 0
+        self._dpad_x_last_fire = -1e9  # monotonic-Zeit des letzten X-Intents
+        self._dpad_y_last_fire = -1e9
 
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self._body_height_pub = self.create_publisher(
@@ -123,8 +144,16 @@ class JoyToTwist(Node):
         self._shutdown_client = self.create_client(
             Trigger, '/hexapod_shutdown'
         )
+        self._cycle_gait_client = self.create_client(
+            SetBool, '/hexapod_cycle_gait'
+        )
+        self._step_length_client = self.create_client(
+            SetBool, '/hexapod_adjust_step_length'
+        )
         self._toggle_logged = False
         self._shutdown_logged = False
+        self._cycle_gait_logged = False
+        self._adjust_step_length_logged = False
 
         # Initial-Body-Height publishen (muss == Gait-body_height sein, sonst
         # sackt der Stand ab — ai_navigation §1).
@@ -235,6 +264,29 @@ class JoyToTwist(Node):
         ):
             self._show_pose_hook()
 
+        # 4) D-Pad-Intents (C2): ←/→ Gangart, ↑/↓ Schrittweite (Rising-Edge).
+        dx = self._axis(msg, self._axis_dpad_x) * self._sign_dpad_x
+        dy = self._axis(msg, self._axis_dpad_y) * self._sign_dpad_y
+        cur_x = self._dpad_dir(dx)
+        cur_y = self._dpad_dir(dy)
+        # Rising-Edge UND Debounce-Lockout (gegen HAT-Flackern → Doppel-Trigger).
+        if (cur_x != 0 and self._dpad_x_prev == 0
+                and now - self._dpad_x_last_fire >= self._dpad_lockout_sec):
+            # rechts (raw -1 → cur_x<0) = nächste Gangart; links = vorige.
+            self._call_setbool(
+                self._cycle_gait_client, cur_x < 0, 'cycle_gait'
+            )
+            self._dpad_x_last_fire = now
+        if (cur_y != 0 and self._dpad_y_prev == 0
+                and now - self._dpad_y_last_fire >= self._dpad_lockout_sec):
+            # hoch (cur_y>0) = größere Schrittweite; runter = kleinere.
+            self._call_setbool(
+                self._step_length_client, cur_y > 0, 'adjust_step_length'
+            )
+            self._dpad_y_last_fire = now
+        self._dpad_x_prev = cur_x
+        self._dpad_y_prev = cur_y
+
     def _adjust_body_height(self, sign: int) -> None:
         """Ändere das Höhen-Ziel um sign*step, clampe lokal, publishe."""
         target = self._target_body_height + sign * self._body_height_step
@@ -253,8 +305,16 @@ class JoyToTwist(Node):
         msg.data = self._target_body_height
         self._body_height_pub.publish(msg)
 
+    def _dpad_dir(self, value: float) -> int:
+        """Diskrete D-Pad-Richtung: +1 / -1 / 0 anhand der Schwelle."""
+        if value > self._dpad_threshold:
+            return 1
+        if value < -self._dpad_threshold:
+            return -1
+        return 0
+
     def _call_intent(self, client, name: str) -> None:
-        """Rufe einen Intent-Service fire-and-forget; sonst einmal WARN."""
+        """Rufe einen Trigger-Intent fire-and-forget; sonst einmal WARN."""
         if not client.service_is_ready():
             attr = f'_{name}_logged'
             if not getattr(self, attr, True):
@@ -266,6 +326,22 @@ class JoyToTwist(Node):
             return
         client.call_async(Trigger.Request())
         self.get_logger().info(f'Intent gesendet: {name}')
+
+    def _call_setbool(self, client, data: bool, name: str) -> None:
+        """Rufe einen SetBool-Intent (data) fire-and-forget; sonst einmal WARN."""
+        if not client.service_is_ready():
+            attr = f'_{name}_logged'
+            if not getattr(self, attr, True):
+                self.get_logger().warn(
+                    f'Intent "{name}": Service nicht verfügbar — ignoriert '
+                    '(läuft gait_node?).'
+                )
+                setattr(self, attr, True)
+            return
+        req = SetBool.Request()
+        req.data = data
+        client.call_async(req)
+        self.get_logger().info(f'Intent gesendet: {name}={data}')
 
     def _show_pose_hook(self) -> None:
         """

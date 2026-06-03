@@ -31,6 +31,14 @@ joy_to_twist:
     button_cross: 0       # Show-Pose-Hook (lang halten; Verhalten = B4)
     longpress_sec: 0.8    # Halte-Dauer für Long-Press-Aktionen
 
+    # --- D-Pad (C2: Gangart + Schrittweite) ---
+    axis_dpad_x: 6        # ←/→ : Gangart vorige/nächste (rechts=next)
+    axis_dpad_y: 7        # ↑/↓ : Schrittweite größer/kleiner
+    sign_dpad_x: 1.0      # bei verkehrter Richtung -1.0
+    sign_dpad_y: 1.0      # +1: ↑ liefert +1.0 → größere Schrittweite
+    dpad_threshold: 0.5
+    dpad_lockout_sec: 0.3 # Debounce gegen Doppel-Trigger (HAT-Flackern)
+
     # --- Skalen (matchen Engine-Limits) ---
     linear_x_scale: 0.05  # m/s max vor/zurück (bei Voll-Stick)
     linear_y_scale: 0.05  # m/s max seitwärts

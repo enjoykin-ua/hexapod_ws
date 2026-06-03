@@ -32,16 +32,19 @@ class _FakeClient:
 
     def __init__(self, ready=True):
         self.count = 0
+        self.last = None
         self._ready = ready
 
     def service_is_ready(self):
         return self._ready
 
-    def call_async(self, _req):
+    def call_async(self, req):
         self.count += 1
+        self.last = getattr(req, 'data', None)
 
 
-def _joy(lx=0.0, ly=0.0, rx=0.0, l2=1.0, r2=1.0, buttons=None):
+def _joy(lx=0.0, ly=0.0, rx=0.0, l2=1.0, r2=1.0, dpad_x=0.0, dpad_y=0.0,
+         buttons=None):
     """Joy-Message bauen. l2/r2 idle = +1.0; buttons = Liste gedrückter Indizes."""
     m = Joy()
     axes = [0.0] * 8
@@ -50,6 +53,8 @@ def _joy(lx=0.0, ly=0.0, rx=0.0, l2=1.0, r2=1.0, buttons=None):
     axes[3] = rx
     axes[2] = l2
     axes[5] = r2
+    axes[6] = dpad_x
+    axes[7] = dpad_y
     m.axes = axes
     b = [0] * 12
     for i in buttons or []:
@@ -166,3 +171,56 @@ def test_triangle_press_calls_toggle(node):
     # gehalten (kein neuer Edge) → kein weiterer Call
     node._on_joy(_joy(buttons=[_TRI]))
     assert node._toggle_client.count == 1
+
+
+# ----- D-Pad (C2: Gangart / Schrittweite) ----------------------------- #
+
+def test_dpad_right_cycles_gait_next(node):
+    """D-Pad rechts (raw -1) → cycle_gait next (data=True)."""
+    node._cycle_gait_client = _FakeClient(ready=True)
+    node._on_joy(_joy(dpad_x=-1.0))
+    assert node._cycle_gait_client.count == 1
+    assert node._cycle_gait_client.last is True
+
+
+def test_dpad_left_cycles_gait_prev(node):
+    """D-Pad links (raw +1) → cycle_gait prev (data=False)."""
+    node._cycle_gait_client = _FakeClient(ready=True)
+    node._on_joy(_joy(dpad_x=1.0))
+    assert node._cycle_gait_client.last is False
+
+
+def test_dpad_up_step_bigger(node):
+    """D-Pad hoch (raw +1) → adjust_step_length größer (data=True)."""
+    node._step_length_client = _FakeClient(ready=True)
+    node._on_joy(_joy(dpad_y=1.0))
+    assert node._step_length_client.last is True
+
+
+def test_dpad_down_step_smaller(node):
+    """D-Pad runter (raw -1) → adjust_step_length kleiner (data=False)."""
+    node._step_length_client = _FakeClient(ready=True)
+    node._on_joy(_joy(dpad_y=-1.0))
+    assert node._step_length_client.last is False
+
+
+def test_dpad_hold_no_refire(node):
+    """D-Pad gehalten → nur ein Call; Release+Repress feuert erneut (Lockout 0)."""
+    node._dpad_lockout_sec = 0.0   # Debounce aus → reine Edge-Logik prüfen
+    node._cycle_gait_client = _FakeClient(ready=True)
+    node._on_joy(_joy(dpad_x=-1.0))
+    node._on_joy(_joy(dpad_x=-1.0))   # gehalten
+    assert node._cycle_gait_client.count == 1
+    node._on_joy(_joy(dpad_x=0.0))    # loslassen
+    node._on_joy(_joy(dpad_x=-1.0))   # neuer Edge
+    assert node._cycle_gait_client.count == 2
+
+
+def test_dpad_debounce_blocks_double(node):
+    """Debounce: sofortiges 0→1→0→1 (HAT-Flackern) feuert nur EINMAL."""
+    node._dpad_lockout_sec = 0.3   # Default; Test läuft in µs → 2. Trigger blockt
+    node._cycle_gait_client = _FakeClient(ready=True)
+    node._on_joy(_joy(dpad_x=-1.0))   # Edge 1 → feuert
+    node._on_joy(_joy(dpad_x=0.0))    # kurz über 0 (Flackern)
+    node._on_joy(_joy(dpad_x=-1.0))   # Edge 2 sofort → vom Lockout geblockt
+    assert node._cycle_gait_client.count == 1

@@ -358,7 +358,35 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             'cmd_vel_timeout. Auf 0 lassen ohne Controller (sonst false-fire).'
         ),
     ),
+    _ParamSpec(
+        name='step_length_intent_step', default=0.005,
+        fp_range=(0.001, 0.02, 0.001),
+        description=(
+            'Block C2: Schrittgröße pro /hexapod_adjust_step_length-Intent (m). '
+            'Controller-Schrittweiten-Trim (D-Pad ↑/↓).'
+        ),
+    ),
+    _ParamSpec(
+        name='step_length_intent_min', default=0.02,
+        fp_range=(0.01, 0.15, 0.001),
+        description=(
+            'Block C2: untere Clamp-Grenze für den Schrittweiten-Trim (m).'
+        ),
+    ),
+    _ParamSpec(
+        name='step_length_intent_max', default=0.10,
+        fp_range=(0.01, 0.15, 0.001),
+        description=(
+            'Block C2: obere Clamp-Grenze für den Schrittweiten-Trim (m). '
+            'Konservativ < 0.15, damit der Controller nicht in out-of-reach '
+            '(IK-Freeze) trimmt.'
+        ),
+    ),
 )
+
+# Block C2 — Gangart-Cycle-Reihenfolge fürs Controller-Umschalten
+# (/hexapod_cycle_gait). single_leg_* bleiben Debug-only (nicht im Cycle).
+_GAIT_CYCLE_ORDER = ('tripod', 'wave', 'tetrapod', 'ripple')
 
 # Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.
 # Wenn nach diesem Zeitraum kein /joint_states empfangen wurde, wird
@@ -449,6 +477,16 @@ class GaitNode(Node):
         )
         self._comms_loss_sitdown_timeout = float(
             self.get_parameter('comms_loss_sitdown_timeout').value
+        )
+        # Block C2 — Schrittweiten-Trim-Intent (Controller).
+        self._step_length_intent_step = float(
+            self.get_parameter('step_length_intent_step').value
+        )
+        self._step_length_intent_min = float(
+            self.get_parameter('step_length_intent_min').value
+        )
+        self._step_length_intent_max = float(
+            self.get_parameter('step_length_intent_max').value
         )
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
@@ -602,6 +640,17 @@ class GaitNode(Node):
         # aufgelöst (STANDING→sit, SAT→stand). Delegiert an die B1-Handler.
         self._sit_stand_toggle_srv = self.create_service(
             Trigger, '/hexapod_sit_stand_toggle', self._on_sit_stand_toggle,
+            callback_group=self._cb_group,
+        )
+        # Block C2 — Teleop-Intents: Gangart cyclen + Schrittweite trimmen.
+        # SetBool: data=True → nächste Gangart / Schritt größer; False → prev /
+        # kleiner. Logik/Clamp/STANDING-Schutz hier (Teleop bleibt UI).
+        self._cycle_gait_srv = self.create_service(
+            SetBool, '/hexapod_cycle_gait', self._on_cycle_gait,
+            callback_group=self._cb_group,
+        )
+        self._adjust_step_length_srv = self.create_service(
+            SetBool, '/hexapod_adjust_step_length', self._on_adjust_step_length,
             callback_group=self._cb_group,
         )
 
@@ -1089,6 +1138,45 @@ class GaitNode(Node):
         )
         return response
 
+    def _on_cycle_gait(self, request, response):
+        """``/hexapod_cycle_gait`` (SetBool): nächste/vorige Gangart, nur STANDING."""
+        if self._engine.state != GaitEngine.STATE_STANDING:
+            response.success = False
+            response.message = (
+                f'cycle_gait nur in STANDING (state={self._engine.state})'
+            )
+            return response
+        order = _GAIT_CYCLE_ORDER
+        try:
+            idx = order.index(self._pattern.name)
+        except ValueError:
+            idx = -1 if request.data else 0  # aktuelle nicht im Cycle → Rand
+        step = 1 if request.data else -1
+        nxt = order[(idx + step) % len(order)]
+        self._load_gait_pattern(nxt)
+        response.success = True
+        response.message = f'gait_pattern -> {nxt}'
+        self.get_logger().info(f'cycle_gait: {response.message}')
+        return response
+
+    def _on_adjust_step_length(self, request, response):
+        """``/hexapod_adjust_step_length`` (SetBool): step_length_max ± clampt."""
+        sign = 1.0 if request.data else -1.0
+        new = self._step_length_max + sign * self._step_length_intent_step
+        new = max(
+            self._step_length_intent_min,
+            min(self._step_length_intent_max, new),
+        )
+        self._step_length_max = new
+        self._engine.step_length_max = new
+        response.success = True
+        response.message = (
+            f'step_length_max -> {new:.3f} m '
+            f'(linear_max={self._engine.linear_max:.3f} m/s)'
+        )
+        self.get_logger().info(f'adjust_step_length: {response.message}')
+        return response
+
     def _do_relay_off_and_latch(self) -> None:
         """Relay öffnen (Servos stromlos) + terminalen Shutdown-Latch setzen."""
         self._fire_relay(False)
@@ -1339,6 +1427,12 @@ class GaitNode(Node):
             self._sitdown_lower_fraction = value
         elif name == 'comms_loss_sitdown_timeout':
             self._comms_loss_sitdown_timeout = value
+        elif name == 'step_length_intent_step':
+            self._step_length_intent_step = value
+        elif name == 'step_length_intent_min':
+            self._step_length_intent_min = value
+        elif name == 'step_length_intent_max':
+            self._step_length_intent_max = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
 

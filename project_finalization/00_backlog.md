@@ -18,6 +18,7 @@
 
 ## Block A — Analyse & Optimierung (Hitze, Kräfte)  ⏸️ PAUSIERT (außer A1 ✅)
 > A1 erledigt; Last-Auslastung niedrig (~15–30 %), keine Extrempunkte → Analyse vorerst genug.
+
 | # | Stage | Status | Notiz |
 |---|---|---|---|
 | A1 | **Torque-/Hitze-Viz-Tool** | 🟢 | joint_load-Modell + Live-RViz (`torque_viz`, Last am Gelenk) + Sweep (`torque_sweep`). Plan/Tests: `A1_torque_viz_plan.md`. Befund: statisch Femur>Tibia, Peak niedrig. |
@@ -36,14 +37,19 @@
 | B5 | **Volle 5 cm Körperhöhe (−0.130)** | 💤 | Standup kann −0.130 nicht direkt; bräuchte Body-Lift-in-Reposition (`standup_body_height` + Reposition interpoliert Höhe mit). Erst falls 4 cm nicht reichen. |
 
 ## Block C — Teleop / Steuerungs-UX
-> **Plan + volle Belegungs-Tabelle + Handover:** [`C_teleop.md`](C_teleop.md). Design-Prinzip:
-> Teleop = reines UI (Intents), `gait_node` = State/Logik. Reihenfolge: C1+ (USB) → C2 → C4.
+> **Detailplan + Belegungs-Tabelle + Handover:** [`C_teleop.md`](C_teleop.md) (dort als Stages
+> C1+/C2 gegliedert = hier C2/C3). Design-Prinzip: Teleop = reines UI (Intents), `gait_node` = Logik.
+
 | # | Stage | Status | Notiz |
 |---|---|---|---|
-| C1 | **PS4 USB-Steuerung** | 🟢 (Basis) | Läuft (Sim + aufgebockt). R1=Deadman + D-Pad + L2/R2-Höhe. |
-| C1+ | **USB erweitern: Sticks omnidir. + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook** | 🟢 (2026-06-03) | Topics + discrete Intent-Services (Sit/Stand-Toggle neu im gait_node). SIM+HW(USB) ok. Show-Pose nur Hook (B4). Feinjustage am Ende von C offen. |
-| C2 | **Live-Param/Intent-Bridge (Gangart-Wechsel + Schrittweite)** | ⚪ | Komplexer, getrennt: Intents `/hexapod_cycle_gait` + Schrittweite; gait_node cyclet/clampt + STANDING-Schutz. (Ex-C2/C3 zusammengefasst.) |
+| C1 | **PS4 USB-Grundsteuerung** | 🟢 | Fahren/Drehen + L2/R2-Höhe + R1-Dead-Man (Phase 6, Sim + aufgebockt). |
+| C2 | **USB-Steuerung erweitert** | 🟢 (2026-06-03) | Linker Stick omnidir. (x/y) + rechter Stick dreh, L1=langsam, L2/R2 ±1 cm Höhe, △ Sit/Stand-Toggle, ○-lang Shutdown, ✕-lang Show-Pose-Hook (B4). Neuer Service `/hexapod_sit_stand_toggle`. SIM+HW(USB) ok. Details: `C_teleop.md`. |
+| C3 | **Live-Verstellung: Gangart + Schrittweite** | 🟢 (2026-06-03) | D-Pad ←/→ Gangart, ↑/↓ Schrittweite via Intents `/hexapod_cycle_gait` + `/hexapod_adjust_step_length` (gait_node cyclt/clampt + STANDING-Schutz; Teleop-Debounce). SIM ok; HW via B3+C2 abgedeckt. |
 | C4 | **Bluetooth** | ⚪ | `ps4_bt.yaml`-Profil + Pairing; erst wenn USB rund. Comms-Loss → B1-Fail-safe. |
+
+> **Offen am Ende von Block C (Feinjustage, s. `C_teleop.md`):** Vorzeichen/Skalen/longpress/
+> deadzone; **+ nur envelope-gültige Kombinationen** aus Höhe×Schrittweite×Gangart zulassen
+> (Live-Tuning kann sonst in out-of-reach/IK-Freeze laufen).
 
 ## Block D — Hardware-Bring-up / Plattform
 | # | Stage | Status | Notiz |
