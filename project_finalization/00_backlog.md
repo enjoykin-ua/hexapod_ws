@@ -30,7 +30,7 @@
 | # | Stage | Status | Notiz |
 |---|---|---|---|
 | B1 | **Hinsetz-/Abschalt-Sequenz** | 🟢 (2026-06-03) | Umkehrung des Aufstehens: Walk-Pose → Füße raus (Rück-Reposition) → Körper sanft absenken → Relay/Servos lösen. Inkl. graceful-shutdown VOR Stromtrennung (Servos zentrieren beim Power-Off). **Wichtig für sicheren Realbetrieb.** |
-| B2 | **Velocity-Feedforward (Zittern-Fix)** | ⚪ | Soll-Geschwindigkeit in die Trajectory-Punkte → JTC interpoliert durch statt Stop-pro-Punkt. `tfs_factor` mildert nur. |
+| B2 | **Velocity-Feedforward (Zittern-Fix)** | ❌ (2026-06-03) | Versucht (Finite-Diff → `JointTrajectoryPoint.velocities`, `allow_nonzero_velocity_at_trajectory_end`) — **kein beobachtbarer Nutzen** (Sim: keine Servo-Dynamik; HW: kein Unterschied) → vollständig zurückgebaut. Falls Zittern je real stört: Hebel = Vel/Accel-Limits im JTC, nicht dieser FF. Details: `B_lokomotion_kern.md` §B2. |
 | B3 | **Weitere Gangarten** | ⚪ | Wave/metachronal (stabilste, 5 Beine tragen → senkt Tibia-Last ~40 %), Ripple, Tetrapod. Billig: `GaitPattern`-Einträge. + Gangart-Wechsel im Lauf. |
 | B4 | **Body-Pose ohne Laufen + „Show"-Pose** | ⚪ | Körper neigen/verlagern auf Stützbeinen; 2 Vorderbeine frei in der Luft bewegen (winken/„graben"/Spinnen-Pose). Statisch = CoG im Rest-Stützpolygon (nutzt joint_load CoG/Polygon aus A1). Erst gescriptete Posen, dann interaktiv. ⚠️ Framing mit User final klären. |
 | B5 | **Volle 5 cm Körperhöhe (−0.130)** | 💤 | Standup kann −0.130 nicht direkt; bräuchte Body-Lift-in-Reposition (`standup_body_height` + Reposition interpoliert Höhe mit). Erst falls 4 cm nicht reichen. |

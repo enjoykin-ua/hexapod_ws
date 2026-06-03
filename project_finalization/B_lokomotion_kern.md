@@ -12,7 +12,7 @@
 | Stage | Titel | Status | Plan-Datei | Test-Datei |
 |---|---|---|---|---|
 | **B1** | Hinsetz-/Abschalt-Sequenz | 🟢 **fertig** (SIM+HW Boden verifiziert 2026-06-03) | [`B1_sitdown_plan.md`](B1_sitdown_plan.md) | [`B1_sitdown_test_commands.md`](B1_sitdown_test_commands.md) |
-| B2 | Velocity-Feedforward (Zittern-Fix) | ⚪ | §B2 | TODO |
+| B2 | Velocity-Feedforward (Zittern-Fix) | ❌ versucht & zurückgebaut (kein Nutzen, 2026-06-03) | §B2 | — |
 | B3 | Gangarten Wave→Tetrapod→Ripple (nacheinander) | ⚪ | §B3 | TODO |
 | B4 | Body-Pose + „Show"-Pose | ⏸️ Doku fertig, Umsetzung später | §B4 | (später) |
 | B5 | Volle 5 cm Körperhöhe (−0.130) | 💤 deferiert | §B5 | — |
@@ -105,7 +105,24 @@ stabil (CoG im Polygon, nutzt joint_load). NICHT getestet: dynamisches Kippen un
 
 ---
 
-## B2 — Velocity-Feedforward (Zittern-Fix)  ⚪
+## B2 — Velocity-Feedforward (Zittern-Fix)  ❌ versucht & zurückgebaut
+
+> **Ergebnis (2026-06-03): kein beobachtbarer Nutzen → vollständig zurückgebaut** (Working-Tree
+> auf Commit `08ffcfa` = B1-fertig zurückgesetzt, alle B2-Änderungen verworfen). Was probiert
+> wurde und warum es scheiterte:
+> - **Umsetzung:** Finite-Differenz der kommandierten Joint-Winkel pro Tick →
+>   `JointTrajectoryPoint.velocities` (Clamp auf URDF-Cap 2.0), Param `velocity_feedforward`.
+> - **Nötiger JTC-Schalter gefunden:** ohne `allow_nonzero_velocity_at_trajectory_end: true`
+>   verwirft der JTC jede gestreamte Einzelpunkt-Trajectory mit End-Velocity≠0 — das belegte
+>   zwar, dass der JTC die velocities verarbeitet (Q3 ✅).
+> - **Sim:** KEIN sichtbarer Glätte-Effekt (Gazebo hat keine Servo-Dynamik) + `true` fuhr träger
+>   an (Mess-State-Artefakt im kubischen Spline). `open_loop_control: true` als Gegenmittel
+>   verschlechterte auch den `false`-Fall → verworfen.
+> - **HW aufgebockt:** **kein beobachtbarer Unterschied** true vs. false.
+> - **Schluss:** Der FF ist auf diesem Setup der falsche Hebel (Servos/50-Hz-Streaming glätten
+>   offenbar genug). **Falls das Zittern je real stört, ist der nächste Hebel Vel/Accel-Limits im
+>   JTC** (`controllers.real.yaml`, war Q2/deferiert — braucht Bench-Daten), NICHT dieser FF.
+> - **Reihenfolge:** weiter mit **B3** (Gangarten).
 
 **Ziel:** Das beim Laufen/Reposition beobachtete Zittern beseitigen. Ursache (verifiziert):
 gait_node publisht pro Tick **einen** Trajectory-Punkt **nur mit Position** → JTC plant je Punkt
