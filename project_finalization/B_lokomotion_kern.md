@@ -14,7 +14,7 @@
 | **B1** | Hinsetz-/Abschalt-Sequenz | 🟢 **fertig** (SIM+HW Boden verifiziert 2026-06-03) | [`B1_sitdown_plan.md`](B1_sitdown_plan.md) | [`B1_sitdown_test_commands.md`](B1_sitdown_test_commands.md) |
 | B2 | Velocity-Feedforward (Zittern-Fix) | ❌ versucht & zurückgebaut (kein Nutzen, 2026-06-03) | §B2 | — |
 | B3 | Gangarten Wave→Tetrapod→Ripple (nacheinander) | 🟢 **fertig** (Sim+HW 2026-06-03; Tetra/Ripple volle Ruhe erst mit A5) | [`B3_gaits_plan.md`](B3_gaits_plan.md) | [`B3_gaits_test_commands.md`](B3_gaits_test_commands.md) |
-| B4 | Body-Pose + „Show"-Pose | ⏸️ Doku fertig, Umsetzung später | §B4 | (später) |
+| B4 | Body-Pose + „Show"-Pose (Free-Leg) | 🟡 reaktiviert — Plan erstellt 2026-06-04 | [`B4_show_pose_plan.md`](B4_show_pose_plan.md) | `B4_show_pose_test_commands.md` (TODO) |
 | B5 | Volle 5 cm Körperhöhe (−0.130) | 💤 deferiert | §B5 | — |
 
 > **Wichtiger Kontext (Ist-Zustand der Engine):** `gait_engine.py` hat States
