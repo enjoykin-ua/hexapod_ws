@@ -11,7 +11,7 @@
 ## Status-Übersicht (für Handover)
 | Stage | Titel | Status | Plan-Datei | Test-Datei |
 |---|---|---|---|---|
-| **B1** | Hinsetz-/Abschalt-Sequenz | ⚪ **als Nächstes** | §B1 (ggf. eigenes file) | `B1_sitdown_test_commands.md` (TODO) |
+| **B1** | Hinsetz-/Abschalt-Sequenz | 🟢 **fertig** (SIM+HW Boden verifiziert 2026-06-03) | [`B1_sitdown_plan.md`](B1_sitdown_plan.md) | [`B1_sitdown_test_commands.md`](B1_sitdown_test_commands.md) |
 | B2 | Velocity-Feedforward (Zittern-Fix) | ⚪ | §B2 | TODO |
 | B3 | Gangarten Wave→Tetrapod→Ripple (nacheinander) | ⚪ | §B3 | TODO |
 | B4 | Body-Pose + „Show"-Pose | ⏸️ Doku fertig, Umsetzung später | §B4 | (später) |
@@ -67,29 +67,33 @@ fällt). Graceful: erst hinsetzen, DANN Strom trennen (Relay/User).
 ein STATE_SITDOWN mit Phasen; `start_sitdown`, `_compute_sitdown_angles`), `gait_node.py`
 (Service-Server + Durchreichen), ggf. `gait.launch.py`. Wertneutral (radii/Höhen aus Params).
 
-**Progress-Checkliste:**
+**Progress-Checkliste:** (Detail-Plan + Self-Review: [`B1_sitdown_plan.md`](B1_sitdown_plan.md))
 ```
-- [ ] B1.1  Engine: start_sitdown + Phasen (Reposition aus → Körper absenken → rad 0) → SAT-State
-- [ ] B1.2  Engine: SAT-State (bestromt, idle); Aufstehen AUS SAT (start_cartesian_standup start-pose-agnostisch) → STANDING
-- [ ] B1.3  Engine: cmd_vel in Sitdown/SAT ignorieren (nur stand_up/shutdown akzeptiert)
-- [ ] B1.4  Node: Services /hexapod_sit_down (→SAT Rest), /hexapod_stand_up (SAT→STANDING), /hexapod_shutdown (sit + Relay-Aus)
-- [ ] B1.5  Node: Relay-Aus nur im Shutdown (HW-Service/Plugin; Sim übersprungen)
-- [ ] B1.6  Node: Fail-safe Comms-Loss (opt-in, Default 0) → /hexapod_sit_down (Rest); aus WALKING erst stoppen
-- [ ] B1.7  Unit-Tests: Pfad in-limit (alle 6, jede Phase), Reposition-aus = rückwärts, Endpose=rad 0, max 3 in Luft, SAT→STANDING in-limit
-- [ ] B1.8  standup/walking_envelope unberührt grün; Regression + Lint grün
-- [ ] B1.9  SIM: Stehen→Hinsetzen(SAT)→Aufstehen smooth, kein Freeze/Kippen; Services triggern
-- [ ] B1.10 DANACH HW aufgebockt → Boden: Hinsetzen + Aufstehen + Shutdown(Relay) sicher
-- [ ] B1.11 Self-Review + Design-Log; Test-Markdown
+- [x] B1.1  Engine: start_sitdown + Phasen (Reposition aus → Körper absenken → rad 0) → SAT-State
+- [x] B1.2  Engine: SAT-State (bestromt, idle); Aufstehen AUS SAT (start_cartesian_standup start-pose-agnostisch) → STANDING
+- [x] B1.3  Engine: cmd_vel in Sitdown/SAT ignorieren (nur stand_up/shutdown akzeptiert)
+- [x] B1.4  Node: Services /hexapod_sit_down (→SAT Rest), /hexapod_stand_up (SAT→STANDING), /hexapod_shutdown (sit + Relay-Aus)
+- [x] B1.5  Node: Relay-Aus nur im Shutdown (/hexapod_relay_set SetBool data=false; Sim übersprungen)
+- [x] B1.6  Node: Fail-safe Comms-Loss (opt-in, Default 0) → /hexapod_sit_down (Rest); aus WALKING erst stoppen
+- [x] B1.7  Unit-Tests: Pfad in-limit (alle 6, jede Phase), Reposition-aus = rückwärts, Endpose=rad 0, max 3 in Luft, SAT→STANDING in-limit
+- [x] B1.8  standup/walking_envelope unberührt grün; Regression + Lint grün (111 tests, 0 fail)
+- [x] B1.9  SIM: Stehen→Hinsetzen(SAT)→Aufstehen smooth, kein Freeze/Kippen; Services triggern
+- [x] B1.10 HW aufgebockt → Boden: Hinsetzen + Aufstehen + Shutdown(Relay) sicher (2026-06-03)
+- [x] B1.11 Self-Review + Design-Log; Test-Markdown
 ```
 **Tests-Begründung:** Hinsetz-Pfad ist sicherheitskritisch (am Boden) → jede Phase in-limit +
 stabil (CoG im Polygon, nutzt joint_load). NICHT getestet: dynamisches Kippen unter Last (quasi-statisch).
 
 **Offene Fragen B1:**
 - ✅ **Q1 Trigger:** Service `/hexapod_sit_down` **+** Fail-safe Comms-Loss (User). Erledigt.
-- ✅ **Q2 Ruhe-Pose:** **alle Joints rad 0** (User). Füße ~2 cm über Grund (kein Schürfen),
-  Relay-Aus = stromlos (kein Ruck), sit-down terminal. Test: Transition belly→rad0 in-limit + Fuß-Lift (B1.6).
-- ⏳ **Q3 Geschwindigkeit:** eigener `sitdown_duration` + `reposition_cycle_time` wiederverwenden? (Vorschlag ja.)
-- ⏳ **Q4 Relay-Off:** automatisch am Ende via HW-Plugin-Service — Service-Name/Mechanismus aus Phase 9/`hexapod_hardware` prüfen.
+- ✅ **Q2 Ruhe-Pose:** ~~alle Joints rad 0~~ → **KORRIGIERT (User 2026-06-03): Boot-/Spawn-Pose
+  (Beine hoch)**, NICHT rad 0. rad 0 ist laut FK das Bein *horizontal gestreckt* (flach) — nicht
+  gewollt. Der Node schneidet die Spawn-`/joint_states` mit und übergibt sie als `rest_joints`;
+  der Roboter endet, wo er gespawnt ist. Passives Hinlegen der Beine erst beim Relay-Aus.
+- ✅ **Q3 Geschwindigkeit:** eigener `sitdown_duration` + `sitdown_lower_fraction`;
+  `reposition_cycle_time` für Phase 1 wiederverwendet (User 2026-06-03, Vorschlag 2).
+- ✅ **Q4 Relay-Off:** `/hexapod_relay_set` (`std_srvs/SetBool`, `data=false` = Relay öffnen).
+  Aus Phase 9 / `hexapod_hardware` (`hexapod_system.cpp`). Sim: Service fehlt → skip.
 
 **Edge-Cases / Hinweise B1 (kritischer Durchgang):**
 - **Trigger aus WALKING:** Service nur in STANDING annehmen; der **Comms-Loss-Fail-safe** kann

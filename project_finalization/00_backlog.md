@@ -29,7 +29,7 @@
 ## Block B — Lokomotion-Kern  ⬅ ALS NÄCHSTES
 | # | Stage | Status | Notiz |
 |---|---|---|---|
-| B1 | **Hinsetz-/Abschalt-Sequenz** | ⚪ | Umkehrung des Aufstehens: Walk-Pose → Füße raus (Rück-Reposition) → Körper sanft absenken → Relay/Servos lösen. Inkl. graceful-shutdown VOR Stromtrennung (Servos zentrieren beim Power-Off). **Wichtig für sicheren Realbetrieb.** |
+| B1 | **Hinsetz-/Abschalt-Sequenz** | 🟢 (2026-06-03) | Umkehrung des Aufstehens: Walk-Pose → Füße raus (Rück-Reposition) → Körper sanft absenken → Relay/Servos lösen. Inkl. graceful-shutdown VOR Stromtrennung (Servos zentrieren beim Power-Off). **Wichtig für sicheren Realbetrieb.** |
 | B2 | **Velocity-Feedforward (Zittern-Fix)** | ⚪ | Soll-Geschwindigkeit in die Trajectory-Punkte → JTC interpoliert durch statt Stop-pro-Punkt. `tfs_factor` mildert nur. |
 | B3 | **Weitere Gangarten** | ⚪ | Wave/metachronal (stabilste, 5 Beine tragen → senkt Tibia-Last ~40 %), Ripple, Tetrapod. Billig: `GaitPattern`-Einträge. + Gangart-Wechsel im Lauf. |
 | B4 | **Body-Pose ohne Laufen + „Show"-Pose** | ⚪ | Körper neigen/verlagern auf Stützbeinen; 2 Vorderbeine frei in der Luft bewegen (winken/„graben"/Spinnen-Pose). Statisch = CoG im Rest-Stützpolygon (nutzt joint_load CoG/Polygon aus A1). Erst gescriptete Posen, dann interaktiv. ⚠️ Framing mit User final klären. |

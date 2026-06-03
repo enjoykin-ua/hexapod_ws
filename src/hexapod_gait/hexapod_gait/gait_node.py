@@ -42,7 +42,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 
@@ -326,6 +326,37 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             'Real justierbar. STANDING-only.'
         ),
     ),
+    # Block B1 — Hinsetz-/Abschalt-Sequenz. Nicht STANDING-only: werden beim
+    # Sit-down-Trigger (Service/Fail-safe) gelesen, nicht mid-State mutiert.
+    _ParamSpec(
+        name='sitdown_duration', default=5.0,
+        fp_range=(1.0, 15.0, 0.1),
+        description=(
+            'Block B1: Dauer Phase 2+3 des Hinsetzens (Lower + Flatten) in s. '
+            'Phase 1 (Füße raus) nutzt reposition_cycle_time. Analog '
+            'auto_standup_duration; langsamer = stromschonenderes Absenken.'
+        ),
+    ),
+    _ParamSpec(
+        name='sitdown_lower_fraction', default=0.6,
+        fp_range=(0.1, 0.9, 0.05),
+        description=(
+            'Block B1: Anteil von sitdown_duration auf Phase 2 (Lower, '
+            'lasttragendes Absenken), Rest = Phase 3 (Flatten zu rad 0). '
+            'Default 0.6.'
+        ),
+    ),
+    _ParamSpec(
+        name='comms_loss_sitdown_timeout', default=0.0,
+        fp_range=(0.0, 30.0, 0.5),
+        description=(
+            'Block B1: Comms-Loss-Fail-safe (s). 0 = AUS (Default). >0: wenn '
+            'so lange kein /cmd_vel mehr ankam (echtes Disconnect; idle-'
+            'Controller autorepeatet 0) und der Roboter STEHT, automatisch '
+            'Hinsetzen (Rest, bestromt). Aus WALKING stoppt erst der '
+            'cmd_vel_timeout. Auf 0 lassen ohne Controller (sonst false-fire).'
+        ),
+    ),
 )
 
 # Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.
@@ -408,6 +439,16 @@ class GaitNode(Node):
         self._body_height_start = float(
             self.get_parameter('body_height_start').value
         )
+        # Block B1 — Hinsetz-/Abschalt-Parameter.
+        self._sitdown_duration = float(
+            self.get_parameter('sitdown_duration').value
+        )
+        self._sitdown_lower_fraction = float(
+            self.get_parameter('sitdown_lower_fraction').value
+        )
+        self._comms_loss_sitdown_timeout = float(
+            self.get_parameter('comms_loss_sitdown_timeout').value
+        )
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
@@ -459,6 +500,30 @@ class GaitNode(Node):
         self._safety_freeze_client = self.create_client(
             Trigger, '/hexapod_safety_freeze')
         self._safety_freeze_logged_unreachable = False
+
+        # Block B1 — Relay-Client (/hexapod_relay_set, SetBool). data=False
+        # öffnet das Relay (Servos stromlos). Gefeuert beim Shutdown, sobald
+        # die Hinsetz-Sequenz SAT erreicht. Service fehlt (Sim ohne Plugin) →
+        # einmal WARN + skip (wie _trigger_safety_freeze).
+        self._relay_set_client = self.create_client(
+            SetBool, '/hexapod_relay_set')
+        self._relay_logged_unreachable = False
+
+        # Block B1 — Sit-down/Shutdown-State (Node-seitig):
+        #  _latest_joints: zuletzt empfangene vollständige Joint-Pose (für
+        #    stand_up aus SAT, start-pose-agnostisch).
+        #  _relay_off_after_sat: Shutdown wurde getriggert → beim Erreichen von
+        #    SAT Relay-Aus feuern.
+        #  _shutdown_latched: nach Relay-Aus terminal — stand_up wird abgelehnt
+        #    bis Relay-On/Reboot.
+        self._latest_joints: dict[str, tuple] = {}
+        self._relay_off_after_sat = False
+        self._shutdown_latched = False
+        # Block B1 (User 2026-06-03): Boot-/Spawn-Pose (erste vollständige
+        # /joint_states) als SAT-Ruhe-Pose. Der Roboter setzt sich am Ende in
+        # genau die Pose, in der er gespawnt/gebootet ist (Beine hoch) — das
+        # passive Hinlegen der Beine passiert erst beim Relay-Aus.
+        self._spawn_joints: dict[str, tuple] = {}
 
         self._pubs = {
             leg.name: self.create_publisher(
@@ -512,6 +577,23 @@ class GaitNode(Node):
         self._timer = self.create_timer(
             1.0 / self._tick_rate,
             self._tick,
+            callback_group=self._cb_group,
+        )
+
+        # Block B1 — Hinsetz-/Abschalt-Services. In derselben
+        # MutuallyExclusiveCallbackGroup wie der Timer → kein Race mit _tick
+        # auf den Engine-State (relevant nur unter MultiThreadedExecutor;
+        # default SingleThreaded ohnehin sequentiell).
+        self._sit_down_srv = self.create_service(
+            Trigger, '/hexapod_sit_down', self._on_sit_down,
+            callback_group=self._cb_group,
+        )
+        self._stand_up_srv = self.create_service(
+            Trigger, '/hexapod_stand_up', self._on_stand_up,
+            callback_group=self._cb_group,
+        )
+        self._shutdown_srv = self.create_service(
+            Trigger, '/hexapod_shutdown', self._on_shutdown,
             callback_group=self._cb_group,
         )
 
@@ -591,9 +673,6 @@ class GaitNode(Node):
         ``_ramp_triggered``. Das vermeidet teures Re-Parsing bei
         jedem JointState-Tick im Standby.
         """
-        if self._ramp_triggered:
-            return
-
         # JointState als name/position arrays parsen. Verfuegbar machen
         # als dict {joint_name: position} fuer einfacheres Lookup.
         if len(msg.name) != len(msg.position):
@@ -618,6 +697,20 @@ class GaitNode(Node):
                 float(positions[femur_name]),
                 float(positions[tibia_name]),
             )
+
+        # Block B1: aktuelle vollständige Pose IMMER cachen (auch nach dem
+        # Boot-Ramp-Trigger) — der stand_up-Service braucht sie als start-pose-
+        # agnostischen Aufsteh-Start aus SAT.
+        self._latest_joints = start_joints
+
+        # Block B1: die erste vollständige Pose = Spawn-/Boot-Pose festhalten
+        # (SAT-Ruhe-Ziel beim Hinsetzen). Genau hier, VOR dem Ramp-Trigger, ist
+        # es noch die ungestandene Start-Pose.
+        if not self._spawn_joints:
+            self._spawn_joints = start_joints
+
+        if self._ramp_triggered:
+            return
 
         # Alle 18 Joints da → Aufstehen triggern. Stage 0.7: Modus-Switch
         # cartesian (default, schuerffrei) vs. joint_space (Legacy-Ramp).
@@ -752,6 +845,10 @@ class GaitNode(Node):
                 self._joint_states_timeout_logged = True
             return
 
+        # Block B1 — Comms-Loss-Fail-safe (opt-in). Kann eine Hinsetz-Sequenz
+        # starten (nur aus STANDING); danach ignoriert set_command cmd_vel.
+        self._check_comms_loss(now)
+
         # Phase 13 Stage A — WARN wenn cmd_vel waehrend STARTUP_RAMP
         # ankommt (Engine ignoriert es eh in set_command). Throttled
         # damit auch ein rate-publisher (50 Hz cmd_vel) nicht spammt.
@@ -813,6 +910,16 @@ class GaitNode(Node):
             traj = self._build_trajectory(leg.name, angles_per_leg[leg.name])
             self._pubs[leg.name].publish(traj)
 
+        # Block B1 — Shutdown: sobald die Hinsetz-Sequenz SAT erreicht hat,
+        # Relay-Aus feuern + terminal latchen (genau einmal). SAT hält danach
+        # rad 0; auf HW ist das Relay offen → Servos stromlos/schlaff.
+        if (
+            self._relay_off_after_sat
+            and self._engine.state == GaitEngine.STATE_SAT
+        ):
+            self.get_logger().info('SAT erreicht — Shutdown: Relay-Aus')
+            self._do_relay_off_and_latch()
+
     def _trigger_safety_freeze(self) -> None:
         """
         Stage 0.6: async-call /hexapod_safety_freeze on IK joint-limit error.
@@ -839,6 +946,183 @@ class GaitNode(Node):
         # call_async returns a Future we deliberately ignore — the
         # plugin will process the Trigger request on its own executor.
         self._safety_freeze_client.call_async(Trigger.Request())
+
+    # ===== Block B1 — Hinsetz-/Abschalt-Services + Fail-safe ============== #
+
+    def _sitdown_durations(self) -> tuple[float, float]:
+        """(lower_duration, flatten_duration) aus sitdown_duration + fraction."""
+        lower = self._sitdown_duration * self._sitdown_lower_fraction
+        flatten = self._sitdown_duration * (1.0 - self._sitdown_lower_fraction)
+        return lower, flatten
+
+    def _start_sitdown_sequence(self) -> bool:
+        """
+        Hinsetz-Sequenz in der Engine starten (nur sinnvoll aus STANDING).
+
+        Phase 1 nutzt reposition_cycle_time (Engine-intern), Phase 2+3 die
+        hier abgeleiteten lower/flatten-Dauern. Returns Erfolg.
+        """
+        now = time.monotonic()
+        t = now - self._t_start
+        lower_dur, flatten_dur = self._sitdown_durations()
+        # SAT-Ruhe-Pose = Boot-/Spawn-Pose (Beine hoch). Falls noch nie eine
+        # vollständige Pose empfangen wurde → None (Engine-Fallback rad 0).
+        rest = self._spawn_joints if self._spawn_joints else None
+        try:
+            return self._engine.start_sitdown(
+                t, lower_dur, flatten_dur, self._body_height_start,
+                rest_joints=rest,
+            )
+        except (ValueError, IKError) as exc:
+            self.get_logger().error(f'sit-down failed to start: {exc}')
+            return False
+
+    def _on_sit_down(self, request, response):
+        """``/hexapod_sit_down`` (Rest): nur STANDING → Hinsetzen, bleibt SAT."""
+        if self._engine.state != GaitEngine.STATE_STANDING:
+            response.success = False
+            response.message = (
+                f'sit_down only from STANDING, state={self._engine.state}'
+            )
+            return response
+        self._relay_off_after_sat = False  # Rest: bestromt bleiben
+        ok = self._start_sitdown_sequence()
+        response.success = ok
+        response.message = (
+            'sitting down (Rest, powered)' if ok else 'sit_down failed to start'
+        )
+        if ok:
+            self.get_logger().info('sit_down: STANDING → Hinsetzen (Rest)')
+        return response
+
+    def _on_stand_up(self, request, response):
+        """``/hexapod_stand_up``: nur SAT (nicht latched) → Aufstehen → STANDING."""
+        if self._shutdown_latched:
+            response.success = False
+            response.message = (
+                'shutdown latched — enable relay / reboot before stand_up'
+            )
+            return response
+        if self._engine.state != GaitEngine.STATE_SAT:
+            response.success = False
+            response.message = (
+                f'stand_up only from SAT, state={self._engine.state}'
+            )
+            return response
+        if len(self._latest_joints) != len(HEXAPOD.legs):
+            response.success = False
+            response.message = 'no complete /joint_states received yet'
+            return response
+        now = time.monotonic()
+        t = now - self._t_start
+        try:
+            if self._standup_mode == 'cartesian':
+                self._engine.start_cartesian_standup(
+                    self._latest_joints, t, self._auto_standup_duration,
+                    self._standup_phase1_fraction, self._body_height_start,
+                )
+            else:
+                self._engine.start_ramp(
+                    self._latest_joints, t, self._auto_standup_duration,
+                )
+        except (ValueError, IKError) as exc:
+            response.success = False
+            response.message = f'stand_up failed: {exc}'
+            self.get_logger().error(response.message)
+            return response
+        response.success = True
+        response.message = 'standing up from SAT'
+        self.get_logger().info(
+            f'stand_up: SAT → Aufstehen ({self._standup_mode})'
+        )
+        return response
+
+    def _on_shutdown(self, request, response):
+        """``/hexapod_shutdown`` (terminal): hinsetzen (falls nötig) + Relay-Aus."""
+        state = self._engine.state
+        if state == GaitEngine.STATE_SAT:
+            # Sitzt schon → sofort Relay-Aus + latchen.
+            self._do_relay_off_and_latch()
+            response.success = True
+            response.message = 'already SAT — relay off (shutdown, terminal)'
+            return response
+        if state == GaitEngine.STATE_STANDING:
+            self._relay_off_after_sat = True  # _tick feuert Relay-Aus bei SAT
+            ok = self._start_sitdown_sequence()
+            if not ok:
+                self._relay_off_after_sat = False
+            response.success = ok
+            response.message = (
+                'sitting down then relay off (shutdown, terminal)'
+                if ok else 'shutdown failed to start sit-down'
+            )
+            if ok:
+                self.get_logger().info(
+                    'shutdown: STANDING → Hinsetzen, dann Relay-Aus bei SAT'
+                )
+            return response
+        response.success = False
+        response.message = (
+            f'shutdown only from STANDING or SAT, state={state}'
+        )
+        return response
+
+    def _do_relay_off_and_latch(self) -> None:
+        """Relay öffnen (Servos stromlos) + terminalen Shutdown-Latch setzen."""
+        self._fire_relay(False)
+        self._shutdown_latched = True
+        self._relay_off_after_sat = False
+        self.get_logger().info(
+            'Shutdown terminal: relay off, stand_up gesperrt bis Relay-On/Reboot'
+        )
+
+    def _fire_relay(self, on: bool) -> None:
+        """
+        ``/hexapod_relay_set`` (SetBool) async feuern (fire-and-forget).
+
+        Service nicht verfügbar (Sim ohne hexapod_hardware-Plugin) → einmal
+        WARN + skip. In Sim gibt es kein Relay; das Hinsetzen selbst ist der
+        sichere Endzustand.
+        """
+        if not self._relay_set_client.service_is_ready():
+            if not self._relay_logged_unreachable:
+                self.get_logger().warn(
+                    '/hexapod_relay_set service not available — skipping relay '
+                    'control. OK in sim; on hardware indicates a missing or '
+                    'crashed hexapod_hardware plugin.'
+                )
+                self._relay_logged_unreachable = True
+            return
+        req = SetBool.Request()
+        req.data = on
+        self._relay_set_client.call_async(req)
+
+    def _check_comms_loss(self, now: float) -> None:
+        """
+        Comms-Loss-Fail-safe (opt-in): bei verstummtem /cmd_vel auto-Hinsetzen.
+
+        Nur aktiv wenn ``comms_loss_sitdown_timeout > 0`` UND schon mal ein
+        /cmd_vel ankam (sonst kein false-fire in Sim/manuell). Triggert nur aus
+        STANDING — aus WALKING bringt der reguläre ``cmd_vel_timeout`` den
+        Roboter erst über STOPPING → STANDING (er ist üblicherweise ≪ dem
+        comms-loss-Timeout). Sobald die Sequenz läuft (state != STANDING),
+        blockt der State-Guard ein Re-Trigger. Endzustand: SAT (Rest, bestromt
+        — NICHT Shutdown, damit Reconnect wieder aufstehen kann).
+        """
+        timeout = self._comms_loss_sitdown_timeout
+        if timeout <= 0.0 or self._last_cmd_time is None:
+            return
+        if (now - self._last_cmd_time) < timeout:
+            return
+        if self._engine.state != GaitEngine.STATE_STANDING:
+            return
+        self.get_logger().warn(
+            f'comms-loss: no /cmd_vel for {now - self._last_cmd_time:.1f} s '
+            f'(> {timeout:.1f} s) — auto sit-down (Rest)',
+            throttle_duration_sec=5.0,
+        )
+        self._relay_off_after_sat = False
+        self._start_sitdown_sequence()
 
     def _on_param_change(self, params) -> SetParametersResult:
         """
@@ -1027,6 +1311,12 @@ class GaitNode(Node):
             self._standup_phase1_fraction = value
         elif name == 'body_height_start':
             self._body_height_start = value
+        elif name == 'sitdown_duration':
+            self._sitdown_duration = value
+        elif name == 'sitdown_lower_fraction':
+            self._sitdown_lower_fraction = value
+        elif name == 'comms_loss_sitdown_timeout':
+            self._comms_loss_sitdown_timeout = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
 

@@ -93,6 +93,23 @@ class GaitEngine:
     # Auto-getriggert beim Standup-Ende, wenn sich die beiden radii
     # unterscheiden (sonst direkt STANDING). cmd_vel wird ignoriert bis STANDING.
     STATE_REPOSITION = 'REPOSITION'
+    # Block B1: Hinsetz-Sequenz (Umkehrung des Aufstehens). Drei Phasen:
+    #   Phase 1 (Füße raus) reuse STATE_REPOSITION mit vertauschten radii
+    #     (radial_distance → standup_radial_distance) via start_reposition(
+    #     after=SITDOWN_LOWER) — kein eigener State.
+    #   STATE_SITDOWN_LOWER: reverse-kartesisch — Füße x/y FIX @ standup_radial,
+    #     nur body_height rampt von self.body_height → body_height_start (Bauch
+    #     am Boden). = Umkehrung der CARTESIAN_STANDUP-Push-Phase.
+    #   STATE_SITDOWN_FLATTEN: Joint-Space-Lerp aller Joints zu rad 0 (Beine
+    #     flach, Bauch trägt, Fuß ~2 cm über Grund). Box-konvex limit-sicher,
+    #     kein IK. Mirror von STARTUP_RAMP.
+    # Endzustand STATE_SAT: bestromt, idle, hält rad 0. cmd_vel wird in allen
+    # drei Sitdown-Phasen UND in SAT ignoriert (nur Node-Services stand_up/
+    # shutdown reagieren). Aufstehen aus SAT = start_cartesian_standup (start-
+    # pose-agnostisch) — kein eigener Engine-Code.
+    STATE_SITDOWN_LOWER = 'SITDOWN_LOWER'
+    STATE_SITDOWN_FLATTEN = 'SITDOWN_FLATTEN'
+    STATE_SAT = 'SAT'
 
     def __init__(
         self,
@@ -173,6 +190,24 @@ class GaitEngine:
         self._repos_to_radial: float = radial_distance
         self._repos_start_t: float = 0.0
         self._repos_duration: float = 0.0
+        # Block B1 — Folgezustand nach der Reposition. Default STANDING (= das
+        # bisherige Standup→Walk-Verhalten, unverändert). Die Hinsetz-Sequenz
+        # setzt SITDOWN_LOWER, damit Phase 1 (Füße raus) den bestehenden
+        # REPOSITION-State wiederverwendet, danach aber ins Absenken übergeht.
+        self._reposition_after: str = self.STATE_STANDING
+
+        # Block B1 — SITDOWN_LOWER / SITDOWN_FLATTEN-State-Daten.
+        self._sitdown_lower_start_t: float = 0.0
+        self._sitdown_lower_duration: float = 0.0
+        self._sitdown_flatten_start_t: float = 0.0
+        self._sitdown_flatten_duration: float = 0.0
+        self._sitdown_bh_start: float = -0.0135
+        self._flatten_start_joints: dict[str, JointAngles] = {}
+        # Block B1 (User 2026-06-03): SAT-Ruhe-Pose = Boot-/Spawn-Pose (Beine
+        # hoch), NICHT flach-rad-0. Wird vom Node beim Sit-down übergeben (die
+        # beim Boot gelesene Spawn-Joint-Pose). None → Fallback rad 0 je Bein
+        # (Backward-Compat / Engine-Default ohne Node). Wertneutral.
+        self._sitdown_rest_joints: dict[str, JointAngles] | None = None
 
     @property
     def state(self) -> str:
@@ -348,13 +383,18 @@ class GaitEngine:
         muss warten bis Ramp fertig ist und Engine selbsttaetig auf
         STANDING wechselt.
         """
-        # Phase 13 Stage A/0.7/2.3: cmd_vel waehrend Aufsteh-Sequenz (joint-
-        # space ODER kartesisch) UND waehrend der Tripod-Reposition komplett
-        # verwerfen — erst STANDING nimmt cmd_vel an.
+        # Phase 13 Stage A/0.7/2.3 + Block B1: cmd_vel waehrend Aufsteh-Sequenz
+        # (joint-space ODER kartesisch), waehrend der Tripod-Reposition UND
+        # waehrend der gesamten Hinsetz-Sequenz/SAT komplett verwerfen — nur
+        # STANDING/WALKING nehmen cmd_vel an. Aus Sitdown/SAT führen allein die
+        # Node-Services stand_up/shutdown heraus.
         if self._state in (
             self.STATE_STARTUP_RAMP,
             self.STATE_CARTESIAN_STANDUP,
             self.STATE_REPOSITION,
+            self.STATE_SITDOWN_LOWER,
+            self.STATE_SITDOWN_FLATTEN,
+            self.STATE_SAT,
         ):
             return False
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
@@ -612,6 +652,13 @@ class GaitEngine:
         # Phase 13 Stage 1 Teil 2.3 — Tripod-Reposition nach dem Aufstehen.
         if self._state == self.STATE_REPOSITION:
             return self._compute_reposition_angles(t)
+        # Block B1 — Hinsetz-Sequenz (Lower → Flatten) + SAT-Idle.
+        if self._state == self.STATE_SITDOWN_LOWER:
+            return self._compute_sitdown_lower_angles(t)
+        if self._state == self.STATE_SITDOWN_FLATTEN:
+            return self._compute_sitdown_flatten_angles(t)
+        if self._state == self.STATE_SAT:
+            return self._compute_sat_angles()
 
         targets = self.compute_foot_targets(t)
         angles = {}
@@ -756,16 +803,38 @@ class GaitEngine:
         else:
             self._state = self.STATE_STANDING
 
-    def start_reposition(self, t: float) -> None:
+    def start_reposition(
+        self,
+        t: float,
+        from_radial: float | None = None,
+        to_radial: float | None = None,
+        after: str | None = None,
+    ) -> None:
         """
-        Tripod-Reposition einleiten (Stage 1 Teil 2.3).
+        Tripod-Reposition einleiten (Stage 1 Teil 2.3, richtungs-agnostisch).
 
-        Füße von ``standup_radial_distance`` zu ``radial_distance`` (beide @
-        ``body_height``), in zwei Tripod-Halb-Zyklen. Dauer =
-        ``reposition_cycle_time``. Setzt STATE_REPOSITION.
+        Füße von ``from_radial`` zu ``to_radial`` (beide @ ``body_height``), in
+        zwei Tripod-Halb-Zyklen. Dauer = ``reposition_cycle_time``. Setzt
+        STATE_REPOSITION.
+
+        Defaults (alle ``None``) = das bisherige Standup→Walk-Verhalten:
+        ``standup_radial_distance`` → ``radial_distance``, danach STANDING.
+
+        Block B1: Die Hinsetz-Sequenz ruft mit vertauschten radii
+        (``radial_distance`` → ``standup_radial_distance``) und
+        ``after=STATE_SITDOWN_LOWER`` auf, damit Phase 1 (Füße raus) den
+        bestehenden Reposition-State wiederverwendet, danach aber statt STANDING
+        ins Körper-Absenken übergeht (siehe ``_finish_reposition``).
         """
-        self._repos_from_radial = self.standup_radial_distance
-        self._repos_to_radial = self.radial_distance
+        self._repos_from_radial = (
+            self.standup_radial_distance if from_radial is None else from_radial
+        )
+        self._repos_to_radial = (
+            self.radial_distance if to_radial is None else to_radial
+        )
+        self._reposition_after = (
+            self.STATE_STANDING if after is None else after
+        )
         self._repos_start_t = t
         self._repos_duration = self.reposition_cycle_time
         self._state = self.STATE_REPOSITION
@@ -809,27 +878,41 @@ class GaitEngine:
         STATE_REPOSITION: pro Tick Tripod-Foot-Targets → IK.
 
         ``progress = (t - _repos_start_t) / _repos_duration``. Bei
-        progress >= 1: State → STANDING (Füße auf ``radial_distance``),
-        Walk-Pose-IK geliefert. IK-Verletzung wirft IKError mit Bein-Kontext
-        (wie der Standup) → gait_node fängt sie im Tick-Handler.
+        progress >= 1: Übergang via ``_finish_reposition`` — Standup-Pfad →
+        STANDING (Füße auf ``radial_distance``), Hinsetz-Pfad → SITDOWN_LOWER.
+        IK-Verletzung wirft IKError mit Bein-Kontext (wie der Standup) →
+        gait_node fängt sie im Tick-Handler.
         """
         tau = t - self._repos_start_t
         if self._repos_duration <= 0.0:
-            self._state = self.STATE_STANDING
-            return self._reposition_ik(
-                self._standing_targets(self._repos_to_radial), t,
-            )
+            return self._finish_reposition(t)
         progress = tau / self._repos_duration
         if progress >= 1.0:
-            self._state = self.STATE_STANDING
-            return self._reposition_ik(
-                self._standing_targets(self._repos_to_radial), t,
-            )
+            return self._finish_reposition(t)
         targets: dict[str, Point3] = {}
         for leg in HEXAPOD.legs:
             leg_id = int(leg.name.split('_')[1])
             targets[leg.name] = self._reposition_foot(leg_id, progress)
         return self._reposition_ik(targets, t)
+
+    def _finish_reposition(self, t: float) -> dict[str, JointAngles]:
+        """
+        Übergang am Ende der Reposition (Block B1).
+
+        Default (``_reposition_after == STATE_STANDING``): wie bisher → STANDING,
+        Füße auf ``_repos_to_radial`` (Walk-Pose). Hinsetz-Pfad
+        (``_reposition_after == STATE_SITDOWN_LOWER``): direkt ins Körper-
+        Absenken übergehen — ``start_sitdown_lower`` setzen und dessen Angles für
+        diesen Tick liefern (nahtlos, da Lower bei progress 0 exakt die
+        Reposition-Endpose @ ``standup_radial``/``body_height`` ausgibt).
+        """
+        if self._reposition_after == self.STATE_SITDOWN_LOWER:
+            self.start_sitdown_lower(t)
+            return self._compute_sitdown_lower_angles(t)
+        self._state = self.STATE_STANDING
+        return self._reposition_ik(
+            self._standing_targets(self._repos_to_radial), t,
+        )
 
     def _standing_targets(self, radial: float) -> dict[str, Point3]:
         """Statische Stand-Pose-Foot-Targets bei gegebenem radial."""
@@ -853,6 +936,184 @@ class GaitEngine:
                     f't={t:.3f}s, target={foot_targets[leg.name]}: {exc}'
                 ) from exc
         return angles
+
+    # ----- Block B1: Hinsetz-Sequenz (Reposition aus → Lower → Flatten → SAT) --
+
+    # Fallback-Ruhe-Pose (SAT), falls der Node keine Spawn-Pose übergibt: alle
+    # Joints rad 0. ⚠️ rad 0 = Bein HORIZONTAL gestreckt (Fuß auf Coxa-Höhe) —
+    # NICHT die gewünschte Beine-hoch-Pose. Im Normalbetrieb übergibt der Node
+    # die Boot-/Spawn-Pose via rest_joints (User 2026-06-03).
+    _SIT_REST_ANGLES: JointAngles = (0.0, 0.0, 0.0)
+
+    def _rest_angles(self, leg_name: str) -> JointAngles:
+        """SAT-Ruhe-Pose je Bein: übergebene Spawn-Pose, sonst Fallback rad 0."""
+        if self._sitdown_rest_joints is None:
+            return self._SIT_REST_ANGLES
+        return self._sitdown_rest_joints.get(leg_name, self._SIT_REST_ANGLES)
+
+    def start_sitdown(
+        self,
+        t: float,
+        lower_duration: float,
+        flatten_duration: float,
+        body_height_start: float = -0.0135,
+        rest_joints: dict[str, JointAngles] | None = None,
+    ) -> bool:
+        """
+        Hinsetz-Sequenz einleiten (Block B1). Nur aus STANDING erlaubt.
+
+        Phase 1 (Füße raus) reuse der bestehende REPOSITION-State via
+        ``start_reposition(from=radial_distance, to=standup_radial_distance,
+        after=SITDOWN_LOWER)``; Dauer = ``reposition_cycle_time``.
+        Phase 2 (Lower, Dauer ``lower_duration``) + Phase 3 (Flatten, Dauer
+        ``flatten_duration``) folgen automatisch über die Finish-Übergänge.
+        ``body_height_start`` (Foot-z @ Bauch am Boden, negativ) wird für die
+        Lower-/Flatten-Start-Pose verwendet (Reuse des Standup-Werts).
+
+        ``rest_joints`` (User 2026-06-03) = Ziel-/SAT-Ruhe-Pose je Bein, in die
+        Phase 3 lerpt und die SAT statisch hält. Typisch die beim Boot gelesene
+        **Spawn-Pose** (Beine hoch) → der Roboter endet in genau der Pose, in der
+        er gestartet ist; der Bauch trägt, die Beine fallen erst beim Relay-Aus.
+        ``None`` → Fallback rad 0 je Bein (flach; nur Engine-Default ohne Node).
+
+        Returns ``True`` wenn gestartet, ``False`` wenn der State != STANDING
+        ist (Defense-in-depth; der Node prüft ohnehin vorher).
+        """
+        if self._state != self.STATE_STANDING:
+            return False
+        if lower_duration <= 0.0:
+            raise ValueError(
+                f'lower_duration must be > 0, got {lower_duration}'
+            )
+        if flatten_duration <= 0.0:
+            raise ValueError(
+                f'flatten_duration must be > 0, got {flatten_duration}'
+            )
+        self._sitdown_lower_duration = lower_duration
+        self._sitdown_flatten_duration = flatten_duration
+        self._sitdown_bh_start = body_height_start
+        self._sitdown_rest_joints = rest_joints
+        # Phase 1: Reposition AUS (radial → standup_radial), danach LOWER.
+        self.start_reposition(
+            t,
+            from_radial=self.radial_distance,
+            to_radial=self.standup_radial_distance,
+            after=self.STATE_SITDOWN_LOWER,
+        )
+        return True
+
+    def start_sitdown_lower(self, t: float) -> None:
+        """
+        Phase 2 — Körper absenken (reverse-kartesisch). Setzt SITDOWN_LOWER.
+
+        Füße x/y bleiben fix @ ``standup_radial_distance`` (Reposition-Endpose),
+        nur ``body_height`` rampt von ``self.body_height`` → ``_sitdown_bh_start``.
+        Exakte Umkehrung der CARTESIAN_STANDUP-Push-Phase.
+        """
+        self._sitdown_lower_start_t = t
+        self._state = self.STATE_SITDOWN_LOWER
+
+    def _compute_sitdown_lower_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        SITDOWN_LOWER: pro Tick Foot-Targets (x/y fix, z rampt) → IK.
+
+        Bei progress >= 1: Übergang in SITDOWN_FLATTEN, dessen Angles für diesen
+        Tick geliefert. IK-Limit-/Reach-Verletzung wirft IKError mit Bein-Kontext
+        → gait_node fängt sie im Tick-Handler.
+        """
+        tau = t - self._sitdown_lower_start_t
+        if self._sitdown_lower_duration <= 0.0:
+            self.start_sitdown_flatten(t)
+            return self._compute_sitdown_flatten_angles(t)
+        progress = tau / self._sitdown_lower_duration
+        if progress >= 1.0:
+            self.start_sitdown_flatten(t)
+            return self._compute_sitdown_flatten_angles(t)
+        # Smooth-Step: Geschwindigkeit-Null an beiden Enden (weiches Absenken).
+        s = progress * progress * (3.0 - 2.0 * progress)
+        z = self.body_height + (self._sitdown_bh_start - self.body_height) * s
+        radial = self.standup_radial_distance
+        targets = {
+            leg.name: (radial, 0.0, z) for leg in HEXAPOD.legs
+        }
+        return self._sitdown_lower_ik(targets, t)
+
+    def _sitdown_lower_ik(
+        self, foot_targets: dict[str, Point3], t: float,
+    ) -> dict[str, JointAngles]:
+        """IK pro Bein für die Lower-Targets, IKError mit Bein-Kontext."""
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            leg_limits = self.joint_limits.get(leg.name)
+            try:
+                angles[leg.name] = leg_ik(
+                    *foot_targets[leg.name], leg, leg_limits,
+                )
+            except IKError as exc:
+                raise IKError(
+                    f'sitdown lower IK failed for {leg.name} at '
+                    f't={t:.3f}s, target={foot_targets[leg.name]}: {exc}'
+                ) from exc
+        return angles
+
+    def start_sitdown_flatten(self, t: float) -> None:
+        """
+        Phase 3 — Beine flach zu rad 0 (Joint-Space-Lerp). Setzt SITDOWN_FLATTEN.
+
+        Start-Pose = IK der Lower-Endpose (``standup_radial`` @
+        ``_sitdown_bh_start``), deterministisch berechnet — kein Tracking der
+        Live-Angles nötig. Ziel = rad 0 je Bein. Der Lerp läuft in Joint-Space
+        (kein IK pro Tick); zwischen zwei in-limit-Posen bleibt er box-konvex
+        in-limit. IKError der Start-Pose-IK wäre ein Config-Bug → propagiert.
+        """
+        lower_end = stand_pose(
+            self.standup_radial_distance, self._sitdown_bh_start,
+        )
+        start_joints: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            leg_limits = self.joint_limits.get(leg.name)
+            try:
+                start_joints[leg.name] = leg_ik(*lower_end, leg, leg_limits)
+            except IKError as exc:
+                raise IKError(
+                    f'sitdown flatten start IK failed for {leg.name} at '
+                    f't={t:.3f}s, target={lower_end}: {exc}'
+                ) from exc
+        self._flatten_start_joints = start_joints
+        self._sitdown_flatten_start_t = t
+        self._state = self.STATE_SITDOWN_FLATTEN
+
+    def _compute_sitdown_flatten_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        SITDOWN_FLATTEN: Joint-Space-Lerp ``_flatten_start_joints`` → rad 0.
+
+        Smooth-Step-Lerp pro Joint (kein IK). Bei progress >= 1: State → SAT,
+        Ruhe-Pose (rad 0) geliefert.
+        """
+        tau = t - self._sitdown_flatten_start_t
+        if self._sitdown_flatten_duration <= 0.0:
+            self._state = self.STATE_SAT
+            return self._compute_sat_angles()
+        progress = tau / self._sitdown_flatten_duration
+        if progress >= 1.0:
+            self._state = self.STATE_SAT
+            return self._compute_sat_angles()
+        s = progress * progress * (3.0 - 2.0 * progress)
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            start = self._flatten_start_joints[leg.name]
+            angles[leg.name] = _lerp(start, self._rest_angles(leg.name), s)
+        return angles
+
+    def _compute_sat_angles(self) -> dict[str, JointAngles]:
+        """SAT-Idle: Ruhe-Pose je Bein statisch halten (bestromt)."""
+        return {
+            leg.name: self._rest_angles(leg.name) for leg in HEXAPOD.legs
+        }
 
 
 def _lerp(p_start: Point3, p_end: Point3, t: float) -> Point3:

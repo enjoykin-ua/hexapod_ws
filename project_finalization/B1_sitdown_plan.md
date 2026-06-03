@@ -47,21 +47,27 @@ SITDOWN_LOWER (reverse-kartesisch, Füße x/y FIX @ standup_radial):
 `body_height_start` (−0.0135, Bauch am Boden) wird **wiederverwendet** (kein neuer Wert).
 
 ```
-SITDOWN_FLATTEN (Joint-Space-Lerp zu rad 0):
+SITDOWN_FLATTEN (Joint-Space-Lerp zur Boot-/Spawn-Pose):
     start = IK(standup_radial, 0, body_height_start)   # = Lower-Endpose, deterministisch
-    target = (0,0,0) je Bein
+    target = rest_joints  (= Boot-/Spawn-Pose je Bein; Fallback rad 0)
     progress = (t - t0) / sitdown_flatten_dur          # = sitdown_duration * (1 - sitdown_lower_fraction)
     angle[leg] = lerp(start, target, smoothstep(progress))   # KEIN IK
-    progress>=1 → state = SAT
+    progress>=1 → state = SAT (hält rest_joints)
 ```
-**Warum Joint-Space, kein IK?** rad 0 = Beine flach, Fuß im Bein-Frame bei z=0 (≈Coxa-Höhe)
-→ liegt ~2 cm über Grund (kein Schürfen), Bauch trägt. Joint-Space-Lerp zwischen zwei
-in-limit-Posen bleibt **box-konvex in-limit** (jeder Joint zwischen zwei gültigen Werten) →
-trivial limit-sicher, kein Reach-Problem nahe Singularität. Mirror von STARTUP_RAMP.
+**Zielpose = Boot-/Spawn-Pose (User 2026-06-03, Korrektur des Q2-Irrtums):** Der Roboter endet
+in **genau der Pose, in der er gespawnt/gebootet ist** (Beine **hoch**), NICHT flach. Der Node
+schneidet die erste vollständige `/joint_states` (Spawn-Pose) mit und übergibt sie als
+``rest_joints``. Bauch trägt, Beine in der Luft → das passive Hinlegen der Beine passiert erst
+beim **Relay-Aus** (Servos schlaff → Beine fallen). ⚠️ **rad 0 ist NICHT „Beine hoch":** laut FK
+ist rad 0 das Bein *horizontal gestreckt* (Fuß auf Coxa-Höhe) — genau das ursprünglich falsch
+gewählte Ziel. ``rest_joints=None`` → Fallback rad 0 (nur Engine-Default ohne Node).
+**Warum Joint-Space, kein IK?** Joint-Space-Lerp zwischen zwei in-limit-Posen bleibt
+**box-konvex in-limit** → trivial limit-sicher, kein Reach-Problem nahe Singularität.
+Mirror von STARTUP_RAMP.
 
 ```
 SAT (terminal-idle, bestromt):
-    compute_joint_angles → konstant rad 0 je Bein (statisch halten, kein IK)
+    compute_joint_angles → konstant rest_joints (Boot-Pose) je Bein halten, kein IK
     set_command → cmd_vel ignorieren
 ```
 
@@ -163,18 +169,67 @@ SAT/STANDING --shutdown--> (sit falls STANDING) --> SAT + Relay-Aus (terminal)
 ## 3. Progress-Checkliste (Done-Vertrag, 1:1 nach `B_lokomotion_kern.md` §B1)
 
 ```
-- [ ] B1.1  Engine: start_sitdown + Phasen (Reposition aus → Körper absenken → rad 0) → SAT-State
-- [ ] B1.2  Engine: SAT-State (bestromt, idle); Aufstehen AUS SAT (start_cartesian_standup start-pose-agnostisch) → STANDING
-- [ ] B1.3  Engine: cmd_vel in Sitdown/SAT ignorieren (nur stand_up/shutdown akzeptiert)
-- [ ] B1.4  Node: Services /hexapod_sit_down (→SAT Rest), /hexapod_stand_up (SAT→STANDING), /hexapod_shutdown (sit + Relay-Aus)
-- [ ] B1.5  Node: Relay-Aus nur im Shutdown (/hexapod_relay_set SetBool data=false; Sim übersprungen)
-- [ ] B1.6  Node: Fail-safe Comms-Loss (opt-in, Default 0) → /hexapod_sit_down (Rest); aus WALKING erst stoppen
-- [ ] B1.7  Unit-Tests: Pfad in-limit (alle 6, jede Phase), Reposition-aus = rückwärts, Endpose=rad 0, max 3 in Luft, SAT→STANDING in-limit
-- [ ] B1.8  standup/walking_envelope unberührt grün; Regression + Lint grün
-- [ ] B1.9  SIM: Stehen→Hinsetzen(SAT)→Aufstehen smooth, kein Freeze/Kippen; Services triggern
-- [ ] B1.10 DANACH HW aufgebockt → Boden: Hinsetzen + Aufstehen + Shutdown(Relay) sicher
-- [ ] B1.11 Self-Review + Design-Log; Test-Markdown
+- [x] B1.1  Engine: start_sitdown + Phasen (Reposition aus → Körper absenken → rad 0) → SAT-State
+- [x] B1.2  Engine: SAT-State (bestromt, idle); Aufstehen AUS SAT (start_cartesian_standup start-pose-agnostisch) → STANDING
+- [x] B1.3  Engine: cmd_vel in Sitdown/SAT ignorieren (nur stand_up/shutdown akzeptiert)
+- [x] B1.4  Node: Services /hexapod_sit_down (→SAT Rest), /hexapod_stand_up (SAT→STANDING), /hexapod_shutdown (sit + Relay-Aus)
+- [x] B1.5  Node: Relay-Aus nur im Shutdown (/hexapod_relay_set SetBool data=false; Sim übersprungen)
+- [x] B1.6  Node: Fail-safe Comms-Loss (opt-in, Default 0) → /hexapod_sit_down (Rest); aus WALKING erst stoppen
+- [x] B1.7  Unit-Tests: Pfad in-limit (alle 6, jede Phase), Reposition-aus = rückwärts, Endpose=rad 0, max 3 in Luft, SAT→STANDING in-limit
+- [x] B1.8  standup/walking_envelope unberührt grün; Regression + Lint grün (111 tests, 0 fail)
+- [x] B1.9  SIM: Stehen→Hinsetzen(SAT)→Aufstehen smooth, kein Freeze/Kippen; Services triggern (Laufen→anhalten→hinsetzen End-to-End ok)
+- [x] B1.10 HW aufgebockt → Boden: Hinsetzen + Aufstehen + Shutdown(Relay) sicher (User-Verify 2026-06-03)
+- [x] B1.11 Self-Review + Design-Log; Test-Markdown (dieser Abschnitt 5/6 + B1_sitdown_test_commands.md)
 ```
+
+> **🟢 B1 ABGESCHLOSSEN (2026-06-03):** alle Punkte B1.1–B1.11 erledigt. Code + Tests
+> (116, 0 fail) + Lint + Envelope grün; SIM + HW (aufgebockt **und** Boden) vom User
+> verifiziert wie gewünscht (End-Pose = Spawn-Pose/Beine hoch, Hinsetzen→Aufstehen→
+> Shutdown sicher, Laufen→anhalten→hinsetzen ok).
+
+## 5. Implementierungs-Notizen + Design-Log
+
+**Dateien geändert/neu:**
+- `hexapod_gait/gait_engine.py`: States `SITDOWN_LOWER`/`SITDOWN_FLATTEN`/`SAT`; `start_sitdown`,
+  `start_sitdown_lower`, `start_sitdown_flatten`, `_compute_sitdown_*`, `_compute_sat_angles`;
+  `start_reposition` um `from_radial`/`to_radial`/`after` erweitert; `_finish_reposition` (Continuation).
+- `hexapod_gait/gait_node.py`: 3 Services + Handler, Relay-Client (`/hexapod_relay_set`),
+  `_check_comms_loss`, `_latest_joints`, `_shutdown_latched`, `_relay_off_after_sat`; 3 Params.
+- Neu: `test/test_sitdown.py` (15 Engine-Tests), `test/test_sitdown_node.py` (16 Node-Tests).
+
+**Design-Entscheidungen (mit verworfenen Alternativen):**
+- **Lazy Phasen-Uhr:** Jede Phase startet ihre Uhr beim Tick, der die Vorgänger-Grenze
+  überschreitet (nicht beim exakten Grenz-t). Korrekt fürs dichte 50-Hz-Ticking; Unit-Tests
+  müssen daher dicht ticken statt zu springen (siehe `_drive`-Helper). Konsistent mit
+  Standup→Reposition. *Alternative (absolute Phasen-Startzeiten vorab):* fragil bei Live-Param-
+  Änderung der Dauern, verworfen.
+- **Reposition-Reuse via Continuation statt eigenem State:** `_reposition_after`-Feld + ein
+  Conditional in `_finish_reposition`. *Alternative (dedizierter SITDOWN_REPOSITION):* mehr Code,
+  null Coupling — verworfen zugunsten max. Reuse (User-Entscheidung).
+- **Flatten in Joint-Space (kein IK pro Tick):** box-konvex limit-sicher, mirror von STARTUP_RAMP.
+  Start-Pose deterministisch aus IK der Lower-Endpose (kein Live-Angle-Tracking).
+- **Shutdown-Latch im Node, Engine bleibt SAT:** Power-Zustand ist kein Engine-Konzept. Latch
+  blockt `stand_up` bis Relay-On/Reboot. *Alternative (eigener Engine-State SHUTDOWN):* unnötig,
+  Power gehört in den Node.
+- **Relay fire-and-forget** (wie `_trigger_safety_freeze`): kein Blockieren des 50-Hz-Ticks;
+  Latch ist der SW-Guard, FW-Fail-safe (Relay fällt bei Trip/RESET) deckt den Rest.
+
+## 6. Self-Review (kritischer Durchgang 2026-06-03)
+
+| # | Punkt | Status | Befund |
+|---|---|---|---|
+| 1 | Comms-Loss kein Re-Trigger | OK | Nach Trigger state≠STANDING → Guard blockt; in SAT geblockt. |
+| 2 | Reconnect → autom. wieder hoch? | 🟡 vormerken | B1 = nur Rest-Hinsetzen; Auto-Restand bei cmd_vel-Reconnect NICHT drin → Block C4/E1. |
+| 3 | Shutdown-Latch-Reset | OK | Nur via Reboot (Node-Reinit). Entspricht „Re-Power = Reboot". |
+| 4 | Relay async vs Latch | OK | fire-and-forget + sofort latchen; Latch = SW-Guard, FW-Fail-safe deckt Rest. |
+| 5 | `_reposition_after`-Reset | OK | `start_reposition` ohne `after` → STANDING; via `test_standup_from_sat` auf gleicher Engine verifiziert. |
+| 6 | Doppel-Trigger mid-Sequenz | OK | sit nur STANDING, shutdown nur STANDING/SAT → mid-Sequenz abgelehnt. |
+| 7 | Standup aus SAT (rad 0) ground-contact | 🟡 SIM-verify | kinematisch in-limit getestet; standup_envelope prüft nur ab power_on_mid → in SIM beobachten. |
+| 8 | Flatten-Ziel = Boot-/Spawn-Pose (Korrektur) | OK (SIM-verify) | rad 0 wäre flach-horizontal; jetzt Lerp zur mitgeschnittenen Spawn-Pose (Beine hoch). Box-konvex limit-sicher. SIM: stabile Bauchlage prüfen. |
+| 9 | Wertneutralität | OK | `test_sitdown_value_neutral` grün; Lower/Reposition nutzen Params. |
+| 10 | Continuity Lower→Flatten | OK | Flatten-Start = IK der Lower-Endpose → nahtlos. |
+
+Keine 🔴. Zwei 🟡 = SIM-Beobachtungspunkte (B1.9), ein bewusst deferierter Scope (#2 → C4/E1).
 
 ---
 
