@@ -36,12 +36,14 @@
 | B5 | **Volle 5 cm Körperhöhe (−0.130)** | 💤 | Standup kann −0.130 nicht direkt; bräuchte Body-Lift-in-Reposition (`standup_body_height` + Reposition interpoliert Höhe mit). Erst falls 4 cm nicht reichen. |
 
 ## Block C — Teleop / Steuerungs-UX
+> **Plan + volle Belegungs-Tabelle + Handover:** [`C_teleop.md`](C_teleop.md). Design-Prinzip:
+> Teleop = reines UI (Intents), `gait_node` = State/Logik. Reihenfolge: C1+ (USB) → C2 → C4.
 | # | Stage | Status | Notiz |
 |---|---|---|---|
-| C1 | **PS4 USB-Steuerung** | 🟢 | Läuft (Sim + aufgebockt). R1=Deadman + D-Pad. |
-| C2 | **Live-Verstell-Backend (Höhe/Schritt/Gangart)** | ⚪ | Backend großteils da (ROS-Params + cmd_body_height). Sauberer Param-Bridge-Pfad Controller→Param + STANDING-Schutz. |
-| C3 | **PS4-Belegung erweitern** | ⚪ | Tasten für Höhe/Schrittweite/Hub/Gangart/Tempo; klare Modi (Fahr- vs Trim-Modus). Nutzt C2. |
-| C4 | **Bluetooth** | ⚪ | `ps4_bt.yaml`-Profil + Pairing; erst wenn USB rund. + Comms-Loss → sicherer Stopp. |
+| C1 | **PS4 USB-Steuerung** | 🟢 (Basis) | Läuft (Sim + aufgebockt). R1=Deadman + D-Pad + L2/R2-Höhe. |
+| C1+ | **USB erweitern: Sticks omnidir. + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook** | ⚪ als Nächstes | Topics + discrete Intent-Services (Sit/Stand-Toggle neu im gait_node). Show-Pose nur Hook (B4). |
+| C2 | **Live-Param/Intent-Bridge (Gangart-Wechsel + Schrittweite)** | ⚪ | Komplexer, getrennt: Intents `/hexapod_cycle_gait` + Schrittweite; gait_node cyclet/clampt + STANDING-Schutz. (Ex-C2/C3 zusammengefasst.) |
+| C4 | **Bluetooth** | ⚪ | `ps4_bt.yaml`-Profil + Pairing; erst wenn USB rund. Comms-Loss → B1-Fail-safe. |
 
 ## Block D — Hardware-Bring-up / Plattform
 | # | Stage | Status | Notiz |
