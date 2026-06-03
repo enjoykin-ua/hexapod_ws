@@ -119,6 +119,36 @@ WAVE = GaitPattern(
     swing_duty=1.0 / 6.0,
 )
 
+# Block B3.2 — Tetrapod: 3 Phasen, je ein DIAGONAL-Paar in der Luft (2 Beine),
+# die anderen 4 tragen mittig-balanciert. Paare {1,4},{2,5},{3,6} heben in dieser
+# Reihenfolge. swing_duty 1/3 + 3 Phasen → immer genau ein Paar in der Luft.
+# Tempo zwischen Tripod und Wave.
+TETRAPOD = GaitPattern(
+    name='tetrapod',
+    phase_offset_per_leg=_offsets_from_lift_order(
+        [[1, 4], [2, 5], [3, 6]], num_phases=3,
+    ),
+    swing_duty=1.0 / 3.0,
+)
+
+# Block B3.3 — Ripple: überlappende Welle, 2 Beine gleichzeitig in der Luft,
+# immer ECHT DIAGONAL (verschiedene Seite UND verschiedene Reihe). HEBE-Reihen-
+# folge 1→5→3→6→2→4 (FR,ML,RR,FL,MR,RL — rundherum). swing_duty 1/3 (Fenster
+# 2/6) bei 1/6-Phasen-Schritten → 2 überlappende Schwünge, immer diagonal.
+#
+# ⚠️ Reihenfolge per Stütz-Polygon-Marge gewählt (B3.3-Analyse 2026-06-03):
+# „nur kontralateral" (z.B. 3,4,2,5,1,6) reicht NICHT — dort heben kurzzeitig
+# BEIDE Hinterbeine (3+4) gleichzeitig → hintere Stütz-Kante ~durch den CoG →
+# Marge nur 6,8 mm → kippelt. Die diagonale Folge 1,5,3,6,2,4 hält die zwei
+# schwingenden Beine in verschiedener Reihe → Marge 120 mm (≈ Tripod/Tetrapod).
+RIPPLE = GaitPattern(
+    name='ripple',
+    phase_offset_per_leg=_offsets_from_lift_order(
+        [[1], [5], [3], [6], [2], [4]], num_phases=6,
+    ),
+    swing_duty=1.0 / 3.0,
+)
+
 
 GAIT_PRESETS: dict[str, GaitPattern] = {
     'single_leg_1': SINGLE_LEG_1,
@@ -129,4 +159,6 @@ GAIT_PRESETS: dict[str, GaitPattern] = {
     'single_leg_6': SINGLE_LEG_6,
     'tripod': TRIPOD,
     'wave': WAVE,
+    'tetrapod': TETRAPOD,
+    'ripple': RIPPLE,
 }

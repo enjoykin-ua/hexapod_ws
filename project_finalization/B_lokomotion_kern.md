@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | **B1** | Hinsetz-/Abschalt-Sequenz | 🟢 **fertig** (SIM+HW Boden verifiziert 2026-06-03) | [`B1_sitdown_plan.md`](B1_sitdown_plan.md) | [`B1_sitdown_test_commands.md`](B1_sitdown_test_commands.md) |
 | B2 | Velocity-Feedforward (Zittern-Fix) | ❌ versucht & zurückgebaut (kein Nutzen, 2026-06-03) | §B2 | — |
-| B3 | Gangarten Wave→Tetrapod→Ripple (nacheinander) | ⚪ | §B3 | TODO |
+| B3 | Gangarten Wave→Tetrapod→Ripple (nacheinander) | 🟢 **fertig** (Sim+HW 2026-06-03; Tetra/Ripple volle Ruhe erst mit A5) | [`B3_gaits_plan.md`](B3_gaits_plan.md) | [`B3_gaits_test_commands.md`](B3_gaits_test_commands.md) |
 | B4 | Body-Pose + „Show"-Pose | ⏸️ Doku fertig, Umsetzung später | §B4 | (später) |
 | B5 | Volle 5 cm Körperhöhe (−0.130) | 💤 deferiert | §B5 | — |
 
@@ -157,7 +157,19 @@ füllen. Ggf. Glättung/Clamp.
 
 ---
 
-## B3 — Weitere Gangarten (Wave / Ripple / Tetrapod)  ⚪
+## B3 — Weitere Gangarten (Wave / Ripple / Tetrapod)  🟢 fertig (Sim+HW)
+
+> **Stand 2026-06-03** (Detail + Self-Review + Stabilitäts-Analyse: [`B3_gaits_plan.md`](B3_gaits_plan.md)):
+> Alle drei Patterns implementiert (reine Daten via `_offsets_from_lift_order`, kein Engine-Code),
+> 137 Tests + Lint grün, Default bleibt `tripod`. Umschalten: `ros2 param set /gait_node gait_pattern
+> wave|tetrapod|ripple` (nur STANDING).
+> - **Wave** (1 Bein, Reihenfolge 3,2,1,4,5,6): Sim ✅ sauber/stabil.
+> - **Tetrapod** ({1,4}{2,5}{3,6}) + **Ripple** (1,5,3,6,2,4): statisch stabil (114/120 mm Marge),
+>   aber **dynamisches Körper-Wackeln** im Open-Loop (asymmetrische Stütze rotiert um den Körper;
+>   Tripod ist via symmetrische Dreiecke wackelfrei). **Echter Fix = A5 IMU-Balance** (zurückgestellt).
+>   User-Entscheidung: vorerst „vorhanden aber wackelig" lassen, HW-Beurteilung steht aus.
+> - Gefixte Gotchas: Offset-Konvention (höherer Offset = früher) + Ripple-Reihenfolge (erst 6,8 mm
+>   Marge wg. beider Hinterbeine → 1,5,3,6,2,4 = 120 mm).
 
 **Ziel:** Stabilere/last-ärmere Gangarten zusätzlich zum Tripod. **Wave** (1 Bein zur Zeit,
 5 tragen) senkt die per-Bein-Last ~40 % → direkt gut gegen Hitze. Ripple/Tetrapod = Kompromisse.
@@ -177,17 +189,17 @@ Gangart-Wechsel: `gait_pattern`-Param ist bereits `standing_only` → Wechsel im
 ```
 > **Reihenfolge (User 2026-06-02): alle drei, aber nacheinander** — erst Wave, dann Tetrapod,
 > dann Ripple. Je Gangart: Pattern + Tests + Envelope + Sim/HW, dann die nächste.
-- [ ] B3.1  **Wave**-Pattern (Offsets + swing_duty 1/6) + GAIT_PRESETS; Tests + Envelope + Sim
-- [ ] B3.2  **Tetrapod**-Pattern (swing_duty 1/3, 3 Paare) + Tests + Envelope + Sim
-- [ ] B3.3  **Ripple**-Pattern (überlappend) + Tests + Envelope + Sim
-- [ ] B3.4  Unit-Tests je Pattern: max-Beine-in-Luft, linear_max plausibel, Offsets gültig
-- [ ] B3.5  Gangart-Wechsel im Stand (gait_pattern ist standing_only) sauber
-- [ ] B3.6  HW aufgebockt → Boden; Hitze-/Stabilitäts-Vergleich (torque_viz/Beobachtung)
-- [ ] B3.7  Self-Review + Test-Markdown (je Gangart Befund festhalten)
+- [x] B3.1  **Wave**-Pattern (3,2,1,4,5,6 + swing_duty 1/6) + GAIT_PRESETS; Tests + Sim ✅
+- [x] B3.2  **Tetrapod**-Pattern (1/3, Diagonal {1,4}{2,5}{3,6}) + Tests + Sim (wackelt)
+- [x] B3.3  **Ripple**-Pattern (1,5,3,6,2,4, echt diagonal) + Tests + Sim (wackelt)
+- [x] B3.4  Unit-Tests je Pattern: max-Beine-in-Luft, linear_max plausibel, Offsets gültig, balanced
+- [x] B3.5  Gangart-Wechsel im Stand (gait_pattern ist standing_only) sauber; Hinweistext erweitert
+- [x] B3.6  HW (2026-06-03): alle Gangarten laufen gut; Tripod+Wave am stabilsten; Tetra/Ripple nutzbar (volle Ruhe erst mit A5-IMU)
+- [x] B3.7  Self-Review + Design-Log + Test-Markdown
 ```
 **Offene Fragen B3:**
 - ✅ **Q2 Welche:** **alle drei, nacheinander** (User). Erledigt.
-- ⏳ **Q1:** Wave-Bein-Reihenfolge (metachronal) — Vorschlag bei B3.1 generieren + in Sim final wählen.
+- ✅ **Q1:** Wave-Reihenfolge 3,2,1,4,5,6 (in Gazebo bestätigt). Erledigt.
 
 ---
 

@@ -140,7 +140,8 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
     _ParamSpec(
         name='gait_pattern', default='tripod', standing_only=True,
         string_constraint=(
-            'valid values: tripod | wave | single_leg_1 .. single_leg_6'
+            'valid values: tripod | wave | tetrapod | ripple | '
+            'single_leg_1 .. single_leg_6'
         ),
         description=(
             'Gait-Pattern-Name aus GAIT_PRESETS. '

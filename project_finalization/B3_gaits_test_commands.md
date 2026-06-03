@@ -95,8 +95,48 @@ Aufgebockt sauber → **dann Boden**: kurz vorwärts, Stabilität/kein Kippen pr
 
 ---
 
-## 3. Tetrapod (B3.2) / Ripple (B3.3) — folgen nach Wave
+## 1.2 Tetrapod testen (B3.2) — SIM
 
-Gleicher Ablauf, nur `gait_pattern tetrapod` bzw. `ripple` (werden nach Wave-Freigabe
-implementiert + hier ergänzt). Erwartung: 2 Beine in der Luft (Tetrapod = Diagonal-Paar,
-Ripple = kontralateral), Tempo zwischen Tripod und Wave.
+Aufbau wie Abschnitt 1 (Sim + Gait, STANDING). Dann Terminal C:
+```bash
+ros2 param set /gait_node gait_pattern tetrapod
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.05}}'
+```
+**Erwartet:** immer **2 Beine gleichzeitig** in der Luft, und zwar ein **Diagonal-Paar**
+({1,4} = vorne-R+hinten-L, dann {2,5} = mitte-R+mitte-L, dann {3,6} = hinten-R+vorne-L),
+die anderen 4 tragen. Tempo **zwischen** Tripod und Wave (linear_max ~0.067 m/s).
+> ⚠️ **Bekannt (Sim 2026-06-03):** Tetrapod (und Ripple) bringen den Körper im Open-Loop zum
+> **periodischen Neigen/Rollen** — statisch stabil (kippt nicht um, Marge 114/120 mm), aber ohne
+> Körper-Lage-Regelung wackelt es. Echter Fix = **A5 IMU-Balance** (zurückgestellt). Dämpfen geht
+> per Live-Tuning: `cycle_time` hoch (z.B. 3.0) + `step_height` runter (z.B. 0.05). Auf HW evtl.
+> anders (Servo-Nachgiebigkeit). Tripod bleibt die ruhige Alltags-Gangart.
+Zurück: `Strg+C`, dann `ros2 param set /gait_node gait_pattern tripod` (im STANDING).
+
+## 1.3 Ripple testen (B3.3) — SIM
+
+Aufbau wie Abschnitt 1. Dann Terminal C:
+```bash
+ros2 param set /gait_node gait_pattern ripple
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.05}}'
+```
+**Erwartet:** **2 Beine** in der Luft, immer **echt diagonal** (verschiedene Seite UND Reihe),
+als Welle rundherum (Reihenfolge **1,5,3,6,2,4**). Stütz-Marge ~120 mm (≈ Tripod/Tetrapod) →
+stabil. Gleiches Tempo wie Tetrapod (~0.067 m/s). Zurück: `Strg+C`, dann `gait_pattern tripod`.
+> Hinweis: die frühere Reihenfolge 3,4,2,5,1,6 hatte beide Hinterbeine kurz gleichzeitig in der
+> Luft → Marge nur ~7 mm → kippelte; mit 1,5,3,6,2,4 behoben (B3.3-Stabilitätsanalyse).
+
+---
+
+## 4. HW — alle drei Gangarten (nacheinander)
+
+HW-Aufbau wie Abschnitt 2 (real.launch.py + Gait mit Preset, `use_sim_time:=false`,
+warten bis STANDING). Dann je Gangart im STANDING umschalten + aufgebockt laufen, dann Boden:
+```bash
+# im STANDING umschalten (eine der drei), dann laufen:
+ros2 param set /gait_node gait_pattern wave        # bzw. tetrapod / ripple
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.04}}'   # wave
+#   tetrapod/ripple: x bis ~0.05 möglich (höheres linear_max)
+```
+Zwischen den Gangarten: `Strg+C`, `gait_pattern tripod` (STANDING), dann nächste Gangart.
+Optional Last/Hitze je Gangart mit `torque_viz` beobachten (B3.6): Wave/Ripple sollten die
+per-Bein-Last senken (mehr tragende Beine als Tripod).

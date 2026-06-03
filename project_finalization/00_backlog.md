@@ -24,14 +24,14 @@
 | A2 | **Pose-Optimierung gegen Hitze** | ⏸️ | Mit A1 die last-minimale/-gleichmäßige Pose festziehen. Pausiert (keine Extrempunkte gesehen). |
 | A3 | **Tibia-Längen-/Geometrie-Studie** | ⏸️ | Nur falls Hitze später doch kritisch (HW-TABU, erst A1-Modell rechnen). |
 | A4 | **Selbst-Kollisions-Check (Weg B)** | ⏸️ | Bewusst OHNE (Weg A, Tibia hart freigeschaltet). Nachrüsten bei Balance/Terrain/Body-Pose. Plan: `docs_raspi/phase_13_stage_1_collision_check_plan.md`. |
-| A5 | **IMU-Integration → Balance** | ⏸️ | Eigenes Sensor-Plugin, `/imu/data`; Körper-Leveling, Kipp-Erkennung; Vorstufe Terrain. |
+| A5 | **IMU-Integration → Balance** | ⏸️ | Eigenes Sensor-Plugin, `/imu/data`; Körper-Leveling, Kipp-Erkennung; Vorstufe Terrain. **Auch der echte Fix für das dynamische Körper-Wackeln von Tetrapod/Ripple (B3)** — aktive Lage-Regelung macht die asymmetrisch stützenden Gangarten ruhig. |
 
 ## Block B — Lokomotion-Kern  ⬅ ALS NÄCHSTES
 | # | Stage | Status | Notiz |
 |---|---|---|---|
 | B1 | **Hinsetz-/Abschalt-Sequenz** | 🟢 (2026-06-03) | Umkehrung des Aufstehens: Walk-Pose → Füße raus (Rück-Reposition) → Körper sanft absenken → Relay/Servos lösen. Inkl. graceful-shutdown VOR Stromtrennung (Servos zentrieren beim Power-Off). **Wichtig für sicheren Realbetrieb.** |
 | B2 | **Velocity-Feedforward (Zittern-Fix)** | ❌ (2026-06-03) | Versucht (Finite-Diff → `JointTrajectoryPoint.velocities`, `allow_nonzero_velocity_at_trajectory_end`) — **kein beobachtbarer Nutzen** (Sim: keine Servo-Dynamik; HW: kein Unterschied) → vollständig zurückgebaut. Falls Zittern je real stört: Hebel = Vel/Accel-Limits im JTC, nicht dieser FF. Details: `B_lokomotion_kern.md` §B2. |
-| B3 | **Weitere Gangarten** | ⚪ | Wave/metachronal (stabilste, 5 Beine tragen → senkt Tibia-Last ~40 %), Ripple, Tetrapod. Billig: `GaitPattern`-Einträge. + Gangart-Wechsel im Lauf. |
+| B3 | **Weitere Gangarten** | 🟢 (2026-06-03) | Wave/Tetrapod/Ripple als `GaitPattern`-Einträge (137 Tests grün), Umschalten via `gait_pattern`-Param. Sim+HW verifiziert: Tripod+Wave am stabilsten; **Tetrapod/Ripple nutzbar, volle Ruhe erst mit A5 IMU-Balance** (Open-Loop-Wackeln). Details: `B3_gaits_plan.md`. |
 | B4 | **Body-Pose ohne Laufen + „Show"-Pose** | ⚪ | Körper neigen/verlagern auf Stützbeinen; 2 Vorderbeine frei in der Luft bewegen (winken/„graben"/Spinnen-Pose). Statisch = CoG im Rest-Stützpolygon (nutzt joint_load CoG/Polygon aus A1). Erst gescriptete Posen, dann interaktiv. ⚠️ Framing mit User final klären. |
 | B5 | **Volle 5 cm Körperhöhe (−0.130)** | 💤 | Standup kann −0.130 nicht direkt; bräuchte Body-Lift-in-Reposition (`standup_body_height` + Reposition interpoliert Höhe mit). Erst falls 4 cm nicht reichen. |
 

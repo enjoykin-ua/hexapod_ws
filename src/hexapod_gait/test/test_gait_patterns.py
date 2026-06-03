@@ -12,13 +12,15 @@ Pure-Python (pytest, kein rclpy). B3.1 = Wave; Tetrapod/Ripple folgen.
 """
 
 from hexapod_gait.gait_engine import GaitEngine
-from hexapod_gait.gait_patterns import GAIT_PRESETS, WAVE
+from hexapod_gait.gait_patterns import GAIT_PRESETS, RIPPLE, TETRAPOD, WAVE
 from hexapod_kinematics import HEXAPOD, JointLimits
 import pytest
 
 
 _RIGHT = {1, 2, 3}
 _LEFT = {4, 5, 6}
+# Reihen (fore-aft): vorne {1,6}, mitte {2,5}, hinten {3,4}.
+_ROW = {1: 'front', 6: 'front', 2: 'mid', 5: 'mid', 3: 'rear', 4: 'rear'}
 
 # URDF-Limits (Stand 2026-06: Tibia +2.50, s. servo_real_cal Stage F).
 _URDF_LIMITS = JointLimits(
@@ -125,6 +127,11 @@ def _assert_walk_in_limits(pattern, vx: float):
         eng.compute_joint_angles(i / 120.0 * _CYCLE)  # wirft bei Verletzung
 
 
+def _air_sets_over_cycle(pattern):
+    """Menge der in-der-Luft-Beine an jeder gesampelten Cycle-Phase."""
+    return [frozenset(_swinging_legs(pattern, phi)) for phi in _sample_phases()]
+
+
 # ============================== WAVE ================================== #
 
 def test_wave_registered():
@@ -163,3 +170,95 @@ def test_wave_linear_max_plausible():
 def test_wave_walk_in_limits():
     # vx klar unter Wave-linear_max (~0.053 m/s).
     _assert_walk_in_limits(WAVE, vx=0.04)
+
+
+# ============================ TETRAPOD =============================== #
+
+def test_tetrapod_registered():
+    assert 'tetrapod' in GAIT_PRESETS
+    assert GAIT_PRESETS['tetrapod'] is TETRAPOD
+    assert TETRAPOD.name == 'tetrapod'
+
+
+def test_tetrapod_offsets_valid_and_complete():
+    _assert_offsets_valid_and_complete(TETRAPOD)
+    assert TETRAPOD.swing_duty == pytest.approx(1.0 / 3.0)
+
+
+def test_tetrapod_each_leg_swings():
+    _assert_each_leg_swings(TETRAPOD)
+
+
+def test_tetrapod_max_two_in_air_diagonal_pair():
+    """Immer genau ein DIAGONAL-Paar (2 Beine) in der Luft, 4 tragen."""
+    pairs = {frozenset({1, 4}), frozenset({2, 5}), frozenset({3, 6})}
+    for air in _air_sets_over_cycle(TETRAPOD):
+        assert len(air) == 2
+        assert air in pairs
+
+
+def test_tetrapod_lift_order_diagonal_pairs():
+    """Paare heben in Reihenfolge {1,4}→{2,5}→{3,6}."""
+    assert _lift_order(TETRAPOD) == [1, 4, 2, 5, 3, 6]
+
+
+def test_tetrapod_linear_max_plausible():
+    _assert_linear_max(TETRAPOD)
+    wave_lm = _make_engine(WAVE).linear_max
+    tetra_lm = _make_engine(TETRAPOD).linear_max
+    tripod_lm = _make_engine(GAIT_PRESETS['tripod']).linear_max
+    assert wave_lm < tetra_lm < tripod_lm
+
+
+def test_tetrapod_walk_in_limits():
+    # vx unter Tetrapod-linear_max (~0.067 m/s).
+    _assert_walk_in_limits(TETRAPOD, vx=0.05)
+
+
+# ============================== RIPPLE =============================== #
+
+def test_ripple_registered():
+    assert 'ripple' in GAIT_PRESETS
+    assert GAIT_PRESETS['ripple'] is RIPPLE
+    assert RIPPLE.name == 'ripple'
+
+
+def test_ripple_offsets_valid_and_complete():
+    _assert_offsets_valid_and_complete(RIPPLE)
+    assert RIPPLE.swing_duty == pytest.approx(1.0 / 3.0)
+
+
+def test_ripple_each_leg_swings():
+    _assert_each_leg_swings(RIPPLE)
+
+
+def test_ripple_two_in_air_truly_diagonal():
+    """
+    Immer 2 Beine in der Luft, ECHT diagonal: verschiedene Seite UND Reihe.
+
+    Nur „kontralateral" (verschiedene Seite) reicht nicht — beide Hinterbeine
+    gleichzeitig (kontralateral, aber gleiche Reihe) lassen die Stütz-Marge auf
+    ~7 mm einbrechen (B3.3-Analyse). Verschiedene Reihe verhindert das.
+    """
+    for air in _air_sets_over_cycle(RIPPLE):
+        assert len(air) == 2
+        assert len(air & _RIGHT) == 1 and len(air & _LEFT) == 1  # Seite
+        rows = {_ROW[lid] for lid in air}
+        assert len(rows) == 2, f'gleiche Reihe in der Luft: {air}'  # Reihe
+
+
+def test_ripple_lift_order_diagonal_round():
+    """Hebe-Reihenfolge 1→5→3→6→2→4 (echte Diagonalen, rundherum)."""
+    assert _lift_order(RIPPLE) == [1, 5, 3, 6, 2, 4]
+
+
+def test_ripple_linear_max_plausible():
+    _assert_linear_max(RIPPLE)
+    # gleiche swing_duty wie Tetrapod → gleiche linear_max.
+    assert _make_engine(RIPPLE).linear_max == pytest.approx(
+        _make_engine(TETRAPOD).linear_max
+    )
+
+
+def test_ripple_walk_in_limits():
+    _assert_walk_in_limits(RIPPLE, vx=0.05)
