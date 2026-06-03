@@ -84,6 +84,42 @@ TRIPOD = GaitPattern(
 )
 
 
+# Block B3 — Helfer: phase_offset_per_leg aus einer expliziten HEBE-REIHENFOLGE.
+#
+# ⚠️ Offset-Konvention der Engine (s. _compute_walking_targets):
+#   cycle_phase = (phi + offset) % 1 ; Swing wenn cycle_phase < swing_duty.
+#   → ein Bein beginnt seinen Swing bei phi = (1 - offset) % 1, d.h. ein
+#   GRÖSSERER Offset bedeutet FRÜHERES Heben. Das ist kontraintuitiv und hat in
+#   B3.1 zu einer verdrehten Reihenfolge geführt. Dieser Helfer kapselt die
+#   Umrechnung: man gibt die Reihenfolge der hebenden Gruppen an (Gruppe i hebt
+#   bei Cycle-Phase i/num_phases), er liefert die passenden Offsets.
+def _offsets_from_lift_order(
+    groups: list[list[int]], num_phases: int,
+) -> dict[int, float | None]:
+    """Offsets, damit ``groups`` in genau dieser Reihenfolge heben."""
+    offsets: dict[int, float | None] = {}
+    for i, group in enumerate(groups):
+        start = i / num_phases               # Cycle-Phase des Swing-Beginns
+        off = (1.0 - start) % 1.0            # Engine: Swing-Start bei (1-off)%1
+        for leg in group:
+            offsets[leg] = off
+    return offsets
+
+
+# Block B3.1 — Wave (metachronal): nur 1 Bein gleichzeitig in der Luft, 5 tragen
+# → last-ärmste/stabilste Gangart (langsamster Vortrieb). HEBE-Reihenfolge
+# 3→2→1→4→5→6 (rechts hinten→vorne, dann links hinten→vorne; Layout 1=v-R,
+# 2=m-R,3=h-R,4=h-L,5=m-L,6=v-L). swing_duty 1/6 + 6 Phasen → lückenloses Tiling,
+# nie >1 Bein in der Luft. Engine generisch — kein Code-Change.
+WAVE = GaitPattern(
+    name='wave',
+    phase_offset_per_leg=_offsets_from_lift_order(
+        [[3], [2], [1], [4], [5], [6]], num_phases=6,
+    ),
+    swing_duty=1.0 / 6.0,
+)
+
+
 GAIT_PRESETS: dict[str, GaitPattern] = {
     'single_leg_1': SINGLE_LEG_1,
     'single_leg_2': SINGLE_LEG_2,
@@ -92,4 +128,5 @@ GAIT_PRESETS: dict[str, GaitPattern] = {
     'single_leg_5': SINGLE_LEG_5,
     'single_leg_6': SINGLE_LEG_6,
     'tripod': TRIPOD,
+    'wave': WAVE,
 }
