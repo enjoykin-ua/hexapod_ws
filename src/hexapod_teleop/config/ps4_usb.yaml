@@ -28,8 +28,16 @@ joy_to_twist:
     slow_button: 4        # L1 — langsam/präzise (Skalen × slow_factor)
     button_triangle: 2    # Sit/Stand-Toggle (Druck)
     button_circle: 1      # Shutdown (lang halten)
-    button_cross: 0       # Show-Pose-Hook (lang halten; Verhalten = B4)
+    button_cross: 0       # Show-Pose-Toggle (lang halten, B4: rein/raus)
     longpress_sec: 0.8    # Halte-Dauer für Long-Press-Aktionen
+
+    # --- Show-Pose Free-Leg (B4): linker Stick → leg_6, rechter → leg_1 ---
+    # X = seitwärts (lateral), Y = hoch/runter (vertikal). Nur in SHOW_ACTIVE
+    # wirksam, per R1-Dead-Man gegated. Signs in Sim verifizieren (Stick hoch =
+    # Bein heben). axis_lx/ly/rx wiederverwendet; rechter Stick Y = axis_ry.
+    axis_ry: 4            # rechter Stick Y → leg_1 vertikal (hoch/runter)
+    sign_show_lat: 1.0    # seitwärts-Vorzeichen (bei Bedarf -1.0)
+    sign_show_vert: 1.0   # +1: Stick hoch → Bein heben (in Sim prüfen)
 
     # --- D-Pad (C2: Gangart + Schrittweite) ---
     axis_dpad_x: 6        # ←/→ : Gangart vorige/nächste (rechts=next)

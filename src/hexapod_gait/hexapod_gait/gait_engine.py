@@ -36,13 +36,16 @@ from __future__ import annotations
 import math
 
 from hexapod_gait.gait_patterns import GaitPattern
+from hexapod_gait.joint_load import compute_load, MassModel
 from hexapod_gait.trajectory_gen import stance_traj, stand_pose, swing_traj
 from hexapod_kinematics import (
+    base_to_leg_frame,
     HEXAPOD,
     IKError,
     JointLimits,
     leg_fk,
     leg_ik,
+    leg_to_base_frame,
     rotate_z,
 )
 
@@ -61,6 +64,12 @@ _V_BODY_EPSILON = 1e-4
 # Stance-Position bei Stop-Trigger zu Neutral. 0.3 s ist ein Kompromiss
 # zwischen "schnell genug" und "JTC-konvergierbar".
 _STANCE_SETTLING_TIME = 0.3
+
+# Block B4 — Show-Pose (Free-Leg): die 4 Stützbeine (mitte+hinten) tragen,
+# die 2 Vorderbeine (vorne-R/L) sind frei. Bein-Layout (config.py):
+# 1=vorne-R, 2=mitte-R, 3=hinten-R, 4=hinten-L, 5=mitte-L, 6=vorne-L.
+_SHOW_SUPPORT_LEGS = ('leg_2', 'leg_3', 'leg_4', 'leg_5')
+_SHOW_FRONT_LEGS = ('leg_1', 'leg_6')
 
 
 class GaitEngine:
@@ -110,6 +119,29 @@ class GaitEngine:
     STATE_SITDOWN_LOWER = 'SITDOWN_LOWER'
     STATE_SITDOWN_FLATTEN = 'SITDOWN_FLATTEN'
     STATE_SAT = 'SAT'
+
+    # Block B4 — Show-Pose (Free-Leg). Aus STANDING per Toggle:
+    #   STATE_SHOW_ENTER: zweiphasig. Phase a (alle 6 Füße am Boden): Körper
+    #     verlagert sich um show_body_shift_back nach hinten (= Foot-Targets im
+    #     Body-Frame um +shift nach vorne) → CoG wandert ins Polygon der
+    #     hinteren 4 (leg_2,3,4,5). Phase b: die 2 Vorderbeine (leg_1,6) heben
+    #     von der verlagerten Boden-Pose in eine neutrale Hoch-Pose. JEDER Tick
+    #     in Phase b: CoG-Marge im 4-Bein-Polygon >= show_safety_margin
+    #     (joint_load.compute_load) — sonst Hold (freeze) der letzten sicheren
+    #     Pose. B4.0 (tools/show_pose_cog_check.py) hat die Existenz einer
+    #     sicheren Pose offline nachgewiesen; das Gate ist die Laufzeit-Absicherung.
+    #   STATE_SHOW_ACTIVE: hält die eingenommene Show-Pose statisch (B4.1). Das
+    #     Joystick-Folgen der Vorderbeine (B4.2) baut darauf auf. cmd_vel-Fahren
+    #     wird in allen SHOW-States ignoriert (nur der Show-Toggle führt heraus).
+    #   STATE_SHOW_EXIT (B4.3): Umkehrung von ENTER zurück nach STANDING — ZUERST
+    #     Vorderbeine runter (→ wieder 6-Bein-Stütze), DANN Körper vor. Realisiert
+    #     über einen gemeinsamen Show-Skalar σ ∈ [0,1] (σ=0 = Walk-Stand-Pose,
+    #     σ=1 = volle Show-Pose); EXIT fährt σ von aktuell → 0. σ=0 ist exakt die
+    #     STANDING-Pose → nahtloser Übergang, danach ist Laufen wieder möglich.
+    #     Funktioniert auch aus (ggf. frozen) SHOW_ENTER (σ_start = aktuelles σ).
+    STATE_SHOW_ENTER = 'SHOW_ENTER'
+    STATE_SHOW_ACTIVE = 'SHOW_ACTIVE'
+    STATE_SHOW_EXIT = 'SHOW_EXIT'
 
     def __init__(
         self,
@@ -208,6 +240,42 @@ class GaitEngine:
         # beim Boot gelesene Spawn-Joint-Pose). None → Fallback rad 0 je Bein
         # (Backward-Compat / Engine-Default ohne Node). Wertneutral.
         self._sitdown_rest_joints: dict[str, JointAngles] | None = None
+
+        # Block B4 — SHOW_ENTER/SHOW_ACTIVE-State-Daten. Wertneutral: die
+        # konkreten Posen-/Marge-Zahlen kommen über start_show_enter vom
+        # Node/Config. Defaults hier sind nur Fallback-Platzhalter.
+        self._show_start_t: float = 0.0
+        self._show_duration: float = 0.0
+        self._show_shift_back: float = 0.0       # Body-Rückversatz (m)
+        self._show_shift_fraction: float = 0.5   # Anteil Phase a (Shift)
+        self._show_front_radial: float = radial_distance   # Vorderbein-Neutral
+        self._show_front_z: float = body_height
+        self._show_safety_margin: float = 0.0    # min. CoG-Marge (m)
+        self._show_mass_model: MassModel = MassModel()
+        # CoG-Gate-Hold: bei Marge-Unterschreitung in Phase b wird die letzte
+        # sichere Pose gehalten (kein Weiter-Heben). Reset bei start_show_enter.
+        self._show_frozen: bool = False
+        self._show_hold_angles: dict[str, JointAngles] = {}
+        # Show-Skalar σ der zuletzt emittierten Pose (0 = Stand, 1 = volle
+        # Show-Pose). ENTER aktualisiert ihn pro Tick; EXIT startet bei diesem
+        # Wert (deckt auch Abbruch mitten in ENTER inkl. frozen ab).
+        self._show_sigma: float = 0.0
+        # Block B4.3 — SHOW_EXIT-State-Daten.
+        self._show_exit_start_t: float = 0.0
+        self._show_exit_duration: float = 0.0
+        self._show_exit_sigma0: float = 1.0
+        # Block B4.2 — Vorderbein-Joystick-Offsets (Bein-Frame, Meter):
+        # (lateral=Y, vertical=Z) je Vorderbein. _target = vom Node kommandiert
+        # (bereits skaliert + Dead-Man), _current = rate-limitiert nachgeführt.
+        # Mit Lift-Faktor λ(σ) skaliert → verblasst beim EXIT (kein Sprung).
+        self._show_offset_target: dict[str, Vec2] = {
+            name: (0.0, 0.0) for name in _SHOW_FRONT_LEGS
+        }
+        self._show_offset_current: dict[str, Vec2] = {
+            name: (0.0, 0.0) for name in _SHOW_FRONT_LEGS
+        }
+        self._show_return_rate: float = 0.0   # m/s, Nachführ-/Rückkehr-Rate
+        self._show_active_last_t: float = 0.0  # für dt im Rate-Limit
 
     @property
     def state(self) -> str:
@@ -395,6 +463,9 @@ class GaitEngine:
             self.STATE_SITDOWN_LOWER,
             self.STATE_SITDOWN_FLATTEN,
             self.STATE_SAT,
+            self.STATE_SHOW_ENTER,
+            self.STATE_SHOW_ACTIVE,
+            self.STATE_SHOW_EXIT,
         ):
             return False
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
@@ -659,6 +730,13 @@ class GaitEngine:
             return self._compute_sitdown_flatten_angles(t)
         if self._state == self.STATE_SAT:
             return self._compute_sat_angles()
+        # Block B4 — Show-Pose (Free-Leg): Hinstellen + statisches Halten.
+        if self._state == self.STATE_SHOW_ENTER:
+            return self._compute_show_enter_angles(t)
+        if self._state == self.STATE_SHOW_ACTIVE:
+            return self._compute_show_active_angles(t)
+        if self._state == self.STATE_SHOW_EXIT:
+            return self._compute_show_exit_angles(t)
 
         targets = self.compute_foot_targets(t)
         angles = {}
@@ -1114,6 +1192,331 @@ class GaitEngine:
         return {
             leg.name: self._rest_angles(leg.name) for leg in HEXAPOD.legs
         }
+
+    # ----- Block B4: Show-Pose (Free-Leg) — Hinstellen + statisches Halten -----
+
+    def start_show_enter(
+        self,
+        t: float,
+        duration: float,
+        body_shift_back: float,
+        shift_fraction: float,
+        front_radial: float,
+        front_z: float,
+        safety_margin: float,
+        return_rate: float = 0.0,
+        mass_model: MassModel | None = None,
+    ) -> bool:
+        """
+        Show-Pose einleiten (Block B4). Nur aus STANDING erlaubt.
+
+        Zweiphasig (siehe ``_show_enter_foot``): Phase a (Anteil
+        ``shift_fraction``) verlagert den Körper um ``body_shift_back`` nach
+        hinten (alle 6 Füße am Boden), Phase b hebt die 2 Vorderbeine in die
+        neutrale Hoch-Pose (Bein-Frame ``(front_radial, 0, front_z)``). In
+        Phase b prüft jeder Tick die CoG-Marge im 4-Bein-Polygon gegen
+        ``safety_margin`` (``mass_model`` = Massen-Annahme, Default URDF-Summe).
+
+        Wertneutral: alle Posen-/Marge-Zahlen kommen vom Node/Config (B4.4),
+        die Engine hardcodet nichts. Die Existenz einer sicheren Pose ist
+        offline in B4.0 (``tools/show_pose_cog_check.py``) nachgewiesen.
+
+        Returns ``True`` wenn gestartet, ``False`` wenn der State != STANDING
+        ist (Defense-in-depth; der Node prüft ohnehin vorher).
+        """
+        if self._state != self.STATE_STANDING:
+            return False
+        if duration <= 0.0:
+            raise ValueError(f'duration must be > 0, got {duration}')
+        if not 0.0 < shift_fraction < 1.0:
+            raise ValueError(
+                f'shift_fraction must be in (0, 1), got {shift_fraction}'
+            )
+        self._show_start_t = t
+        self._show_duration = duration
+        self._show_shift_back = body_shift_back
+        self._show_shift_fraction = shift_fraction
+        self._show_front_radial = front_radial
+        self._show_front_z = front_z
+        self._show_safety_margin = safety_margin
+        self._show_return_rate = return_rate
+        self._show_mass_model = mass_model or MassModel()
+        self._show_frozen = False
+        self._show_hold_angles = {}
+        self._show_sigma = 0.0
+        # B4.2: Vorderbein-Offsets bei jedem Show-Eintritt auf 0 (Neutral).
+        self._show_offset_target = {n: (0.0, 0.0) for n in _SHOW_FRONT_LEGS}
+        self._show_offset_current = {n: (0.0, 0.0) for n in _SHOW_FRONT_LEGS}
+        self._show_active_last_t = 0.0
+        self._state = self.STATE_SHOW_ENTER
+        return True
+
+    def set_show_offsets(self, offsets: dict[str, Vec2]) -> None:
+        """
+        Soll-Offsets der Vorderbeine setzen (B4.2; Node ruft pro /cmd_show-Tick).
+
+        ``offsets`` = ``{leg_name: (lateral, vertical)}`` in **Metern**, Bein-
+        Frame (lateral = Y = seitwärts/coxa-Schwenk, vertical = Z = hoch/runter),
+        relativ zur neutralen Hoch-Pose. Der Node hat Stick→Meter bereits
+        skaliert UND den Dead-Man (R1) angewandt (R1 los / Stick zentriert →
+        (0,0)). Die Engine führt den IST-Offset rate-limitiert nach
+        (``show_return_rate``) und clampt hart auf die URDF-Limits. Nur in
+        SHOW_ACTIVE wirksam; unbekannte Bein-Namen werden ignoriert.
+        """
+        for name in _SHOW_FRONT_LEGS:
+            if name in offsets:
+                lat, vert = offsets[name]
+                self._show_offset_target[name] = (float(lat), float(vert))
+
+    def _show_foot(self, leg, sigma: float) -> Point3:
+        """
+        Foot-Target eines Beins für den Show-Skalar ``sigma`` (Bein-Frame).
+
+        ``sigma`` ∈ [0, 1] parametrisiert die gesamte Show-Geste — geteilt von
+        ENTER (σ: 0→1), ACTIVE (σ=1) und EXIT (σ: aktuell→0):
+        - **σ=0** = Walk-Stand-Pose ``(radial_distance, 0, body_height)`` (= exakt
+          die STANDING-Pose → nahtloser EXIT-Übergang).
+        - Phase a (``σ <= shift_fraction``): alle 6 Füße am Boden, Körper-
+          Rückversatz ``s`` smooth-step 0 → ``body_shift_back`` (im Body-Frame
+          wandern die Füße um +s nach vorne).
+        - Phase b (``σ > shift_fraction``, nur Vorderbeine 1,6): Lerp von der
+          verlagerten Boden-Pose → neutrale Hoch-Pose ``(front_radial, 0,
+          front_z)``. Stützbeine bleiben auf der voll-verlagerten Boden-Pose.
+        """
+        frac = self._show_shift_fraction
+        sub_a = min(sigma / frac, 1.0) if frac > 0.0 else 1.0
+        s = self._show_shift_back * (sub_a * sub_a * (3.0 - 2.0 * sub_a))
+        # Verlagerte Boden-Pose: Stand-Fuß (Bein-Frame) → base, +s nach vorne,
+        # zurück in den Bein-Frame.
+        stand_base = leg_to_base_frame(
+            stand_pose(self.radial_distance, self.body_height), leg,
+        )
+        ground_leg = base_to_leg_frame(
+            (stand_base[0] + s, stand_base[1], stand_base[2]), leg,
+        )
+        if leg.name in _SHOW_FRONT_LEGS and sigma > frac:
+            sub_b = (sigma - frac) / (1.0 - frac)
+            s_b = sub_b * sub_b * (3.0 - 2.0 * sub_b)
+            neutral = (self._show_front_radial, 0.0, self._show_front_z)
+            return _lerp(ground_leg, neutral, s_b)
+        return ground_leg
+
+    def _show_front_offset_factor(self, sigma: float) -> float:
+        """
+        Lift-Faktor λ(σ) ∈ [0, 1] für den Joystick-Offset eines Vorderbeins.
+
+        λ=0 solange das Bein am Boden ist (σ <= shift_fraction), linear → 1
+        bei voll gehobenem Bein (σ=1). So wirkt der Offset nur in der Luft und
+        **verblasst beim EXIT** automatisch (kein Sprung beim Aufsetzen).
+        """
+        frac = self._show_shift_fraction
+        if sigma <= frac:
+            return 0.0
+        return min(1.0, (sigma - frac) / (1.0 - frac))
+
+    def _front_foot(self, leg, sigma: float, offset: Vec2) -> Point3:
+        """Vorderbein-Foot: Basis-Show-Pose + Joystick-Offset·λ(σ) (Bein-Frame)."""
+        fx, fy, fz = self._show_foot(leg, sigma)
+        lam = self._show_front_offset_factor(sigma)
+        return (fx, fy + offset[0] * lam, fz + offset[1] * lam)
+
+    def _show_pose_targets(self, sigma: float) -> dict[str, Point3]:
+        """
+        Foot-Targets aller 6 Beine für σ (Stützbeine + Vorderbeine mit Offset).
+
+        Verwendet von ENTER (Offsets = 0) und EXIT (Offsets eingefroren →
+        verblassen über λ(σ)). SHOW_ACTIVE führt die Offsets vorher
+        rate-limitiert nach und ruft dann mit σ=1.
+        """
+        targets: dict[str, Point3] = {}
+        for leg in HEXAPOD.legs:
+            if leg.name in _SHOW_FRONT_LEGS:
+                targets[leg.name] = self._front_foot(
+                    leg, sigma, self._show_offset_current[leg.name],
+                )
+            else:
+                targets[leg.name] = self._show_foot(leg, sigma)
+        return targets
+
+    def _compute_show_enter_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        SHOW_ENTER: pro Tick Foot-Targets → IK + CoG-Marge-Gate (Phase b).
+
+        ``progress = (t - _show_start_t) / _show_duration``. Bei progress >= 1:
+        State → SHOW_ACTIVE. In Phase b wird die CoG-Marge im 4-Bein-Polygon
+        geprüft; unterschreitet sie ``_show_safety_margin``, wird die letzte
+        sichere Pose gehalten (``_show_frozen``) statt weiter zu heben — das
+        Gate ist die Laufzeit-Absicherung zur offline-B4.0-Garantie. IK-Limit-/
+        Reach-Verletzung wirft IKError mit Bein-Kontext → gait_node fängt sie.
+        """
+        if self._show_frozen:
+            return dict(self._show_hold_angles)
+        if self._show_duration <= 0.0:
+            self._show_sigma = 1.0
+            self._state = self.STATE_SHOW_ACTIVE
+            return self._compute_show_active_angles(t)
+        progress = (t - self._show_start_t) / self._show_duration
+        if progress >= 1.0:
+            self._show_sigma = 1.0
+            self._state = self.STATE_SHOW_ACTIVE
+            return self._compute_show_active_angles(t)
+
+        # σ = linearer Progress; _show_foot smoothstept intern pro Sub-Phase
+        # (Geschwindigkeit-Null an Start, Phasen-Grenze und Ende). Offsets sind
+        # in ENTER 0 (Joystick erst in SHOW_ACTIVE).
+        sigma = progress
+        targets = self._show_pose_targets(sigma)
+        angles = self._show_ik(targets, t, 'show enter')
+
+        # CoG-Gate nur in Phase b (Vorderbeine in der Luft → 4-Bein-Stütze).
+        if sigma > self._show_shift_fraction:
+            margin = self._show_cog_margin(angles)
+            if margin < self._show_safety_margin:
+                self._show_frozen = True
+                return dict(self._show_hold_angles or angles)
+
+        self._show_sigma = sigma
+        self._show_hold_angles = angles
+        return angles
+
+    def _compute_show_active_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        SHOW_ACTIVE: Vorderbeine folgen den Joystick-Offsets (B4.2).
+
+        σ=1 (volle Show-Pose). Pro Tick wird der IST-Offset jedes Vorderbeins
+        rate-limitiert (``show_return_rate`` · dt) Richtung Soll-Offset
+        (``set_show_offsets``) nachgeführt; würde der Schritt die URDF-Limits
+        verletzen (``leg_ik`` IKError), wird der letzte gültige Offset gehalten
+        (= weiche Clamp am Limit-Rand). Stützbeine bleiben statisch verlagert.
+        """
+        dt = t - self._show_active_last_t if self._show_active_last_t > 0.0 else 0.0
+        if dt < 0.0:
+            dt = 0.0
+        self._show_active_last_t = t
+        max_delta = self._show_return_rate * dt
+
+        # Vorderbein-Offsets rate-limitiert nachführen + clampen.
+        for name in _SHOW_FRONT_LEGS:
+            leg = HEXAPOD.by_name(name)
+            cur = self._show_offset_current[name]
+            new = _rate_limit(cur, self._show_offset_target[name], max_delta)
+            if new != cur:
+                leg_limits = self.joint_limits.get(name)
+                try:
+                    leg_ik(*self._front_foot(leg, 1.0, new), leg, leg_limits)
+                    self._show_offset_current[name] = new
+                except IKError:
+                    pass   # Limit-Rand erreicht → letzten gültigen Offset halten
+
+        targets = self._show_pose_targets(1.0)
+        return self._show_ik(targets, t, 'show active')
+
+    def start_show_exit(self, t: float, duration: float) -> bool:
+        """
+        Show-Pose verlassen (Block B4.3). Nur aus einem SHOW-State erlaubt.
+
+        Fährt den Show-Skalar σ von seinem aktuellen Wert → 0 (= Walk-Stand-Pose)
+        über ``duration``. Durch die σ-Geometrie (siehe ``_show_foot``) bedeutet
+        das: ZUERST die Vorderbeine runter (σ von 1 nach shift_fraction → wieder
+        6-Bein-Stütze), DANN den Körper vor (σ von shift_fraction nach 0). Bei
+        Abschluss → STANDING (Füße auf ``radial_distance``) → Laufen wieder möglich.
+
+        Funktioniert aus SHOW_ACTIVE (σ=1) genauso wie aus einem laufenden oder
+        eingefrorenen SHOW_ENTER (σ = aktuell erreichter Wert), sodass der
+        Round-Trip immer sauber endet. EXIT folgt dem in B4.0 validierten Pfad
+        rückwärts und hat KEIN CoG-Gate-Abbruch (sonst Strandung mitten im Exit).
+
+        Returns ``True`` wenn gestartet, ``False`` wenn der State kein SHOW-State
+        ist (Defense-in-depth; der Node prüft ohnehin vorher).
+        """
+        if self._state not in (
+            self.STATE_SHOW_ENTER,
+            self.STATE_SHOW_ACTIVE,
+            self.STATE_SHOW_EXIT,
+        ):
+            return False
+        if duration <= 0.0:
+            raise ValueError(f'duration must be > 0, got {duration}')
+        self._show_exit_sigma0 = (
+            1.0 if self._state == self.STATE_SHOW_ACTIVE else self._show_sigma
+        )
+        self._show_exit_start_t = t
+        self._show_exit_duration = duration
+        self._show_frozen = False
+        self._state = self.STATE_SHOW_EXIT
+        return True
+
+    def _compute_show_exit_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        SHOW_EXIT: Show-Skalar σ von ``_show_exit_sigma0`` → 0, dann STANDING.
+
+        ``progress = (t - _show_exit_start_t) / _show_exit_duration``. σ =
+        ``sigma0 * (1 - progress)`` (linear; ``_show_foot`` smoothstept intern pro
+        Sub-Phase → Geschwindigkeit-Null an Start, Phasen-Grenze und Ende —
+        konsistent zu ENTER). Bei progress >= 1: σ=0 → State STANDING, Walk-Stand-
+        Pose geliefert (nahtlos, da ``_show_foot(σ=0)`` == ``stand_pose``). IK-
+        Limit-/Reach-Verletzung wirft IKError mit Bein-Kontext → gait_node fängt sie.
+        """
+        if self._show_exit_duration <= 0.0:
+            self._show_sigma = 0.0
+            self._state = self.STATE_STANDING
+            return self._compute_stand_pose_joints()
+        progress = (t - self._show_exit_start_t) / self._show_exit_duration
+        if progress >= 1.0:
+            self._show_sigma = 0.0
+            self._state = self.STATE_STANDING
+            return self._compute_stand_pose_joints()
+        sigma = self._show_exit_sigma0 * (1.0 - progress)
+        self._show_sigma = sigma
+        # Eingefrorene Offsets verblassen über λ(σ) → kein Sprung beim Aufsetzen.
+        targets = self._show_pose_targets(sigma)
+        return self._show_ik(targets, t, 'show exit')
+
+    def _show_ik(
+        self, foot_targets: dict[str, Point3], t: float, context: str,
+    ) -> dict[str, JointAngles]:
+        """IK pro Bein für die Show-Targets, IKError mit Bein-Kontext."""
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            leg_limits = self.joint_limits.get(leg.name)
+            try:
+                angles[leg.name] = leg_ik(
+                    *foot_targets[leg.name], leg, leg_limits,
+                )
+            except IKError as exc:
+                raise IKError(
+                    f'{context} IK failed for {leg.name} at '
+                    f't={t:.3f}s, target={foot_targets[leg.name]}: {exc}'
+                ) from exc
+        return angles
+
+    def _show_cog_margin(self, angles: dict[str, JointAngles]) -> float:
+        """CoG-Marge (m) im 4-Bein-Stützpolygon (leg_2,3,4,5) für eine Pose."""
+        load = compute_load(
+            angles,
+            stance_legs=list(_SHOW_SUPPORT_LEGS),
+            masses=self._show_mass_model,
+        )
+        return load.stability_margin_m
+
+
+def _rate_limit(cur: Vec2, target: Vec2, max_delta: float) -> Vec2:
+    """Bewege ``cur`` je Komponente um max. ``max_delta`` Richtung ``target``."""
+    out = []
+    for c, g in zip(cur, target):
+        d = g - c
+        if d > max_delta:
+            d = max_delta
+        elif d < -max_delta:
+            d = -max_delta
+        out.append(c + d)
+    return (out[0], out[1])
 
 
 def _lerp(p_start: Point3, p_end: Point3, t: float) -> Point3:

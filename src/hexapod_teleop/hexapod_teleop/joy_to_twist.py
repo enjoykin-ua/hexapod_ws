@@ -29,7 +29,7 @@ from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, Float64MultiArray
 from std_srvs.srv import SetBool, Trigger
 
 
@@ -88,6 +88,14 @@ class JoyToTwist(Node):
         self.declare_parameter('body_height_min', -0.120)
         self.declare_parameter('body_height_max', -0.030)
 
+        # --- Show-Pose (B4): rechter Stick-Y (leg_1 vertikal) + Vorzeichen ---
+        # Linker Stick → leg_6, rechter Stick → leg_1; X=seitwärts, Y=hoch/runter.
+        # Signs treiber-/konventionsabhängig (in Sim verifizieren: Stick hoch =
+        # Bein heben). /cmd_show wird wie cmd_vel per R1-Dead-Man gegated.
+        self.declare_parameter('axis_ry', 4)   # rechter Stick Y (leg_1 vertikal)
+        self.declare_parameter('sign_show_lat', 1.0)
+        self.declare_parameter('sign_show_vert', 1.0)
+
         g = self.get_parameter
         self._axis_lx = int(g('axis_lx').value)
         self._axis_ly = int(g('axis_ly').value)
@@ -118,6 +126,10 @@ class JoyToTwist(Node):
         self._body_height_step = float(g('body_height_step').value)
         self._body_height_min = float(g('body_height_min').value)
         self._body_height_max = float(g('body_height_max').value)
+        # Show-Pose (B4).
+        self._axis_ry = int(g('axis_ry').value)
+        self._sign_show_lat = float(g('sign_show_lat').value)
+        self._sign_show_vert = float(g('sign_show_vert').value)
 
         self._target_body_height = float(g('body_height_init').value)
 
@@ -136,6 +148,10 @@ class JoyToTwist(Node):
         self._body_height_pub = self.create_publisher(
             Float64, '/cmd_body_height', 10
         )
+        # Block B4 — /cmd_show: 4 Stick-Werte für die Vorderbeine (SHOW_ACTIVE).
+        self._cmd_show_pub = self.create_publisher(
+            Float64MultiArray, '/cmd_show', 10
+        )
 
         # Intent-Service-Clients (reines UI → call_async, kein Warten).
         self._toggle_client = self.create_client(
@@ -150,10 +166,15 @@ class JoyToTwist(Node):
         self._step_length_client = self.create_client(
             SetBool, '/hexapod_adjust_step_length'
         )
+        # Block B4 — Show-Pose-Toggle (Cross lang).
+        self._show_toggle_client = self.create_client(
+            Trigger, '/hexapod_show_toggle'
+        )
         self._toggle_logged = False
         self._shutdown_logged = False
         self._cycle_gait_logged = False
         self._adjust_step_length_logged = False
+        self._show_toggle_logged = False
 
         # Initial-Body-Height publishen (muss == Gait-body_height sein, sonst
         # sackt der Stand ab — ai_navigation §1).
@@ -209,6 +230,32 @@ class JoyToTwist(Node):
         twist.angular.z = self._sign_rx * rx * self._angular_z_scale * scale
         return twist
 
+    def _show_from_joy(self, msg: Joy) -> Float64MultiArray:
+        """
+        Vorderbein-Stick-Werte (B4) → /cmd_show in [-1, 1].
+
+        Reihenfolge ``[l6_lat, l6_vert, l1_lat, l1_vert]``.
+        Linker Stick → leg_6, rechter Stick → leg_1; X=seitwärts (lateral),
+        Y=hoch/runter (vertikal). Per R1-Dead-Man gegated (= 0 wenn nicht
+        gehalten), genau wie cmd_vel. Der gait_node skaliert auf Meter und
+        nutzt es NUR im SHOW_ACTIVE-State (sonst ignoriert) — der Teleop bleibt
+        zustandslos und publisht beides (cmd_vel + cmd_show) unbedingt.
+        """
+        arr = Float64MultiArray()
+        if not self._button(msg, self._deadman_button):
+            arr.data = [0.0, 0.0, 0.0, 0.0]
+            return arr
+        l6_lat = self._sign_show_lat * self._apply_deadzone(
+            self._axis(msg, self._axis_lx))
+        l6_vert = self._sign_show_vert * self._apply_deadzone(
+            self._axis(msg, self._axis_ly))
+        l1_lat = self._sign_show_lat * self._apply_deadzone(
+            self._axis(msg, self._axis_rx))
+        l1_vert = self._sign_show_vert * self._apply_deadzone(
+            self._axis(msg, self._axis_ry))
+        arr.data = [l6_lat, l6_vert, l1_lat, l1_vert]
+        return arr
+
     def _rising_edge(self, idx: int, pressed: bool) -> bool:
         """Gib True genau beim Übergang nicht-gedrückt → gedrückt."""
         prev = self._btn_prev.get(idx, False)
@@ -237,8 +284,11 @@ class JoyToTwist(Node):
         """Joy-Callback: Sticks → cmd_vel, L2/R2 → Höhe, Buttons → Intents."""
         now = time.monotonic()
 
-        # 1) Fahren (Sticks, Dead-Man-gated).
+        # 1) Fahren (Sticks, Dead-Man-gated). Plus /cmd_show (Vorderbeine, B4):
+        # immer publishen — der gait_node nutzt cmd_vel außerhalb SHOW und
+        # cmd_show nur in SHOW_ACTIVE (Teleop bleibt zustandslos).
         self._cmd_vel_pub.publish(self._twist_from_joy(msg))
+        self._cmd_show_pub.publish(self._show_from_joy(msg))
 
         # 2) Höhe (L2/R2 Edge, ±step, lokal geclampt).
         l2 = self._axis(msg, self._axis_l2) < self._trigger_threshold
@@ -345,16 +395,14 @@ class JoyToTwist(Node):
 
     def _show_pose_hook(self) -> None:
         """
-        Show-Pose-HOOK (Cross lang) — Verhalten kommt mit Block B4.
+        Show-Pose-HOOK (Cross lang, B4): Toggle-Intent an den gait_node.
 
-        Bewusst nur Log/Stub: Body-Tilt + Free-Leg gibt es noch nicht. B4 hängt
-        hier das eigentliche Posen/Wackeln ein (Binding + Long-Press stehen).
+        Reines UI — der Teleop kennt den State nicht; der gait_node löst auf
+        (STANDING → Show einnehmen, SHOW_* → wieder heraus nach STANDING).
+        Die Vorderbein-Bewegung läuft separat über /cmd_show (siehe
+        ``_show_from_joy``), nur in SHOW_ACTIVE wirksam.
         """
-        self.get_logger().warn(
-            'Show-Pose (Cross lang) noch nicht implementiert — kommt mit '
-            'Block B4 (Body-Pose/Free-Leg). Hook ist bereit.',
-            throttle_duration_sec=5.0,
-        )
+        self._call_intent(self._show_toggle_client, 'show_toggle')
 
 
 def main(args=None):

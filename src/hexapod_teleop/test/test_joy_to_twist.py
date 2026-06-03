@@ -224,3 +224,71 @@ def test_dpad_debounce_blocks_double(node):
     node._on_joy(_joy(dpad_x=0.0))    # kurz über 0 (Flackern)
     node._on_joy(_joy(dpad_x=-1.0))   # Edge 2 sofort → vom Lockout geblockt
     assert node._cycle_gait_client.count == 1
+
+
+# ----- Block B4 — Show-Pose (Cross-Toggle + /cmd_show-Mapping) -------- #
+
+def _joy_show(lx=0.0, ly=0.0, rx=0.0, ry=0.0, buttons=None):
+    """Joy mit rechtem Stick-Y (axis 4) für die Show-Pose-Tests."""
+    m = Joy()
+    axes = [0.0] * 8
+    axes[0] = lx
+    axes[1] = ly
+    axes[3] = rx
+    axes[4] = ry
+    axes[2] = 1.0
+    axes[5] = 1.0
+    m.axes = axes
+    b = [0] * 12
+    for i in buttons or []:
+        b[i] = 1
+    m.buttons = b
+    return m
+
+
+def test_show_pose_hook_calls_toggle(node):
+    """Cross-Long-Press-Hook ruft den /hexapod_show_toggle-Intent."""
+    node._show_toggle_client = _FakeClient(ready=True)
+    node._show_pose_hook()
+    assert node._show_toggle_client.count == 1
+
+
+def test_show_from_joy_zero_without_deadman(node):
+    """Ohne R1 (Dead-Man) → /cmd_show = [0,0,0,0]."""
+    arr = node._show_from_joy(_joy_show(lx=1.0, ly=1.0, rx=1.0, ry=1.0))
+    assert list(arr.data) == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_show_from_joy_maps_sticks_with_deadman(node):
+    """R1 gehalten: [l6_lat, l6_vert, l1_lat, l1_vert] aus L-/R-Stick."""
+    node._sign_show_lat = 1.0
+    node._sign_show_vert = 1.0
+    arr = node._show_from_joy(
+        _joy_show(lx=1.0, ly=0.5, rx=-1.0, ry=0.3, buttons=[_R1])
+    )
+    assert list(arr.data) == pytest.approx([1.0, 0.5, -1.0, 0.3])
+
+
+def test_show_from_joy_deadzone(node):
+    """Stick-Werte unter Deadzone → 0 (auch mit Dead-Man)."""
+    arr = node._show_from_joy(
+        _joy_show(lx=0.05, ly=0.05, rx=0.05, ry=0.05, buttons=[_R1])
+    )
+    assert list(arr.data) == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_show_from_joy_vertical_sign(node):
+    """sign_show_vert invertiert die Vertikal-Achsen (l6_vert/l1_vert)."""
+    node._sign_show_vert = -1.0
+    arr = node._show_from_joy(_joy_show(ly=0.5, ry=0.4, buttons=[_R1]))
+    assert arr.data[1] == pytest.approx(-0.5)
+    assert arr.data[3] == pytest.approx(-0.4)
+
+
+def test_on_joy_publishes_cmd_show(node):
+    """_on_joy publisht /cmd_show jeden Callback (zustandsloser Teleop)."""
+    node._cmd_show_pub = _FakeClient(ready=True)
+    node._cmd_show_pub.publish = lambda msg: setattr(
+        node._cmd_show_pub, 'last', list(msg.data))
+    node._on_joy(_joy_show(lx=1.0, buttons=[_R1]))
+    assert node._cmd_show_pub.last[0] == pytest.approx(1.0)

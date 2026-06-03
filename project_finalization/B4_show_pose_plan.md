@@ -1,8 +1,10 @@
 # B4 — Body-Pose / Show-Pose (Free-Leg) — detaillierter Sub-Stage-Plan (Handover)
 
-> **Status:** ⚪ Plan zur Freigabe. Block B war pausiert für B4 — jetzt reaktiviert (User 2026-06-04).
+> **Status:** 🟡 aktiv — B4.0 ✅ + B4.1 ✅ (2026-06-04). Block B war pausiert für B4 — reaktiviert.
 > Diese Datei ist **self-contained für einen neuen Chat**: enthält Ziel, Lese-Liste, Architektur,
 > Logik, Reuse, offene Fragen, Checkliste, Tests, Validierungs-Gates und Handover-Notizen.
+>
+> **📊 Live-Status (done/todo pro Sub-Stage):** [`B4_show_pose_progress.md`](B4_show_pose_progress.md).
 
 ## 0. ZUERST LESEN (für den umsetzenden Chat, in dieser Reihenfolge)
 1. `CLAUDE.md` §4 (Plan→Freigabe→Tests→Self-Review), §5 (Shell-Verbote), §9 (HW-Safety).
@@ -112,22 +114,73 @@ CoG/Marge, der C1+-Cross-Hook + Teleop-Param-Muster, `_compute_standing_targets`
   zweiter Stick. Vorschlag: **eigenes Topic `/cmd_show`** (Teleop publisht beide Stick-Paare; gait_node
   liest es nur im SHOW_ACTIVE). Sauber zum „Teleop=UI"-Prinzip. Plus Tuning-Skalen (up/lat) als Params.
 
+## 4a. B4.0-Ergebnis (KRITISCHER VORAB-CHECK, 2026-06-04) ✅ BESTANDEN
+Tool: `tools/show_pose_cog_check.py` (offline, reuse `leg_ik`+`joint_load`, **URDF-Limits via xacro**
+= HW-Quelle). Stand-Pose radial 0.215 / body_height −0.120. Stütze = leg_2,3,4,5, Vorderbeine 1,6 frei.
+
+**URDF-Limits (alle 6 Beine identisch, Stage F):** coxa **±0.415**, femur **±1.57**, tibia −1.00…+2.50.
+
+**Befunde:**
+1. **Vorderbein-Hoch-Pose:** Der **Femur-Limit ±1.57 (±90°)** begrenzt die Hub-Höhe. Ein Fuß über
+   Coxa-Höhe verlangt Femur < −90° → nicht erreichbar. „Angehoben" = Fuß über dem Stand-Boden
+   (z > −0.120). Höher heben erfordert **radial weiter raus** (z.B. radial 0.24 → Fuß bis ~120–240 mm
+   über Boden; radial 0.20 → max ~60 mm). Tradeoff: höher/weiter-vorne = CoG weiter vorne.
+2. **CoG-Marge-Gate:** Mit der **Worst-Case-Vorderbein-Pose** (radial 0.24, z 0.00, Fuß 120 mm hoch,
+   weit vorne) liefert der Body-Rückversatz `s`:
+   - s = 0.000 → Marge 2.3 mm (grenzwertig, CoG knapp im Polygon)
+   - s = 0.050 → **41.9 mm** · s = 0.060 → **49.8 mm** · s = 0.070 → **57.6 mm** · s = 0.090 → **73.3 mm**
+   - Ziel ≥40 mm erreicht für **s ∈ [0.050, 0.090] m**.
+3. **Stützbein-Schranke:** Ab **s ≈ 0.092 m** verletzen ALLE 4 Stützbeine den **Coxa-Limit ±0.415**
+   (der Rückversatz schwenkt die Stützfüße seitlich im Bein-Frame → coxa wächst). → harte Obergrenze.
+4. **Massen-Robustheit:** Mit realistisch höherer zentraler Masse (3.5 / 4.5 kg statt 2.63 kg URDF-Summe,
+   Akku mittig) wird das Ergebnis **robuster** (Marge minimal höher, Ziel-Fenster weitet sich auf [0.045, 0.090]).
+
+**Empfohlener Betriebspunkt:** `show_body_shift_back ≈ 0.060–0.070 m` (Marge ~50–58 mm, komfortabel
+weg von beiden Rändern: unterer Marge-Rand UND Coxa-Limit-Rand bei 0.090). **Param**, nicht hartkodiert.
+**Reproduktion:** `python3 tools/show_pose_cog_check.py --show-radial 0.24 --show-z 0.00`.
+
 ## 5. Progress-Checkliste (Done-Vertrag)
 ```
-- [ ] B4.0  ⚠️ KRITISCHER VORAB-CHECK (vor jeglichem Code, Memory feedback_validate_hardware_hypothesis_via_code):
-            offline mit joint_load nachweisen, dass es überhaupt eine SICHERE statische Pose gibt —
-            d.h. ein body_shift_back, bei dem (a) CoG-Marge im 4-Bein-Polygon(2,3,4,5) komfortabel
-            >0 (Ziel ≥30–50 mm) UND (b) alle 4 Stützbeine dabei in-reach/in-URDF-Limit bleiben (der
-            Shift zieht die Stützfüße im Body-Frame nach vorne → kann Reichweite sprengen). Wenn KEIN
-            solcher Shift existiert → Konzept anpassen (kleinerer Lift / Stütze anders) BEVOR codiert wird.
-- [ ] B4.1  Engine: STATE_SHOW_ENTER (body-shift zurück + Vorderbeine hoch), CoG-Marge-Gate (joint_load)
-- [ ] B4.2  Engine: STATE_SHOW_ACTIVE (Vorderbeine folgen Joystick-Delta, leg_ik + URDF-Clamp; cmd_vel ignoriert)
-- [ ] B4.3  Engine: STATE_SHOW_EXIT → STANDING (Umkehrung); cmd_vel in allen SHOW-States ignoriert
-- [ ] B4.4  Node: /hexapod_show_toggle (Trigger, STANDING↔SHOW); Joystick→Bein-Kanal (Q3); Params (Dauer/Shift/Marge/Skalen)
-- [ ] B4.5  Teleop: Cross-lang → show_toggle (Hook ersetzen); Stick(s) → /cmd_show (Q1-Mapping)
-- [ ] B4.6  Unit-Tests: ENTER/ACTIVE/EXIT in-limit; CoG-Marge>Schwelle über ENTER; Vorderbein-Clamp; cmd_vel ignoriert; Toggle-Guards
-- [ ] B4.7  Envelope/Regression + Lint grün; bestehende Tests unberührt
-- [ ] B4.8  SIM: rein → Vorderbeine per Stick bewegen → raus; kein Kippen/Freeze; Selbst-Kollision beobachten
+- [x] B4.0  ⚠️ KRITISCHER VORAB-CHECK (vor jeglichem Code, Memory feedback_validate_hardware_hypothesis_via_code):
+            ✅ BESTANDEN 2026-06-04 (Tool `tools/show_pose_cog_check.py`, echte leg_ik + joint_load
+            + URDF-Limits). Ergebnis siehe §4a unten. Sichere Show-Stütz-Pose existiert: Rückversatz
+            ~0.06–0.07 m → CoG-Marge ~50–63 mm, alle 4 Stützbeine in-URDF-Limit; robust auch bei
+            höherer zentraler Akku-Masse. Bindende Obergrenze: Coxa-Limit ±0.415 der Stützbeine ab
+            Shift ≈0.090 m (seitlicher Schwenk durch Rückversatz).
+- [x] B4.1  Engine: STATE_SHOW_ENTER (body-shift zurück + Vorderbeine hoch), CoG-Marge-Gate (joint_load)
+            ✅ 2026-06-04: STATE_SHOW_ENTER (2 Phasen) + STATE_SHOW_ACTIVE (statisches Halten) in
+            gait_engine.py; CoG-Gate pro Tick in Phase b (Hold bei Marge<Schwelle); Kanal-Wahl
+            /cmd_show (Q3, User). 12 Unit-Tests (test_show_pose.py) + Regression 156/0 + Lint grün.
+            Self-Review §9. cmd_vel in beiden SHOW-States ignoriert.
+- [x] B4.2  Engine: STATE_SHOW_ACTIVE (Vorderbeine folgen Joystick-Delta, leg_ik + URDF-Clamp; cmd_vel ignoriert)
+            ✅ 2026-06-04: set_show_offsets({leg: (lat,vert)} in Metern, Q-API-Wahl); rate-limitierte
+            Nachführung (show_return_rate, Q-Wahl) + harte Clamp via Hold-bei-IKError; Offset·λ(σ)
+            → verblasst beim EXIT (kein Sprung). Offline-Nachweis: über ALLE 3025 in-limit-Offsets
+            min CoG-Marge 44 mm @shift 0.065 (URDF-Masse) → kein ACTIVE-CoG-Gate nötig, Clamp reicht.
+            6 neue Tests (move/clamp/rate-limit/return/exit-fade/reset). 170/0 grün.
+- [x] B4.3  Engine: STATE_SHOW_EXIT → STANDING (Umkehrung); cmd_vel in allen SHOW-States ignoriert
+            ✅ 2026-06-04: STATE_SHOW_EXIT über gemeinsamen Show-Skalar σ∈[0,1] (σ=0=Walk-Stand,
+            σ=1=volle Show); EXIT fährt σ→0 (erst Vorderbeine runter, dann Körper vor), nahtlos in
+            STANDING (σ=0==stand_pose) → Laufen wieder möglich. Funktioniert auch aus mid-ENTER +
+            frozen-ENTER (σ0=aktuelles σ). 8 neue Tests (Round-Trip, EXIT-Pfad, walk-after). 164/0 grün.
+- [x] B4.4  Node: /hexapod_show_toggle (Trigger, STANDING↔SHOW); Joystick→Bein-Kanal (Q3); Params (Dauer/Shift/Marge/Skalen)
+            ✅ 2026-06-04: `/hexapod_show_toggle` (STANDING→ENTER, SHOW_*→EXIT, sonst reject);
+            `/cmd_show` (Float64MultiArray[4]=[l6_lat,l6_vert,l1_lat,l1_vert], Q-Wahl); 10 Params
+            (Dauer/Shift/Fraction/Marge/Front-Pose/return_rate/lat+vert-Scale); Tick skaliert Stick→m
+            + Staleness-Schutz (Disconnect→Neutral). 11 Node-Tests. 181/0 grün.
+- [x] B4.5  Teleop: Cross-lang → show_toggle (Hook ersetzen); Stick(s) → /cmd_show (Q1-Mapping)
+            ✅ 2026-06-04: `_show_pose_hook` → `/hexapod_show_toggle`; `_show_from_joy` publisht
+            `/cmd_show` (L-Stick→leg_6, R-Stick→leg_1; X=lat, Y=vert; R1-Dead-Man). Zustandsloser
+            Teleop (beide Topics immer, Node wählt je State). axis_ry/sign_show_* in ps4_usb+bt.yaml.
+            6 Teleop-Tests. 28/0 grün.
+- [x] B4.6  Unit-Tests: ENTER/ACTIVE/EXIT in-limit; CoG-Marge>Schwelle über ENTER; Vorderbein-Clamp; cmd_vel ignoriert; Toggle-Guards
+            ✅ 2026-06-04: Engine 26 (test_show_pose.py) + Node 11 (test_show_node.py) + Teleop 6
+            (test_joy_to_twist.py). Alle genannten Fälle abgedeckt.
+- [x] B4.7  Envelope/Regression + Lint grün; bestehende Tests unberührt
+            ✅ 2026-06-04: gait 181/0/1-skip, teleop 28/0/1-skip, flake8/pep257 grün. Bestand unberührt.
+- [x] B4.8  SIM: rein → Vorderbeine per Stick bewegen → raus; kein Kippen/Freeze; Selbst-Kollision beobachten
+            ✅ 2026-06-04 (User): ENTER (Körper zurück + Vorderbeine hoch) ohne Kippen/Freeze; PS4-USB-
+            Stick bewegt die Vorderbeine unabhängig; EXIT → STANDING; Laufen danach ok. Kriterien 1–4 erfüllt.
 - [ ] B4.9  DANACH HW aufgebockt → Boden: sicher (CoG!), kein Umfallen
 - [ ] B4.10 Self-Review + Design-Log + Test-Markdown (`B4_show_pose_test_commands.md`)
 ```
@@ -158,4 +211,62 @@ nur 4 Stützbeine!). **Sim VOR HW.** Erst Sim komplett sauber (User-Vorgabe 2026
   (Ziel z.B. ≥ 30–50 mm, vgl. B3: Tripod 108 mm, Ripple-grenzwertig 7 mm).
 - **Commits:** macht der User. **Antworten Deutsch.** Pro Sub-Schritt Plan→Freigabe→Code→Tests→Self-Review.
 - **Show-Pose-Hook** ist schon in `joy_to_twist.py::_show_pose_hook` (C1+) — nur ersetzen.
-```
+
+## 9. Design-Log + Self-Review B4.1 (2026-06-04)
+**Entschieden:**
+- **Q3 Kanal = eigenes Topic `/cmd_show`** (User). Verworfen: `/cmd_vel` umdeuten (überlädt Semantik,
+  bräuchte trotzdem 2.-Stick-Kanal). `/cmd_show` wird in B4.5 vom Teleop publisht, in B4.2 nur in
+  SHOW_ACTIVE gelesen.
+- **Zwei-Phasen-ENTER** (erst Körper zurück mit allen 6 Füßen am Boden, dann Vorderbeine heben):
+  CoG wandert vor dem Anheben sicher ins hintere Polygon. Verworfen: gleichzeitig (CoG nahe Kante
+  während Übergang). Param `show_shift_fraction` = Phase-a-Anteil.
+- **CoG-Gate als per-Tick-Hold** (Freeze letzte sichere Pose) statt IKError/Freeze: das Anheben ist
+  per B4.0 design-sicher; das Gate ist die Laufzeit-Absicherung. Verworfen: IKError werfen (würde
+  unnötig safety_freeze triggern bei einem an sich harmlosen Marge-Dip).
+- **B4.3 — gemeinsamer Show-Skalar σ∈[0,1]** (ENTER 0→1, ACTIVE σ=1, EXIT aktuell→0) statt separater
+  EXIT-Geometrie. σ=0 ist per Konstruktion exakt die Walk-Stand-Pose → nahtloser STANDING-Übergang,
+  danach Laufen wieder möglich (User-Vorgabe Round-Trip erfüllt). EXIT funktioniert aus jedem
+  SHOW-State (σ0 = aktuelles σ, deckt mid-ENTER + frozen ab). EXIT hat KEIN CoG-Gate (σ nur fallend
+  → Vorderbeine nur runter → Stütze monoton besser; ein Gate-Abbruch würde nur stranden). σ linear,
+  Smoothstep intern pro Sub-Phase (Geschwindigkeit-Null an Start/Phasengrenze/Ende).
+- **B4.2 Q-Entscheidungen (User 2026-06-04):** (a) Engine-API = **Offsets in Metern**
+  (`set_show_offsets`), Node skaliert Stick→m + Dead-Man → Engine wertneutral. (b) Rückkehr zu
+  Neutral = **rate-limitiert** (`show_return_rate` m/s) gegen ruckartige Servo-Bewegung.
+  Clamp auf URDF-Limits = **Hold-bei-IKError** (letzter gültiger Offset) statt cartesian-Vorab-Clamp
+  (einfach + immer in-limit). Offset wird mit Lift-Faktor λ(σ) skaliert → nur in der Luft wirksam,
+  **verblasst beim Aufsetzen** (kein EXIT-Sprung).
+- **B4.2 Sicherheit ohne ACTIVE-CoG-Gate (offline falsifiziert):** Sweep über ALLE 3025 in-limit
+  Vorderbein-Offset-Kombis (URDF-Masse, konservativ) → min CoG-Marge **44 mm @ shift 0.065** (32 mm
+  @0.05, 56 mm @0.08). Der URDF-Joint-Limit-Clamp **bindet die CoG implizit** → kein Laufzeit-CoG-
+  Gate in SHOW_ACTIVE nötig. Constraint: `show_body_shift_back` ≥ 0.05 halten (Worst-Case-Offset-
+  Marge ≥ 30 mm). Worst-Case = beide Vorderbeine runter (vert −0.10) + seitlich ausgeschwenkt.
+- **Engine wertneutral:** alle Show-Zahlen kommen über `start_show_enter`-Args (Node/Config, B4.4),
+  inkl. `mass_model`. Default = URDF-Masse = konservativster (niedrigste-Marge) Fall.
+
+**User-Vorgabe (2026-06-04):** Round-Trip Show→STANDING muss sauber sein (danach wieder laufen).
+→ ENTER cached keine Live-Pose (Stand-Pose deterministisch aus radial/body_height) → EXIT (B4.3) =
+triviale Umkehrung zurück auf Walk-Pose radial 0.215. **B4.3 zwingend VOR jeglicher Sim/HW.**
+
+**Self-Review (🟡 = nachfolgende Sub-Stage / HW-Beobachtung, kein B4.1-Blocker):**
+| Punkt | Status |
+|---|---|
+| CoG-Gate nur per-Tick (Skip bei zu kurzer duration) — Design-Garantie-Test deckt es ab, @50 Hz unkritisch | 🟡 Note B4.4 |
+| Kein EXIT aus SHOW_ACTIVE/SHOW_ENTER in B4.1 (Round-Trip!) | 🟡 B4.3, vor Sim |
+| Frozen-State terminal bis EXIT existiert → Toggle muss auch aus (frozen) SHOW_ENTER führen | 🟡 B4.3/B4.4 |
+| Front-Neutral-Config out-of-reach → IKError → safety_freeze (bestehend); optional fail-fast Pre-Check | 🟢 später B4.4 |
+| Stützfüße bleiben exakt am Boden (reine base-X-Translation, per Test); Rutsch-Risiko HW | 🟡 HW B4.9 |
+| Coxa-Headroom @shift 0.065: ~0.28 « 0.415 (Limit @0.092) | OK |
+| Comms-Loss-Failsafe greift in SHOW nicht | 🟡 Note B4.4/E1 |
+
+- **B4.4 Kanal `/cmd_show` = Float64MultiArray[4]** `[leg6_lat, leg6_vert, leg1_lat, leg1_vert]`
+  (User-Wahl). Verworfen: TwistStamped×2 (2 Topics) / eigene .msg (Build-Dep). Node skaliert Stick→m
+  (`show_lat_scale`/`show_vert_scale`), Staleness-Schutz (>cmd_vel_timeout → 0, Disconnect→Neutral).
+  Toggle-Service `/hexapod_show_toggle` löst nach State auf (STANDING→ENTER, SHOW_*→EXIT). 10 Params,
+  mass_model=URDF (konservativ).
+- **B4.5 zustandsloser Teleop:** publisht IMMER beide `/cmd_vel` + `/cmd_show` (beide R1-Dead-Man-gated);
+  der gait_node wählt je State (cmd_vel außerhalb SHOW, cmd_show nur in SHOW_ACTIVE). Kein State im
+  Teleop nötig (UI-Prinzip). L-Stick→leg_6, R-Stick→leg_1; X=lat, Y=vert. Cross-lang → Toggle-Intent.
+
+**Status:** kompletter Code-Pfad fertig — Engine + Node + Teleop. gait 181/0, teleop 28/0, Lint grün.
+**Test-Anleitung (SIM/HW):** [`B4_show_pose_test_commands.md`](B4_show_pose_test_commands.md).
+Offen: **B4.8 SIM** (User-Test) → **B4.9 HW** aufgebockt → Boden.

@@ -41,7 +41,7 @@ import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, Float64MultiArray
 from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -382,6 +382,95 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             '(IK-Freeze) trimmt.'
         ),
     ),
+    # Block B4 — Show-Pose (Free-Leg). Nicht STANDING-only: werden beim
+    # Show-Toggle gelesen (wie die B1-Sitdown-Params), nicht mid-State mutiert.
+    _ParamSpec(
+        name='show_enter_duration', default=4.0,
+        fp_range=(1.0, 15.0, 0.1),
+        description=(
+            'Block B4: Dauer der SHOW_ENTER-Bewegung (Körper zurück + '
+            'Vorderbeine hoch) in s. Langsam = CoG-schonend.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_exit_duration', default=3.0,
+        fp_range=(1.0, 15.0, 0.1),
+        description=(
+            'Block B4: Dauer der SHOW_EXIT-Bewegung (Vorderbeine runter + '
+            'Körper vor) zurück nach STANDING in s.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_body_shift_back', default=0.065,
+        fp_range=(0.0, 0.10, 0.001),
+        description=(
+            'Block B4: Körper-Rückversatz für die Show-Stütz-Pose (m). '
+            'B4.0: ≥0.05 halten (Worst-Case-Offset-CoG-Marge ≥30 mm); '
+            'Obergrenze ~0.09 (Stütz-Coxa-Limit ±0.415). Default 0.065 '
+            '(~50 mm Marge).'
+        ),
+    ),
+    _ParamSpec(
+        name='show_shift_fraction', default=0.5,
+        fp_range=(0.1, 0.9, 0.05),
+        description=(
+            'Block B4: Anteil von show_enter_duration auf Phase a '
+            '(Körper-Rückversatz, alle 6 Füße am Boden), Rest = Phase b '
+            '(Vorderbeine heben). Default 0.5.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_safety_margin', default=0.030,
+        fp_range=(0.0, 0.10, 0.001),
+        description=(
+            'Block B4: Mindest-CoG-Marge im 4-Bein-Polygon während '
+            'SHOW_ENTER Phase b (m). Unterschreitung → Hold (Freeze) der '
+            'letzten sicheren Pose. Default 0.030.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_front_radial', default=0.22,
+        fp_range=(0.12, 0.28, 0.001),
+        description=(
+            'Block B4: radialer Foot-Abstand der neutralen Vorderbein-'
+            'Hoch-Pose (m). Höher heben braucht größeres radial '
+            '(Femur-Limit ±1.57). Default 0.22 (~80 mm über Boden).'
+        ),
+    ),
+    _ParamSpec(
+        name='show_front_z', default=-0.04,
+        fp_range=(-0.12, 0.04, 0.001),
+        description=(
+            'Block B4: Foot-z der neutralen Vorderbein-Hoch-Pose im '
+            'Bein-Frame (m). Boden liegt bei body_height. Default -0.04.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_return_rate', default=0.5,
+        fp_range=(0.05, 2.0, 0.05),
+        description=(
+            'Block B4: max. Nachführ-/Rückkehr-Rate der Vorderbein-Offsets '
+            '(m/s) in SHOW_ACTIVE. Gegen ruckartige Servo-Bewegung beim '
+            'Loslassen (R1) / Stick-Zentrieren. Default 0.5.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_lat_scale', default=0.06,
+        fp_range=(0.0, 0.12, 0.005),
+        description=(
+            'Block B4: Skala Stick-X [-1..1] → seitlicher Vorderbein-Offset '
+            '(m) in SHOW_ACTIVE. Konservativ (Coxa-Limit clampt eh). '
+            'Default 0.06.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_vert_scale', default=0.06,
+        fp_range=(0.0, 0.12, 0.005),
+        description=(
+            'Block B4: Skala Stick-Y [-1..1] → vertikaler Vorderbein-Offset '
+            '(m, hoch/runter) in SHOW_ACTIVE. Default 0.06.'
+        ),
+    ),
 )
 
 # Block C2 — Gangart-Cycle-Reihenfolge fürs Controller-Umschalten
@@ -488,6 +577,37 @@ class GaitNode(Node):
         self._step_length_intent_max = float(
             self.get_parameter('step_length_intent_max').value
         )
+        # Block B4 — Show-Pose-Parameter.
+        self._show_enter_duration = float(
+            self.get_parameter('show_enter_duration').value
+        )
+        self._show_exit_duration = float(
+            self.get_parameter('show_exit_duration').value
+        )
+        self._show_body_shift_back = float(
+            self.get_parameter('show_body_shift_back').value
+        )
+        self._show_shift_fraction = float(
+            self.get_parameter('show_shift_fraction').value
+        )
+        self._show_safety_margin = float(
+            self.get_parameter('show_safety_margin').value
+        )
+        self._show_front_radial = float(
+            self.get_parameter('show_front_radial').value
+        )
+        self._show_front_z = float(
+            self.get_parameter('show_front_z').value
+        )
+        self._show_return_rate = float(
+            self.get_parameter('show_return_rate').value
+        )
+        self._show_lat_scale = float(
+            self.get_parameter('show_lat_scale').value
+        )
+        self._show_vert_scale = float(
+            self.get_parameter('show_vert_scale').value
+        )
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
@@ -581,6 +701,11 @@ class GaitNode(Node):
             Float64, '/cmd_body_height', self._on_cmd_body_height, 10
         )
 
+        # Block B4 — /cmd_show: 4 Stick-Werte für die Vorderbeine in SHOW_ACTIVE.
+        self._cmd_show_sub = self.create_subscription(
+            Float64MultiArray, '/cmd_show', self._on_cmd_show, 10
+        )
+
         # Phase 13 Stage A — /joint_states-Subscriber fuer Ramp-Trigger.
         # Erstes Empfang loest start_ramp() mit den aktuellen Joint-
         # Positions als Start aus. Bis dahin publisht _tick KEINE
@@ -599,6 +724,14 @@ class GaitNode(Node):
         self._last_cmd_v_x = 0.0
         self._last_cmd_v_y = 0.0
         self._last_cmd_omega_z = 0.0
+
+        # Block B4 — /cmd_show-State: zuletzt empfangene 4 Stick-Werte
+        # [leg6_lat, leg6_vert, leg1_lat, leg1_vert] in [-1, 1] (Teleop hat
+        # Dead-Man R1 bereits angewandt → 0 wenn losgelassen). Staleness
+        # (> cmd_vel_timeout ohne /cmd_show) → als 0 behandelt (Disconnect-
+        # Schutz: Vorderbeine kehren rate-limitiert in Neutral zurück).
+        self._cmd_show = [0.0, 0.0, 0.0, 0.0]
+        self._last_cmd_show_time: float | None = None
 
         # Phase 13 Stage A — Ramp-Trigger-State.
         # _ramp_triggered=True ab erstem vollstaendigem /joint_states-
@@ -651,6 +784,12 @@ class GaitNode(Node):
         )
         self._adjust_step_length_srv = self.create_service(
             SetBool, '/hexapod_adjust_step_length', self._on_adjust_step_length,
+            callback_group=self._cb_group,
+        )
+        # Block B4 — Show-Pose-Toggle (Teleop-Intent, reines UI). Nach State
+        # aufgelöst: STANDING → SHOW_ENTER, SHOW_* → SHOW_EXIT zurück STANDING.
+        self._show_toggle_srv = self.create_service(
+            Trigger, '/hexapod_show_toggle', self._on_show_toggle,
             callback_group=self._cb_group,
         )
 
@@ -715,6 +854,20 @@ class GaitNode(Node):
         self._last_cmd_v_x = float(msg.linear.x)
         self._last_cmd_v_y = float(msg.linear.y)
         self._last_cmd_omega_z = float(msg.angular.z)
+
+    def _on_cmd_show(self, msg: Float64MultiArray) -> None:
+        """
+        ``/cmd_show``-Empfang (Block B4): 4 Stick-Werte cachen + Timestamp.
+
+        Erwartet ``[leg6_lat, leg6_vert, leg1_lat, leg1_vert]`` in [-1, 1]
+        (Teleop hat Stick-Skala-Normierung + Dead-Man R1 angewandt). Kürzere/
+        leere Arrays werden ignoriert (malformed → kein State-Change). Die
+        Stick→Meter-Skalierung + das Setzen an die Engine passiert im Tick
+        (nur in SHOW_ACTIVE), damit es synchron zum Rate-Limit läuft.
+        """
+        if len(msg.data) >= 4:
+            self._cmd_show = [float(v) for v in msg.data[:4]]
+            self._last_cmd_show_time = time.monotonic()
 
     def _on_joint_states(self, msg: JointState) -> None:
         """
@@ -935,6 +1088,11 @@ class GaitNode(Node):
                 f'max-leg-speed {self._engine.linear_max:.3f} m/s',
                 throttle_duration_sec=2.0,
             )
+
+        # Block B4 — in SHOW_ACTIVE die Joystick-Offsets der Vorderbeine
+        # setzen (vor compute, damit das Rate-Limit diesen Tick greift).
+        if self._engine.state == GaitEngine.STATE_SHOW_ACTIVE:
+            self._update_show_offsets(now)
 
         try:
             angles_per_leg = self._engine.compute_joint_angles(t)
@@ -1176,6 +1334,90 @@ class GaitNode(Node):
         )
         self.get_logger().info(f'adjust_step_length: {response.message}')
         return response
+
+    # ===== Block B4 — Show-Pose-Toggle + Vorderbein-Offsets ============== #
+
+    def _on_show_toggle(self, request, response):
+        """
+        ``/hexapod_show_toggle`` (Trigger, Teleop-Intent, reines UI).
+
+        Nach State aufgelöst: STANDING → SHOW_ENTER (Show einnehmen);
+        SHOW_ENTER/ACTIVE/EXIT → SHOW_EXIT (zurück STANDING, danach Laufen
+        wieder möglich). In jedem anderen State (Aufstehen/Sitzen/Walking)
+        abgelehnt — Show nur aus dem ruhigen Stand bzw. wieder heraus.
+        """
+        state = self._engine.state
+        now = time.monotonic()
+        t = now - self._t_start
+        if state == GaitEngine.STATE_STANDING:
+            try:
+                ok = self._engine.start_show_enter(
+                    t, self._show_enter_duration, self._show_body_shift_back,
+                    self._show_shift_fraction, self._show_front_radial,
+                    self._show_front_z, self._show_safety_margin,
+                    self._show_return_rate,
+                )
+            except ValueError as exc:
+                response.success = False
+                response.message = f'show_enter failed: {exc}'
+                self.get_logger().error(response.message)
+                return response
+            self._cmd_show = [0.0, 0.0, 0.0, 0.0]
+            response.success = ok
+            response.message = (
+                'entering show pose' if ok else 'show_enter rejected'
+            )
+            if ok:
+                self.get_logger().info('show_toggle: STANDING → SHOW_ENTER')
+            return response
+        if state in (
+            GaitEngine.STATE_SHOW_ENTER,
+            GaitEngine.STATE_SHOW_ACTIVE,
+            GaitEngine.STATE_SHOW_EXIT,
+        ):
+            try:
+                ok = self._engine.start_show_exit(t, self._show_exit_duration)
+            except ValueError as exc:
+                response.success = False
+                response.message = f'show_exit failed: {exc}'
+                self.get_logger().error(response.message)
+                return response
+            response.success = ok
+            response.message = (
+                'leaving show pose' if ok else 'show_exit rejected'
+            )
+            if ok:
+                self.get_logger().info(
+                    f'show_toggle: {state} → SHOW_EXIT → STANDING'
+                )
+            return response
+        response.success = False
+        response.message = (
+            f'show_toggle: nichts zu tun in state={state} '
+            '(braucht STANDING oder einen SHOW-State)'
+        )
+        return response
+
+    def _update_show_offsets(self, now: float) -> None:
+        """
+        In SHOW_ACTIVE die Stick-Werte → Meter skalieren + an Engine geben.
+
+        Staleness-Schutz: ohne frisches /cmd_show (> cmd_vel_timeout) werden
+        die Offsets auf 0 gesetzt → die Vorderbeine kehren rate-limitiert in
+        die Neutral-Pose zurück (Disconnect / Teleop-Crash). Mapping:
+        ``[leg6_lat, leg6_vert, leg1_lat, leg1_vert]``.
+        """
+        fresh = (
+            self._last_cmd_show_time is not None
+            and (now - self._last_cmd_show_time) < self._cmd_vel_timeout
+        )
+        cs = self._cmd_show if fresh else (0.0, 0.0, 0.0, 0.0)
+        self._engine.set_show_offsets({
+            'leg_6': (cs[0] * self._show_lat_scale,
+                      cs[1] * self._show_vert_scale),
+            'leg_1': (cs[2] * self._show_lat_scale,
+                      cs[3] * self._show_vert_scale),
+        })
 
     def _do_relay_off_and_latch(self) -> None:
         """Relay öffnen (Servos stromlos) + terminalen Shutdown-Latch setzen."""
@@ -1433,6 +1675,26 @@ class GaitNode(Node):
             self._step_length_intent_min = value
         elif name == 'step_length_intent_max':
             self._step_length_intent_max = value
+        elif name == 'show_enter_duration':
+            self._show_enter_duration = value
+        elif name == 'show_exit_duration':
+            self._show_exit_duration = value
+        elif name == 'show_body_shift_back':
+            self._show_body_shift_back = value
+        elif name == 'show_shift_fraction':
+            self._show_shift_fraction = value
+        elif name == 'show_safety_margin':
+            self._show_safety_margin = value
+        elif name == 'show_front_radial':
+            self._show_front_radial = value
+        elif name == 'show_front_z':
+            self._show_front_z = value
+        elif name == 'show_return_rate':
+            self._show_return_rate = value
+        elif name == 'show_lat_scale':
+            self._show_lat_scale = value
+        elif name == 'show_vert_scale':
+            self._show_vert_scale = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
 
