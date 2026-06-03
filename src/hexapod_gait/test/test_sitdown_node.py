@@ -157,6 +157,33 @@ def test_shutdown_rejected_mid_sequence(node):
     assert resp.success is False
 
 
+# ----- Sit/Stand-Toggle (C1+ Teleop-Intent) --------------------------- #
+
+def test_toggle_from_standing_sits(node):
+    """Toggle aus STANDING → Hinsetzen (Teleop kennt State nicht)."""
+    assert node._engine.state == GaitEngine.STATE_STANDING
+    resp = _call(node._on_sit_stand_toggle)
+    assert resp.success is True
+    assert node._engine.state == GaitEngine.STATE_REPOSITION
+
+
+def test_toggle_from_sat_stands(node):
+    """Toggle aus SAT → Aufstehen."""
+    node._engine._state = GaitEngine.STATE_SAT
+    node._latest_joints = _rad0_joints()
+    resp = _call(node._on_sit_stand_toggle)
+    assert resp.success is True
+    assert node._engine.state == GaitEngine.STATE_CARTESIAN_STANDUP
+
+
+def test_toggle_rejected_when_walking(node):
+    """Toggle aus WALKING (weder STANDING noch SAT) → abgelehnt."""
+    node._engine._state = GaitEngine.STATE_WALKING
+    resp = _call(node._on_sit_stand_toggle)
+    assert resp.success is False
+    assert node._engine.state == GaitEngine.STATE_WALKING
+
+
 # ----- Comms-Loss-Fail-safe ------------------------------------------- #
 
 def test_comms_loss_disabled_no_trigger(node):

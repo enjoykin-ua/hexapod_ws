@@ -13,7 +13,7 @@
 | Stage | Titel | Status | Test-Datei |
 |---|---|---|---|
 | C1 | PS4 USB Grund-Steuerung (Fahren/Höhe/Dead-Man) | 🟢 vorhanden (Phase 6); wird in **C1+** erweitert | `docs/phase_6_stage_A_test_commands.md` |
-| **C1+** | Sticks omnidirektional + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook | ⚪ **als Nächstes** | `C1plus_test_commands.md` (TODO) |
+| **C1+** | Sticks omnidirektional + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook | 🟢 **fertig** (SIM+HW 2026-06-03) | [`C1plus_test_commands.md`](C1plus_test_commands.md) |
 | C2 | Live-Param/Intent-Bridge (Gangart-Wechsel + Schrittweite) | ⚪ (komplexer, getrennt) | `C2_test_commands.md` (TODO) |
 | C4 | Bluetooth (`ps4_bt.yaml` + Pairing) | ⚪ nach USB | (später) |
 
@@ -91,17 +91,32 @@ discrete Intent-Services**, ohne Live-Param-Tuning (das ist C2).
 
 **Progress-Checkliste:**
 ```
-- [ ] C1+.1  Teleop: linker Stick → cmd_vel x/y (omnidirektional) + rechter Stick X → omega; Deadzone
-- [ ] C1+.2  Teleop: Dead-Man (R1) gated; L1 = slow_factor-Skalierung
-- [ ] C1+.3  Teleop: L2/R2 → ±0.01 m Höhe, lokal auf [min,max] geclampt, /cmd_body_height
-- [ ] C1+.4  gait_node: Service /hexapod_sit_stand_toggle (State→sit/stand), Reuse B1
-- [ ] C1+.5  Teleop: Triangle→toggle, Circle-long→shutdown (Long-Press-Erkennung)
-- [ ] C1+.6  Teleop: Cross-long → Show-Pose-HOOK (Stub/Log, kein Verhalten; B4-ready)
-- [ ] C1+.7  Unit-Tests Teleop (Mapping/Deadman/Scale/Clamp/Long-Press/Intent-Calls) + gait_node Toggle-Test; Lint grün
-- [ ] C1+.8  SIM: Fahren omnidirektional, Höhe, Triangle-Toggle, Shutdown — sauber
-- [ ] C1+.9  HW aufgebockt → Boden (USB): dito sicher
-- [ ] C1+.10 README-Mapping-Tabelle + Test-Markdown; Self-Review
+- [x] C1+.1  Teleop: linker Stick → cmd_vel x/y (omnidirektional) + rechter Stick X → omega; Deadzone
+- [x] C1+.2  Teleop: Dead-Man (R1) gated; L1 = slow_factor-Skalierung
+- [x] C1+.3  Teleop: L2/R2 → ±0.01 m Höhe, lokal auf [min,max] geclampt, /cmd_body_height
+- [x] C1+.4  gait_node: Service /hexapod_sit_stand_toggle (State→sit/stand), Reuse B1
+- [x] C1+.5  Teleop: Triangle→toggle, Circle-long→shutdown (Long-Press-Erkennung)
+- [x] C1+.6  Teleop: Cross-long → Show-Pose-HOOK (Stub/Log, kein Verhalten; B4-ready)
+- [x] C1+.7  Unit-Tests Teleop (15) + gait_node Toggle-Test (3); Lint grün (140 gait / 15 teleop)
+- [x] C1+.8  SIM: Fahren omnidirektional, Höhe, Triangle-Toggle, Shutdown — sauber (User 2026-06-03)
+- [x] C1+.9  HW aufgebockt → Boden (USB): sinnvoll gelaufen (User 2026-06-03)
+- [x] C1+.10 README-Mapping-Tabelle + Test-Markdown (`C1plus_test_commands.md`); Self-Review
 ```
+
+> **🟢 C1+ ABGESCHLOSSEN (2026-06-03):** Code + Tests + Lint grün, SIM + HW (USB) vom User
+> bestätigt. ⏳ **Feinjustage am Ende von Block C offen** (User-Notiz 2026-06-03): „ein paar
+> Sachen noch justieren" — z.B. Stick-Vorzeichen/Skalen, `longpress_sec`, `slow_factor`,
+> Deadzone, Höhen-Schritt. Konkrete Punkte beim Abschluss von C festhalten. Self-Review:
+
+| # | Punkt | Status | Befund |
+|---|---|---|---|
+| 1 | Teleop = reines UI (kein State) | OK | Sit/Stand via Toggle-Intent; gait_node löst auf. |
+| 2 | Dead-Man-Gate | OK | ohne R1 → Null-Twist (getestet). |
+| 3 | Höhen-Clamp lokal + gait_node | OK | doppelt geclampt; läuft nicht über Grenze (getestet). |
+| 4 | Long-Press gegen Versehen | OK | Circle/Cross erst nach `longpress_sec` (getestet, Zeit injiziert). |
+| 5 | Show-Pose nur Hook | OK | Stub/Log; Verhalten = B4. |
+| 6 | Stick-Vorzeichen/Indizes | 🟡 SIM-verify | Defaults gesetzt; live per `/joy` bestätigen (sign_*-Params). |
+| 7 | Intent-Service fehlt (Sim ohne gait_node) | OK | `_call_intent` no-op + WARN (getestet). |
 
 **Tests-Liste (C1+):**
 - Teleop-Unit (rclpy-Node wie `test_param_callback`): Stick→Twist (x/y/omega + Vorzeichen + Deadzone);
@@ -166,6 +181,15 @@ Param-Mutation + State-Guards + Persistenz die komplexere Hälfte sind.
 `ps4_bt.yaml` (BT-Achsen/Button-Indizes weichen ab → per `ros2 topic echo /joy` bestätigen) +
 Pairing-Anleitung. Comms-Loss → bestehender **B1-Fail-safe** (`comms_loss_sitdown_timeout`).
 `joy_teleop.launch.py` hat schon `controller:=`-Argument (Default `ps4_usb`) → `ps4_bt` ergänzen.
+
+**Was sich bei BT bzw. Pi-Wechsel ändert (geklärt 2026-06-03) — Teleop-Logik bleibt gleich:**
+- **BT (C4):** nur das **Index-/Vorzeichen-Mapping** (DS4 meldet über BT ein anderes HID-Layout
+  als USB) → eigenes `ps4_bt.yaml`, kein Code. Plus Pairing.
+- **Pi-Wechsel (Phase 12):** (a) **DDS** — Knoten reden maschinenunabhängig; Teleop+joy_node
+  können auf dem Desktop bleiben, nur `gait_node`+`hexapod_hardware` auf dem Pi (gleiches
+  `ROS_DOMAIN_ID`/Netz). (b) **Servo2040-Serial-Port** = Launch-Arg `serial_port` (Pi-USB-
+  Device-Pfad, evtl. ≠ /dev/ttyACM0), kein Code. (c) **Controller-Anbindung:** am Pi → joy_node
+  am Pi (Pi-BT-Stack + Pairing); am Desktop → über DDS. Teleop/Gait-Code portiert 1:1.
 
 ---
 

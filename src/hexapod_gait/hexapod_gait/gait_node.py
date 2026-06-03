@@ -597,6 +597,13 @@ class GaitNode(Node):
             Trigger, '/hexapod_shutdown', self._on_shutdown,
             callback_group=self._cb_group,
         )
+        # Block C1+ — ein Intent-Service für den Teleop: „Sitz/Steh-Wechsel".
+        # Der Teleop kennt den State NICHT (reines UI); hier wird nach State
+        # aufgelöst (STANDING→sit, SAT→stand). Delegiert an die B1-Handler.
+        self._sit_stand_toggle_srv = self.create_service(
+            Trigger, '/hexapod_sit_stand_toggle', self._on_sit_stand_toggle,
+            callback_group=self._cb_group,
+        )
 
         # Phase 11 Stage A — Live-Param-Updates via rqt_reconfigure.
         self.add_on_set_parameters_callback(self._on_param_change)
@@ -1065,6 +1072,20 @@ class GaitNode(Node):
         response.success = False
         response.message = (
             f'shutdown only from STANDING or SAT, state={state}'
+        )
+        return response
+
+    def _on_sit_stand_toggle(self, request, response):
+        """``/hexapod_sit_stand_toggle``: nach State auflösen (Teleop-Intent)."""
+        state = self._engine.state
+        if state == GaitEngine.STATE_STANDING:
+            return self._on_sit_down(request, response)
+        if state == GaitEngine.STATE_SAT:
+            return self._on_stand_up(request, response)
+        response.success = False
+        response.message = (
+            f'sit_stand_toggle: nichts zu tun in state={state} '
+            '(braucht STANDING oder SAT)'
         )
         return response
 

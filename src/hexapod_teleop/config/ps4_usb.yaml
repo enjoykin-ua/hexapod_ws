@@ -1,37 +1,47 @@
-# PS4-Controller via USB — joy_to_twist-Mapping.
+# PS4-Controller via USB — joy_to_twist-Mapping (Block C1+).
 #
 # Achsen-/Button-Indizes basieren auf ros-jazzy-joy-Driver mit
 # PS4-DualShock-4 per USB-Kabel. BT-Mapping kann abweichen
-# (siehe ps4_bt.yaml in Stufe B).
+# (siehe ps4_bt.yaml in C4).
 #
 # Verifizieren mit:
 #   ros2 topic echo /joy
-# und Achsen/Buttons live drücken um Indizes zu bestätigen.
+# und Achsen/Buttons live bewegen/drücken um Indizes + Vorzeichen zu bestätigen.
 joy_to_twist:
   ros__parameters:
-    # D-Pad — fährt + dreht (User-Mapping Phase 6 Stufe A)
-    axis_dpad_x: 6        # ← / → (links/rechts)
-    axis_dpad_y: 7        # ↑ / ↓ (vor/zurück)
-    sign_dpad_x: 1.0      # +1 = ← liefert +1.0 axis-Wert
-    sign_dpad_y: 1.0      # +1 = ↑ liefert +1.0 axis-Wert
+    # --- Sticks (C1+: omnidirektional analog) ---
+    axis_lx: 0            # linker Stick X  → seitwärts (linear.y)
+    axis_ly: 1            # linker Stick Y  → vor/zurück (linear.x)
+    axis_rx: 3            # rechter Stick X → drehen (angular.z)
+    sign_lx: 1.0          # +1: Stick links liefert +1.0 → +Y (links). Bei Bedarf -1.0
+    sign_ly: 1.0          # +1: Stick hoch liefert +1.0 → vorwärts. Bei Bedarf -1.0
+    sign_rx: 1.0          # +1: Stick links liefert +1.0 → Drehung links (+omega)
+    deadzone: 0.10        # Stick-Werte darunter = 0 (gegen Drift)
 
-    # Trigger L2/R2 für Body-Lift
+    # --- Trigger L2/R2 → Body-Höhe ---
     axis_l2: 2            # L2 analog (idle=+1, gedrückt=-1)
     axis_r2: 5            # R2 analog
     trigger_threshold: 0.5
 
-    # Dead-Man-Switch
-    deadman_button: 5     # R1 (Index 5 bei PS4-USB)
+    # --- Buttons (PS4 USB) ---
+    deadman_button: 5     # R1 — Fahren nur während gehalten
+    slow_button: 4        # L1 — langsam/präzise (Skalen × slow_factor)
+    button_triangle: 2    # Sit/Stand-Toggle (Druck)
+    button_circle: 1      # Shutdown (lang halten)
+    button_cross: 0       # Show-Pose-Hook (lang halten; Verhalten = B4)
+    longpress_sec: 0.8    # Halte-Dauer für Long-Press-Aktionen
 
-    # Skalen — matchen Engine-Limits
-    linear_x_scale: 0.05  # m/s, max linear
-    angular_z_scale: 0.46 # rad/s, ungefähr omega_max bei R_max=0.109
+    # --- Skalen (matchen Engine-Limits) ---
+    linear_x_scale: 0.05  # m/s max vor/zurück (bei Voll-Stick)
+    linear_y_scale: 0.05  # m/s max seitwärts
+    angular_z_scale: 0.46 # rad/s, ~omega_max
+    slow_factor: 0.5      # L1 gehalten → halbe Skalen
 
-    # Body-Height
-    # Stage 1 Teil 2.2 (2026-06-02): an die feet-closer high Walk-Pose
-    # angeglichen (-0.120, = body_height im feet_closer_walk.yaml-Preset).
+    # --- Body-Height (Topic-Pfad; gait_node clampt zusätzlich) ---
     # Wichtig: joy_to_twist publisht beim Start EINMALIG /cmd_body_height mit
-    # diesem Wert → muss == Gait-body_height sein, sonst sackt der hohe Stand ab.
-    # Bei Gait-Höhen-Änderung hier nachziehen.
-    body_height_init: -0.120   # war -0.052
-    body_height_step: 0.005    # 5 mm pro L2/R2-Press
+    # body_height_init → muss == Gait-body_height sein, sonst sackt der Stand ab
+    # (ai_navigation §1). Bei Gait-Höhen-Änderung hier nachziehen.
+    body_height_init: -0.120
+    body_height_step: 0.01     # 1 cm pro L2/R2-Druck (User C1+)
+    body_height_min: -0.120    # lokaler Clamp (= gait body_height_min)
+    body_height_max: -0.030    # lokaler Clamp (= gait body_height_max)

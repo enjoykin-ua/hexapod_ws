@@ -41,7 +41,7 @@
 | # | Stage | Status | Notiz |
 |---|---|---|---|
 | C1 | **PS4 USB-Steuerung** | 🟢 (Basis) | Läuft (Sim + aufgebockt). R1=Deadman + D-Pad + L2/R2-Höhe. |
-| C1+ | **USB erweitern: Sticks omnidir. + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook** | ⚪ als Nächstes | Topics + discrete Intent-Services (Sit/Stand-Toggle neu im gait_node). Show-Pose nur Hook (B4). |
+| C1+ | **USB erweitern: Sticks omnidir. + Sit/Stand-Toggle + Shutdown + Show-Pose-Hook** | 🟢 (2026-06-03) | Topics + discrete Intent-Services (Sit/Stand-Toggle neu im gait_node). SIM+HW(USB) ok. Show-Pose nur Hook (B4). Feinjustage am Ende von C offen. |
 | C2 | **Live-Param/Intent-Bridge (Gangart-Wechsel + Schrittweite)** | ⚪ | Komplexer, getrennt: Intents `/hexapod_cycle_gait` + Schrittweite; gait_node cyclet/clampt + STANDING-Schutz. (Ex-C2/C3 zusammengefasst.) |
 | C4 | **Bluetooth** | ⚪ | `ps4_bt.yaml`-Profil + Pairing; erst wenn USB rund. Comms-Loss → B1-Fail-safe. |
 
