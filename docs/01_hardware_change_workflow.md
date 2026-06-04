@@ -56,11 +56,11 @@ hinzu — parallel zu den Roboter-Modell-Quellen oben, aber **orthogonal**:
    gespiegelt. Phase-10-Kalibrierungstool schreibt diese Datei.
 6. [hexapod_description/urdf/hexapod.ros2_control.xacro](../src/hexapod_description/urdf/hexapod.ros2_control.xacro)
    — `<param>`-Block für das Plugin: `serial_port`, `calibration_file`,
-   `loopback_mode`. Wird in Phase 9 Stufe F erweitert um den
-   `use_sim:=true|false`-Xacro-Switch für Sim ↔ HW.
+   `loopback_mode`, + `use_sim:=true|false`-Xacro-Switch für Sim ↔ HW (Phase 9 ✅).
 7. [hexapod_control/config/controllers.real.yaml](../src/hexapod_control/config/controllers.real.yaml)
-   *(kommt in Phase 9 Stufe F)* — HW-spezifische Controller-Limits
-   (reduzierte vel/accel gegenüber Sim-Werten), `use_sim_time:false`.
+   — HW-spezifische Controller-Limits (`use_sim_time:false`; vel/accel-Limits
+   waren in Phase 10 Stage F bewusst limit-frei committed → in Phase 10/12 nach
+   Bench-Trajektorien nachziehen, Memory `project_phase10_real_yaml_vel_limits`).
 
 **Warum die Trennung sauber funktioniert:** im **Direct-Drive-Setup**
 (Servo-Welle = Joint-Achse) dreht jeder Servo dieselbe Anzahl Radiant
@@ -90,7 +90,51 @@ Kalibrierung (Quelle 5). Begründung in
 | 9 | Servo gespiegelt / gedreht montieren | `servo_mapping.yaml` |
 | 10 | USB-Port wechselt | `hexapod.ros2_control.xacro` `<param>` |
 | 11 | Loopback-Modus für CI aktivieren | `hexapod.ros2_control.xacro` `<param>` |
-| 12 | Sim ↔ Hardware umschalten (Phase 9 Stufe F) | Launch-Argument `use_sim` |
+| 12 | Sim ↔ Hardware umschalten | Launch-Argument `use_sim` |
+| 13 | Joint-Winkel / Knie-Geometrie (z.B. Tibia-Montagewinkel) | `leg.xacro` + `leg_ik.py` + `config.py` |
+
+---
+
+## ⚠️ Nach jeder Geometrie-/Limit-Änderung: Lokomotion neu validieren (Pflicht)
+
+> Gilt für die Szenarien **1, 2, 5, 6, 7, 13** (alles was Bein-Längen, Joint-Limits, Body-Maße,
+> Foot-Geometrie oder Joint-Winkel berührt). Die Szenarien decken die **URDF/IK-Propagierung** ab —
+> aber seit Phase 5/9 hängt eine **Lauf-/Pose-Schicht** dran, die Geometrie/Limits **unabhängig** liest
+> und bei jeder Änderung **neu validiert werden muss**. Sonst laufen Stand-/Lauf-/Show-Posen in
+> out-of-reach → **IK-Freeze auf HW** (Sim ist lenient und versteckt es). Voll-Referenz:
+> [`../project_architecture/ai_navigation.md`](../project_architecture/ai_navigation.md) §0/§1.
+
+**Goldene Regeln (ai_navigation §0):**
+- **Zwei Limit-Quellen** (URDF *und* `config.py`) synchron — plus per-Bein-Overrides + `servo_mapping`
+  (siehe Szenario 2). [[project_two_joint_limit_sources]]
+- **Alle Konsumenten lesen unabhängig** — `gait_node` (parst URDF live), `reachability_viz`, die
+  Envelope-Tools. **Nicht nur Build/xacro-Parse** prüfen. [[feedback_urdf_refactor_full_smoke]]
+- **Sim ist lenient** — eine Pose, die in Sim „grün" ist, **freezt auf HW**. Mit URDF-Limits +
+  den Tools validieren. [[feedback_validate_hardware_hypothesis_via_code]]
+
+**Was neu zu rechnen/prüfen ist:**
+1. **Envelope-Tools** (lesen Geometrie/Limits live):
+   `python3 tools/walking_envelope_check.py sweep` (+ `check` je Pose) ·
+   `python3 tools/standup_envelope_check.py` (Aufsteh-/Reposition-Pfad) ·
+   `python3 tools/show_pose_cog_check.py` (Show-Stütz-CoG, falls B4 genutzt).
+2. **Stance-Modi** (`gait_node.py::_STANCE_MODES` — hoch/mittel/tief): die validierten **Radien neu
+   bestimmen**. Die innere Reichweiten-Grenze `|L_femur − L_tibia|` und die Femur-±90°-Wand
+   verschieben sich. ⚠️ **Mit der echten Engine validieren, NICHT nur dem Envelope-Tool** — das ist am
+   Femur-Wand-Rand zu optimistisch (Befund 2026-06-04: Tool sagt GREEN, Engine fehlert). Test:
+   `colcon test --packages-select hexapod_gait` → `test_stance_switch.py::test_mode_walks_all_directions_no_ikerror`.
+3. **Walk-Presets** (`hexapod_gait/config/presets/*.yaml`) + die `body_height`/`radial_distance`/
+   `step_height`-Defaults (`gait.launch.py`, `_GAIT_PARAMS`) — neu auslegen.
+4. **Standup / Sitdown / Reposition** — Pfade neu prüfen (`standup_envelope_check` + real-engine);
+   beachten: tiefe Posen sind ggf. nur via Stance-Switch erreichbar (Sit-Routing über mittel).
+5. **Show-Pose** (B4): CoG-Marge + Vorderbein-Reichweite (`show_pose_cog_check`) neu.
+6. **joint_load / Last + CoG** — geänderte Bein-Längen/Massen verschieben den Schwerpunkt und die
+   Gelenk-Lasten (`torque_viz` / `joint_load`); bei Akku/Verkabelung `total_mass` nachziehen.
+7. **Nach PHYSISCHEM Umbau** (neue Segmente/Servos): **rad-0-Sichtprüfung** (Bein gerade, HW == RViz)
+   + Sweep ohne Freeze. Servo-Cal ist im Direct-Drive unberührt (s. Szenario 8), aber die **Montage
+   verifizieren** — ein schief montiertes Segment verschiebt den effektiven Null.
+
+**Voll-Smoke (Pflicht):** Build + Unit/Lint + Envelope-Tools + **SIM-Lauf-Smoke (RViz + Gazebo)** —
+nicht nur xacro-Parse, sonst bleiben mesh-/tf2-/Konsumenten-Bugs bis zur Inbetriebnahme verborgen.
 
 ---
 
@@ -112,36 +156,42 @@ Kalibrierung (Quelle 5). Begründung in
 - ros2_control-Block (Limits sind unabhängig von Längen).
 
 **Was zusätzlich zu prüfen:**
-- **Stand-Pose-Höhe** ändert sich — Phase-4-Übergabe-Smoke (Phase-5-Stufe-C
-  Live-Verifikation) re-laufen lassen. Erwartet: `body_height ≈ 0.055 m`
-  ± Längen-Anpassung.
-- **IK-Reichweite** ändert sich — Phase-5-Stufe-B-Tests werten das
-  automatisch aus (out-of-reach-Test), kein manueller Eingriff nötig.
+- ⚠️ **Lokomotion neu validieren** (Stance-Modi-Radien, Walk-Presets, Envelope-Tools, Standup/
+  Sitdown/Show, real-engine) — siehe die Pflicht-Sektion „Nach jeder Geometrie-/Limit-Änderung"
+  oben. Eine kürzere Tibia z.B. verschiebt die innere Reichweiten-Grenze `|L_femur − L_tibia|` und
+  damit die ganze Femur-Wand-/Radial-Marge-Rechnung.
+- **IK-Reichweite** — `hexapod_kinematics`-Round-Trip/out-of-reach-Tests werten das automatisch aus.
 
 ### 2. Joint-Limits / Servo-Winkel ändern
 
-**Beispiel:** `tibia_upper` von `+1.50` auf `+1.20` reduzieren (z. B. weil
+**Beispiel:** `tibia_upper` von `+2.50` auf `+2.00` reduzieren (z. B. weil
 neue Servos einen kleineren Bereich haben).
 
-**Was zu tun:**
-1. `hexapod_physical_properties.xacro` — `<xacro:property name="tibia_upper" value="1.20"/>`.
-2. `hexapod_kinematics/config.py` — `_TIBIA_LIMITS = (-1.50, 1.20)`.
-3. `colcon build --packages-select hexapod_description hexapod_kinematics`.
-4. `colcon test --packages-select hexapod_kinematics` → grün.
-5. Sim-Neustart.
+> ⚠️ **Achtung — die rad-Limits stehen seit Stage F per-Bein in der URDF, NICHT (mehr) nur als
+> einzelne Property.** Die Property in `physical_properties.xacro` ist teils nur noch Default/
+> Referenz; **maßgeblich sind die per-Bein-Werte** in `hexapod.urdf.xacro` (6×) und
+> `hexapod.ros2_control.xacro` (6×). Plus die Puls-seitige Grenze in `servo_mapping.yaml`. Das ist
+> der „Zwei-Limit-Quellen"-Rattenschwanz aus ai_navigation §1. [[project_two_joint_limit_sources]]
 
-**Was automatisch propagiert:**
-- `<limit lower="..." upper="..."/>` in den Joint-Definitionen (`leg.xacro`).
-- `<param name="min/max">` im ros2_control-Block (`hexapod.ros2_control.xacro`)
-  — **doppeltes Sicherheitsnetz** wie in Phase-4-Stufe-B dokumentiert.
+**Was zu tun (ALLE synchron halten):**
+1. `hexapod.urdf.xacro` — `tibia_upper="2.00"` in **allen 6** `<xacro:leg ...>`-Blöcken.
+2. `hexapod.ros2_control.xacro` — falls dort eigene `<param min/max>` (6×) — mitziehen.
+3. `hexapod_physical_properties.xacro` — die `tibia_upper`-Property als Default/Referenz nachziehen.
+4. `hexapod_kinematics/config.py` — `_TIBIA_LIMITS = (-1.00, 2.00)`.
+5. `servo_mapping.yaml` — falls das Limit puls-seitig beißt: Beuge-/Streck-Puls-Bound prüfen
+   (`pulse = pulse_zero ∓ 425·limit`, muss in `[500, 2500]` bleiben).
+6. `colcon build --packages-select hexapod_description hexapod_kinematics hexapod_hardware`.
+7. `colcon test --packages-select hexapod_kinematics` (`test_config` Cross-Check) **+** `hexapod_hardware`
+   (Calibration-Roundtrip) → grün. Generierte URDF prüfen (`xacro …` → die 6 Limits wirklich geändert?).
 
 **Was zusätzlich zu prüfen:**
-- **IK-Validity** — falls die Stand-Pose `[0, -0.5, 1.0]` außerhalb der neuen
-  Limits liegt, muss eine neue Stand-Pose definiert werden. Phase-5-Stufe-B-
-  Smoke-Test zeigt das.
-- **Hardware-Sicherheit Phase 7** — Software-Limits **und** Servo-
-  Endlagen-Hard-Stops (mechanisch oder Strom-Limit) müssen redundant
-  passen. Siehe CLAUDE.md §9.
+- ⚠️ **Lokomotion neu validieren** (Stance-Modi, Walk-/Standup-/Sitdown-/Show-Posen, Envelope-Tools,
+  real-engine) — siehe Pflicht-Sektion oben. Ein engeres Tibia-Limit kann eine Stand-/Lauf-Pose
+  out-of-reach machen, die in der lenienten Sim noch „grün" ist und erst auf HW freezt.
+- **Alle Konsumenten** (gait_node parst URDF live, reachability_viz, Envelope-Tools) neu prüfen —
+  nicht nur Build/xacro-Parse.
+- **Hardware-Sicherheit (Phase 7)** — Software-Limits **und** Servo-Endlagen/Strom-Limit redundant
+  (CLAUDE.md §9).
 
 ### 3. Servo-Drehmoment / -Geschwindigkeit ändern
 
@@ -265,10 +315,11 @@ PWM-Bereich: statt 500–2500 µs jetzt 800–2200 µs, andere Steigung µs/rad)
 1. `hexapod_hardware/config/servo_mapping.yaml` — für den betroffenen Servo-
    Pin den Eintrag aktualisieren: `pulse_min`, `pulse_max`, ggf. `pulse_zero`
    neu setzen.
-2. **Empfohlen:** Phase-10-Kalibrierungstool laufen lassen (sobald
-   verfügbar) — fährt automatisch zu den mechanischen Anschlägen und
-   schreibt die echten Werte ins YAML zurück.
-3. Manuelle Alternative bis dahin: per `ros2 topic pub` einzelnen Joint
+2. **Empfohlen:** Kalibrierungs-Workflow nutzen (Phase 10 + Cross-Phase-Thread
+   `servo_real_cal` ✅ vorhanden) — jog zu den mechanischen Anschlägen,
+   `/save_calibration` schreibt die echten Werte ins YAML zurück (Aliases in
+   `tools/hexapod-shell-aliases.sh`, Memory `project_phase11_convenience_aliases`).
+3. Manuelle Alternative: per `ros2 topic pub` einzelnen Joint
    schrittweise jog'en, mechanischen Anschlag identifizieren, Pulse-Wert
    notieren, ins YAML eintragen.
 4. `colcon build --packages-select hexapod_hardware` (YAML wird ins
@@ -316,9 +367,9 @@ URDF-Joint-Achse invertiert.
   „falsche" Richtung, möglicherweise gegen einen mechanischen Anschlag.
   Tipp: bei niedrigem Geschwindigkeitslimit testen, Stand-Pose-Ziel
   vorgeben, beobachten, ob das Bein wirklich „runter" geht.
-- **Phase-10-Kalibrierungstool** wird (sobald verfügbar) den Direction-
-  Test automatisieren: jog +0.1 rad, prüfe ob Bein nach unten oder oben
-  fährt, ggf. `direction` flippen.
+- **Kalibrierungs-Workflow** (Phase 10 / `servo_real_cal` ✅) automatisiert den
+  Direction-Test: jog +0.1 rad, prüfe ob Bein nach unten oder oben fährt, ggf.
+  `direction` flippen.
 
 ### 10. USB-Port wechselt (`ttyACM0` → `ttyACM1` o.ä.)
 
@@ -379,12 +430,12 @@ dass eine echte Servo2040-Hardware angeschlossen ist (z.B. PR-Builds).
   zwei verschiedene Launch-Files / Launch-Args (kommt in Stufe G:
   `real.launch.py` mit `loopback:=false` als Default).
 
-### 12. Sim ↔ Hardware umschalten (Phase 9 Stufe F)
+### 12. Sim ↔ Hardware umschalten
 
 **Beispiel:** Du willst denselben Gait-Code einmal in Gazebo (Sim) und
 einmal mit echter Servo2040-Hardware fahren.
 
-**Was zu tun (sobald Stufe F implementiert ist):**
+**Was zu tun (Phase 9 ✅ eingerichtet):**
 - Sim: `ros2 launch hexapod_bringup sim.launch.py` — Default
   `use_sim:=true`, lädt `gz_ros2_control`, nutzt
   `controllers.yaml`.
@@ -392,12 +443,13 @@ einmal mit echter Servo2040-Hardware fahren.
   `use_sim:=false`, lädt `hexapod_hardware/HexapodSystemHardware`,
   nutzt `controllers.real.yaml`.
 
-**Was Phase 9 Stufe F dafür einrichtet:**
-- URDF (`hexapod.ros2_control.xacro`) bekommt einen `<xacro:if>` der
-  zur Build-/Launch-Zeit zwischen `gz_ros2_control` und
-  `hexapod_hardware` als Plugin-Klasse wählt.
-- `controllers.real.yaml` wird angelegt mit `use_sim_time:false` und
-  reduzierten vel/accel-Limits (~30% der Sim-Werte für sicheren Bring-up).
+**Was Phase 9 dafür eingerichtet hat (✅):**
+- URDF (`hexapod.ros2_control.xacro`) hat einen `<xacro:if>` der zur Build-/
+  Launch-Zeit zwischen `gz_ros2_control` und `hexapod_hardware` als Plugin-Klasse
+  wählt.
+- `controllers.real.yaml` existiert mit `use_sim_time:false`; vel/accel-Limits
+  waren in Stage F bewusst limit-frei → in Phase 10/12 nach Bench-Trajektorien
+  nachziehen (Memory `project_phase10_real_yaml_vel_limits`).
 
 **Was NICHT betroffen ist:**
 - Gait, Teleop, IK, alle High-Level-Knoten sind plugin-agnostisch —
@@ -405,9 +457,37 @@ einmal mit echter Servo2040-Hardware fahren.
   entweder Sim oder HW fährt.
 
 **Was zusätzlich zu prüfen:**
-- **HW-Default-Body-Höhe:** `body_height = -0.052` in Sim (Phase-6-
-  JTC-Tracking-Lag-Workaround) muss in HW zurück auf `-0.047`. Wird
-  in Stufe F als HW-Default gesetzt.
+- **HW-Body-Höhe / Stance-Modi:** Default ist inzwischen der Stance-Modus **mittel** (`body_height
+  -0.100`, radial 0.220 — `gait.launch.py`/`_GAIT_PARAMS`/`_STANCE_MODES`), nicht mehr der alte
+  Sim-Workaround `-0.052`. Auf HW dieselben Modi; `controllers.real.yaml` setzt `use_sim_time:false`
+  + reduzierte vel/accel.
+
+---
+
+### 13. Joint-Winkel / Knie-Geometrie ändern (z.B. Tibia-Montagewinkel)
+
+**Beispiel:** Die Tibia wird nicht nur kürzer, sondern in einem **anderen Winkel** ans Knie montiert
+(Joint-Origin/Achse verschoben), oder die „Knie-oben"-Annahme soll sich ändern.
+
+> ⚠️ **Das ist KEINE reine Längen-Änderung (Szenario 1).** Ein anderer Joint-Origin/Winkel berührt die
+> **IK-Mathematik selbst** — `leg_ik.py` nimmt eine feste Geometrie + „Knie-oben"-Konvention an
+> (Phase-5 Stufe-B Design-Entscheidung 3). Hier reicht es NICHT, eine Länge zu spiegeln.
+
+**Was zu tun:**
+1. `leg.xacro` — den `tibia_joint`-`<origin>` (xyz/rpy) bzw. die Achse anpassen.
+2. `hexapod_kinematics/leg_ik.py` — die Vorwärts-/Rückwärts-Kinematik an die neue Geometrie anpassen
+   (`leg_fk` muss zur URDF passen, `leg_ik` die Inverse). Das ist echter Mathe-Eingriff, kein Mirror.
+3. `hexapod_kinematics/config.py` — falls neue Geometrie-Konstanten (z.B. ein Tibia-Offset-Winkel).
+4. `hexapod_kinematics/test/` — Round-Trip-Test (`leg_fk(leg_ik(p)) == p`) muss wieder grün sein; ggf.
+   Erwartungswerte/Posen anpassen.
+5. `00_conventions.md` — wenn die Knie-Konvention/Geometrie dokumentiert ist, dort nachziehen.
+
+**Was zusätzlich zu prüfen:**
+- ⚠️ **Lokomotion komplett neu validieren** (Pflicht-Sektion oben) — eine geänderte Bein-Geometrie
+  ändert ALLE Posen (Stand/Lauf/Standup/Sitdown/Show) und die Last-/CoG-Rechnung.
+- **rad-0-Sichtprüfung** nach dem Umbau (Bein in der erwarteten Form, HW == RViz).
+- Höchstes Risiko aller Szenarien — klein anfangen (ein Bein, niedriges Geschwindigkeitslimit,
+  aufgebockt), bevor alle 6 fahren.
 
 ---
 
@@ -423,20 +503,27 @@ colcon build --packages-select hexapod_description hexapod_kinematics
 source install/setup.bash
 colcon test --packages-select hexapod_kinematics --event-handlers console_direct+
 
-# 3. Sim startet sauber
-ros2 launch hexapod_bringup sim.launch.py
+# 3. Bei Geometrie-/Limit-Änderung: Lokomotion-Envelope (echte Engine + Tools)
+colcon test --packages-select hexapod_gait hexapod_teleop   # inkl. test_stance_switch (real-engine)
+python3 tools/walking_envelope_check.py sweep
+python3 tools/standup_envelope_check.py
+python3 tools/show_pose_cog_check.py                         # falls B4 genutzt
 
-# 4. Stand-Pose-Drift
-ros2 topic pub --once /leg_1_controller/joint_trajectory ... [0, -0.5, 1.0]
-# (sechsmal für alle Beine, dann 5 Sekunden gz model -m hexapod -p)
+# 4. Sim startet sauber + Lauf-Smoke (RViz + Gazebo)
+ros2 launch hexapod_bringup sim.launch.py
+ros2 launch hexapod_gait gait.launch.py robot_description_file:=... use_sim_time:=true
+# → aufstehen → in alle Richtungen fahren → Stance-Modi cyclen, KEINE IKError im gait_node-Log
 ```
 
-Welche Tests in welcher Phase verfügbar sind:
-- Phase 4 abgeschlossen: `colcon build`, `xacro`-Parse, Sim-Launch, Stand-Drift.
-- Phase 5 ab Stufe A: Cross-Check-Test in `hexapod_kinematics`.
-- Phase 5 ab Stufe B: IK/FK-Round-Trip-Tests, IK-Reichweite-Tests.
-- Phase 5 ab Stufe D: Foot-Kontakt-Topics als Live-Diagnose verfügbar
-  (Toggle-bar, siehe Phase-5-Stufe-D).
+> ⚠️ **Bei Geometrie-/Limit-/Winkel-Änderungen (Szenarien 1, 2, 5, 6, 7, 13) ist die Pflicht-Sektion
+> „Nach jeder Geometrie-/Limit-Änderung: Lokomotion neu validieren" (oben) maßgeblich** — nicht nur
+> diese Basis-Checkliste.
+
+Verfügbare Test-/Tool-Schichten:
+- `colcon build`, `xacro`-Parse, Sim-Launch, Stand-Drift (ab Phase 4).
+- `hexapod_kinematics` Cross-Check + IK/FK-Round-Trip + Reichweite (ab Phase 5).
+- **Lokomotions-Validierung:** `hexapod_gait`-Tests (`test_stance_switch` = real-engine, alle
+  Richtungen), `walking_/standup_/show_pose`-Envelope-Tools (lesen Geometrie/Limits live).
 
 ---
 
