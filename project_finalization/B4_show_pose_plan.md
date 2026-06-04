@@ -61,6 +61,9 @@ Bein-Layout: leg_1=vorne-R, leg_2=mitte-R, leg_3=hinten-R, leg_4=hinten-L, leg_5
 - **Wertneutral:** alle Posen/Verlagerungs-Distanzen/Limits aus Params/Config, nicht hartkodiert.
 
 ## 3. Logik-Skizze / Pseudocode
+> ⚠️ **Ursprünglicher Entwurf (Vor-Implementierung).** Der **IST-Stand** (σ-Skalar, 3-DOF-Offsets
+> inkl. radial/B4.11, `/cmd_show[6]`, λ-Fade, Clamp-Hold) steht in
+> [`B4_show_pose_progress.md`](B4_show_pose_progress.md) → „Architektur & Wartung (IST-Stand)".
 ```
 # Trigger (Teleop Cross-lang → /hexapod_show_toggle):
 on_show_toggle():

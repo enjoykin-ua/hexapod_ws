@@ -64,6 +64,30 @@
 - **Falle:** cmd_vel muss in jedem neuen Aufsteh-/Reposition-State ignoriert werden
   (sonst kippt es fälschlich auf WALKING) — siehe `set_command`-Guard.
 
+### Show-Pose / Free-Leg (B4) ändern
+- **Voll-Doku:** [`../project_finalization/B4_show_pose_progress.md`](../project_finalization/B4_show_pose_progress.md)
+  (IST-Architektur, Parameter-Referenz, Änderungs-Landkarte) + `B4_show_pose_plan.md` §9 (Design-Log).
+- **Wo (3 Schichten):** `gait_engine.py` (States `SHOW_ENTER`/`SHOW_ACTIVE`/`SHOW_EXIT`, gemeinsamer
+  Skalar σ∈[0,1], `start_show_enter`/`start_show_exit`/`set_show_offsets`, `_show_foot`/`_front_foot`,
+  CoG-Gate) · `gait_node.py` (Service `/hexapod_show_toggle`, Sub `/cmd_show`, `show_*`-Params,
+  `_update_show_offsets`) · `joy_to_twist.py` (`_show_pose_hook`→Toggle, `_show_from_joy`→`/cmd_show`,
+  `ps4_*.yaml`).
+- **Pose/Verhalten tunen:** alles über `show_*`-**Params** (wertneutral) — `show_body_shift_back`
+  (Stütz-Verlagerung), `show_front_radial`/`show_front_z` (Neutral-Hoch-Pose), `show_*_scale`
+  (Stick/Trigger→m), `show_return_rate`, `show_safety_margin`, Dauern. NICHTS in der Engine hardcoden.
+- **Fallen:** (1) `show_body_shift_back` **≥ 0.05 halten** (sonst CoG-Marge < 30 mm) und **≤ 0.09**
+  (Stütz-Coxa-Limit ±0.415). (2) **Femur ±1.57 (±90°)** begrenzt Vorderbein-Hub + blockiert „curl-in"
+  (radial nur raus). (3) **Kein Laufzeit-CoG-Gate in SHOW_ACTIVE** — die URDF-Joint-Limits binden den
+  CoG implizit (offline bewiesen); wer die **Reichweiten-Hülle vergrößert** (Skalen/Neutral/neue Achse),
+  muss den Worst-Case **neu prüfen** (s.u.). (4) cmd_vel in allen SHOW-States ignoriert (`set_command`-Guard).
+  (5) `/cmd_show` = `Float64MultiArray[6]` `[l6_lat,l6_vert,l6_radial, l1_lat,l1_vert,l1_radial]` —
+  Reihenfolge bei Änderung in Node **und** Teleop synchron halten.
+- **Validieren:** `colcon test hexapod_gait` (`test_show_pose`/`test_show_node`) + `hexapod_teleop`
+  (`test_joy_to_twist`) + Lint · **Offline-CoG/Reach neu** bei Hüllen-Änderung
+  (`python3 tools/show_pose_cog_check.py` für die ENTER-Pose; den Offset-Worst-Case-Sweep aus
+  `B4_show_pose_plan.md` §4a/§9 nachfahren) · **Sim** (RViz+Gazebo, [`B4_show_pose_test_commands.md`](../project_finalization/B4_show_pose_test_commands.md))
+  · **HW aufgebockt → Boden** (CoG-kritisch, nur 4 Stützbeine!).
+
 ### Neuer Knoten / Topic
 - **Wo:** Bringup-Launch (`hexapod_bringup`), ggf. eigenes Paket. Topic-Konventionen aus
   `architecture.md` §4 einhalten.
