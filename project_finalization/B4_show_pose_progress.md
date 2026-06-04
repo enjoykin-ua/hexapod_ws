@@ -30,6 +30,7 @@ sein, damit danach wieder gelaufen werden kann** (User-Vorgabe). Kanal = eigenes
 | B4.8 | SIM (RViz+Gazebo): rein→bewegen→raus, kein Kippen/Freeze | 🟢 fertig (User 2026-06-04) | 2026-06-04 | `B4_show_pose_test_commands.md` |
 | B4.9 | HW aufgebockt → Boden (CoG-kritisch!) | 🟡 bereit (User, wenn HW verfügbar) | — | `B4_show_pose_test_commands.md` §3 |
 | B4.10 | Self-Review + Design-Log + Test-Markdown | 🟢 Self-Review+Log (Plan §9) fertig; Test-MD geschrieben | 2026-06-04 | `B4_show_pose_test_commands.md` |
+| **B4.11** | **Tibia-Curl: radiale Vorderbein-Achse (Trigger)** | 🟢 Code fertig, Sim offen | 2026-06-04 | `gait_engine/node.py`, `joy_to_twist.py`, Tests |
 
 ## Was ist ERLEDIGT (Details)
 - **B4.0** ✅ — Offline nachgewiesen: sichere Show-Stütz-Pose existiert. Empfohlen
@@ -47,6 +48,14 @@ sein, damit danach wieder gelaufen werden kann** (User-Vorgabe). Kanal = eigenes
   **Offline-Sicherheit:** über ALLE 3025 in-limit-Offsets min CoG-Marge 44 mm @shift 0.065 → kein
   ACTIVE-CoG-Gate nötig (Joint-Clamp bindet CoG implizit; `show_body_shift_back` ≥ 0.05 halten).
   Gesamt: 26 Engine-Tests + Regression 170/0/1-skip + flake8/pep257 grün.
+
+- **B4.11** ✅ Code — **radiale Vorderbein-Achse** (3. DOF: lat, vert, **radial**). `/cmd_show` 4→6
+  Werte `[l6_lat,l6_vert,l6_radial, l1_lat,l1_vert,l1_radial]`; Teleop: **L2→leg_6, R2→leg_1** (analog,
+  R1-gated), Body-Höhe nur ohne R1. Befund: „reach out" (Trigger drücken = Bein streckt, **Tibia
+  ~0.65 rad auf**); „curl in" ist von der Neutral-Pose femur-limit-blockiert → einseitig. Offline-CoG
+  über alle in-limit (lat,vert,radial)-Kombis = **42 mm** @shift 0.065 → kein ACTIVE-Gate nötig.
+  Param `show_radial_scale` (Default 0.05, safe bis 0.06). Tests: gait 182/0, teleop 30/0, Lint grün.
+  **Offen:** Sim-Verifikation (Trigger → Tibia fährt auf, weich, in-limit, keine Kollision).
 
 ## Was ist NOCH ZU TUN (kurz)
 - **B4.4 (nächster):** Node — Service `/hexapod_show_toggle` (Trigger, STANDING↔SHOW; aus SHOW_*

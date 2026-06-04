@@ -95,6 +95,10 @@ class JoyToTwist(Node):
         self.declare_parameter('axis_ry', 4)   # rechter Stick Y (leg_1 vertikal)
         self.declare_parameter('sign_show_lat', 1.0)
         self.declare_parameter('sign_show_vert', 1.0)
+        # B4.11 — Tibia-Curl/Reach: L2 → leg_6, R2 → leg_1 (analog, R1-gated).
+        # Trigger drücken = Bein streckt sich raus (Tibia fährt auf). Body-Höhe
+        # (L2/R2) gibt es nur OHNE R1 → kein Konflikt im Show.
+        self.declare_parameter('sign_show_radial', 1.0)
 
         g = self.get_parameter
         self._axis_lx = int(g('axis_lx').value)
@@ -126,10 +130,11 @@ class JoyToTwist(Node):
         self._body_height_step = float(g('body_height_step').value)
         self._body_height_min = float(g('body_height_min').value)
         self._body_height_max = float(g('body_height_max').value)
-        # Show-Pose (B4).
+        # Show-Pose (B4 / B4.11).
         self._axis_ry = int(g('axis_ry').value)
         self._sign_show_lat = float(g('sign_show_lat').value)
         self._sign_show_vert = float(g('sign_show_vert').value)
+        self._sign_show_radial = float(g('sign_show_radial').value)
 
         self._target_body_height = float(g('body_height_init').value)
 
@@ -230,30 +235,39 @@ class JoyToTwist(Node):
         twist.angular.z = self._sign_rx * rx * self._angular_z_scale * scale
         return twist
 
+    def _trigger_frac(self, msg: Joy, idx: int) -> float:
+        """Analog-Trigger → Druck-Anteil [0, 1] (idle +1.0 → 0, voll -1.0 → 1)."""
+        return max(0.0, min(1.0, (1.0 - self._axis(msg, idx)) / 2.0))
+
     def _show_from_joy(self, msg: Joy) -> Float64MultiArray:
         """
-        Vorderbein-Stick-Werte (B4) → /cmd_show in [-1, 1].
+        Vorderbein-Achsen (B4/B4.11) → /cmd_show in [-1, 1].
 
-        Reihenfolge ``[l6_lat, l6_vert, l1_lat, l1_vert]``.
+        Reihenfolge ``[l6_lat, l6_vert, l6_radial, l1_lat, l1_vert, l1_radial]``.
         Linker Stick → leg_6, rechter Stick → leg_1; X=seitwärts (lateral),
-        Y=hoch/runter (vertikal). Per R1-Dead-Man gegated (= 0 wenn nicht
-        gehalten), genau wie cmd_vel. Der gait_node skaliert auf Meter und
-        nutzt es NUR im SHOW_ACTIVE-State (sonst ignoriert) — der Teleop bleibt
-        zustandslos und publisht beides (cmd_vel + cmd_show) unbedingt.
+        Y=hoch/runter (vertikal). L2 → leg_6 radial, R2 → leg_1 radial (Trigger
+        drücken = Bein streckt sich raus / Tibia fährt auf). Per R1-Dead-Man
+        gegated (= 0 wenn nicht gehalten), wie cmd_vel. Der gait_node skaliert
+        auf Meter und nutzt es NUR im SHOW_ACTIVE-State (sonst ignoriert) — der
+        Teleop bleibt zustandslos und publisht beides (cmd_vel + cmd_show).
         """
         arr = Float64MultiArray()
         if not self._button(msg, self._deadman_button):
-            arr.data = [0.0, 0.0, 0.0, 0.0]
+            arr.data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             return arr
         l6_lat = self._sign_show_lat * self._apply_deadzone(
             self._axis(msg, self._axis_lx))
         l6_vert = self._sign_show_vert * self._apply_deadzone(
             self._axis(msg, self._axis_ly))
+        l6_radial = self._sign_show_radial * self._trigger_frac(
+            msg, self._axis_l2)
         l1_lat = self._sign_show_lat * self._apply_deadzone(
             self._axis(msg, self._axis_rx))
         l1_vert = self._sign_show_vert * self._apply_deadzone(
             self._axis(msg, self._axis_ry))
-        arr.data = [l6_lat, l6_vert, l1_lat, l1_vert]
+        l1_radial = self._sign_show_radial * self._trigger_frac(
+            msg, self._axis_r2)
+        arr.data = [l6_lat, l6_vert, l6_radial, l1_lat, l1_vert, l1_radial]
         return arr
 
     def _rising_edge(self, idx: int, pressed: bool) -> bool:
@@ -290,13 +304,18 @@ class JoyToTwist(Node):
         self._cmd_vel_pub.publish(self._twist_from_joy(msg))
         self._cmd_show_pub.publish(self._show_from_joy(msg))
 
-        # 2) Höhe (L2/R2 Edge, ±step, lokal geclampt).
+        # 2) Höhe (L2/R2 Edge, ±step, lokal geclampt). B4.11: nur OHNE R1 —
+        # mit R1 sind die Trigger der Tibia-Curl im Show (Konflikt vermieden,
+        # zustandslos). Edge-State trotzdem mitführen, damit nach R1-Loslassen
+        # kein Phantom-Edge feuert.
         l2 = self._axis(msg, self._axis_l2) < self._trigger_threshold
         r2 = self._axis(msg, self._axis_r2) < self._trigger_threshold
-        if l2 and not self._l2_was:
-            self._adjust_body_height(-1)
-        if r2 and not self._r2_was:
-            self._adjust_body_height(+1)
+        deadman = self._button(msg, self._deadman_button)
+        if not deadman:
+            if l2 and not self._l2_was:
+                self._adjust_body_height(-1)
+            if r2 and not self._r2_was:
+                self._adjust_body_height(+1)
         self._l2_was = l2
         self._r2_was = r2
 

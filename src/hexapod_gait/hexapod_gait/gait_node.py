@@ -471,6 +471,17 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             '(m, hoch/runter) in SHOW_ACTIVE. Default 0.06.'
         ),
     ),
+    _ParamSpec(
+        name='show_radial_scale', default=0.05,
+        fp_range=(0.0, 0.08, 0.005),
+        description=(
+            'Block B4.11: Skala Trigger [0..1] → radialer Vorderbein-Offset '
+            '(m, reach/Tibia-Curl) in SHOW_ACTIVE. Trigger drücken = Bein '
+            'streckt sich raus (Tibia fährt auf). Offline-CoG-safe bis 0.06 '
+            '(~43 mm Marge); Default 0.05. Negativ-Reach (einrollen) ist von '
+            'der Neutral-Pose femur-limit-blockiert → einseitig raus.'
+        ),
+    ),
 )
 
 # Block C2 — Gangart-Cycle-Reihenfolge fürs Controller-Umschalten
@@ -608,6 +619,9 @@ class GaitNode(Node):
         self._show_vert_scale = float(
             self.get_parameter('show_vert_scale').value
         )
+        self._show_radial_scale = float(
+            self.get_parameter('show_radial_scale').value
+        )
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
@@ -725,12 +739,12 @@ class GaitNode(Node):
         self._last_cmd_v_y = 0.0
         self._last_cmd_omega_z = 0.0
 
-        # Block B4 — /cmd_show-State: zuletzt empfangene 4 Stick-Werte
-        # [leg6_lat, leg6_vert, leg1_lat, leg1_vert] in [-1, 1] (Teleop hat
-        # Dead-Man R1 bereits angewandt → 0 wenn losgelassen). Staleness
-        # (> cmd_vel_timeout ohne /cmd_show) → als 0 behandelt (Disconnect-
-        # Schutz: Vorderbeine kehren rate-limitiert in Neutral zurück).
-        self._cmd_show = [0.0, 0.0, 0.0, 0.0]
+        # Block B4/B4.11 — /cmd_show-State: zuletzt empfangene 6 Achsen-Werte
+        # [leg6_lat, leg6_vert, leg6_radial, leg1_lat, leg1_vert, leg1_radial]
+        # in [-1, 1] (Teleop hat Dead-Man R1 bereits angewandt → 0 wenn
+        # losgelassen). Staleness (> cmd_vel_timeout ohne /cmd_show) → als 0
+        # behandelt (Disconnect-Schutz: Vorderbeine kehren in Neutral zurück).
+        self._cmd_show = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self._last_cmd_show_time: float | None = None
 
         # Phase 13 Stage A — Ramp-Trigger-State.
@@ -859,14 +873,14 @@ class GaitNode(Node):
         """
         ``/cmd_show``-Empfang (Block B4): 4 Stick-Werte cachen + Timestamp.
 
-        Erwartet ``[leg6_lat, leg6_vert, leg1_lat, leg1_vert]`` in [-1, 1]
-        (Teleop hat Stick-Skala-Normierung + Dead-Man R1 angewandt). Kürzere/
-        leere Arrays werden ignoriert (malformed → kein State-Change). Die
-        Stick→Meter-Skalierung + das Setzen an die Engine passiert im Tick
-        (nur in SHOW_ACTIVE), damit es synchron zum Rate-Limit läuft.
+        Erwartet ``[leg6_lat, leg6_vert, leg6_radial, leg1_lat, leg1_vert,
+        leg1_radial]`` in [-1, 1] (Teleop hat Skala-Normierung + Dead-Man R1
+        angewandt). Kürzere/leere Arrays werden ignoriert (malformed → kein
+        State-Change). Die Skalierung + das Setzen an die Engine passiert im
+        Tick (nur in SHOW_ACTIVE), damit es synchron zum Rate-Limit läuft.
         """
-        if len(msg.data) >= 4:
-            self._cmd_show = [float(v) for v in msg.data[:4]]
+        if len(msg.data) >= 6:
+            self._cmd_show = [float(v) for v in msg.data[:6]]
             self._last_cmd_show_time = time.monotonic()
 
     def _on_joint_states(self, msg: JointState) -> None:
@@ -1362,7 +1376,7 @@ class GaitNode(Node):
                 response.message = f'show_enter failed: {exc}'
                 self.get_logger().error(response.message)
                 return response
-            self._cmd_show = [0.0, 0.0, 0.0, 0.0]
+            self._cmd_show = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             response.success = ok
             response.message = (
                 'entering show pose' if ok else 'show_enter rejected'
@@ -1405,18 +1419,20 @@ class GaitNode(Node):
         Staleness-Schutz: ohne frisches /cmd_show (> cmd_vel_timeout) werden
         die Offsets auf 0 gesetzt → die Vorderbeine kehren rate-limitiert in
         die Neutral-Pose zurück (Disconnect / Teleop-Crash). Mapping:
-        ``[leg6_lat, leg6_vert, leg1_lat, leg1_vert]``.
+        ``[leg6_lat, leg6_vert, leg6_radial, leg1_lat, leg1_vert, leg1_radial]``.
         """
         fresh = (
             self._last_cmd_show_time is not None
             and (now - self._last_cmd_show_time) < self._cmd_vel_timeout
         )
-        cs = self._cmd_show if fresh else (0.0, 0.0, 0.0, 0.0)
+        cs = self._cmd_show if fresh else (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         self._engine.set_show_offsets({
             'leg_6': (cs[0] * self._show_lat_scale,
-                      cs[1] * self._show_vert_scale),
-            'leg_1': (cs[2] * self._show_lat_scale,
-                      cs[3] * self._show_vert_scale),
+                      cs[1] * self._show_vert_scale,
+                      cs[2] * self._show_radial_scale),
+            'leg_1': (cs[3] * self._show_lat_scale,
+                      cs[4] * self._show_vert_scale,
+                      cs[5] * self._show_radial_scale),
         })
 
     def _do_relay_off_and_latch(self) -> None:
@@ -1695,6 +1711,8 @@ class GaitNode(Node):
             self._show_lat_scale = value
         elif name == 'show_vert_scale':
             self._show_vert_scale = value
+        elif name == 'show_radial_scale':
+            self._show_radial_scale = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
 

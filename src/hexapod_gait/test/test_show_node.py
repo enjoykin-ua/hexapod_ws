@@ -23,6 +23,7 @@ _SHOW_PARAMS = (
     'show_enter_duration', 'show_exit_duration', 'show_body_shift_back',
     'show_shift_fraction', 'show_safety_margin', 'show_front_radial',
     'show_front_z', 'show_return_rate', 'show_lat_scale', 'show_vert_scale',
+    'show_radial_scale',
 )
 
 
@@ -97,53 +98,56 @@ def test_show_toggle_rejected_when_walking(node):
 
 def test_show_toggle_resets_cmd_show_on_enter(node):
     """Beim Eintreten werden alte Stick-Werte verworfen (Neutral-Start)."""
-    node._cmd_show = [1.0, 1.0, 1.0, 1.0]
+    node._cmd_show = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     _toggle(node)
-    assert node._cmd_show == [0.0, 0.0, 0.0, 0.0]
+    assert node._cmd_show == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
 # ----- /cmd_show-Subscriber ------------------------------------------- #
 
-def test_cmd_show_caches_four_values(node):
-    """/cmd_show speichert die 4 Werte + Timestamp."""
+def test_cmd_show_caches_six_values(node):
+    """/cmd_show speichert die 6 Achsen-Werte + Timestamp (B4.11)."""
     msg = Float64MultiArray()
-    msg.data = [0.5, -0.5, 0.25, 0.75]
+    msg.data = [0.5, -0.5, 0.2, 0.25, 0.75, 0.4]
     node._on_cmd_show(msg)
-    assert node._cmd_show == [0.5, -0.5, 0.25, 0.75]
+    assert node._cmd_show == [0.5, -0.5, 0.2, 0.25, 0.75, 0.4]
     assert node._last_cmd_show_time is not None
 
 
 def test_cmd_show_ignores_malformed(node):
-    """Zu kurzes Array → ignoriert (kein State-Change)."""
-    node._cmd_show = [0.0, 0.0, 0.0, 0.0]
+    """Zu kurzes Array (< 6) → ignoriert (kein State-Change)."""
+    node._cmd_show = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     msg = Float64MultiArray()
-    msg.data = [0.1, 0.2]
+    msg.data = [0.1, 0.2, 0.3, 0.4]
     node._on_cmd_show(msg)
-    assert node._cmd_show == [0.0, 0.0, 0.0, 0.0]
+    assert node._cmd_show == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
 # ----- /cmd_show → Engine-Offsets (Skalierung + Staleness) ------------ #
 
 def test_update_show_offsets_scales_and_maps(node):
-    """Stick→Meter-Skalierung + Mapping leg6/leg1 an die Engine."""
+    """Stick/Trigger→Meter-Skalierung + Mapping leg6/leg1 (lat,vert,radial)."""
     node._show_lat_scale = 0.06
     node._show_vert_scale = 0.05
-    node._cmd_show = [1.0, -1.0, -0.5, 0.5]  # [l6_lat,l6_vert,l1_lat,l1_vert]
+    node._show_radial_scale = 0.04
+    # [l6_lat, l6_vert, l6_radial, l1_lat, l1_vert, l1_radial]
+    node._cmd_show = [1.0, -1.0, 0.5, -0.5, 0.5, 1.0]
     node._last_cmd_show_time = time.monotonic()
     node._update_show_offsets(time.monotonic())
     tgt = node._engine._show_offset_target
-    assert tgt['leg_6'] == pytest.approx((0.06, -0.05))
-    assert tgt['leg_1'] == pytest.approx((-0.03, 0.025))
+    assert tgt['leg_6'] == pytest.approx((0.06, -0.05, 0.02))
+    assert tgt['leg_1'] == pytest.approx((-0.03, 0.025, 0.04))
 
 
 def test_update_show_offsets_stale_zeroes(node):
     """Ohne frisches /cmd_show (Disconnect) → Offsets 0 (Rückkehr Neutral)."""
     node._show_lat_scale = 0.06
     node._show_vert_scale = 0.06
-    node._cmd_show = [1.0, 1.0, 1.0, 1.0]
+    node._show_radial_scale = 0.05
+    node._cmd_show = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     # Timestamp weit in der Vergangenheit → stale.
     node._last_cmd_show_time = time.monotonic() - 10.0
     node._update_show_offsets(time.monotonic())
     tgt = node._engine._show_offset_target
-    assert tgt['leg_6'] == pytest.approx((0.0, 0.0))
-    assert tgt['leg_1'] == pytest.approx((0.0, 0.0))
+    assert tgt['leg_6'] == pytest.approx((0.0, 0.0, 0.0))
+    assert tgt['leg_1'] == pytest.approx((0.0, 0.0, 0.0))

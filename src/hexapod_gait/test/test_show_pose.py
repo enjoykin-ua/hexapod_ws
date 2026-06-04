@@ -414,6 +414,27 @@ def test_offset_moves_front_legs_lateral_and_vertical():
         assert abs(_foot_base_z(angles, n) - _BH) < 1e-6
 
 
+def test_radial_offset_extends_leg_and_moves_tibia():
+    """B4.11: radialer Offset (reach out) fährt Fuß raus UND streckt die Tibia."""
+    engine = _make_engine()
+    _enter_to_active(engine)
+    # Neutral-Tibia (ohne Offset) als Referenz.
+    a0, _ = _active_tick(engine, _SHOW_DURATION, 2)
+    tibia0 = a0['leg_1'][2]
+    x0 = _front_foot_leg(a0, 'leg_1')[0]
+    # Radial raus (3-Tupel: lat, vert, radial).
+    engine.set_show_offsets({'leg_1': (0.0, 0.0, 0.05), 'leg_6': (0.0, 0.0, 0.05)})
+    a1, _ = _active_tick(engine, _SHOW_DURATION + 1.0, 80)
+    _assert_in_limits(a1)
+    x1 = _front_foot_leg(a1, 'leg_1')[0]
+    tibia1 = a1['leg_1'][2]
+    assert x1 - x0 == pytest.approx(0.05, abs=2e-3)   # Fuß ~5 cm weiter raus
+    assert tibia1 < tibia0 - 0.2                       # Tibia deutlich gestreckt
+    # Stützbeine unbeeinflusst.
+    for n in _SHOW_SUPPORT_LEGS:
+        assert abs(_foot_base_z(a1, n) - _BH) < 1e-6
+
+
 def test_offset_clamped_to_urdf_limits_no_ikerror():
     engine = _make_engine()
     _enter_to_active(engine)

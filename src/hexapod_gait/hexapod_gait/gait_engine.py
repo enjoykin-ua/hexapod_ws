@@ -264,15 +264,16 @@ class GaitEngine:
         self._show_exit_start_t: float = 0.0
         self._show_exit_duration: float = 0.0
         self._show_exit_sigma0: float = 1.0
-        # Block B4.2 — Vorderbein-Joystick-Offsets (Bein-Frame, Meter):
-        # (lateral=Y, vertical=Z) je Vorderbein. _target = vom Node kommandiert
-        # (bereits skaliert + Dead-Man), _current = rate-limitiert nachgeführt.
-        # Mit Lift-Faktor λ(σ) skaliert → verblasst beim EXIT (kein Sprung).
-        self._show_offset_target: dict[str, Vec2] = {
-            name: (0.0, 0.0) for name in _SHOW_FRONT_LEGS
+        # Block B4.2/B4.11 — Vorderbein-Joystick-Offsets (Bein-Frame, Meter):
+        # (lateral=Y, vertical=Z, radial=X) je Vorderbein. _target = vom Node
+        # kommandiert (bereits skaliert + Dead-Man), _current = rate-limitiert
+        # nachgeführt. Mit Lift-Faktor λ(σ) skaliert → verblasst beim EXIT.
+        # B4.11: radiale Achse (X) = reach/curl der Tibia (Trigger).
+        self._show_offset_target: dict[str, Point3] = {
+            name: (0.0, 0.0, 0.0) for name in _SHOW_FRONT_LEGS
         }
-        self._show_offset_current: dict[str, Vec2] = {
-            name: (0.0, 0.0) for name in _SHOW_FRONT_LEGS
+        self._show_offset_current: dict[str, Point3] = {
+            name: (0.0, 0.0, 0.0) for name in _SHOW_FRONT_LEGS
         }
         self._show_return_rate: float = 0.0   # m/s, Nachführ-/Rückkehr-Rate
         self._show_active_last_t: float = 0.0  # für dt im Rate-Limit
@@ -1244,29 +1245,37 @@ class GaitEngine:
         self._show_frozen = False
         self._show_hold_angles = {}
         self._show_sigma = 0.0
-        # B4.2: Vorderbein-Offsets bei jedem Show-Eintritt auf 0 (Neutral).
-        self._show_offset_target = {n: (0.0, 0.0) for n in _SHOW_FRONT_LEGS}
-        self._show_offset_current = {n: (0.0, 0.0) for n in _SHOW_FRONT_LEGS}
+        # B4.2/B4.11: Vorderbein-Offsets bei jedem Show-Eintritt auf 0 (Neutral).
+        self._show_offset_target = {
+            n: (0.0, 0.0, 0.0) for n in _SHOW_FRONT_LEGS
+        }
+        self._show_offset_current = {
+            n: (0.0, 0.0, 0.0) for n in _SHOW_FRONT_LEGS
+        }
         self._show_active_last_t = 0.0
         self._state = self.STATE_SHOW_ENTER
         return True
 
-    def set_show_offsets(self, offsets: dict[str, Vec2]) -> None:
+    def set_show_offsets(self, offsets: dict[str, tuple]) -> None:
         """
-        Soll-Offsets der Vorderbeine setzen (B4.2; Node ruft pro /cmd_show-Tick).
+        Soll-Offsets der Vorderbeine setzen (B4.2/B4.11; Node ruft pro Tick).
 
-        ``offsets`` = ``{leg_name: (lateral, vertical)}`` in **Metern**, Bein-
-        Frame (lateral = Y = seitwärts/coxa-Schwenk, vertical = Z = hoch/runter),
-        relativ zur neutralen Hoch-Pose. Der Node hat Stick→Meter bereits
-        skaliert UND den Dead-Man (R1) angewandt (R1 los / Stick zentriert →
-        (0,0)). Die Engine führt den IST-Offset rate-limitiert nach
+        ``offsets`` = ``{leg_name: (lateral, vertical[, radial])}`` in **Metern**,
+        Bein-Frame (lateral = Y = seitwärts/coxa-Schwenk, vertical = Z = hoch/
+        runter, radial = X = reach/Tibia-Curl). Fehlt ``radial`` (2-Tupel) → 0.
+        Relativ zur neutralen Hoch-Pose. Der Node hat Stick→Meter bereits
+        skaliert UND den Dead-Man (R1) angewandt (R1 los / Achse zentriert →
+        0). Die Engine führt den IST-Offset rate-limitiert nach
         (``show_return_rate``) und clampt hart auf die URDF-Limits. Nur in
         SHOW_ACTIVE wirksam; unbekannte Bein-Namen werden ignoriert.
         """
         for name in _SHOW_FRONT_LEGS:
             if name in offsets:
-                lat, vert = offsets[name]
-                self._show_offset_target[name] = (float(lat), float(vert))
+                vals = offsets[name]
+                lat = float(vals[0])
+                vert = float(vals[1])
+                radial = float(vals[2]) if len(vals) > 2 else 0.0
+                self._show_offset_target[name] = (lat, vert, radial)
 
     def _show_foot(self, leg, sigma: float) -> Point3:
         """
@@ -1314,11 +1323,20 @@ class GaitEngine:
             return 0.0
         return min(1.0, (sigma - frac) / (1.0 - frac))
 
-    def _front_foot(self, leg, sigma: float, offset: Vec2) -> Point3:
-        """Vorderbein-Foot: Basis-Show-Pose + Joystick-Offset·λ(σ) (Bein-Frame)."""
+    def _front_foot(self, leg, sigma: float, offset: Point3) -> Point3:
+        """
+        Vorderbein-Foot: Basis-Show-Pose + Joystick-Offset·λ(σ) (Bein-Frame).
+
+        ``offset`` = ``(lateral=Y, vertical=Z, radial=X)`` in Metern. λ(σ)
+        skaliert den Offset (1 oben, 0 am Boden) → verblasst beim EXIT.
+        """
         fx, fy, fz = self._show_foot(leg, sigma)
         lam = self._show_front_offset_factor(sigma)
-        return (fx, fy + offset[0] * lam, fz + offset[1] * lam)
+        return (
+            fx + offset[2] * lam,
+            fy + offset[0] * lam,
+            fz + offset[1] * lam,
+        )
 
     def _show_pose_targets(self, sigma: float) -> dict[str, Point3]:
         """
@@ -1506,7 +1524,7 @@ class GaitEngine:
         return load.stability_margin_m
 
 
-def _rate_limit(cur: Vec2, target: Vec2, max_delta: float) -> Vec2:
+def _rate_limit(cur: tuple, target: tuple, max_delta: float) -> tuple:
     """Bewege ``cur`` je Komponente um max. ``max_delta`` Richtung ``target``."""
     out = []
     for c, g in zip(cur, target):
@@ -1516,7 +1534,7 @@ def _rate_limit(cur: Vec2, target: Vec2, max_delta: float) -> Vec2:
         elif d < -max_delta:
             d = -max_delta
         out.append(c + d)
-    return (out[0], out[1])
+    return tuple(out)
 
 
 def _lerp(p_start: Point3, p_end: Point3, t: float) -> Point3:
