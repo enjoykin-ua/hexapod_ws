@@ -12,11 +12,11 @@ Staleness, Params).
 import time
 
 from hexapod_gait.gait_engine import GaitEngine
-from hexapod_gait.gait_node import GaitNode
+from hexapod_gait.gait_node import _STANCE_DEFAULT_IDX, _STANCE_MODES, GaitNode
 import pytest
 import rclpy
 from std_msgs.msg import Float64MultiArray
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 
 
 _SHOW_PARAMS = (
@@ -43,6 +43,12 @@ def node():
 
 def _toggle(node):
     return node._on_show_toggle(Trigger.Request(), Trigger.Response())
+
+
+def _cycle_stance(node, higher):
+    req = SetBool.Request()
+    req.data = higher
+    return node._on_cycle_stance(req, SetBool.Response())
 
 
 # ----- Params --------------------------------------------------------- #
@@ -151,3 +157,68 @@ def test_update_show_offsets_stale_zeroes(node):
     tgt = node._engine._show_offset_target
     assert tgt['leg_6'] == pytest.approx((0.0, 0.0, 0.0))
     assert tgt['leg_1'] == pytest.approx((0.0, 0.0, 0.0))
+
+
+# ----- Stance-Modi (Stage 1) ------------------------------------------ #
+
+def test_stance_default_is_mittel(node):
+    """Boot-Modus = mittel (Standup-Basis)."""
+    assert node._stance_idx == _STANCE_DEFAULT_IDX
+    assert _STANCE_MODES[node._stance_idx].name == 'mittel'
+
+
+def test_cycle_stance_higher_from_standing(node):
+    """data=True aus STANDING → höher (mittel→hoch), Engine im Switch."""
+    resp = _cycle_stance(node, True)
+    assert resp.success is True
+    assert _STANCE_MODES[node._stance_idx].name == 'hoch'
+    assert node._engine.state == GaitEngine.STATE_STANCE_SWITCH
+
+
+def test_cycle_stance_lower_from_standing(node):
+    """data=False aus STANDING → tiefer (mittel→tief)."""
+    resp = _cycle_stance(node, False)
+    assert resp.success is True
+    assert _STANCE_MODES[node._stance_idx].name == 'tief'
+    assert node._engine.state == GaitEngine.STATE_STANCE_SWITCH
+
+
+def test_cycle_stance_clamps_at_top(node):
+    """Am höchsten Modus → kein Wrap, kein State-Change."""
+    node._stance_idx = len(_STANCE_MODES) - 1   # hoch
+    resp = _cycle_stance(node, True)
+    assert resp.success is True
+    assert node._stance_idx == len(_STANCE_MODES) - 1
+    assert node._engine.state == GaitEngine.STATE_STANDING   # kein Switch
+
+
+def test_cycle_stance_rejected_when_not_standing(node):
+    """cycle_stance außerhalb STANDING wird abgelehnt."""
+    node._engine._state = GaitEngine.STATE_WALKING
+    resp = _cycle_stance(node, True)
+    assert resp.success is False
+    assert _STANCE_MODES[node._stance_idx].name == 'mittel'  # unverändert
+
+
+def test_sit_from_hoch_routes_through_mittel(node):
+    """Hinsetzen aus hoch (-0.140) → erst Stance-Switch auf mittel, dann sit."""
+    # In "hoch" versetzen (Index + Engine-Pose).
+    hoch_idx = len(_STANCE_MODES) - 1
+    node._stance_idx = hoch_idx
+    node._engine.radial_distance = _STANCE_MODES[hoch_idx].radial
+    node._engine.body_height = _STANCE_MODES[hoch_idx].body_height  # -0.140
+    resp = node._on_sit_down(Trigger.Request(), Trigger.Response())
+    assert resp.success is True
+    # NICHT direkt hingesetzt, sondern Switch auf mittel + pending.
+    assert node._engine.state == GaitEngine.STATE_STANCE_SWITCH
+    assert node._pending_sitdown is True
+    assert _STANCE_MODES[node._stance_idx].name == 'mittel'
+
+
+def test_sit_from_mittel_direct(node):
+    """Hinsetzen aus mittel (sit-safe) → direkt (kein Routing)."""
+    resp = node._on_sit_down(Trigger.Request(), Trigger.Response())
+    assert resp.success is True
+    assert node._pending_sitdown is False
+    # Direkt in die Sitdown-Sequenz (Reposition), nicht Stance-Switch.
+    assert node._engine.state == GaitEngine.STATE_REPOSITION

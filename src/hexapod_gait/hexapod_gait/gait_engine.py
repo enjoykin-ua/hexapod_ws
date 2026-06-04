@@ -143,6 +143,13 @@ class GaitEngine:
     STATE_SHOW_ACTIVE = 'SHOW_ACTIVE'
     STATE_SHOW_EXIT = 'SHOW_EXIT'
 
+    # Stance-Modi (Phase 13 Stage 1): Wechsel zwischen 3 validierten Lauf-Höhen
+    # (radial + body_height + step_height je Modus). STATE_STANCE_SWITCH fährt
+    # per Tripod-Reposition radial UND body_height gleichzeitig vom Ist- zum
+    # Ziel-Modus, mit kleinem stance_switch_step_height (Apex bleibt unter der
+    # Femur-Wand bei jeder Zwischenhöhe). Nur aus STANDING. cmd_vel ignoriert.
+    STATE_STANCE_SWITCH = 'STANCE_SWITCH'
+
     def __init__(
         self,
         pattern: GaitPattern,
@@ -264,6 +271,16 @@ class GaitEngine:
         self._show_exit_start_t: float = 0.0
         self._show_exit_duration: float = 0.0
         self._show_exit_sigma0: float = 1.0
+
+        # Stance-Switch-State-Daten (Phase 13 Stage 1).
+        self._stance_start_t: float = 0.0
+        self._stance_duration: float = 0.0
+        self._stance_from_radial: float = radial_distance
+        self._stance_to_radial: float = radial_distance
+        self._stance_from_bh: float = body_height
+        self._stance_to_bh: float = body_height
+        self._stance_to_step_height: float = self.step_height
+        self._stance_switch_step_height: float = 0.025
         # Block B4.2/B4.11 — Vorderbein-Joystick-Offsets (Bein-Frame, Meter):
         # (lateral=Y, vertical=Z, radial=X) je Vorderbein. _target = vom Node
         # kommandiert (bereits skaliert + Dead-Man), _current = rate-limitiert
@@ -467,6 +484,7 @@ class GaitEngine:
             self.STATE_SHOW_ENTER,
             self.STATE_SHOW_ACTIVE,
             self.STATE_SHOW_EXIT,
+            self.STATE_STANCE_SWITCH,
         ):
             return False
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
@@ -738,6 +756,8 @@ class GaitEngine:
             return self._compute_show_active_angles(t)
         if self._state == self.STATE_SHOW_EXIT:
             return self._compute_show_exit_angles(t)
+        if self._state == self.STATE_STANCE_SWITCH:
+            return self._compute_stance_switch_angles(t)
 
         targets = self.compute_foot_targets(t)
         angles = {}
@@ -1522,6 +1542,111 @@ class GaitEngine:
             masses=self._show_mass_model,
         )
         return load.stability_margin_m
+
+    # ----- Phase 13 Stage 1: Stance-Modus-Wechsel (radial + body_height) ----
+
+    def start_stance_switch(
+        self,
+        t: float,
+        target_radial: float,
+        target_body_height: float,
+        target_step_height: float,
+        duration: float,
+        switch_step_height: float = 0.025,
+    ) -> bool:
+        """
+        Wechsel zu einem anderen Stance-Modus (Phase 13 Stage 1). Nur aus STANDING.
+
+        Fährt per Tripod-Reposition (zwei Halb-Zyklen) ``radial_distance`` UND
+        ``body_height`` gleichzeitig vom Ist-Wert zum Ziel-Modus. ``body_height``
+        lerpt global (Körper hebt/senkt über den planted Stützfüßen), ``radial``
+        pro Bein während seiner Swing-Hälfte. ``switch_step_height`` (klein) hält
+        den Swing-Apex unter der Femur-Wand bei jeder Zwischenhöhe. Bei Abschluss
+        werden ``radial_distance``/``body_height``/``step_height`` auf den Ziel-
+        Modus gesetzt → STANDING (= lauffähig im neuen Modus).
+
+        Returns ``True`` wenn gestartet, ``False`` wenn State != STANDING.
+        """
+        if self._state != self.STATE_STANDING:
+            return False
+        if duration <= 0.0:
+            raise ValueError(f'duration must be > 0, got {duration}')
+        self._stance_from_radial = self.radial_distance
+        self._stance_to_radial = target_radial
+        self._stance_from_bh = self.body_height
+        self._stance_to_bh = target_body_height
+        self._stance_to_step_height = target_step_height
+        self._stance_switch_step_height = switch_step_height
+        self._stance_start_t = t
+        self._stance_duration = duration
+        self._state = self.STATE_STANCE_SWITCH
+        return True
+
+    def _stance_switch_foot(self, leg_id: int, progress: float) -> Point3:
+        """
+        Foot-Target eines Beins während STANCE_SWITCH (Bein-Frame).
+
+        Tripod ({1,3,5} Hälfte 1, {2,4,6} Hälfte 2). ``body_height`` lerpt global
+        (smooth-step) über die ganze Dauer; ``radial`` lerpt pro Bein während
+        seiner Swing-Hälfte (smooth-step) + Halbsinus-Hub ``switch_step_height``.
+        Stützbeine: radial auf from (vor Swing) bzw. to (nach Swing); z folgt der
+        globalen body_height-Rampe (Körper bewegt sich über planted Füßen).
+        """
+        sg = progress * progress * (3.0 - 2.0 * progress)
+        bh = self._stance_from_bh + (self._stance_to_bh - self._stance_from_bh) * sg
+        frm, to = self._stance_from_radial, self._stance_to_radial
+        # Tripod-Gruppe: ungerade Beine (1,3,5) Hälfte 1, gerade (2,4,6) Hälfte 2.
+        swing_start = 0.0 if leg_id % 2 == 1 else 0.5
+        swing_end = swing_start + 0.5
+        if progress < swing_start:
+            return (frm, 0.0, bh)
+        if progress >= swing_end:
+            return (to, 0.0, bh)
+        sub = (progress - swing_start) / 0.5
+        s = sub * sub * (3.0 - 2.0 * sub)
+        x = frm + (to - frm) * s
+        z = bh + self._stance_switch_step_height * math.sin(math.pi * sub)
+        return (x, 0.0, z)
+
+    def _compute_stance_switch_angles(
+        self, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        STANCE_SWITCH: pro Tick Foot-Targets → IK.
+
+        Bei progress >= 1: Ziel-Modus (radial/body_height/step_height)
+        übernehmen → STANDING (nahtlos lauffähig im neuen Modus).
+        """
+        if self._stance_duration <= 0.0:
+            return self._finish_stance_switch(t)
+        progress = (t - self._stance_start_t) / self._stance_duration
+        if progress >= 1.0:
+            return self._finish_stance_switch(t)
+        targets = {
+            leg.name: self._stance_switch_foot(
+                int(leg.name.split('_')[1]), progress,
+            )
+            for leg in HEXAPOD.legs
+        }
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            leg_limits = self.joint_limits.get(leg.name)
+            try:
+                angles[leg.name] = leg_ik(*targets[leg.name], leg, leg_limits)
+            except IKError as exc:
+                raise IKError(
+                    f'stance switch IK failed for {leg.name} at '
+                    f't={t:.3f}s, target={targets[leg.name]}: {exc}'
+                ) from exc
+        return angles
+
+    def _finish_stance_switch(self, t: float) -> dict[str, JointAngles]:
+        """Ziel-Modus-Params übernehmen, STANDING liefern (nahtlos)."""
+        self.radial_distance = self._stance_to_radial
+        self.body_height = self._stance_to_bh
+        self.step_height = self._stance_to_step_height
+        self._state = self.STATE_STANDING
+        return self._compute_stand_pose_joints()
 
 
 def _rate_limit(cur: tuple, target: tuple, max_delta: float) -> tuple:

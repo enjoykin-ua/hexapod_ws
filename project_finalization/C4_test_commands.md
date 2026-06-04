@@ -83,7 +83,8 @@ cd ~/hexapod_ws && source install/setup.bash
 ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt
 ```
 → Über den Controller testen (wie bei USB): R1 + linker Stick = fahren, rechter Stick = drehen,
-L2/R2 = Höhe, △ = Sit/Stand-Toggle, ○-lang = Shutdown, D-Pad ←/→ = Gangart, ↑/↓ = Schrittweite.
+L2/R2 = Höhe (ohne R1), △ = Sit/Stand-Toggle, ○-lang = Shutdown, ✕-lang = Show-Pose rein/raus
+(in Show: R1 + Sticks = Vorderbeine, R1 + L2/R2 = Tibia-Reach), D-Pad ←/→ = Gangart, ↑/↓ = Schrittweite.
 
 > **Index/Vorzeichen weichen ab?** In `config/ps4_bt.yaml` korrigieren (`axis_*`, `sign_*`,
 > `button_*`), rebuild (`colcon build --packages-select hexapod_teleop`) bzw. installiertes YAML

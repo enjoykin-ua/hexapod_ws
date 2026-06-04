@@ -18,7 +18,10 @@
 | C4 | Bluetooth (`ps4_bt.yaml` + Pairing) | 🟢 **fertig** (DS4 via BT verbunden 2026-06-03) | [`C4_test_commands.md`](C4_test_commands.md) |
 
 > **Reihenfolge (User 2026-06-03):** erst **USB** komplett (C1+), dann **C2** (Param-Bridge),
-> dann **C4 Bluetooth**. Show-Pose-Verhalten hängt an **Block B4** (pausiert) — hier nur Hook.
+> dann **C4 Bluetooth**. Show-Pose-Hook (Cross-lang) war in C1+ nur Stub — das **Show-Verhalten ist
+> jetzt in Block B4 implementiert** (2026-06-04, SIM verifiziert): Cross-lang = `/hexapod_show_toggle`,
+> Vorderbeine per Sticks + L2/R2-Tibia-Reach (mit R1). Belegung s. Tabelle unten, Details
+> [`B4_show_pose_test_commands.md`](B4_show_pose_test_commands.md).
 
 ---
 
@@ -47,17 +50,55 @@ Daraus folgt:
 | **Rechter Stick X** | Drehen (angular.z) | nur mit Dead-Man | C1+ |
 | **R1** (halten) | **Dead-Man** — Fahren nur während gehalten | Safety (Pflicht) | C1+ |
 | **L1** (halten) | „Langsam/Präzise" — halbes Tempo (Skalierung) | rein lokal im Teleop | C1+ |
-| **L2 / R2** (Druck) | Körper **senken / heben um 1 cm** | clampt auf `[body_height_min, body_height_max]`; nur STANDING | C1+ |
+| **L2 / R2** (Druck, **ohne R1**) | **Stance-Modus** tiefer / höher (tief↔mittel↔hoch, geklemmt) | Intent `/hexapod_cycle_stance`; nur STANDING; gekoppelte Reposition. **In Show (mit R1) = Tibia-Reach**, s.u. | Stage 1 / B4.11 |
 | **△ Triangle** (Druck) | **Toggle Hinsetzen/Aufstehen** | Intent `/hexapod_sit_stand_toggle`; gait_node löst nach State auf | C1+ |
 | **○ Circle** (lang) | **Shutdown** (`/hexapod_shutdown`) | bewusst (Long-Press), terminal (Relay aus) | C1+ |
-| **✕ Cross** (lang) | **Show-Pose** (Hinterteil runter, Vorderteil hoch, Vorderbeine wackeln per linkem Stick) | ⚠️ **B4-abhängig** — jetzt nur Hook/Stub | C1+ (Hook), B4 (Verhalten) |
+| **✕ Cross** (lang) | **Show-Pose rein/raus** (Körper zurück + Vorderbeine hoch ↔ STANDING) | ✅ **B4 implementiert** — Intent `/hexapod_show_toggle`; gait_node löst nach State auf | C1+ (Hook), B4 |
+| **Show: L-Stick / R-Stick** (mit R1) | Vorderbeine **leg_6 / leg_1** bewegen: X=seitwärts, Y=hoch/runter | nur in SHOW_ACTIVE; `/cmd_show`; geclampt auf URDF-Limits | B4 |
+| **Show: L2 / R2** (mit R1) | **Tibia-Reach** leg_6 / leg_1 (Bein strecken, Tibia fährt auf) | nur in SHOW_ACTIVE; `/cmd_show` radial | B4.11 |
 | **D-Pad ←/→** | **Gangart** durchschalten (tripod→wave→tetrapod→ripple) | Intent `/hexapod_cycle_gait`; nur STANDING | C2 |
 | **D-Pad ↑/↓** | **Schrittweite** (`step_length_max`) größer/kleiner | Intent; gait_node clampt; ändert Stride + Top-Speed | C2 |
+| Rechter Stick Y | im Show = **leg_1 hoch/runter** (s. Zeile „Show: R-Stick"); sonst frei | `axis_ry` | B4 |
 | **□ Square** | reserviert (z.B. Gangart-Reset auf tripod) | — | später |
-| Rechter Stick Y | reserviert (Body-Pitch, B4) | — | B4 |
 
 **Tempo:** Dosierung über Stick-Auslenkung (analog) + L1=langsam; „weiter/schneller laufen" über
 Schrittweite (D-Pad ↑/↓). Keine separate Tempo-Stufe nötig (User 2026-06-03).
+
+### 1a. Einstellungen, die man verstellen kann (Referenz)
+
+**Stance-Modi (Höhen)** — fest validierte Posen, per L2/R2 (ohne R1) umgeschaltet. Werte real-engine-
+validiert (Plan [`stance_modes_plan.md`](stance_modes_plan.md)):
+
+| Modus | body_height | radial | step_height | Tibia-Last | Femur-Marge | Hinweis |
+|---|---|---|---|---|---|---|
+| **hoch** | −0.140 m | 0.225 m | 0.080 m | ~11.5 % | ~0.36 rad | nicht direkt aufstehbar → Standup landet auf mittel; Hinsetzen routet über mittel |
+| **mittel** | −0.100 m | 0.245 m | 0.080 m | ~14.7 % | ~0.23 rad | **Boot-/Standup-Basis** |
+| **tief** | −0.070 m | 0.255 m | 0.080 m | ~16.7 % | ~0.15 rad | geduckt, Beine weiter außen |
+
+**Live verstellbar (Controller-Runtime):**
+
+| Parameter | Eingabe | Bereich | Schritt | Wirkung |
+|---|---|---|---|---|
+| Stance-Modus | **L2 / R2** (ohne R1) | tief · mittel · hoch | 1 Stufe (clamp) | Höhe + radial (Reposition + Lerp) |
+| Gangart | **D-Pad ←/→** | tripod · wave · tetrapod · ripple | 1 Stufe (cyclt) | nur in STANDING |
+| Schrittweite `step_length_max` | **D-Pad ↑/↓** | **0.020 – 0.089 m** | **0.010 m** | max. Tempo = step_length / stance_dur; Stride skaliert stufenlos mit Stick |
+| Fahr-Tempo | L-Stick / R-Stick X (+ **L1** langsam) | 0 … Max | analog | dosiert; clamp bei > max-leg-speed (Log-WARN ist normal) |
+
+> Tieferes Tuning (Show-Skalen, Dauern, Switch-step_height usw.) per `ros2 param set /gait_node …` —
+> Parameter-Referenzen in [`stance_modes_plan.md`](stance_modes_plan.md) + [`B4_show_pose_progress.md`](B4_show_pose_progress.md).
+
+**Stabilitäts-Sweet-Spots (Gangart × Höhe)** — Wackeln bei Nicht-Tripod ist Open-Loop-bedingt (echter
+Fix = A5 IMU-Balance, [[project_nontripod_gait_wobble]]); Tripod ist wackelfrei. Empfohlene min.
+Schrittweite (Sim-Beobachtung 2026-06-04):
+
+| Gangart | hoch | mittel | tief |
+|---|---|---|---|
+| **tripod** | ganze Range stabil | ganze Range stabil | ganze Range stabil |
+| **wave** | ab ~0.05 m stabil | ab ~0.07 m stabil | wackelig bei jeder Schrittweite → Tripod nutzen |
+| **tetrapod / ripple** | Open-Loop-Wackeln (wie wave), nicht höhen-getunt — voll ruhig erst mit A5-IMU | | |
+
+> Faustregel: für ruhiges Laufen **Tripod**; Wave/Tetra/Ripple nur über der Sweet-Spot-Schrittweite,
+> tief-Modus + Nicht-Tripod meiden, bis A5 (IMU) da ist.
 
 ---
 
@@ -143,7 +184,9 @@ discrete Intent-Services**, ohne Live-Param-Tuning (das ist C2).
 - Achsen-/Button-Indizes der Sticks (linker Stick X/Y, rechter Stick X) per `ros2 topic echo /joy`
   am realen Controller bestätigen (USB) — Default-Annahme: LX=0, LY=1, RX=3.
 - `longpress_sec` (Vorschlag 0.8 s), `slow_factor` (0.5), Deadzone (0.1) — beim Sim-Test final.
-- Dead-Man auch für Show-Pose? → mit B4 entscheiden.
+- ✅ Dead-Man auch für Show-Pose? → **JA (B4, 2026-06-04):** Vorderbein-Bewegung (Sticks + L2/R2-Curl)
+  nur mit R1 gehalten; ohne R1 → Neutral. Body-Höhe (L2/R2) wurde dafür auf „nur ohne R1" gegated
+  (kein Konflikt mit dem Show-Curl). Belegung s. Tabelle oben; Details `B4_show_pose_*`.
 
 ---
 

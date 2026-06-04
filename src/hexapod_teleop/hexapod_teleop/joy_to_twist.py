@@ -83,9 +83,13 @@ class JoyToTwist(Node):
         self.declare_parameter('slow_factor', 0.5)
 
         # --- Body-Height (Topic-Pfad, gait_node clampt zusätzlich) ---
-        self.declare_parameter('body_height_init', -0.120)
-        self.declare_parameter('body_height_step', 0.01)   # 1 cm pro Druck
-        self.declare_parameter('body_height_min', -0.120)
+        # Stage 1: body_height_init = Stance-Modus "mittel" (Standup-Basis),
+        # einmalig beim Start publisht (Stand-Sync). Stufenlose Höhe via L2/R2
+        # gibt es nicht mehr (→ Stance-Modi); _adjust_body_height bleibt nur
+        # Helper. min-Floor -0.140 (Modus "hoch").
+        self.declare_parameter('body_height_init', -0.100)
+        self.declare_parameter('body_height_step', 0.01)
+        self.declare_parameter('body_height_min', -0.140)
         self.declare_parameter('body_height_max', -0.030)
 
         # --- Show-Pose (B4): rechter Stick-Y (leg_1 vertikal) + Vorzeichen ---
@@ -175,11 +179,16 @@ class JoyToTwist(Node):
         self._show_toggle_client = self.create_client(
             Trigger, '/hexapod_show_toggle'
         )
+        # Phase 13 Stage 1 — Stance-Modus cyclen (L2/R2 ohne R1).
+        self._cycle_stance_client = self.create_client(
+            SetBool, '/hexapod_cycle_stance'
+        )
         self._toggle_logged = False
         self._shutdown_logged = False
         self._cycle_gait_logged = False
         self._adjust_step_length_logged = False
         self._show_toggle_logged = False
+        self._cycle_stance_logged = False
 
         # Initial-Body-Height publishen (muss == Gait-body_height sein, sonst
         # sackt der Stand ab — ai_navigation §1).
@@ -304,18 +313,20 @@ class JoyToTwist(Node):
         self._cmd_vel_pub.publish(self._twist_from_joy(msg))
         self._cmd_show_pub.publish(self._show_from_joy(msg))
 
-        # 2) Höhe (L2/R2 Edge, ±step, lokal geclampt). B4.11: nur OHNE R1 —
-        # mit R1 sind die Trigger der Tibia-Curl im Show (Konflikt vermieden,
-        # zustandslos). Edge-State trotzdem mitführen, damit nach R1-Loslassen
-        # kein Phantom-Edge feuert.
+        # 2) Stance-Modus cyclen (L2/R2 Edge, NUR ohne R1). Stage 1: ersetzt die
+        # frühere stufenlose Höhe (die brach die Lauf-Envelope). L2 = tiefer,
+        # R2 = höher. Mit R1 sind die Trigger der Tibia-Curl im Show (B4.11) —
+        # zustandslos getrennt. Edge-State mitführen gegen Phantom-Edge.
         l2 = self._axis(msg, self._axis_l2) < self._trigger_threshold
         r2 = self._axis(msg, self._axis_r2) < self._trigger_threshold
         deadman = self._button(msg, self._deadman_button)
         if not deadman:
             if l2 and not self._l2_was:
-                self._adjust_body_height(-1)
+                self._call_setbool(self._cycle_stance_client, False,
+                                   'cycle_stance')   # tiefer
             if r2 and not self._r2_was:
-                self._adjust_body_height(+1)
+                self._call_setbool(self._cycle_stance_client, True,
+                                   'cycle_stance')    # höher
         self._l2_was = l2
         self._r2_was = r2
 

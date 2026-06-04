@@ -22,6 +22,7 @@ mit ``time_from_start = 2 × (1/tick_rate) = 0.04 s``. JTC interpoliert
 linear zwischen Goals → smooth Bewegung.
 """
 
+from collections import namedtuple
 from dataclasses import dataclass
 import time
 import xml.etree.ElementTree as ET
@@ -149,7 +150,7 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_height', default=0.03,
+        name='step_height', default=0.080,
         fp_range=(0.005, 0.10, 0.001),
         description=(
             'Foot-Hub-Höhe im Swing (m). '
@@ -173,18 +174,17 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='body_height', default=-0.080, standing_only=True,
-        fp_range=(-0.120, -0.020, 0.001),
+        name='body_height', default=-0.100, standing_only=True,
+        fp_range=(-0.140, -0.020, 0.001),
         description=(
-            'Stand-Pose Foot-Z im Bein-Frame (m). '
-            'Phase 13 Stage 0.4: Default -0.080 (mit radial 0.295). Der alte '
-            '-0.052 verletzte mit radial 0.27 das Tibia-Limit (1.33>1.161 rad) '
-            '-> HW-Freeze; in der lenienten Phase-5-Sim nie aufgefallen. '
-            'Live-Update nur in STANDING (analog cmd_body_height).'
+            'Stand-Pose Foot-Z im Bein-Frame (m). Default -0.100 = Stance-Modus '
+            '"mittel" (Standup-Basis, Stage 1). fp_range-Floor -0.140 für den '
+            'Modus "hoch" (nur per Stance-Switch erreichbar, nicht direkt '
+            'aufstehbar). Live-Update nur in STANDING (analog cmd_body_height).'
         ),
     ),
     _ParamSpec(
-        name='radial_distance', default=0.295, standing_only=True,
+        name='radial_distance', default=0.245, standing_only=True,
         fp_range=(0.10, 0.35, 0.001),
         description=(
             'Radialer Foot-Neutral-Abstand vom Coxa-Mount '
@@ -268,12 +268,11 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='body_height_min', default=-0.115, standing_only=True,
-        fp_range=(-0.120, -0.020, 0.001),
+        name='body_height_min', default=-0.140, standing_only=True,
+        fp_range=(-0.140, -0.020, 0.001),
         description=(
             'Untere Schranke body_height (m). Cross-Constraint: '
-            'min < body_height < max. Phase 13 Stage 0.4: -0.115 (war -0.080) '
-            '— innerhalb des bei radial 0.295 gueltigen Bereichs (bis -0.120). '
+            'min < body_height < max. Stage 1: -0.140 (Floor für Modus "hoch"). '
             'STANDING-only.'
         ),
     ),
@@ -359,11 +358,11 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_intent_step', default=0.005,
+        name='step_length_intent_step', default=0.010,
         fp_range=(0.001, 0.02, 0.001),
         description=(
             'Block C2: Schrittgröße pro /hexapod_adjust_step_length-Intent (m). '
-            'Controller-Schrittweiten-Trim (D-Pad ↑/↓).'
+            'Controller-Schrittweiten-Trim (D-Pad ↑/↓). Stage 1: 0.01 (war 0.005).'
         ),
     ),
     _ParamSpec(
@@ -374,12 +373,30 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_intent_max', default=0.10,
+        name='step_length_intent_max', default=0.089,
         fp_range=(0.01, 0.15, 0.001),
         description=(
             'Block C2: obere Clamp-Grenze für den Schrittweiten-Trim (m). '
-            'Konservativ < 0.15, damit der Controller nicht in out-of-reach '
-            '(IK-Freeze) trimmt.'
+            'Stage 1: 0.089 — das ist die mit der echten Engine über alle '
+            'Stance-Modi (inkl. geduckt) sichere Obergrenze. Größer trifft im '
+            'tief/mittel-Modus die Femur-Wand → IKError.'
+        ),
+    ),
+    # Phase 13 Stage 1 — Stance-Modus-Wechsel.
+    _ParamSpec(
+        name='stance_switch_duration', default=2.0,
+        fp_range=(0.5, 6.0, 0.1),
+        description=(
+            'Stage 1: Dauer des Stance-Modus-Wechsels (Tripod-Reposition + '
+            'body_height-Lerp) in s. Min ~1 s gegen Schnapp-Bewegung.'
+        ),
+    ),
+    _ParamSpec(
+        name='stance_switch_step_height', default=0.025,
+        fp_range=(0.010, 0.060, 0.005),
+        description=(
+            'Stage 1: Fuß-Hub während des Stance-Wechsels (m). Klein, damit der '
+            'Swing-Apex bei keiner Zwischenhöhe die Femur-±90°-Wand trifft.'
         ),
     ),
     # Block B4 — Show-Pose (Free-Leg). Nicht STANDING-only: werden beim
@@ -487,6 +504,30 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
 # Block C2 — Gangart-Cycle-Reihenfolge fürs Controller-Umschalten
 # (/hexapod_cycle_gait). single_leg_* bleiben Debug-only (nicht im Cycle).
 _GAIT_CYCLE_ORDER = ('tripod', 'wave', 'tetrapod', 'ripple')
+
+# Phase 13 Stage 1 — Stance-Modi (radial, body_height, step_height), offline
+# envelope-validiert (tools/walking_envelope_check.py + joint_load). Reihenfolge
+# aufsteigende Körperhöhe: Index 0 = tief (geduckt), 2 = hoch. /hexapod_cycle_stance
+# data=True → höher (Index+1), False → tiefer (Index-1), geklemmt (kein Wrap).
+# "mittel" (Index 1) ist die Standup-Basis (direkt aufstehbar @ standup_radial).
+# "hoch" (-0.140) ist NICHT direkt aufstehbar → nur via Switch von mittel.
+_StanceMode = namedtuple('_StanceMode', 'name radial body_height step_height')
+# WICHTIG: Radien mit Femur-Marge gewählt (NICHT am last-optimalen Min-Radial —
+# das stieß im echten Engine-Pfad an die Femur-±90°-Wand). Validiert mit der
+# echten Engine über alle cmd_vel-Richtungen @ step_length 0.089 (das Envelope-
+# Tool ist am Rand zu optimistisch). Femur-Marge hoch ~0.36 / mittel ~0.23 /
+# tief ~0.15 rad. Höher (kleinerer radial) = weniger Tibia-Last, aber dann
+# Femur-Wand → diese Radien sind das sichere Optimum fürs Laufen.
+_STANCE_MODES = (
+    _StanceMode('tief', 0.255, -0.070, 0.080),
+    _StanceMode('mittel', 0.245, -0.100, 0.080),
+    _StanceMode('hoch', 0.225, -0.140, 0.080),
+)
+_STANCE_DEFAULT_IDX = 1   # mittel
+# Tiefste body_height, aus der direkt hingesetzt werden kann (Sit-Reposition
+# geht auf standup_radial 0.295 → tiefer als -0.120 ist dort out-of-reach).
+# Modus "hoch" (-0.140) unterschreitet das → Hinsetzen routet erst über mittel.
+_SIT_SAFE_MIN_BH = -0.120
 
 # Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.
 # Wenn nach diesem Zeitraum kein /joint_states empfangen wurde, wird
@@ -622,6 +663,18 @@ class GaitNode(Node):
         self._show_radial_scale = float(
             self.get_parameter('show_radial_scale').value
         )
+        # Phase 13 Stage 1 — Stance-Modus-Wechsel.
+        self._stance_switch_duration = float(
+            self.get_parameter('stance_switch_duration').value
+        )
+        self._stance_switch_step_height = float(
+            self.get_parameter('stance_switch_step_height').value
+        )
+        # Aktiver Modus-Index (Boot = mittel). Cyclen via /hexapod_cycle_stance.
+        self._stance_idx = _STANCE_DEFAULT_IDX
+        # Hinsetzen aus "hoch" (-0.140) routet erst auf mittel: Flag = Hinsetzen
+        # nachholen, sobald der Stance-Switch fertig ist (STANDING).
+        self._pending_sitdown = False
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
@@ -804,6 +857,12 @@ class GaitNode(Node):
         # aufgelöst: STANDING → SHOW_ENTER, SHOW_* → SHOW_EXIT zurück STANDING.
         self._show_toggle_srv = self.create_service(
             Trigger, '/hexapod_show_toggle', self._on_show_toggle,
+            callback_group=self._cb_group,
+        )
+        # Phase 13 Stage 1 — Stance-Modus cyclen (SetBool: true=höher, false=
+        # tiefer; nur STANDING). Teleop: L2/R2 ohne R1.
+        self._cycle_stance_srv = self.create_service(
+            SetBool, '/hexapod_cycle_stance', self._on_cycle_stance,
             callback_group=self._cb_group,
         )
 
@@ -1069,6 +1128,14 @@ class GaitNode(Node):
                 self._joint_states_timeout_logged = True
             return
 
+        # Stage 1 — verzögertes Hinsetzen: wenn aus "hoch" geroutet wurde, ist
+        # der Stance-Switch auf mittel jetzt fertig (STANDING) → Hinsetzen jetzt.
+        if self._pending_sitdown and (
+            self._engine.state == GaitEngine.STATE_STANDING
+        ):
+            self._pending_sitdown = False
+            self._start_sitdown_sequence()
+
         # Block B1 — Comms-Loss-Fail-safe (opt-in). Kann eine Hinsetz-Sequenz
         # starten (nur aus STANDING); danach ignoriert set_command cmd_vel.
         self._check_comms_loss(now)
@@ -1188,9 +1255,21 @@ class GaitNode(Node):
         """
         Hinsetz-Sequenz in der Engine starten (nur sinnvoll aus STANDING).
 
-        Phase 1 nutzt reposition_cycle_time (Engine-intern), Phase 2+3 die
-        hier abgeleiteten lower/flatten-Dauern. Returns Erfolg.
+        Stage 1: Ist die Pose tiefer als sit-safe (Modus "hoch", −0.140 — die
+        Sit-Reposition auf standup_radial 0.295 wäre dort out-of-reach), wird
+        ZUERST ein Stance-Switch auf mittel gefahren und das Hinsetzen via
+        ``_pending_sitdown`` nachgeholt, sobald der Switch fertig ist (STANDING,
+        im Tick). Sonst direkt. Phase 1 nutzt reposition_cycle_time, Phase 2+3
+        die abgeleiteten lower/flatten-Dauern. Returns Erfolg.
         """
+        if self._engine.body_height < _SIT_SAFE_MIN_BH:
+            ok = self._do_stance_switch(_STANCE_DEFAULT_IDX)   # → mittel
+            if ok:
+                self._pending_sitdown = True
+                self.get_logger().info(
+                    'sit-down aus "hoch": erst Switch auf mittel, dann hinsetzen'
+                )
+            return ok
         now = time.monotonic()
         t = now - self._t_start
         lower_dur, flatten_dur = self._sitdown_durations()
@@ -1434,6 +1513,66 @@ class GaitNode(Node):
                       cs[4] * self._show_vert_scale,
                       cs[5] * self._show_radial_scale),
         })
+
+    def _on_cycle_stance(self, request, response):
+        """
+        ``/hexapod_cycle_stance`` (SetBool): Stance-Modus wechseln, nur STANDING.
+
+        ``data=True`` → höher (Index+1 Richtung "hoch"), ``False`` → tiefer
+        (Index-1 Richtung "tief"). Geklemmt an den Enden (kein Wrap, da die
+        Höhen physisch begrenzt sind). Startet den Engine-Stance-Switch
+        (Reposition + body_height-Lerp) zum Ziel-Modus.
+        """
+        if self._engine.state != GaitEngine.STATE_STANDING:
+            response.success = False
+            response.message = (
+                f'cycle_stance nur in STANDING (state={self._engine.state})'
+            )
+            return response
+        step = 1 if request.data else -1
+        new_idx = max(0, min(len(_STANCE_MODES) - 1, self._stance_idx + step))
+        if new_idx == self._stance_idx:
+            response.success = True
+            response.message = (
+                f'stance bereits am {"höchsten" if step > 0 else "tiefsten"} '
+                f'Modus ({_STANCE_MODES[self._stance_idx].name})'
+            )
+            return response
+        ok = self._do_stance_switch(new_idx)
+        mode = _STANCE_MODES[new_idx]
+        response.success = ok
+        response.message = (
+            f'stance -> {mode.name} (bh={mode.body_height}, radial={mode.radial})'
+            if ok else 'cycle_stance rejected'
+        )
+        if ok:
+            self.get_logger().info(f'cycle_stance: {response.message}')
+        return response
+
+    def _do_stance_switch(self, new_idx: int) -> bool:
+        """
+        Engine-Stance-Switch zu ``_STANCE_MODES[new_idx]`` starten + Node-State.
+
+        Nur sinnvoll aus STANDING (Engine prüft). Bei Erfolg: ``_stance_idx`` +
+        Node-Member (radial/body_height/step_height) auf den Ziel-Modus.
+        """
+        mode = _STANCE_MODES[new_idx]
+        now = time.monotonic()
+        t = now - self._t_start
+        try:
+            ok = self._engine.start_stance_switch(
+                t, mode.radial, mode.body_height, mode.step_height,
+                self._stance_switch_duration, self._stance_switch_step_height,
+            )
+        except ValueError as exc:
+            self.get_logger().error(f'stance switch failed: {exc}')
+            return False
+        if ok:
+            self._stance_idx = new_idx
+            self._radial_distance = mode.radial
+            self._body_height = mode.body_height
+            self._step_height = mode.step_height
+        return ok
 
     def _do_relay_off_and_latch(self) -> None:
         """Relay öffnen (Servos stromlos) + terminalen Shutdown-Latch setzen."""
@@ -1713,6 +1852,10 @@ class GaitNode(Node):
             self._show_vert_scale = value
         elif name == 'show_radial_scale':
             self._show_radial_scale = value
+        elif name == 'stance_switch_duration':
+            self._stance_switch_duration = value
+        elif name == 'stance_switch_step_height':
+            self._stance_switch_step_height = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
 

@@ -56,8 +56,9 @@ joy_to_twist:
     # --- Body-Height (Topic-Pfad; gait_node clampt zusätzlich) ---
     # Wichtig: joy_to_twist publisht beim Start EINMALIG /cmd_body_height mit
     # body_height_init → muss == Gait-body_height sein, sonst sackt der Stand ab
-    # (ai_navigation §1). Bei Gait-Höhen-Änderung hier nachziehen.
-    body_height_init: -0.120
-    body_height_step: 0.01     # 1 cm pro L2/R2-Druck (User C1+)
-    body_height_min: -0.120    # lokaler Clamp (= gait body_height_min)
-    body_height_max: -0.030    # lokaler Clamp (= gait body_height_max)
+    # (ai_navigation §1). Stage 1: = Stance-Modus "mittel" (-0.100, Standup-Basis).
+    # Stufenlose Höhe via L2/R2 gibt es nicht mehr — L2/R2 cyclen die Stance-Modi.
+    body_height_init: -0.100
+    body_height_step: 0.01
+    body_height_min: -0.140    # Floor für Modus "hoch"
+    body_height_max: -0.030

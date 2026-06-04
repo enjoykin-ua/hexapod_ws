@@ -53,8 +53,8 @@ joy_to_twist:
     angular_z_scale: 0.46
     slow_factor: 0.5
 
-    # --- Body-Height (Topic-Pfad; gait_node clampt zusätzlich) ---
-    body_height_init: -0.120
+    # --- Body-Height (Stage 1: = Stance-Modus "mittel", L2/R2 cyclen Modi) ---
+    body_height_init: -0.100
     body_height_step: 0.01
-    body_height_min: -0.120
+    body_height_min: -0.140
     body_height_max: -0.030

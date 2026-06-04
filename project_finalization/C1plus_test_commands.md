@@ -50,10 +50,12 @@ ros2 topic echo /joy     # Sticks/Buttons live bewegen → Indizes/Vorzeichen pr
 | Diagonal | R1 + linker Stick schräg | Bogen/Diagonale (Engine clampt) |
 | Langsam | R1 + **L1** + Stick | halbes Tempo |
 | Dead-Man | Stick **ohne** R1 | **keine** Bewegung |
-| Höhe senken/heben | **L2 / R2** (je Druck) | ±1 cm, stoppt an den Grenzen |
+| Höhe senken/heben | **L2 / R2** (je Druck, **ohne R1**) | ±1 cm, stoppt an den Grenzen |
 | **Hinsetzen/Aufstehen** | **△ Triangle** | steht→setzt sich; sitzt→steht auf (Toggle) |
 | **Shutdown** | **○ Circle ~1 s halten** | setzt sich + Relay-Aus (Sim: Log „nicht verfügbar") |
-| **Show-Pose** | **✕ Cross ~1 s halten** | Log „noch nicht implementiert (B4)" — sonst nichts |
+| **Show-Pose rein/raus** | **✕ Cross ~1 s halten** | aus STANDING: Körper zurück + Vorderbeine hoch → Show; nochmal: zurück STANDING (B4) |
+| **Show: Vorderbeine** | in Show **R1 halten** + L-Stick→leg_6 / R-Stick→leg_1 (X=seitw., Y=hoch/runter) | Vorderbeine folgen unabhängig |
+| **Show: Tibia/Reach** | in Show **R1 halten** + **L2→leg_6 / R2→leg_1** | Bein streckt sich raus, Tibia fährt auf (B4.11) |
 
 > **Vorzeichen prüfen:** Fährt er rückwärts statt vor → `sign_ly` in `ps4_usb.yaml` auf `-1.0`.
 > Dreht/seitwärts verkehrt → `sign_rx` bzw. `sign_lx` flippen. Danach Teleop neu starten.
@@ -108,9 +110,10 @@ ros2 topic echo /joy     # Sticks/Buttons live bewegen → Indizes/Vorzeichen pr
 | Fahren | **R1 halten** + linker Stick hoch/seitwärts | Beine laufen vorwärts/seitwärts (in der Luft) |
 | Drehen | R1 + rechter Stick | Dreh-Gangbild |
 | Langsam | R1 + **L1** + Stick | halbes Tempo |
-| Höhe | **L2 / R2** | Körper senkt/hebt um 1 cm, stoppt an Grenzen |
+| Höhe | **L2 / R2** (**ohne R1**) | Körper senkt/hebt um 1 cm, stoppt an Grenzen |
 | **Hinsetzen** | **△ Triangle** (steht gerade) | setzt sich kontrolliert → Spawn-Pose (Beine hoch) |
 | **Aufstehen** | **△ Triangle** (sitzt gerade) | steht wieder auf → STANDING |
+| **Show-Pose** | **✕ Cross ~1 s** (rein/raus); in Show R1+Sticks=Vorderbeine, R1+L2/R2=Tibia-Reach (B4/B4.11) | Details: `B4_show_pose_test_commands.md` |
 
 > **Vorzeichen falsch?** rückwärts statt vor → `sign_ly: -1.0`; dreht/seitwärts verkehrt →
 > `sign_rx` / `sign_lx` flippen (in installiertem `ps4_usb.yaml` oder Source + rebuild),

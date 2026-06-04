@@ -313,13 +313,19 @@ def test_on_joy_publishes_cmd_show(node):
     assert len(node._cmd_show_pub.last) == 6
 
 
-def test_body_height_suppressed_while_deadman(node):
-    """B4.11: R2-Höhenverstellung NUR ohne R1 (mit R1 = Curl, kein Höhen-Edge)."""
-    start = node._target_body_height
-    # Mit R1 gehalten: R2-Edge darf die Höhe NICHT ändern.
+def test_l2r2_cycle_stance_only_without_deadman(node):
+    """Stage 1: L2/R2 cyclen Stance-Modi NUR ohne R1 (mit R1 = Tibia-Curl)."""
+    node._cycle_stance_client = _FakeClient(ready=True)
+    # Mit R1 gehalten: R2-Edge darf NICHT cyclen (Trigger = Show-Curl).
     node._on_joy(_joy_show(r2=-1.0, buttons=[_R1]))
-    assert node._target_body_height == pytest.approx(start)
-    # Ohne R1: R2-Edge hebt die Höhe (Reset des Edge-State über idle-Frame).
+    assert node._cycle_stance_client.count == 0
+    # Ohne R1: R2-Edge cyclet höher (data=True).
     node._on_joy(_joy_show(r2=1.0))     # idle → _r2_was False
-    node._on_joy(_joy_show(r2=-1.0))    # Edge → +1 step (raise)
-    assert node._target_body_height > start
+    node._on_joy(_joy_show(r2=-1.0))    # Edge
+    assert node._cycle_stance_client.count == 1
+    assert node._cycle_stance_client.last is True
+    # Ohne R1: L2-Edge cyclet tiefer (data=False).
+    node._on_joy(_joy_show(l2=1.0))     # idle → _l2_was False
+    node._on_joy(_joy_show(l2=-1.0))    # Edge
+    assert node._cycle_stance_client.count == 2
+    assert node._cycle_stance_client.last is False

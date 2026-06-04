@@ -64,6 +64,27 @@
 - **Falle:** cmd_vel muss in jedem neuen Aufsteh-/Reposition-State ignoriert werden
   (sonst kippt es fälschlich auf WALKING) — siehe `set_command`-Guard.
 
+### Stance-Modi (3 Lauf-Höhen, Stage 1) ändern
+- **Voll-Doku:** [`../project_finalization/stance_modes_plan.md`](../project_finalization/stance_modes_plan.md).
+- **Wo:** `gait_node.py` — Tabelle `_STANCE_MODES` (name, radial, body_height, step_height), Service
+  `/hexapod_cycle_stance` (SetBool true=höher/false=tiefer, clamp, nur STANDING), `_do_stance_switch`,
+  Sit-Routing (`_pending_sitdown` + `_SIT_SAFE_MIN_BH`). `gait_engine.py` — `STATE_STANCE_SWITCH`,
+  `start_stance_switch`, `_stance_switch_foot` (gekoppelte Tripod-Reposition radial+body_height).
+  `joy_to_twist.py` — L2/R2 ohne R1 → cycle_stance.
+- **Modi/Werte ändern:** nur die `_STANCE_MODES`-Tabelle (offline-validiert!). Default-Boot-Pose =
+  Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`-Param-Defaults.
+- **Fallen:** (1) **−0.140 (hoch) ist nicht direkt sit-/standup-fähig** (out-of-reach @ standup_radial
+  0.295) → Standup landet auf mittel, Sit aus hoch routet über mittel. Tiefer als −0.120 = immer
+  Routing nötig (`_SIT_SAFE_MIN_BH`). (2) Jeder neue Modus + jeder Übergang muss offline envelope-grün
+  + in-limit sein (Femur-±90° koppelt body_height↔step_height↔radial). (3) `switch_step_height` klein
+  halten (Apex unter Femur-Wand bei Zwischenhöhen). (4) cmd_vel im Switch ignoriert (`set_command`-Guard).
+- **Validieren:** `colcon test hexapod_gait hexapod_teleop` (`test_stance_switch` —
+  v.a. `test_mode_walks_all_directions_no_ikerror`) + Lint · bei Werte-Änderung **mit der ECHTEN
+  ENGINE** validieren (GaitEngine + set_command über alle cmd_vel-Richtungen, full cycle, IKError
+  fangen) — ⚠️ **`walking_envelope_check` ist am Femur-Wand-Rand zu optimistisch** (meldet GREEN, wo
+  der echte Engine-Pfad fehlert); Radien daher mit Femur-Marge (~≥0.15 rad), nicht am Min-Radial-Rand.
+  Transitions/Standup/Sit-Reposition ebenfalls real-engine prüfen · SIM · HW.
+
 ### Show-Pose / Free-Leg (B4) ändern
 - **Voll-Doku:** [`../project_finalization/B4_show_pose_progress.md`](../project_finalization/B4_show_pose_progress.md)
   (IST-Architektur, Parameter-Referenz, Änderungs-Landkarte) + `B4_show_pose_plan.md` §9 (Design-Log).
