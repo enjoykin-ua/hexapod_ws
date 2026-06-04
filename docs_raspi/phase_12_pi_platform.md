@@ -1,7 +1,7 @@
 # Phase 12 — Pi-Plattform & Portierung
 
 **Dauer-Schätzung:** 1–2 Tage (OS + ROS2 + Workspace + DDS-Konnektivität)
-**Maschine:** Raspberry Pi 4 (8 GB) **und** Desktop (für SSH/Deployment)
+**Maschine:** Raspberry Pi 5 (8 GB) **und** Desktop (für SSH/Deployment)
 **Vorbedingung:** Phase 10 abgeschlossen — `hexapod_hardware` läuft am
 Desktop mit echten Servos kalibriert. Bench-Strom-Setup steht.
 
@@ -21,7 +21,7 @@ Erst Phase 13 schließt den Roboter an den Pi an.
 
 ## Hardware-Setup für diese Phase
 
-- Raspberry Pi 4 (8 GB) — bisher unbenutzt
+- Raspberry Pi 5 (8 GB) — bisher unbenutzt
 - USB-3-SSD (empfohlen) ODER SD-Karte (≥ 64 GB)
 - Netzwerk: Pi und Desktop im gleichen LAN/WLAN-Segment
 - Tastatur + HDMI-Monitor für Erst-Bootup (alternativ: Headless-Setup
@@ -353,7 +353,7 @@ In `phase_12_progress.md` Stufe H schriftlich:
 - **Immer** `sudo shutdown -h now` per SSH bevor Hauptschalter aus.
 - Warten bis grüne LED am Pi erlischt.
 - **Erst dann** Strom trennen.
-- Begründung: Pi 4 + Linux + USB-SSD verzeiht keine schmutzige Abschaltung
+- Begründung: Pi 5 + Linux + USB-SSD verzeiht keine schmutzige Abschaltung
   im laufenden Schreibvorgang. SD ist noch empfindlicher.
 - Alias am Desktop sinnvoll: `alias hexapod-shutdown='ssh hexapod-pi sudo shutdown -h now'`
 

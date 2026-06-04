@@ -3,7 +3,7 @@
 **Dauer-Schätzung:** 3–5 Tage (Kalenderzeit, viele Iterationen — Stufe B
 reduziert auf Pi-Recheck + Femur-Asymmetrie-Fix, da Cross-Phase-Thread
 `servo_real_cal` 2026-05-25 alle 18 Pins bereits kalibriert hat)
-**Maschine:** Raspberry Pi 4 am Roboter, Desktop für Monitoring/Teleop
+**Maschine:** Raspberry Pi 5 am Roboter, Desktop für Monitoring/Teleop
 **Vorbedingung:**
 - Phase 12 abgeschlossen (Pi-Plattform steht)
 - Phase 10 abgeschlossen (Single-Leg-Bringup mit leg_6 am Desktop)

@@ -18,7 +18,7 @@
 ## Big Picture (Sim → HW → untethered)
 - **Sim-Pfad** (Desktop): Gazebo + `gz_ros2_control` + RViz. Code 1:1 portierbar via `ros2_control`.
 - **HW-Pfad** (Bench/Pi): `ros2_control_node` + `hexapod_hardware`-Plugin ↔ Servo2040 (USB) ↔ 18 Servos.
-- **Ziel:** untethered auf Raspberry Pi 4 + 2S-LiPo. Reihenfolge + offene Stages: `../project_finalization/`.
+- **Ziel:** untethered auf Raspberry Pi 5 + 2S-LiPo. Reihenfolge + offene Stages: `../project_finalization/`.
 
 ## Source-of-Truth-Prinzip
 Diese Docs bleiben **high-level** und verlinken auf die echten Dateien (URDF, config.py,

@@ -51,7 +51,7 @@
 ```
 2S LiPo (Ziel) → [Relay-Gate Servo-Rail] → Servo2040 (RP2040) → 18× PWM → Servos
                                                   ↑ USB-CDC (Protokoll) ↕
-                              Host (Desktop jetzt / Raspberry Pi 4 Ziel)
+                              Host (Desktop jetzt / Raspberry Pi 5 Ziel)
                               └ ros2_control_node + hexapod_hardware-Plugin
 ```
 - **Servos:** Coxa = Diymore 8120MG (20 kg·cm); Femur+Tibia = Miuzei MS61 (35 kg·cm). Alle 4.8–8.4 V, 270°. (Memory `project_hexapod_servo_models`.)

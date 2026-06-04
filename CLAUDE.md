@@ -16,7 +16,7 @@
 
 - **Roboter:** 6-beiniger Hexapod, 3 Joints pro Bein (coxa / femur / tibia) = **18 Joints gesamt**.
 - **Servo-Treiber:** Servo2040-Board. Kommunikationsprotokoll zwischen ROS2-Node und Servo2040 ist **bereits definiert** und auf Anwendungsebene **unkritisch**. Die ROS-seitige Anbindung erfolgt erst in Phase 7.
-- **Recheneinheit Roboter:** Raspberry Pi 4, 8 GB RAM, **Ubuntu Server 24.04 LTS arm64**, headless (kein Desktop-Image).
+- **Recheneinheit Roboter:** Raspberry Pi 5, 8 GB RAM, **Ubuntu Server 24.04 LTS arm64**, headless (kein Desktop-Image). (War Pi 4, auf Pi 5 gewechselt 2026-06.)
 - **Entwicklungs-/Sim-Rechner:** Ubuntu 24.04 Desktop, NVIDIA RTX 3080.
 - **Ziel-Workflow:** Sim am Desktop → Code 1:1 portierbar auf Pi via `ros2_control`-Abstraktion. Pi wird **erst in Phase 7** angefasst.
 
@@ -27,7 +27,7 @@
 | Komponente | Version | Quelle |
 |---|---|---|
 | OS Desktop | Ubuntu 24.04 LTS Desktop | bereits installiert |
-| OS Pi 4 | Ubuntu Server 24.04 LTS arm64 | Raspberry Pi Imager |
+| OS Pi 5 | Ubuntu Server 24.04 LTS arm64 | Raspberry Pi Imager |
 | ROS2 | Jazzy Jalisco (LTS bis Mai 2029) | ROS-apt-Repo |
 | Simulator | Gazebo Harmonic | über `ros-jazzy-ros-gz` (NICHT über packages.osrfoundation.org) |
 | ROS↔Gazebo Bridge | `ros_gz` | `ros-jazzy-ros-gz` |

@@ -9,7 +9,7 @@
 ## Zweck
 
 Code, der am Ubuntu-Desktop entwickelt wird, muss zuverlässig und schnell
-auf dem Raspberry Pi 4 ankommen — sowohl für stabile Commits als auch für
+auf dem Raspberry Pi 5 ankommen — sowohl für stabile Commits als auch für
 schnelle „eben mal testen"-Iterationen.
 
 Dieses Doc beschreibt die Werkzeuge und Konventionen dafür. Wird in Phase 12
@@ -198,7 +198,7 @@ Aus Phase 12 Stufe H:
 - **Immer** `sudo shutdown -h now` per SSH bevor PSU/Hauptschalter aus.
 - Warten bis grüne LED am Pi erlischt.
 - **Erst dann** Strom trennen.
-- Begründung: Pi 4 + Linux + USB-SSD verzeiht keine schmutzige Abschaltung
+- Begründung: Pi 5 + Linux + USB-SSD verzeiht keine schmutzige Abschaltung
   im laufenden Schreibvorgang. SD ist noch empfindlicher.
 
 Alias am Desktop:
@@ -230,7 +230,7 @@ Beim Iterieren am Pi viel schneller.
 
 ### Parallelität auf Pi
 
-Pi 4 hat 4 Cores. Standard ist OK, bei RAM-Problemen runter:
+Pi 5 hat 4 Cores. Standard ist OK, bei RAM-Problemen runter:
 
 ```bash
 colcon build --symlink-install --parallel-workers 2

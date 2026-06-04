@@ -28,8 +28,10 @@ gefahrlos Tests gemacht werden können.
 - DCDC-Wandler (passender Typ für 6–9 V → 5 V ≥ 3 A) — wird in dieser
   Phase ausgewählt und beschafft, falls nicht schon vorhanden
 - Servo2040 (aus Phase 7) — Trace-Cut erledigt, USB nur Daten
-- Raspberry Pi 4 (8 GB) — wird hier nur stromseitig integriert, OS-Setup
-  kommt in Phase 12
+- Raspberry Pi 5 (8 GB) — wird hier nur stromseitig integriert, OS-Setup
+  kommt in Phase 12. Versorgung über das **Power Supply HAT for Pi 5**
+  (electrokit, 6–32 V in, 5 A) — speist Pi 5; dieselbe Batterie speist auch
+  den Servo2040. OS-Setup in Phase 12.
 - XT60-Kabel 3 m (vom User vorhanden)
 - Bulk-Caps am Servo-Rail (1000 µF Elko + 100 nF Keramik)
 - Multimeter
@@ -62,7 +64,10 @@ gefahrlos Tests gemacht werden können.
 - Eingangsspannung: **6–9 V** (passend zu späterem 2S-LiPo bzw. Bench-PSU
   auf 7,4 V eingestellt)
 - Ausgangsspannung: 5 V
-- Ausgangsstrom: ≥ 3 A (Pi 4 kann unter Last ~2,5 A ziehen)
+- Ausgangsstrom: ≥ 5 A (Pi 5 zieht unter Last deutlich mehr als Pi 4 —
+  offizielles Pi-5-Netzteil 5 A/25 W). ⚠️ **Aktualisiert:** der Pi 5 wird jetzt
+  über das **Power Supply HAT for Pi 5** (electrokit, 6–32 V in, 5 A) versorgt —
+  dieser eigene BEC-Schritt entfällt damit ggf., das HAT übernimmt die 5-V-Regelung.
 - Wirkungsgrad: möglichst > 85 %
 - Schutzfunktionen: Kurzschluss, Überstrom, thermisch
 
