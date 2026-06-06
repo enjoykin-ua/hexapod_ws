@@ -64,15 +64,19 @@ Stufe G konkret durchgespielt und finalisiert.
 Am Desktop, falls noch kein Key:
 ```bash
 ssh-keygen -t ed25519 -C "desktop-to-hexapod-pi"
-ssh-copy-id enjoykin@hexapod-pi.local
+ssh-copy-id pi@hexapod-pi   # Router-DNS loest den Namen auf (kein .local)
 ```
 
 ### `~/.ssh/config`-Alias
 
+> Pi-Hostname=`hexapod-pi`, IP=`192.168.2.65`.
+> mDNS/`.local` ist auf Ubuntu Server nicht aktiv; der reine Name
+> `hexapod-pi` wird vom Router-DNS aufgelöst.
+
 ```
 Host hexapod-pi
-    HostName hexapod-pi.local
-    User enjoykin
+    HostName hexapod-pi
+    User pi
     IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 60
     ServerAliveCountMax 3
@@ -246,7 +250,7 @@ colcon build --symlink-install --parallel-workers 2
 | rsync transferiert `build/` mit | Exclude vergessen | Excludes-Block oben kopieren |
 | Pi-Build extrem langsam | SD-Karte statt SSD, oder zu wenig RAM | Auf SSD wechseln, `--parallel-workers 2` |
 | `colcon build` läuft am Pi aber neue Datei wirkt nicht | `source install/setup.bash` vergessen | erneut sourcen, oder `~/.bashrc` ergänzen |
-| `mDNS hexapod-pi.local` nicht auflösbar | avahi-Daemon down, oder Router blockiert | IP statt mDNS verwenden, `avahi-daemon` prüfen |
+| `hexapod-pi.local` nicht auflösbar | avahi/mDNS nicht installiert (Ubuntu Server Default) | reinen Namen `hexapod-pi` (Router-DNS) oder IP `192.168.2.65` verwenden |
 | VSCode Remote-SSH klemmt | Server-Komponente verteilt sich beim Erstverbinden, kann dauern | abwarten, oder VSCode-Server am Pi manuell aktualisieren |
 | Inkonsistente Stände Desktop/Pi | rsync ohne `--delete` und alte Datei rumgeflogen | mit `--delete` syncen, oder manuell aufräumen |
 

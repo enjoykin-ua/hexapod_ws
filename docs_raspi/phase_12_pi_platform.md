@@ -19,6 +19,46 @@ Erst Phase 13 schließt den Roboter an den Pi an.
 
 ---
 
+## Provisioning als Code (Reproduzierbarkeit nach SD-/SSD-Ausfall)
+
+> **Tracker:** [phase_12_progress.md](phase_12_progress.md) ·
+> **Skript:** [`tools/provision_pi.sh`](../tools/provision_pi.sh)
+
+SD-Karten (und SSDs) sterben bei Pi + unsauberer Abschaltung. Damit ein
+Ausfall **nicht** stundenlanges Neu-Einrichten bedeutet, werden alle
+System-Ebenen-Einstellungen, die nicht im Workspace-Git liegen
+(APT-Pakete, ROS-Repo, Locale, `~/.bashrc`-Env, udev-Rule) in einem
+**idempotenten Bash-Skript** [`tools/provision_pi.sh`](../tools/provision_pi.sh)
+gehalten. Workspace + Kalibrierung sind bereits über Git reproduzierbar.
+
+**Recovery-Pfad nach SD-Tod:**
+
+```bash
+# 1. Pi Imager: Ubuntu Server 24.04 LTS arm64 + SSH-Key + WLAN (Stufe A)
+# 2. Workspace klonen. ACHTUNG: GitHub-Zugang des Pi ist nach SD-Tod weg —
+#    entweder HTTPS+PAT (kein Pi-Key noetig) ...
+git clone https://github.com/enjoykin-ua/hexapod_ws.git ~/hexapod_ws
+#    ... ODER neuen SSH-Deploy-Key am Pi erzeugen + bei GitHub hinterlegen:
+#    git clone git@github.com:enjoykin-ua/hexapod_ws.git ~/hexapod_ws
+# 3. System provisionieren (installiert Pakete, setzt Configs idempotent)
+~/hexapod_ws/tools/provision_pi.sh
+# 4. Workspace bauen
+cd ~/hexapod_ws && rosdep install --from-paths src --ignore-src -r -y \
+  && colcon build --symlink-install
+```
+
+**Arbeitsweise:** Das Skript wird in den Stufen B/C/E **mitwachsend**
+befüllt — wir führen die Einstell-Schritte über das Skript aus statt
+manuell, sodass es am Phasenende genau einmal real erprobt ist. Stellen
+mit Verifikationsbedarf am echten Pi sind im Skript mit `# VERIFY@PI`
+markiert. Das Skript gibt am Ende eine **MANUELLE-SCHRITTE-Liste** aus
+für alles, was es nicht automatisch wissen kann (ROS_DOMAIN_ID-Abgleich,
+Servo2040-VID:PID, PS4-BT-Re-Pairing, WLAN/SSH-Key aus dem Imager).
+Architektur-Guard (`aarch64`) verhindert versehentliche Ausführung am
+x86-Desktop.
+
+---
+
 ## Hardware-Setup für diese Phase
 
 - Raspberry Pi 5 (8 GB) — bisher unbenutzt
@@ -41,13 +81,22 @@ Erst Phase 13 schließt den Roboter an den Pi an.
 5. DDS-Discovery Desktop ↔ Pi bidirektional funktioniert
 6. Deployment-Workflow Desktop → Pi dokumentiert in
    `dev_workflow_desktop_to_pi.md` und einmal vollständig durchgespielt
-7. Loopback-Test: `real.launch.py loopback:=true` auf Pi startet alle
+7. Loopback-Test: `real.launch.py loopback_mode:=true` auf Pi startet alle
    Controller active
 8. Shutdown-Disziplin dokumentiert
 
 ---
 
 ## Stufen
+
+> **Manuell vs. Skript:** Die Einstell-Befehle in den Stufen **B, C, E**
+> (apt-Pakete, Locale, ROS-Repo, `~/.bashrc`-Env, `COLCON_IGNORE`, udev,
+> rosdep) werden vom [`tools/provision_pi.sh`](../tools/provision_pi.sh)
+> **automatisch** ausgeführt — du musst sie nicht einzeln abtippen. Die
+> hier gezeigten Befehle dienen als **Referenz**, was das Skript tut (und
+> zum manuellen Nachvollziehen/Debuggen). Empfohlener Ablauf: Stufe A +
+> SSH-Config (B.1) von Hand, dann `provision_pi.sh` für den Rest von B/C/E,
+> dann `colcon build` (E.3).
 
 ### Stufe A — OS-Image flashen
 
@@ -66,10 +115,24 @@ Erst Phase 13 schließt den Roboter an den Pi an.
 - Imager-Settings (Zahnrad → „Edit settings"):
   - Hostname: `hexapod-pi`
   - SSH aktivieren mit Public-Key-Auth (Desktop-Pubkey eintragen)
-  - User: `enjoykin` (oder eigener Name), Passwort setzen (Fallback wenn
-    SSH-Key nicht zieht)
+  - User: `pi`, Passwort setzen
   - WLAN-Credentials eintragen (für Headless-Boot)
   - Locale, Tastatur
+
+> **⭐ Login-Referenz (so kommst du auf den Pi):**
+>
+> | | |
+> |---|---|
+> | Hostname | `hexapod-pi` |
+> | IP im LAN | `192.168.2.65` |
+> | User | `pi` |
+> | **Login** | **`ssh pi@hexapod-pi`** (Passwort) — Fallback `ssh pi@192.168.2.65` |
+>
+> `.local`/mDNS ist auf Ubuntu Server NICHT aktiv (`ping hexapod-pi.local`
+> schlägt fehl) — der **reine Name `hexapod-pi` wird vom Router-DNS
+> aufgelöst**. **Empfehlung:** im Router eine DHCP-Reservierung auf die
+> Pi-MAC setzen, dann bleibt `.65` stabil. (Optional `.local`:
+> `sudo apt install avahi-daemon` am Pi.)
 
 #### A.3 Erstbootup
 
@@ -78,14 +141,51 @@ Erst Phase 13 schließt den Roboter an den Pi an.
 - Vom Desktop:
 
 ```bash
-ping hexapod-pi.local       # mDNS, sollte funktionieren
-ssh enjoykin@hexapod-pi.local
+ping hexapod-pi              # Router-DNS (kein .local noetig)
+ssh pi@hexapod-pi            # Passwort aus dem Imager
 ```
 
-Wenn mDNS nicht klappt: IP-Adresse vom Router rausfinden, mit IP einloggen.
+Details und Fallback (IP, mDNS) siehe Login-Referenz oben.
+
+#### A.3b Optional — Konsole rotieren (gedrehter/hochkant Monitor)
+
+Nur relevant, wenn du zum Headless-Debugging einen Monitor anschließt und
+der hochkant steht (TTY-Konsole läuft quer). Sofort, ohne Reboot:
+
+```bash
+echo 3 | sudo tee /sys/class/graphics/fbcon/rotate_all
+```
+
+Werte: `0`=normal, `1`=90° im Uhrzeigersinn, `2`=180°, `3`=90° gegen
+Uhrzeigersinn. Für den aktuellen Aufbau passt **3**.
+
+Persistent über Reboots — Kernel-Cmdline (alles in **einer** Zeile lassen,
+am Ende ` fbcon=rotate:3` anhängen):
+
+```bash
+sudo nano /boot/firmware/cmdline.txt
+```
+
+Falls die Cmdline-Variante nach Reboot nicht greift (KMS-Treiber
+überschreibt sie), Plan B per systemd-Service:
+
+```bash
+sudo tee /etc/systemd/system/fbcon-rotate.service >/dev/null <<'EOF'
+[Unit]
+Description=Rotate framebuffer console
+After=multi-user.target
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 3 > /sys/class/graphics/fbcon/rotate_all'
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl enable fbcon-rotate.service
+```
 
 **Done-Kriterium A:**
-1. Pi bootet, SSH-Login mit Key erfolgreich
+1. Pi bootet, SSH-Login (`ssh pi@hexapod-pi`) mit Passwort erfolgreich
+   (Schlüssel-Auth folgt in B.1)
 2. `uname -a` zeigt arm64 / 24.04 LTS
 
 ---
@@ -98,13 +198,15 @@ Wenn mDNS nicht klappt: IP-Adresse vom Router rausfinden, mit IP einloggen.
 
 ```
 Host hexapod-pi
-    HostName hexapod-pi.local
-    User enjoykin
+    HostName hexapod-pi
+    User pi
     IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 60
 ```
 
-Dann reicht `ssh hexapod-pi` als Kommando.
+Dann reicht `ssh hexapod-pi` als Kommando. `HostName hexapod-pi` (ohne
+`.local`) wird vom Router-DNS aufgelöst. Bei DNS-Problemen stattdessen
+die feste IP eintragen: `HostName 192.168.2.65`.
 
 #### B.2 Basis-Tools auf Pi
 
@@ -236,9 +338,9 @@ Sollte Knoten von beiden Seiten zeigen wenn jeweils Talker läuft.
 #### E.1 Workspace auf Pi anlegen
 
 ```bash
-mkdir -p ~/hexapod_ws
 cd ~
-git clone <repo-url> hexapod_ws    # User trägt URL ein
+# User pi hat keinen GitHub-SSH-Key -> HTTPS (ggf. mit Personal Access Token)
+git clone https://github.com/enjoykin-ua/hexapod_ws.git
 cd hexapod_ws
 ```
 
@@ -283,7 +385,7 @@ Trajectories, niemand muss zuhören in dieser Phase).
 **Ziel:** Stack auf Pi ohne echte HW grün.
 
 ```bash
-ros2 launch hexapod_bringup real.launch.py loopback:=true
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
 ```
 
 `real.launch.py` aus Phase 9 wird hier zum ersten Mal auf Pi gefahren.
@@ -302,10 +404,48 @@ ros2 topic echo /joint_states --once
 # erwartet: 18 Joints mit position=0.0 (loopback echo)
 ```
 
+#### F.4 Die 3 Starts via tmux (Test-Workflow)
+
+Der Stack ist bewusst in **3 unabhängige Launches** geschnitten
+(real.launch.py startet nur den ros2_control-Stack, *kein* gait/teleop).
+Im Test fährst du sie in `tmux`-Panes über *eine* SSH-Session — robust
+gegen Verbindungsabbruch (tmux läuft am Pi weiter).
+
+```bash
+ssh hexapod-pi
+tmux new -s hexapod          # Session starten
+
+# Pane 1 — Stack (real.launch). Loopback in Phase 12, HW spaeter.
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
+
+# Ctrl-b "  (Pane horizontal splitten), dann Pane 2 — Gait:
+ros2 launch hexapod_gait gait.launch.py use_sim_time:=false
+
+# Ctrl-b %  (Pane vertikal splitten), dann Pane 3 — Teleop:
+ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt
+```
+
+**Reihenfolge ist eine echte Abhängigkeit:** real muss laufen (JTCs
+active), bevor gait sinnvoll publisht; gait muss laufen, bevor teleop
+etwas bewirkt.
+
+> **Falle (Memory `project_phase13_gait_launch_sim_time_default.md`):**
+> `gait.launch.py` **immer mit `use_sim_time:=false`** auf HW/Pi — ohne
+> `/clock` blockieren rclpy-Timer sonst still. Default ist bereits
+> `false`, aber explizit setzen schadet nicht.
+
+> **Detach/Reattach:** `Ctrl-b d` löst von der Session, `tmux attach -t
+> hexapod` hängt wieder an — der Stack läuft währenddessen weiter.
+
+> **Ausblick (D4/D5):** Im Autonom-Betrieb ersetzt ein kombiniertes
+> `autonomous.launch.py` + systemd-Service-Paar diesen manuellen
+> tmux-Ablauf — siehe künftiges Autonom/untethered-Doc.
+
 **Done-Kriterium F:**
-1. `real.launch.py loopback:=true` startet
+1. `real.launch.py loopback_mode:=true` startet
 2. Alle Controller active
 3. Joint-States werden publisht (loopback echo)
+4. 3-Starts-tmux-Ablauf einmal durchgespielt (Loopback)
 
 ---
 
@@ -379,7 +519,7 @@ In `phase_12_progress.md` Stufe H schriftlich:
 | Symptom | Ursache | Fix |
 |---|---|---|
 | Pi bootet nicht / kein SSH | Image-Schreibfehler, WLAN-Credentials falsch | Imager mit Verify nochmal, Direkt-Bootup mit HDMI |
-| `hexapod-pi.local` nicht auflösbar | mDNS nicht aktiv | IP direkt verwenden, `avahi-daemon` prüfen |
+| `hexapod-pi.local` nicht auflösbar | mDNS/avahi nicht installiert (Ubuntu Server Default) | reinen Namen `hexapod-pi` (Router-DNS) oder IP `192.168.2.65` nutzen; optional `avahi-daemon` installieren |
 | `apt install ros-jazzy-*` schlägt fehl | ROS-Repo nicht eingebunden / falsche Codename | `/etc/apt/sources.list.d/ros2.list` prüfen, `apt update` |
 | `colcon build` extrem langsam | Pi mit SD-Karte + zu wenig Swap | SSD verwenden, `--parallel-workers 2` |
 | DDS sieht nichts | `ROS_DOMAIN_ID` mismatch | beidseitig `echo $ROS_DOMAIN_ID` |
@@ -395,6 +535,14 @@ In `phase_12_progress.md` Stufe H schriftlich:
 - Kein PREEMPT-RT-Kernel — Standard-Kernel reicht für 50 Hz Gait
 - Keine zusätzlichen Sensoren
 - Kein Bluetooth-PS4 (separates Defer)
+- **Kein OLED-Status, kein GPIO-Button, kein systemd-Autostart, keine
+  Power-On-Relay-Sequenz** — der gesamte **Autonom/untethered-Betrieb**
+  (immer-laufender Supervisor-Service + OLED über EKM002-QWIIC-I²C +
+  Button-Trigger + kombiniertes `autonomous.launch.py`) kommt in ein
+  **eigenes Doc unter Block D4/D5**. Phase 12 bleibt bewusst schlank
+  („Plattform steht, Stack startbar via SSH/tmux"). Provisioning-Stubs
+  dafür sind in [`tools/provision_pi.sh`](../tools/provision_pi.sh) als
+  `provision_oled_button()` bereits als Platzhalter markiert.
 
 ---
 
@@ -404,7 +552,7 @@ In `phase_12_progress.md` Stufe H schriftlich:
 - [ ] Pi headless via SSH erreichbar mit Schlüssel
 - [ ] Workspace baut grün (außer hexapod_gazebo)
 - [ ] DDS Desktop ↔ Pi bidirektional
-- [ ] `real.launch.py loopback:=true` auf Pi grün
+- [ ] `real.launch.py loopback_mode:=true` auf Pi grün
 - [ ] `dev_workflow_desktop_to_pi.md` final
 - [ ] Shutdown-Disziplin dokumentiert
 - [ ] Git-Commit + Tag `phase-12-done`
