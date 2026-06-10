@@ -1,7 +1,12 @@
 # Aktive Phase
 
-**Aktuell:** **Hardware-Bring-up** — als Nächstes **Pi-Plattform** (Phase 12 / Backlog-Block D1),
-danach **Elektronik finalisieren** (Phase 8 / D2).
+**Aktuell:** **Hardware-Bring-up** — **Phase 12 (Pi-Plattform) ✅ Kern fertig**:
+ROS2-Stack baut + läuft headless am Pi (`hexapod-pi`, Loopback, alle Controller
+active), Provisioning-Skript + Recovery-Pfad stehen, Servo2040 am Pi erkannt
+(`/dev/servo2040`). Als Nächstes: **erster echter HW-Start am Pi**
+(`loopback_mode:=false`, Phase 13 — **aufgebockt**, §9) bzw. **Elektronik** (Phase 8 / D2).
+_(Phase-12-Detail: [`docs_raspi/phase_12_progress.md`](docs_raspi/phase_12_progress.md);
+deferiert: D DDS/RViz, G.2 rsync.)_
 **Davor abgeschlossen (Sim/Bench, 2026-06):** Lokomotion-Kern, Teleop, Lauf-Konfiguration
 (Stance-Modi) und Show-Pose — Details in [`project_finalization/`](project_finalization/00_backlog.md)
 (Blöcke B/C + Stance-Modi + B4).
@@ -50,8 +55,9 @@ danach **Elektronik finalisieren** (Phase 8 / D2).
 > als eine lineare Phase** abgearbeitet. **Stage 0** (Boot → Aufstehen → stabil am Boden, inkl.
 > Femur-Umbau + Relay) ist erledigt; die geplante Stage 1 (Lauf-Optimierung) und alles Weitere
 > (Hinsetzen, Gangarten, Show, Teleop, Stance-Modi) liefen im **Finalisierungs-Block-System** unten.
-> **Phase 12 (Pi-Plattform)** ist davon unberührt und steht **als Nächstes** an. **Phase 13** ist das
-> **End-Ziel** (Voll-Bringup auf dem Pi-getriebenen Roboter) — nach Phase 12 + Phase 8.
+> **Phase 12 (Pi-Plattform) ✅ Kern abgeschlossen** (Stack baut + läuft am Pi, Loopback;
+> Servo2040 erkannt). **Phase 13** ist das **End-Ziel** (Voll-Bringup auf dem Pi-getriebenen
+> Roboter) — der erste echte HW-Start am Pi (`loopback_mode:=false`, aufgebockt) leitet sie ein.
 
 ### Finalisierungs-Blöcke (Desktop, `project_finalization/`)
 
@@ -87,8 +93,9 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
 
 1. **HW aufgebockt:** die neuen Sim-Features (Stance-Modi, Show-Pose, B4.11) einmal aufgebockt → Boden
    verifizieren (CLAUDE.md §9: Kill-Switch, langsam), bevor sie am Boden laufen.
-2. **Phase 12 — Pi-Plattform (Block D1):** ROS2 Jazzy arm64, Workspace-Subset **ohne** Gazebo bauen,
-   `hexapod_hardware` + Servo2040-USB am Pi, gegen Bench fahren.
+2. ✅ **Phase 12 — Pi-Plattform (Block D1):** ROS2 Jazzy arm64, Workspace **ohne** Gazebo gebaut,
+   Loopback grün, Servo2040 am Pi erkannt (`/dev/servo2040`). Provisioning + Recovery dokumentiert.
+   Offen: erster echter HW-Start (`loopback_mode:=false`, → Phase 13, aufgebockt).
 3. **Phase 8 — Elektronik (Block D2):** 2S-LiPo-Versorgung, Servo-Rail vs. Pi-Rail/BEC, Absicherung,
    Kill-Switch, Strom-/Spannungs-Monitoring. (User macht die Elektrik.)
 4. **D3/D4/D5:** LVC + Batterie-Telemetrie · sichere Power-On-Sequenz (Servos zentrieren beim

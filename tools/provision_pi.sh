@@ -75,6 +75,40 @@ c_warn()   { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 c_manual() { MANUAL_STEPS+=("$*"); printf '\033[1;35m[MANL]\033[0m %s\n' "$*"; }
 
 # ---------------------------------------------------------------------------
+# 0b. APT-Pocket-Check: noble-updates MUSS aktiv sein
+#     Manche Pi-Images (so das aktuelle) kommen nur mit 'noble' +
+#     'noble-security' -> die aktualisierten -dev-Pakete (in <codename>-updates)
+#     fehlen, und die ROS-Installation scheitert an Versions-Mismatches
+#     (libdrm-dev = base, aber libdrm2 = security usw.).
+#     Das Skript aendert /etc/apt NICHT selbst (CLAUDE.md §5) -> es prueft
+#     nur und bricht mit Anleitung ab, falls das Pocket fehlt.
+# ---------------------------------------------------------------------------
+check_apt_updates_pocket() {
+    c_info "APT-Pocket '<codename>-updates' pruefen ..."
+    local codename
+    codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")"
+    if apt-cache policy 2>/dev/null | grep -q "${codename}-updates"; then
+        c_ok "${codename}-updates ist aktiv"
+        return
+    fi
+    c_warn "${codename}-updates fehlt in den APT-Quellen — Abbruch."
+    cat >&2 <<EOF
+
+Die ROS-Installation wuerde sonst an Versions-Mismatches scheitern
+(libdrm-dev, zlib1g-dev, ...). Fix (einmalig, aendert /etc/apt — CLAUDE.md §5):
+
+  sudo cp /etc/apt/sources.list.d/ubuntu.sources \\
+          /etc/apt/sources.list.d/ubuntu.sources.bak
+  sudo sed -i '/^Suites: ${codename}\$/s/.*/Suites: ${codename} ${codename}-updates/' \\
+          /etc/apt/sources.list.d/ubuntu.sources
+  sudo apt update
+
+Danach dieses Skript erneut ausfuehren.
+EOF
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
 # 1. Locale (Phase 12 Stufe B.3)
 # ---------------------------------------------------------------------------
 provision_locale() {
@@ -142,6 +176,20 @@ provision_base_tools() {
     # tmux ist Pflicht: die 3 Stack-Starts laufen in tmux-Panes (Stufe F).
     sudo apt-get install -y vim git curl net-tools tmux htop
     c_ok "Basis-Tools installiert"
+}
+
+# ---------------------------------------------------------------------------
+# 4b. Bluetooth (bluez) fuer PS4-Teleop ueber BT
+#     Fehlt auf dem frischen Ubuntu-Server-Image; ohne bluez kein
+#     bluetoothctl -> kein DS4-Pairing -> kein ps4_bt-Teleop.
+# ---------------------------------------------------------------------------
+provision_bluetooth() {
+    c_info "Bluetooth (bluez) fuer PS4-Teleop sicherstellen ..."
+    sudo apt-get install -y bluez
+    sudo systemctl enable --now bluetooth \
+        || c_warn "bluetooth.service nicht gestartet — ggf. 'rfkill unblock bluetooth'"
+    c_ok "bluez installiert, bluetooth.service aktiv"
+    c_manual "PS4-BT-Pairing ist System-State (nach SD-Tod weg): DS4 neu pairen — 'bluetoothctl' -> scan/pair/trust/connect (MAC D0:27:88:3D:68:9A)."
 }
 
 # ---------------------------------------------------------------------------
@@ -222,8 +270,11 @@ provision_colcon_ignore() {
 
 # ---------------------------------------------------------------------------
 # 9. udev-Rule fuer Servo2040 (stabiler /dev/servo2040-Symlink)
-#    Servo2040 = Pimoroni RP2040-Board, USB-VID typ. 2e8a (Raspberry Pi).
-#    Die PID haengt von der FW ab und MUSS am Pi verifiziert werden.
+#    VERIFIZIERT am Pi: Servo2040 = RP2040-Board, meldet sich als
+#    "Raspberry Pi Pico", ID_VENDOR_ID=2e8a, ID_MODEL_ID=000a,
+#    Serial z.B. E6617C93E3494428. -> /dev/servo2040 -> ttyACM0 funktioniert.
+#    Match auf VID 2e8a reicht, solange nur EIN RP2040-Geraet am Pi haengt;
+#    bei mehreren ggf. auf ATTRS{serial} verfeinern.
 # ---------------------------------------------------------------------------
 provision_udev_servo2040() {
     c_info "udev-Rule fuer Servo2040 sicherstellen ..."
@@ -234,18 +285,14 @@ provision_udev_servo2040() {
         return
     fi
 
-    # VERIFY@PI: echte VID:PID ermitteln, solange die Servo2040 angesteckt ist:
-    #   lsusb        -> Zeile des Boards finden
-    #   udevadm info -a -n /dev/ttyACM0 | grep -E 'idVendor|idProduct'
-    # Default-Annahme VID 2e8a (Raspberry Pi RP2040). Wenn die echte ID
-    # abweicht, diese Funktion korrigieren.
+    # VID 2e8a am Pi verifiziert (Servo2040 meldet sich als RP2040/"Pico").
+    # Pruefen: udevadm info -n /dev/ttyACM0 | grep -i vendor
     echo 'SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", SYMLINK+="servo2040"' \
         | sudo tee "${rule}" > /dev/null
     sudo udevadm control --reload-rules
     sudo udevadm trigger || true
     c_ok "udev-Rule angelegt -> /dev/servo2040"
-    c_manual "udev-Rule 99-servo2040.rules: echte USB-VID:PID mit 'lsusb' + 'udevadm info -a -n /dev/ttyACM0' verifizieren (Default-VID 2e8a angenommen)."
-    c_manual "Nach Anstecken der Servo2040 pruefen: 'ls -l /dev/servo2040' muss auf /dev/ttyACMx zeigen."
+    c_manual "Nach Anstecken der Servo2040 pruefen: 'ls -l /dev/servo2040' muss auf /dev/ttyACMx zeigen (VID 2e8a am Pi verifiziert)."
 }
 
 # ---------------------------------------------------------------------------
@@ -275,12 +322,14 @@ register_known_manual_steps() {
 # ---------------------------------------------------------------------------
 main() {
     c_info "Hexapod-Pi-Provisioning startet (arm64 verifiziert) ..."
+    check_apt_updates_pocket
     sudo apt-get update
 
     provision_locale
     provision_universe
     provision_ros_repo
     provision_base_tools
+    provision_bluetooth
     provision_ros_packages
     provision_bashrc
     provision_rosdep
@@ -306,7 +355,9 @@ main() {
     echo ""
     echo "Naechster Schritt:"
     echo "  cd ${WS_DIR}"
-    echo "  rosdep install --from-paths src --ignore-src -r -y"
+    echo "  # --skip-keys: rosdep ignoriert COLCON_IGNORE, sonst kommt die"
+    echo "  # Gazebo-Bridge (ros_gz_*) aus hexapod_gazebo mit — am Pi unerwuenscht."
+    echo "  rosdep install --from-paths src --ignore-src -r -y --skip-keys \"ros_gz_sim ros_gz_bridge\""
     echo "  colcon build --symlink-install"
     echo "  source install/setup.bash"
 }

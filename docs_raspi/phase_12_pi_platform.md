@@ -44,6 +44,7 @@ git clone https://github.com/enjoykin-ua/hexapod_ws.git ~/hexapod_ws
 ~/hexapod_ws/tools/provision_pi.sh
 # 4. Workspace bauen
 cd ~/hexapod_ws && rosdep install --from-paths src --ignore-src -r -y \
+  --skip-keys "ros_gz_sim ros_gz_bridge" \
   && colcon build --symlink-install
 ```
 
@@ -94,9 +95,39 @@ x86-Desktop.
 > rosdep) werden vom [`tools/provision_pi.sh`](../tools/provision_pi.sh)
 > **automatisch** ausgeführt — du musst sie nicht einzeln abtippen. Die
 > hier gezeigten Befehle dienen als **Referenz**, was das Skript tut (und
-> zum manuellen Nachvollziehen/Debuggen). Empfohlener Ablauf: Stufe A +
-> SSH-Config (B.1) von Hand, dann `provision_pi.sh` für den Rest von B/C/E,
-> dann `colcon build` (E.3).
+> zum manuellen Nachvollziehen/Debuggen).
+>
+> **Reihenfolge** (das Skript liegt IM Workspace, muss also erst geklont sein):
+> 1. Stufe A (OS) + B.1 (SSH-Config am Desktop) — von Hand
+> 2. Am Pi: `git` sicherstellen + Workspace klonen (E.1) —
+>    `sudo apt install -y git` falls nötig, dann `git clone …`
+> 3. Am Pi: **APT-Pocket `noble-updates` aktivieren** (Kasten unten) —
+>    Pflicht-Vorschritt, **vor** `apt update` und vor dem Skript.
+> 4. Am Pi: `~/hexapod_ws/tools/provision_pi.sh` — erledigt den Rest von
+>    B/C/E (Pakete, Locale, ROS-Repo, Env, COLCON_IGNORE, udev, rosdep).
+>    Das Skript **prüft** noble-updates und bricht mit Anleitung ab, falls
+>    Schritt 3 vergessen wurde.
+> 5. Am Pi: `colcon build --symlink-install` (E.3)
+
+> **⚠️ Pflicht-Vorschritt — APT-Pocket `noble-updates` aktivieren:**
+> Dieses Pi-Image kam nur mit `noble` + `noble-security` in den
+> APT-Quellen. Ohne `noble-updates` fehlen die aktualisierten `-dev`-Pakete
+> und die ROS-Installation scheitert an Versions-Mismatches (`libdrm-dev`,
+> `zlib1g-dev`, `bzip2 not installable`, …). Einmalig am Pi:
+>
+> ```bash
+> # Backup (es ist eine /etc/apt-Datei — CLAUDE.md §5)
+> sudo cp /etc/apt/sources.list.d/ubuntu.sources \
+>         /etc/apt/sources.list.d/ubuntu.sources.bak
+> # in der ersten Sektion 'Suites: noble' -> 'Suites: noble noble-updates'
+> # (NICHT die 'noble-security'-Zeile anfassen):
+> sudo sed -i '/^Suites: noble$/s/.*/Suites: noble noble-updates/' \
+>         /etc/apt/sources.list.d/ubuntu.sources
+> sudo apt update    # 'noble-updates' muss jetzt in den Hits auftauchen
+> ```
+>
+> Alternativ statt `sed` mit `sudo nano /etc/apt/sources.list.d/ubuntu.sources`
+> die Zeile von Hand ergänzen. Danach erst Schritt 4 (Provisioning).
 
 ### Stufe A — OS-Image flashen
 
@@ -192,9 +223,31 @@ sudo systemctl enable fbcon-rotate.service
 
 ### Stufe B — SSH-Workflow & Basis-Tools
 
-#### B.1 SSH-Config am Desktop
+#### B.1 SSH-Config & Schlüssel-Auth am Desktop
 
-`~/.ssh/config` ergänzen:
+Alle Schritte am **Desktop** (nicht am Pi). Ziel: passwortloser Login via
+Kurzname `ssh hexapod-pi`.
+
+**1. SSH-Key prüfen — existiert schon einer?**
+
+```bash
+ls ~/.ssh/id_ed25519.pub
+```
+
+- Datei existiert → weiter zu Schritt 2.
+- „No such file" → Key erzeugen (3× Enter: Default-Pfad, Passphrase optional):
+
+```bash
+ssh-keygen -t ed25519 -C "desktop-to-hexapod-pi"
+```
+
+**2. `~/.ssh/config` anlegen/ergänzen.** Die Datei wird angelegt, falls sie
+nicht existiert; bei bestehenden `Host`-Einträgen den Block unten **anhängen**
+(nicht überschreiben):
+
+```bash
+nano ~/.ssh/config
+```
 
 ```
 Host hexapod-pi
@@ -204,9 +257,33 @@ Host hexapod-pi
     ServerAliveInterval 60
 ```
 
-Dann reicht `ssh hexapod-pi` als Kommando. `HostName hexapod-pi` (ohne
-`.local`) wird vom Router-DNS aufgelöst. Bei DNS-Problemen stattdessen
-die feste IP eintragen: `HostName 192.168.2.65`.
+Speichern: `Strg+O`, `Enter` — beenden: `Strg+X`.
+
+`HostName hexapod-pi` (ohne `.local`) wird vom Router-DNS aufgelöst. Bei
+DNS-Problemen stattdessen die feste IP eintragen: `HostName 192.168.2.65`.
+
+**3. Rechte der Config setzen** (sonst ignoriert SSH sie teilweise):
+
+```bash
+chmod 600 ~/.ssh/config
+```
+
+**4. Public-Key auf den Pi kopieren** (danach kein Passwort mehr nötig).
+Fragt **einmal** nach dem Pi-Passwort (`pi`):
+
+```bash
+ssh-copy-id hexapod-pi
+```
+
+**5. Test:**
+
+```bash
+ssh hexapod-pi
+```
+
+→ sollte jetzt **direkt** reingehen — ohne Passwort, ohne `pi@…` tippen.
+Ab hier nutzen auch `scp`, `rsync` und VSCode Remote-SSH denselben Alias
+`hexapod-pi`.
 
 #### B.2 Basis-Tools auf Pi
 
@@ -240,7 +317,7 @@ sudo apt update
 ```
 
 **Done-Kriterium B:**
-1. SSH-Config-Alias `hexapod-pi` funktioniert
+1. `ssh hexapod-pi` funktioniert **passwortlos** (Key-Auth + Config-Alias)
 2. Basis-Tools installiert
 3. ROS-Repo eingerichtet, `apt update` läuft sauber
 
@@ -358,10 +435,20 @@ ros-gz nicht installiert ist).
 ```bash
 sudo rosdep init     # falls noch nie auf Pi gemacht
 rosdep update
-rosdep install --from-paths src --ignore-src -r -y
+# --skip-keys: rosdep beachtet COLCON_IGNORE NICHT und wuerde sonst die
+# Gazebo-Bridge (ros_gz_sim/ros_gz_bridge) aus hexapod_gazebo/package.xml
+# mitziehen — die wollen wir am Pi nicht.
+rosdep install --from-paths src --ignore-src -r -y \
+  --skip-keys "ros_gz_sim ros_gz_bridge"
 colcon build --symlink-install
 source install/setup.bash
 ```
+
+> **Hinweis:** Falls rosdep beim ersten Lauf (ohne `--skip-keys`) schon
+> `ros-gz-bridge`/`ros-gz-interfaces` installiert hat: funktional
+> unkritisch (läuft nichts davon, belegt nur Platz). Optional entfernen
+> mit `sudo apt autoremove ros-jazzy-ros-gz-bridge ros-jazzy-ros-gz-interfaces`
+> — nicht nötig.
 
 #### E.4 Test: gait_node läuft
 
@@ -384,7 +471,19 @@ Trajectories, niemand muss zuhören in dieser Phase).
 
 **Ziel:** Stack auf Pi ohne echte HW grün.
 
+> **⚠️ Workspace sourcen nicht vergessen!** In *jeder* Shell, die ROS-Befehle
+> oder Launches ausführt, muss der lokale Workspace geladen sein:
+> ```bash
+> source ~/hexapod_ws/install/setup.bash
+> ```
+> In **neuen** SSH-Sessions passiert das automatisch (`provision_pi.sh` hat
+> es in `~/.bashrc` eingetragen). Nur in der Shell, in der du gerade
+> `colcon build` ausgeführt hast, musst du es einmal von Hand sourcen —
+> sonst meldet ROS `Package 'hexapod_bringup' not found` (es sucht dann nur
+> in `/opt/ros/jazzy`, nicht in deinem Workspace).
+
 ```bash
+source install/setup.bash    # falls in dieser Shell noch nicht geladen
 ros2 launch hexapod_bringup real.launch.py loopback_mode:=true
 ```
 
@@ -434,7 +533,15 @@ etwas bewirkt.
 > `/clock` blockieren rclpy-Timer sonst still. Default ist bereits
 > `false`, aber explizit setzen schadet nicht.
 
-> **Detach/Reattach:** `Ctrl-b d` löst von der Session, `tmux attach -t
+> **tmux-Bedienung:** `Strg+b` ist das **Prefix** — drücken, **loslassen**,
+> *dann* die Befehlstaste (nicht gleichzeitig halten!). Auf der **deutschen
+> Tastatur** brauchen die Split-Zeichen Shift: `"` = `Shift+2`, `%` =
+> `Shift+5`. Zwischen Panes wechseln: `Strg+b` dann Pfeiltaste.
+> **Einfacher zum Üben:** statt Splits einfach **3 separate SSH-Terminals**
+> öffnen (je `ssh hexapod-pi` + `source install/setup.bash` + ein Launch).
+> tmux ist nur nötig, damit es einen SSH-Abbruch übersteht.
+
+> **Detach/Reattach:** `Strg+b` dann `d` löst von der Session, `tmux attach -t
 > hexapod` hängt wieder an — der Stack läuft währenddessen weiter.
 
 > **Ausblick (D4/D5):** Im Autonom-Betrieb ersetzt ein kombiniertes
@@ -524,6 +631,7 @@ In `phase_12_progress.md` Stufe H schriftlich:
 | `colcon build` extrem langsam | Pi mit SD-Karte + zu wenig Swap | SSD verwenden, `--parallel-workers 2` |
 | DDS sieht nichts | `ROS_DOMAIN_ID` mismatch | beidseitig `echo $ROS_DOMAIN_ID` |
 | Builds OK, aber Runtime-Fehler „ros2_control plugin not found" | hexapod_hardware nicht für ARM gebaut | `colcon build --packages-select hexapod_hardware` am Pi nochmal |
+| `Package 'hexapod_bringup' not found` (sucht nur in `/opt/ros/jazzy`) | Workspace in dieser Shell nicht gesourct | `source ~/hexapod_ws/install/setup.bash` (in neuer SSH-Session automatisch via `~/.bashrc`) |
 | rsync transferiert auch `build/` | Exclude vergessen | `--exclude=build --exclude=install --exclude=log` |
 
 ---

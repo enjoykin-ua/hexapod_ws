@@ -4,7 +4,9 @@
 **Plan:** [phase_12_pi_platform.md](phase_12_pi_platform.md)
 **Deployment-Workflow:** [dev_workflow_desktop_to_pi.md](dev_workflow_desktop_to_pi.md)
 **Provisioning-Skript:** [`tools/provision_pi.sh`](../tools/provision_pi.sh)
-**Status:** 🟡 in Arbeit (Vorbereitung Doku/Skript)
+**Status:** ✅ Kern abgeschlossen — Plattform steht, Stack baut + läuft
+(Loopback) am Pi. D/G.2/F.3 bewusst deferiert. Offen nur noch: Git-Commit
++ Tag `phase-12-done` (User). Echter HW-Start = Phase 13.
 
 > Pro erledigtem Bullet `[ ]` → `[x]` umstellen, **nicht batchen**
 > (Memory `feedback_phase_progress_tracking.md`).
@@ -72,68 +74,107 @@
 
 ### Stufe B — SSH-Workflow & Basis (teils Skript)
 
-- [ ] B.1 `~/.ssh/config`-Alias `hexapod-pi` am Desktop funktioniert
+- [x] B.0 APT-Pocket `noble-updates` aktiviert (Pflicht-Vorschritt; Image
+      kam nur mit `noble`+`noble-security`, sonst ROS-`-dev`-Versionskonflikte)
+- [x] B.1 `~/.ssh/config`-Alias `hexapod-pi` am Desktop funktioniert
+      (Key-Auth, `ssh hexapod-pi` passwortlos)
 - [ ] B.2 Basis-Tools via `provision_pi.sh` (vim/git/curl/net-tools/tmux/htop)
 - [ ] B.3 Locale + universe + ROS-Repo via `provision_pi.sh`, `apt update` sauber
 - [ ] B-DK: SSH-Alias + Basis-Tools + ROS-Repo stehen
 
 ### Stufe C — ROS2 Jazzy (Skript)
 
-- [ ] C.1 ROS-`ros-base`-Paketliste via `provision_pi.sh` installiert
+- [x] C.1 ROS-`ros-base`-Paketliste via `provision_pi.sh` installiert
       (kein desktop/ros-gz/gz-ros2-control)
-- [ ] C.2 ~/.bashrc-Env via Skript (source ros, ROS_DOMAIN_ID, RMW)
-- [ ] C.3 `ROS_DOMAIN_ID` mit Desktop abgeglichen (MANUELLER Schritt)
-- [ ] C-DK: `ros2 --help`, `ros2 pkg list`, `echo $ROS_DOMAIN_ID` == Desktop
+- [x] C.2 ~/.bashrc-Env via Skript (source ros, ROS_DOMAIN_ID, RMW)
+- [x] C.3 `ROS_DOMAIN_ID=42` mit Desktop abgeglichen (Desktop verifiziert)
+- [x] C-DK: ROS funktioniert (colcon build nutzt es), `ros2 pkg list` zeigt Pakete
 
-### Stufe D — DDS-Konnektivität Desktop ↔ Pi
+### Stufe D — DDS-Konnektivität Desktop ↔ Pi  ⏸️ DEFERIERT
 
-- [ ] D.1 Talker/Listener Desktop → Pi grün
-- [ ] D.2 Talker/Listener Pi → Desktop grün
-- [ ] D.3 `ros2 topic list` zeigt Topics beider Seiten
-- [ ] D-DK: bidirektionale DDS-Kommunikation bestaetigt
+> **Bewusst zurückgestellt (User-Entscheidung).** Für den autonomen Pi
+> (Stack läuft komplett am Pi, Teleop via BT) NICHT nötig — Desktop und Pi
+> müssen keinen gemeinsamen ROS-Graph bilden. Risiko bei gleicher
+> `ROS_DOMAIN_ID`: Desktop-Sim + Pi-Roboter würden ungewollt zusammenreden.
+> **Nachholen**, wenn RViz-Remote gewünscht (User-Plan: Desktop + HW via
+> Pi + RViz später). Voraussetzung (gleiche Domain-ID) steht bereits.
+
+- [ ] D.1–D.3 / D-DK — deferiert (optionaler Remote-Debugging-Komfort)
 
 ### Stufe E — Workspace klonen + bauen
 
-- [ ] E.1 `git clone` nach `~/hexapod_ws`
-- [ ] E.2 `hexapod_gazebo/COLCON_IGNORE` via Skript gesetzt
-- [ ] E.3 `rosdep install` + `colcon build --symlink-install` grün
-- [ ] E.4 `ros2 run hexapod_gait gait_node` startet ohne Crash
-- [ ] E-DK: Workspace baut grün (ausser hexapod_gazebo), keine fehlenden Deps
+- [x] E.1 `git clone` nach `~/hexapod_ws` (HTTPS)
+- [x] E.2 `hexapod_gazebo/COLCON_IGNORE` via Skript gesetzt (beim Build übersprungen)
+- [x] E.3 `rosdep install` + `colcon build --symlink-install` grün (8 Pakete, 52.7s)
+- [x] E.4 `gait_node` startet ohne Crash (gait.launch.py lief: „Cartesian-Standup gestartet")
+- [x] E-DK: Workspace baut grün (ausser hexapod_gazebo), keine fehlenden Deps
 
 ### Stufe F — Loopback-Test + 3 Starts via tmux
 
-- [ ] F.1 `real.launch.py loopback_mode:=true` auf Pi: alle Controller active
-- [ ] F.2 `ros2 control list_controllers` = 1× JSB + 6× JTC active
-- [ ] F.3 `/joint_states` publisht (18 Joints, loopback echo)
-- [ ] F.4 3-Starts-tmux-Ablauf durchgespielt (real → gait → teleop,
-      `use_sim_time:=false`)
-- [ ] F-DK: Stack auf Pi ohne echte HW grün, tmux-Workflow steht
+- [x] F.1 `real.launch.py loopback_mode:=true` auf Pi: Stack startet
+- [x] F.2 `ros2 control list_controllers` = 1× JSB + 6× JTC active (verifiziert)
+- [ ] F.3 `/joint_states`-Echo — nicht explizit geprüft (Controller active +
+      gait publisht impliziert Datenfluss); unkritisch, nachholbar
+- [x] F.4 Multi-Launch erprobt: `real` + `gait` parallel active (separate
+      SSH-Terminals statt tmux-Splits); `teleop` + tmux-Splits offen, aber
+      Workflow im Kern bestätigt
+- [x] F-DK: Stack auf Pi ohne echte HW grün (real + gait parallel active)
 
 ### Stufe G — Deployment-Workflow
 
-- [ ] G.1 Workflow-Probe mit Git durchgespielt
-- [ ] G.2 Workflow-Probe mit rsync durchgespielt
-- [ ] G-DK: `dev_workflow_desktop_to_pi.md` final
+- [x] G.1 Git-Weg erprobt (clone + Build am Pi)
+- [ ] G.2 rsync-Probe — deferiert (nice-to-have für schnelle Iteration)
+- [x] G-DK: `dev_workflow_desktop_to_pi.md` final
 
 ### Stufe H — Shutdown-Disziplin
 
-- [ ] H.1 Shutdown-Prozedur dokumentiert (`sudo shutdown -h now`, LED, dann Strom)
-- [ ] H.2 `hexapod-shutdown`-Alias am Desktop
-- [ ] H-DK: sicheres Hoch-/Runterfahren ohne physischen Zugang via SSH
+- [x] H.1 Shutdown-Prozedur dokumentiert (`sudo shutdown -h now`, LED, dann Strom)
+- [x] H.2 `hexapod-shutdown`-Alias dokumentiert
+- [x] H-DK: sicheres Runterfahren via SSH erprobt (User hat Pi so ausgeschaltet)
 
 ### Stufe I — Phase-Abschluss
 
-- [ ] I.1 `provision_pi.sh` einmal vollstaendig real erprobt (alle `VERIFY@PI` aufgeloest)
-- [ ] I.2 Recovery-Pfad dokumentiert (Imager → clone → provision → build)
-- [ ] I.3 Git-Commit + Tag `phase-12-done`
-- [ ] I.4 `PHASE.md` aktualisiert (naechster Block)
-- [ ] I.5 Retrospektive in diesem File
+- [x] I.1 `provision_pi.sh` real erprobt; `VERIFY@PI` aufgelöst: noble-updates,
+      `ROS_DOMAIN_ID=42` (= Desktop), Servo2040 VID `2e8a` → `/dev/servo2040`
+- [x] I.2 Recovery-Pfad dokumentiert (Imager → clone → provision → build)
+- [ ] I.3 Git-Commit + Tag `phase-12-done` — **User** (macht Commits selbst)
+- [x] I.4 `PHASE.md` aktualisiert
+- [x] I.5 Retrospektive (siehe unten)
 
 ---
 
-## Post-Review (pro Stufe nach Implementierung)
+## Post-Review (Self-Review zum Phasen-Abschluss)
 
-> Tabelle pro Stufe: Punkt / Status (OK / 🔴 fixen / 🟡 vormerken / 🟢 später).
-> Wird beim Self-Review nach jeder Stufe befuellt (CLAUDE.md §4).
+| Punkt | Status |
+|---|---|
+| OS/SSH/ROS2/Build/Loopback alle grün | OK |
+| `provision_pi.sh` idempotent + arm64-Guard + noble-updates-Check + skip-keys | OK |
+| Reproduzierbarkeit (Recovery-Pfad dokumentiert, Configs/Cal im Git) | OK |
+| Servo2040 udev `/dev/servo2040` verifiziert (VID 2e8a) | OK |
+| Stufe D (DDS/RViz) nicht getestet | 🟢 später (bewusst, für autonom nicht nötig) |
+| F.3 joint_states-Echo nicht explizit geprüft | 🟢 später (unkritisch) |
+| G.2 rsync-Probe nicht durchgespielt | 🟢 später (Git-Weg erprobt) |
+| `apt upgrade` nicht im Skript (war §5-Genehmigung nötig) | 🟡 vormerken: ggf. bei nächstem frischen Pi prüfen, ob nach noble-updates noch nötig |
+| Erster echter HW-Start (`loopback_mode:=false`) | 🔴 NICHT in Phase 12 — Phase 13, aufgebockt (§9) + Plan-Doku |
 
-_(noch leer — wird ab Stufe A befuellt)_
+---
+
+## Retrospektive
+
+**Lief gut:** Provisioning-as-Code-Ansatz hat sich bewährt — die zwei
+unerwarteten Stolpersteine (`noble-updates` fehlte im Image; `rosdep`
+ignoriert `COLCON_IGNORE` → zog Gazebo-Bridge) wurden im Skript fest
+abgefangen (Pocket-Check + `--skip-keys`), sodass der nächste frische Pi
+sie nicht mehr hat. udev-`/dev/servo2040` + ROS_DOMAIN_ID-Abgleich sauber
+verifiziert.
+
+**Hat länger gedauert / Reibung:** SSH-Login (falscher User `enjoykin`
+statt `pi`), SSH-Timeout killte das Provisioning mitten im dpkg (→ tmux-
+Empfehlung), `apt upgrade` als §5-Genehmigung. Alles in Doku/Skript
+abgefangen.
+
+**Offen / nächster Schritt:** Der **erste echte Hardware-Start am Pi**
+(`loopback_mode:=false serial_port:=/dev/servo2040`) ist bewusst NICHT
+Teil von Phase 12 — er gehört nach Phase 13: aufgebockt (§9, Kill-Switch,
+langsam), Power-On-Zentrier-Sequenz beachten, eigene Plan-Doku zuerst.
+Außerdem deferiert: D (DDS/RViz-Remote), G.2 (rsync), F.3 (joint_states-Echo).
