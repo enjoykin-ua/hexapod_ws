@@ -11,7 +11,52 @@
 
 ---
 
-## ⏳ FORTSCHRITT (Teil 1 ✅, Teil 2 begonnen — in kontext-begrenztem Chat)
+## ✅ FORTSCHRITT (Teil 1 ✅, Teil 2 ✅ — S4 fertig)
+
+**Teil 2 (Test-Migration) ABGESCHLOSSEN** — `colcon test hexapod_gait hexapod_teleop`:
+- **hexapod_gait: 204 tests, 0 failures, 28 skipped** (war 71 fail / 28 skip).
+- **hexapod_teleop: 30 tests, 0 failures, 1 skip.**
+- **hexapod_kinematics: 36 tests, 0 failures** (kein Regress).
+- ✅ KRITISCH real-engine: `test_stance_switch::test_mode_walks_all_directions_no_ikerror`
+  **alle 3 Modi GREEN**.
+- Envelope-Recheck final: Walking mittel/tief/hoch alle Szenarien GREEN; Standup 0.17/-0.10 GRÜN.
+
+**Migrierte Dateien + nennenswerte Abweichungen vom Handover-Plan:**
+- `test_joint_load`, `test_gait_patterns`, `test_stance_switch`, `test_sitdown`,
+  `test_startup_ramp`, `test_cartesian_standup`, `test_reposition`: Posen + `_POWER_ON_MID`
+  (neue 18 rad) + Modus-Tripel migriert.
+- **Alle Test-`_URDF_LIMITS` tibia auf -0.28/+2.50 vereinheitlicht** (war teils -1.00 lower) —
+  strikt config.py + ros2_control.xacro (Memory `two_joint_limit_sources`).
+- **`test_cartesian_standup._RADIAL` = 0.17, NICHT 0.145** (Handover §3 sagte 0.145).
+  Begründung: der kartesische Standup operiert an der **breiten standup_radial**; Touchdown
+  bei Bauch-Höhe (z=-0.0135) braucht radial ≥0.16 (femur ±1.57 — bei 0.145 wäre femur -1.76,
+  out-of-limit). Der real-engine-IK ist die Wahrheit (CLAUDE.md §4). Alt war `_RADIAL` == alte
+  standup_radial 0.295, jetzt == neue standup_radial 0.17 — konsistent mit `test_reposition`.
+- **`step_length_max` in `test_stance_switch` 0.089→0.03**, `step_height` mehrere Dateien
+  0.080→0.04 (Produktiv-Werte; Handover listete sie nicht je Datei, aber nötig/konsistent).
+- **`test_param_callback`** linear_max 0.025→0.015 (Node-Default step_length_max 0.03 — das
+  vom Handover als „71 statt 70" vorhergesagte Produktiv-Default-Test).
+- **`test_sitdown::test_cmd_vel_ignored_in_sitdown_and_sat`**: `_drive()` (setzt t auf 0.02
+  zurück) → forward-continue ersetzt. Latenter Test-Bug (Lower-Smoothstep rückwärts
+  extrapoliert → out-of-reach), vom alten weiten Envelope maskiert, vom engen aufgedeckt.
+- `value_neutral`-Tests (sitdown/reposition): 0.24/0.28 bzw. 0.28/0.24 → reachable 0.14/0.18.
+
+### Self-Review (CLAUDE.md §4)
+| Punkt | Status |
+|---|---|
+| Alle 3 Stance-Modi real-engine GREEN über alle cmd_vel-Richtungen | OK |
+| Test-`_URDF_LIMITS` == echte URDF (tibia -0.28/+2.50) statt gedriftet | OK |
+| `_POWER_ON_MID` (3 Test-Kopien) == Tool + ros2_control.xacro (18 rad) | OK |
+| cartesian_standup an standup_radial 0.17 (femur-konform, statt 0.145) | OK |
+| step_height/step_length_max == Produktiv (0.04/0.03) | OK |
+| kinematics 36/0 — kein Regress | OK |
+| Envelope GREEN ≠ Strom-Beweis (kommt am Boden-Test) | 🟢 später (Phase 13/S5) |
+| flake8/pep257 melden tools/*.py-Lint (S3) — nur bei pytest-from-root, nicht in colcon | 🟡 vormerken (eigenes tools/-Lint-Cleanup, nicht S4-Scope) |
+| Genaue radii (0.16/0.145/0.13) ggf. +0.005…0.01 Femur-Marge | 🟢 später (S5 Sim/HW-Verify) |
+
+---
+
+## ⏳ FORTSCHRITT (HISTORISCH — Teil 1 ✅, Teil 2 begonnen)
 
 **Teil 1 (Produktiv-Posen) ERLEDIGT** — `hexapod_gait` baut, Werte verifiziert:
 - `gait_node.py`: `_STANCE_MODES` tief(0.160,−0.070,0.040) / mittel(0.145,−0.100,0.040) /

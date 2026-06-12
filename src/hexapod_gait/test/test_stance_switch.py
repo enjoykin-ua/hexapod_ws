@@ -5,8 +5,8 @@ STATE_STANCE_SWITCH fährt per Tripod-Reposition radial UND body_height
 gleichzeitig vom Ist- zum Ziel-Modus (kleiner switch_step_height → Apex unter
 Femur-Wand). Nur aus STANDING; cmd_vel ignoriert. Endet im Ziel-Modus → STANDING.
 
-3 validierte Modi: hoch (-0.140/0.190), mittel (-0.100/0.220), tief (-0.070/0.235),
-alle step_height 0.080. Pure-Python (pytest, kein rclpy).
+3 validierte Modi (leg_changes S4): hoch (-0.13/0.13), mittel (-0.10/0.145),
+tief (-0.07/0.16), alle step_height 0.04. Pure-Python (pytest, kein rclpy).
 """
 
 from hexapod_gait.gait_engine import GaitEngine
@@ -19,13 +19,13 @@ _TRIPOD = GAIT_PRESETS['tripod']
 _URDF = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.00, tibia_upper=2.50,
+    tibia_lower=-0.28, tibia_upper=2.50,
 )
 # (radial, body_height, step_height) je Modus — mit Femur-Marge gewählt
-# (real-engine-validiert, NICHT am Min-Radial-Rand).
-HOCH = (0.225, -0.140, 0.080)
-MITTEL = (0.245, -0.100, 0.080)
-TIEF = (0.255, -0.070, 0.080)
+# (real-engine-validiert, NICHT am Min-Radial-Rand). leg_changes S4.
+HOCH = (0.13, -0.13, 0.04)
+MITTEL = (0.145, -0.10, 0.04)
+TIEF = (0.16, -0.07, 0.04)
 _SWITCH_DUR = 2.0
 
 
@@ -33,9 +33,9 @@ def _engine(mode=MITTEL) -> GaitEngine:
     radial, bh, sh = mode
     return GaitEngine(
         pattern=_TRIPOD, step_height=sh, cycle_time=2.0,
-        radial_distance=radial, body_height=bh, step_length_max=0.089,
+        radial_distance=radial, body_height=bh, step_length_max=0.03,
         joint_limits={leg.name: _URDF for leg in HEXAPOD.legs},
-        standup_radial_distance=0.295, reposition_cycle_time=2.0,
+        standup_radial_distance=0.17, reposition_cycle_time=2.0,
     )
 
 
@@ -69,7 +69,7 @@ def test_switch_rejected_when_not_standing():
 def test_switch_validates_duration():
     engine = _engine()
     with pytest.raises(ValueError):
-        engine.start_stance_switch(0.0, 0.190, -0.140, 0.080, 0.0)
+        engine.start_stance_switch(0.0, 0.13, -0.13, 0.04, 0.0)
 
 
 # ----- Pfad in-limit + Zielzustand für alle Übergänge ------------------
@@ -130,7 +130,7 @@ def test_mode_walks_all_directions_no_ikerror(mode):
     radial, bh, sh = mode
     engine = GaitEngine(
         pattern=_TRIPOD, step_height=sh, cycle_time=2.0,
-        radial_distance=radial, body_height=bh, step_length_max=0.089,
+        radial_distance=radial, body_height=bh, step_length_max=0.03,
         joint_limits={leg.name: _URDF for leg in HEXAPOD.legs},
         standup_radial_distance=radial, reposition_cycle_time=2.0,
     )

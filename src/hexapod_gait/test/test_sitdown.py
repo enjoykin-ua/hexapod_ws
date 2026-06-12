@@ -24,19 +24,20 @@ import pytest
 
 _TRIPOD = GAIT_PRESETS['tripod']
 
-# URDF-Limits NACH dem Tibia-Unlock (Stage 1 Teil 2.1): tibia bis +2.50.
+# URDF-Limits (leg_changes S4): coxa ±0.415 / femur ±1.57 / tibia -0.28/+2.50
+# (strikt aus config.py + hexapod.ros2_control.xacro — Memory two_joint_limit_sources).
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.00, tibia_upper=2.50,
+    tibia_lower=-0.28, tibia_upper=2.50,
 )
 
-# Feet-closer-Walk-Preset-Werte (config/presets/feet_closer_walk.yaml).
-_WALK_RADIAL = 0.215       # Walk-Pose (eng)
-_STANDUP_RADIAL = 0.295    # breite Aufsteh-/Hinsetz-Pose
-_BH = -0.120               # Walk-Körperhöhe
+# Stance-Werte (mittel-Stance / breite Aufsteh-Pose, leg_changes S4).
+_WALK_RADIAL = 0.145       # Walk-Pose (mittel-Stance)
+_STANDUP_RADIAL = 0.17     # breite Aufsteh-/Hinsetz-Pose
+_BH = -0.10                # Walk-Körperhöhe (mittel)
 _BH_START = -0.0135        # Foot-z bei Bauch am Boden
-_STEP_HEIGHT = 0.080
+_STEP_HEIGHT = 0.040
 
 _REPOS_DUR = 2.0           # Phase 1 (reposition_cycle_time)
 _LOWER_DUR = 3.0           # Phase 2 (sitdown_duration * lower_fraction)
@@ -318,8 +319,13 @@ def test_cmd_vel_ignored_in_sitdown_and_sat():
     assert engine.state == GaitEngine.STATE_SITDOWN_LOWER
     engine.set_command(0.05, 0.0, 0.0, i * dt)
     assert engine.state == GaitEngine.STATE_SITDOWN_LOWER
-    # In SAT
-    _drive(engine, _T_FLATTEN_END + 0.2)
+    # Weiter auf DERSELBEN t-Achse bis SAT ticken — NICHT _drive (das würde
+    # die Zeit auf t=0 zurücksetzen und die Lower-Smoothstep-Rampe rückwärts
+    # extrapolieren → out-of-reach Foot-Target; der enge leg_changes-Envelope
+    # deckt das auf, der alte weite hat es maskiert).
+    n_full = int(round((_T_FLATTEN_END + 0.2) / dt))
+    for j in range(i + 1, n_full + 1):
+        engine.compute_joint_angles(j * dt)
     assert engine.state == GaitEngine.STATE_SAT
     engine.set_command(0.05, 0.0, 0.0, _T_FLATTEN_END + 1.0)
     assert engine.state == GaitEngine.STATE_SAT
@@ -365,8 +371,8 @@ def test_standup_from_sat_in_limits():
 # --------------------------------------------------------------------------- #
 
 def test_sitdown_value_neutral_other_radii():
-    """Andere radii (0.24↔0.28) laufen generisch — kein Hardcode."""
-    engine = _make_engine(walk_radial=0.24, standup_radial=0.28)
+    """Andere radii (0.14↔0.18) laufen generisch — kein Hardcode."""
+    engine = _make_engine(walk_radial=0.14, standup_radial=0.18)
     assert _start_sitdown(engine) is True
     _drive(engine, _T_FLATTEN_END + 0.2)
     assert engine.state == GaitEngine.STATE_SAT

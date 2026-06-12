@@ -34,44 +34,43 @@ def _make_engine() -> GaitEngine:
     """Engine mit Stage-0.4-Stand-Pose-Defaults — IK-erreichbar + in-limits."""
     return GaitEngine(
         pattern=_TRIPOD,
-        step_height=0.03,
+        step_height=0.04,
         cycle_time=2.0,
-        # Stage 0.4: radial 0.295 / body_height -0.080 (war 0.27 / -0.052).
-        # Die alte Pose verletzte das Tibia-Limit (1.33 > 1.161 rad) -> auf HW
-        # Stage-0.5-Freeze; in lenienter Phase-5-Sim nie aufgefallen.
-        radial_distance=0.295,
-        body_height=-0.080,
-        step_length_max=0.05,
+        # leg_changes S4: mittel-Stance radial 0.145 / body_height -0.10
+        # (war 0.295 / -0.080 vor dem Bein-Umbau). Mit den kuerzeren
+        # Femur/Tibia ist 0.295 jetzt out-of-reach (d > 0.194).
+        radial_distance=0.145,
+        body_height=-0.10,
+        step_length_max=0.03,
     )
 
 
 # ECHTE URDF-Joint-Limits, die das Plugin via set_joint_limits aus
-# hexapod.urdf.xacro nimmt (Stage F strict-min + Stage 0.2 femur):
-# coxa ±0.415, femur ±1.57, tibia ±1.161. NICHT die config.py-Defaults
-# (±1.57/±1.50) — die Slope-Formel haengt von den Limits ab, daher muss
-# der In-Limits-Test die echten Werte nutzen.
+# hexapod.urdf.xacro nimmt: coxa ±0.415, femur ±1.57, tibia -0.28/+2.50
+# (leg_changes: config.py + hexapod.ros2_control.xacro, strikt-symmetrisch).
+# NICHT die config.py-Slope-Defaults — die Slope-Formel haengt von den
+# Limits ab, daher muss der In-Limits-Test die echten Werte nutzen.
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    # Stage 0.6.6 (2026-06-01): Tibia asymmetrisch -1.00 / +1.30 (einseitiges Knie).
-    tibia_lower=-1.00, tibia_upper=1.30,
+    tibia_lower=-0.28, tibia_upper=2.50,
 )
 
 
 # power_on_mid start pose (servo centre 1500 us -> rad per joint), the
-# real plugin init pose after Stage 0.3. Computed from servo_mapping.yaml
-# via pulse_us_to_radians(1500) MIT den echten URDF-Limits (s. _URDF_LIMITS);
-# hard-coded here so the gait test stays free of a hexapod_hardware import.
-# Per leg: (coxa, femur, tibia) rad. Falls die Femur-Cal je neu vermessen
-# wird, diese Werte nachziehen.
-# Source: docs_raspi/phase_13_stage_0_4_standup_plan.md §3.1.
+# real plugin init pose. Computed from servo_mapping.yaml via
+# pulse_us_to_radians(1500) mit der leg_changes-Cal (S2/S3.1); hard-coded
+# here so the gait test stays free of a hexapod_hardware import.
+# Per leg: (coxa, femur, tibia) rad. Falls die Cal je neu vermessen wird,
+# diese Werte nachziehen (Quelle: tools/standup_envelope_check.py +
+# hexapod.ros2_control.xacro initial=).
 _POWER_ON_MID = {
-    'leg_1': (-0.069, -0.469, 0.4946),
-    'leg_2': (0.156, -0.637, 0.5181),
-    'leg_3': (-0.111, -0.439, 0.2591),
-    'leg_4': (0.026, -0.477, 0.4286),
-    'leg_5': (0.104, -0.419, 0.1978),
-    'leg_6': (0.052, -0.496, 0.3503),
+    'leg_1': (-0.0692, -0.7732, 0.8491),
+    'leg_2': (0.1556, -0.9523, 0.9089),
+    'leg_3': (-0.1115, -0.8431, 1.0046),
+    'leg_4': (0.0259, -0.8157, 1.0485),
+    'leg_5': (0.1037, -0.8276, 0.9745),
+    'leg_6': (0.0519, -0.7697, 0.8464),
 }
 
 
@@ -382,13 +381,11 @@ def test_stand_pose_in_limits_for_all_legs():
     """
     Stand-pose must be IK-reachable + within strict URDF limits, all 6 legs.
 
-    Stage 0.4 regression: this would have caught the bug fixed in 0.4 — the old
-    stand pose (radial 0.27 / body_height -0.052) needed tibia 1.33 rad, over
-    the +-1.161 limit -> HW Stage-0.5 freeze. leg_ik with _URDF_LIMITS raises
-    IKError on any out-of-limit joint, so a regression of the stand-pose
-    defaults fails loudly here.
+    Regression: leg_ik with _URDF_LIMITS raises IKError on any out-of-limit
+    joint or out-of-reach target, so a regression of the stand-pose defaults
+    (or an out-of-reach radial after the leg_changes re-param) fails loudly here.
     """
-    foot = (0.295, 0.0, -0.080)  # Stage-0.4 stand pose
+    foot = (0.145, 0.0, -0.10)  # mittel-Stance stand pose (leg_changes S4)
     for leg in HEXAPOD.legs:
         # Must not raise IKError (geometry reach + strict joint limits).
         angles = leg_ik(*foot, leg, _URDF_LIMITS)

@@ -25,7 +25,7 @@ import pytest
 _LEG1 = HEXAPOD.by_name('leg_1')
 
 
-def _stand_angles(radial: float = 0.25, bh: float = -0.10) -> dict:
+def _stand_angles(radial: float = 0.145, bh: float = -0.10) -> dict:
     """Symmetrische Stand-Pose: jedes Bein Fuss bei (radial, 0, bh)."""
     a = leg_ik(radial, 0.0, bh, _LEG1)
     return {cfg.name: a for cfg in HEXAPOD.legs}
@@ -104,8 +104,8 @@ def test_total_mass_override_scales():
 
 def test_foot_further_out_higher_tibia_torque():
     """Sweep-Sanity: größeres radial → höheres Tibia-Moment (Hebelarm)."""
-    near = compute_load(_stand_angles(radial=0.20, bh=-0.10))
-    far = compute_load(_stand_angles(radial=0.27, bh=-0.10))
+    near = compute_load(_stand_angles(radial=0.14, bh=-0.10))
+    far = compute_load(_stand_angles(radial=0.18, bh=-0.10))
     assert abs(far.legs['leg_1'].tibia.torque_nm) > abs(
         near.legs['leg_1'].tibia.torque_nm)
 

@@ -26,25 +26,24 @@ import pytest
 _TRIPOD = GAIT_PRESETS['tripod']
 
 # ECHTE URDF-Joint-Limits (wie das Plugin via set_joint_limits): coxa ±0.415,
-# femur ±1.57, tibia -1.00/+1.30 (Stage 0.6.6, asymmetrisch). NICHT die
-# config.py-Defaults — die IK-Slope haengt von den Limits ab (siehe
-# test_startup_ramp.py / Memory two_joint_limit_sources).
+# femur ±1.57, tibia -0.28/+2.50 (leg_changes, strikt-symmetrisch aus config.py
+# + hexapod.ros2_control.xacro). NICHT die config.py-Slope-Defaults — die
+# IK-Slope haengt von den Limits ab (Memory two_joint_limit_sources).
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.00, tibia_upper=1.30,
+    tibia_lower=-0.28, tibia_upper=2.50,
 )
 
-# power_on_mid (1500 us) rad pro Bein — Quelle: phase_13_stage_0_4_standup_plan
-# §3.1 / test_startup_ramp.py::_POWER_ON_MID. Tibia (3. Wert) nach Stage 0.6.6
-# Re-Cal aktualisiert. Bei Neu-Cal nachziehen.
+# power_on_mid (1500 us) rad pro Bein — Quelle: tools/standup_envelope_check.py /
+# test_startup_ramp.py::_POWER_ON_MID (leg_changes S2/S3.1-Cal). Bei Neu-Cal nachziehen.
 _POWER_ON_MID = {
-    'leg_1': (-0.069, -0.469, 0.4946),
-    'leg_2': (0.156, -0.637, 0.5181),
-    'leg_3': (-0.111, -0.439, 0.2591),
-    'leg_4': (0.026, -0.477, 0.4286),
-    'leg_5': (0.104, -0.419, 0.1978),
-    'leg_6': (0.052, -0.496, 0.3503),
+    'leg_1': (-0.0692, -0.7732, 0.8491),
+    'leg_2': (0.1556, -0.9523, 0.9089),
+    'leg_3': (-0.1115, -0.8431, 1.0046),
+    'leg_4': (0.0259, -0.8157, 1.0485),
+    'leg_5': (0.1037, -0.8276, 0.9745),
+    'leg_6': (0.0519, -0.7697, 0.8464),
 }
 
 # Geometrie (hexapod_physical_properties.xacro + config.py); fuer den
@@ -52,9 +51,12 @@ _POWER_ON_MID = {
 _BODY_HEIGHT_BOX = 0.043
 _FOOT_RADIUS = 0.008
 _COXA_Z_BELLY = _BODY_HEIGHT_BOX / 2.0          # 0.0215 m
+# Cartesian standup operiert an der BREITEN standup_radial (Touchdown bei
+# Bauch-Hoehe braucht >=0.16 wg. Femur-±1.57; danach narrowt die Reposition
+# auf Walk 0.145). Alt war _RADIAL == alte standup_radial 0.295.
 _BH_START = -0.0135
-_RADIAL = 0.295
-_BH_FINAL = -0.080
+_RADIAL = 0.17
+_BH_FINAL = -0.10
 _DURATION = 4.0
 _PHASE1_FRAC = 0.4
 
@@ -62,11 +64,11 @@ _PHASE1_FRAC = 0.4
 def _make_engine(with_limits: bool = True) -> GaitEngine:
     return GaitEngine(
         pattern=_TRIPOD,
-        step_height=0.03,
+        step_height=0.04,
         cycle_time=2.0,
         radial_distance=_RADIAL,
         body_height=_BH_FINAL,
-        step_length_max=0.05,
+        step_length_max=0.03,
         joint_limits={leg.name: _URDF_LIMITS for leg in HEXAPOD.legs}
         if with_limits else None,
     )
@@ -209,7 +211,7 @@ def test_touchdown_reaches_ground():
 # --- §6.1 Endpose == Stand-Pose ---------------------------------------------
 
 def test_endpoint_is_stand_pose():
-    """Ramp-Ende == Stand-Pose-IK (radial 0.295 / bh -0.080) für alle Beine."""
+    """Ramp-Ende == Stand-Pose-IK (radial 0.17 / bh -0.10) für alle Beine."""
     engine = _make_engine()
     _start(engine)
     angles = engine.compute_joint_angles(_DURATION)

@@ -22,18 +22,19 @@ _LEFT = {4, 5, 6}
 # Reihen (fore-aft): vorne {1,6}, mitte {2,5}, hinten {3,4}.
 _ROW = {1: 'front', 6: 'front', 2: 'mid', 5: 'mid', 3: 'rear', 4: 'rear'}
 
-# URDF-Limits (Stand 2026-06: Tibia +2.50, s. servo_real_cal Stage F).
+# URDF-Limits (leg_changes: coxa ±0.415 / femur ±1.57 / tibia -0.28/+2.50,
+# strikt aus config.py + hexapod.ros2_control.xacro — Memory two_joint_limit_sources).
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.00, tibia_upper=2.50,
+    tibia_lower=-0.28, tibia_upper=2.50,
 )
 
-# Feet-closer-Walk-Pose (preset), pattern-unabhängig.
-_WALK_RADIAL = 0.215
-_BH = -0.120
-_STEP_HEIGHT = 0.080
-_STEP_LENGTH_MAX = 0.089
+# Walk-Pose (mittel-Stance, leg_changes S4), pattern-unabhängig.
+_WALK_RADIAL = 0.145
+_BH = -0.10
+_STEP_HEIGHT = 0.040
+_STEP_LENGTH_MAX = 0.03
 _CYCLE = 2.0
 
 

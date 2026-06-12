@@ -19,27 +19,27 @@ import pytest
 
 _TRIPOD = GAIT_PRESETS['tripod']
 
-# Aktuelle URDF-Limits NACH dem Tibia-Unlock (Stage 1 Teil 2.1): tibia bis
-# +2.50. Die nähere Walk-Pose (radial 0.220) braucht diese Beuge — mit dem
-# alten +1.30 wäre sie out-of-limit (genau der Grund für den Unlock).
+# URDF-Limits (leg_changes S4): coxa ±0.415 / femur ±1.57 / tibia -0.28/+2.50
+# (strikt aus config.py + hexapod.ros2_control.xacro — Memory two_joint_limit_sources).
+# Die nähere Walk-Pose braucht die Tibia-Beuge bis +2.50.
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.00, tibia_upper=2.50,
+    tibia_lower=-0.28, tibia_upper=2.50,
 )
 
 _POWER_ON_MID = {
-    'leg_1': (-0.069, -0.469, 0.4946),
-    'leg_2': (0.156, -0.637, 0.5181),
-    'leg_3': (-0.111, -0.439, 0.2591),
-    'leg_4': (0.026, -0.477, 0.4286),
-    'leg_5': (0.104, -0.419, 0.1978),
-    'leg_6': (0.052, -0.496, 0.3503),
+    'leg_1': (-0.0692, -0.7732, 0.8491),
+    'leg_2': (0.1556, -0.9523, 0.9089),
+    'leg_3': (-0.1115, -0.8431, 1.0046),
+    'leg_4': (0.0259, -0.8157, 1.0485),
+    'leg_5': (0.1037, -0.8276, 0.9745),
+    'leg_6': (0.0519, -0.7697, 0.8464),
 }
 
-_STANDUP_RADIAL = 0.295    # breite Aufsteh-Pose
-_WALK_RADIAL = 0.220       # nähere Walk-Pose (Tool-Ergebnis)
-_BH = -0.080
+_STANDUP_RADIAL = 0.17     # breite Aufsteh-Pose (leg_changes S4)
+_WALK_RADIAL = 0.145       # nähere Walk-Pose (mittel-Stance)
+_BH = -0.10
 _STEP_HEIGHT = 0.040
 _STANDUP_DUR = 4.0
 _REPOS_DUR = 2.0
@@ -127,7 +127,7 @@ def test_standup_triggers_reposition_when_radii_differ():
 
 def test_no_reposition_when_radii_equal():
     """standup_radial == walk_radial → direkt STANDING (Skip, eps)."""
-    engine = _make_engine(standup_radial=0.295, walk_radial=0.295)
+    engine = _make_engine(standup_radial=0.145, walk_radial=0.145)
     _finish_standup(engine)
     assert engine.state == GaitEngine.STATE_STANDING
 
@@ -184,8 +184,8 @@ def test_reposition_ends_at_walk_radial_standing():
 
 
 def test_reposition_value_neutral_other_radii():
-    """Wertneutral: andere radii (0.28→0.24) laufen generisch — kein Hardcode."""
-    engine = _make_engine(standup_radial=0.28, walk_radial=0.24)
+    """Wertneutral: andere radii (0.18→0.14) laufen generisch — kein Hardcode."""
+    engine = _make_engine(standup_radial=0.18, walk_radial=0.14)
     _finish_standup(engine)
     assert engine.state == GaitEngine.STATE_REPOSITION
     for t in _repos_samples():
@@ -194,7 +194,7 @@ def test_reposition_value_neutral_other_radii():
     end = engine.compute_joint_angles(_STANDUP_DUR + _REPOS_DUR)
     assert engine.state == GaitEngine.STATE_STANDING
     for leg in HEXAPOD.legs:
-        assert leg_fk(*end[leg.name], leg)[0] == pytest.approx(0.24, abs=1e-3)
+        assert leg_fk(*end[leg.name], leg)[0] == pytest.approx(0.14, abs=1e-3)
 
 
 def test_cmd_vel_ignored_during_reposition():
