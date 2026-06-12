@@ -78,43 +78,48 @@
        erreichen (leg_5-bound). Sicherheit pose-abhängig (Femur beim Laufen
        oben) per Envelope-Check, kein Laufzeit-Kollisions-Check (Weg B deferred).
        Cal-Modell: docs_raspi/phase_13_stage_0_6_6_tibia_recal_plan.md.
-       Unlock-Plan: docs_raspi/phase_13_stage_1_tibia_unlock_plan.md. -->
+       Unlock-Plan: docs_raspi/phase_13_stage_1_tibia_unlock_plan.md.
+
+       Bein-Umbau (leg_changes, kuerzere Femur+Tibia): Streck-Limit -1.00 → -0.28
+       (neuer, viel engerer Ueberstreck-Anschlag der kurzen Tibia; handover.md §1),
+       Beuge +2.50 unveraendert. Symmetrie ueber alle 6 Beine + Sync urdf↔ros2_control
+       jetzt per test_per_leg_limits (hexapod_kinematics) abgesichert. -->
   <xacro:leg id="1"
              mount_x="${ body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.00"  tibia_upper="2.50"/>
+             tibia_lower="-0.28"  tibia_upper="2.50"/>
   <xacro:leg id="2"
              mount_x="0"                 mount_y="${-body_width_middle/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/2}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.00"  tibia_upper="2.50"/>
+             tibia_lower="-0.28"  tibia_upper="2.50"/>
   <xacro:leg id="3"
              mount_x="${-body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-3*pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.00"  tibia_upper="2.50"/>
+             tibia_lower="-0.28"  tibia_upper="2.50"/>
   <xacro:leg id="4"
              mount_x="${-body_length/2}" mount_y="${ body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ 3*pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.00"  tibia_upper="2.50"/>
+             tibia_lower="-0.28"  tibia_upper="2.50"/>
   <xacro:leg id="5"
              mount_x="0"                 mount_y="${ body_width_middle/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ pi/2}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.00"  tibia_upper="2.50"/>
+             tibia_lower="-0.28"  tibia_upper="2.50"/>
   <xacro:leg id="6"
              mount_x="${ body_length/2}" mount_y="${ body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${ pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-1.00"  tibia_upper="2.50"/>
+             tibia_lower="-0.28"  tibia_upper="2.50"/>
 
   <!-- ===== Gazebo-spezifische Eigenschaften (Reibung an Foot-Kugeln) ===== -->
   <xacro:include filename="hexapod.gazebo.xacro"/>

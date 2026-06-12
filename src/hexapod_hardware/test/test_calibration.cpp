@@ -821,6 +821,42 @@ TEST(RealConfigFile, InstalledServoMappingParses)
   EXPECT_EQ(c.at(0).pulse_zero, 1460);
 }
 
+// Leg-Umbau (leg_changes): die 12 neuen Femur/Tibia-Cal-Werte + ihr Zusammenspiel
+// mit den neuen URDF-Tibia-Limits. Cal-seitiger Waechter analog zu
+// hexapod_kinematics/test/test_per_leg_limits.py: pinnt die neue Cal als Baseline
+// und prueft, dass rad an den Limits in [500,2500] bleibt + exakt roundtrippt.
+TEST(RealConfigFile, LegChangesCalValuesAndLimitInterplay)
+{
+  const std::string source_yaml =
+    std::string(SOURCE_DIR_FOR_TESTS) + "/config/servo_mapping.yaml";
+  Calibration c;
+  ASSERT_NO_THROW(c.load_from_file(source_yaml));
+
+  // Spot-Check neuer Femur/Tibia-pulse_zero (Baseline gegen versehentliche
+  // Cal-Edits; Werte aus handover.md). Coxa bleibt auf alter Cal (1460).
+  EXPECT_EQ(c.at(c.output_idx_for_joint("leg_1_femur_joint")).pulse_zero, 1828);
+  EXPECT_EQ(c.at(c.output_idx_for_joint("leg_1_tibia_joint")).pulse_zero, 1860);
+  EXPECT_EQ(c.at(c.output_idx_for_joint("leg_4_tibia_joint")).pulse_zero, 1050);
+  EXPECT_EQ(c.at(c.output_idx_for_joint("leg_1_coxa_joint")).pulse_zero, 1460);
+
+  // Echte URDF-Tibia-Limits (MIRROR hexapod.urdf.xacro / config.py: -0.28/+2.50).
+  // Cal x Limit: rad an den Grenzen + 0 muss in [500,2500] bleiben und exakt
+  // roundtrippen. Beide direction-Vorzeichen: leg_1_tibia (-1), leg_4_tibia (+1).
+  const double kTibiaLower = -0.28;
+  const double kTibiaUpper = +2.50;
+  for (const char * joint : {"leg_1_tibia_joint", "leg_4_tibia_joint"}) {
+    c.set_joint_limits(joint, kTibiaLower, kTibiaUpper);
+    const int idx = c.output_idx_for_joint(joint);
+    for (double rad : {kTibiaLower, 0.0, kTibiaUpper}) {
+      const double pulse = c.radians_to_pulse_us(idx, rad);
+      EXPECT_GE(pulse, 500.0) << joint << " rad=" << rad;
+      EXPECT_LE(pulse, 2500.0) << joint << " rad=" << rad;
+      EXPECT_NEAR(c.pulse_us_to_radians(idx, pulse), rad, 1e-9)
+        << joint << " rad=" << rad;
+    }
+  }
+}
+
 // ============================================================================
 // Phase 11 Stage B — Live-Cal-Update API (snapshot, update_servo_cal)
 // ============================================================================

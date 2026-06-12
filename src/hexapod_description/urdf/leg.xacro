@@ -45,7 +45,7 @@
           <box size="${coxa_length} ${coxa_width} ${coxa_height}"/>
         </geometry>
       </collision>
-      <xacro:box_inertia mass="${segment_mass}"
+      <xacro:box_inertia mass="${coxa_mass}"
                          x="${coxa_length}" y="${coxa_width}" z="${coxa_height}"/>
     </link>
 
@@ -73,7 +73,7 @@
           <box size="${femur_length} ${femur_width} ${femur_height}"/>
         </geometry>
       </collision>
-      <xacro:box_inertia mass="${segment_mass}"
+      <xacro:box_inertia mass="${femur_mass}"
                          x="${femur_length}" y="${femur_width}" z="${femur_height}"/>
     </link>
 
@@ -101,7 +101,7 @@
           <box size="${tibia_length} ${tibia_width} ${tibia_height}"/>
         </geometry>
       </collision>
-      <xacro:box_inertia mass="${segment_mass}"
+      <xacro:box_inertia mass="${tibia_mass}"
                          x="${tibia_length}" y="${tibia_width}" z="${tibia_height}"/>
     </link>
 

@@ -13,15 +13,21 @@
   <xacro:property name="coxa_width"  value="0.0254"/>
   <xacro:property name="coxa_height" value="0.0582"/>
 
-  <xacro:property name="femur_length" value="0.07994"/>
+  <xacro:property name="femur_length" value="0.060"/>
   <xacro:property name="femur_width"  value="0.059"/>
   <xacro:property name="femur_height" value="0.020"/>
 
-  <xacro:property name="tibia_length" value="0.200"/>
+  <xacro:property name="tibia_length" value="0.134"/>
   <xacro:property name="tibia_width"  value="0.012"/>
   <xacro:property name="tibia_height" value="0.012"/>
 
-  <xacro:property name="segment_mass" value="0.1167"/>
+  <!-- Bein-Umbau (leg_changes): Femur+Tibia kuerzer → eigene Massen statt
+       gemeinsamem segment_mass. Coxa unveraendert (0.1167). Beide neuen Segmente
+       zusammen 220 g, Tibia +15 % (handover.md §1). Inertien propagieren via
+       inertials.xacro (Box-Formel + 1e-5-Clamp), nicht von Hand rechnen. -->
+  <xacro:property name="coxa_mass"  value="0.1167"/>
+  <xacro:property name="femur_mass" value="0.102"/>
+  <xacro:property name="tibia_mass" value="0.118"/>
 
   <!-- Foot (Kugel am Tibia-Ende fuer Punktkontakt, wird in Stufe B genutzt) -->
   <xacro:property name="foot_radius" value="0.008"/>
@@ -32,15 +38,16 @@
   <xacro:property name="coxa_upper"   value=" 1.57"/>
   <xacro:property name="femur_lower"  value="-1.57"/>
   <xacro:property name="femur_upper"  value=" 1.57"/>
-  <!-- Stage 1 / Teil 2.1 (2026-06-02): Tibia-Beuge auf das strikt-symmetrische
-       Mechanik-Maximum +2.50 (143°) freigeschaltet (war +1.30, konservativ).
-       Einseitiges Knie: Streck -1.00 bleibt (nie genutzt). +2.50 = größter Wert,
-       den ALLE 6 Servos puls-seitig erreichen (leg_5-bound, Reserve fürs
-       pulse_zero-Peilrauschen). Spiegelt config.py::_TIBIA_LIMITS (Cross-Check
-       test_config.py) + die per-Bein-Overrides in hexapod.urdf.xacro.
-       Sicherheit pose-abhängig (Femur beim Laufen oben) per Design-Zeit-Envelope,
-       kein Laufzeit-Check (Weg B deferred). Plan: phase_13_stage_1_tibia_unlock_plan.md. -->
-  <xacro:property name="tibia_lower"  value="-1.00"/>
+  <!-- Tibia-Beuge +2.50 (143°) = strikt-symmetrisches Mechanik-Maximum, das ALLE
+       6 Servos puls-seitig erreichen (leg_5-bound). Streck-Anschlag durch den
+       Bein-Umbau (leg_changes, kuerzere Tibia) von -1.00 auf -0.28 verengt — der
+       neue, viel engere Ueberstreck-Anschlag der kurzen Tibia (handover.md §1).
+       Property = Default/Referenz; maßgeblich sind die per-Bein-Werte in
+       hexapod.urdf.xacro + hexapod.ros2_control.xacro. Symmetrie ueber alle 6
+       Beine + Sync der beiden URDF-Quellen via test_per_leg_limits, config.py-
+       Mirror via test_config.py. Sicherheit pose-abhaengig per Design-Zeit-
+       Envelope, kein Laufzeit-Check. -->
+  <xacro:property name="tibia_lower"  value="-0.28"/>
   <xacro:property name="tibia_upper"  value=" 2.50"/>
   <xacro:property name="joint_effort"   value="5.0"/>  <!-- effort/velocity: vom Servo-DB -->
   <xacro:property name="joint_velocity" value="2.0"/>

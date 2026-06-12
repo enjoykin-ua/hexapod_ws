@@ -45,19 +45,19 @@ using hexapod_hardware_test::make_valid_info;
 using hexapod_hardware_test::make_params;
 
 // pulse_zero per servo pin, mirroring the committed servo_mapping.yaml.
-// Values from Cal-Session 2026-05-21 + leg_2/leg_5 re-cal 2026-05-24
-// (Mount-Tausch) + Phase 13 Stage 0.2 femur re-cal 2026-05-30 (35° remount,
-// Weg A — femur pulse_zero shifted ~+240 µs; coxa/tibia unchanged).
-// See docs_raspi/servo_real_calibration_todos.md + phase_13_stage_0_2_*.
+// Coxa-Pins (0/3/6/9/12/15) tragen die alte Cal (unveraendert seit Stage 0.6.6);
+// die 12 Femur/Tibia-Pins sind die Bein-Umbau-Cal (leg_changes, handover.md §1 —
+// kuerzere Femur+Tibia, Servos bei power_on_mid montiert + neu kalibriert).
+// See docs_raspi/servo_real_calibration_todos.md + project_finalization/leg_change/.
 // Tests that exercise the boot/neutral-pulse path use this table so YAML
 // edits in future Cal-Sessions don't trigger spurious failures.
 constexpr int16_t kExpectedPulseZero[NUM_SERVOS] = {
-  1460, 1700, 1710,   // leg_1 (pins  0,  1,  2) — tibia re-cal 0.6.6
-  1575, 1780, 1720,   // leg_2 (pins  3,  4,  5) — tibia re-cal 0.6.6
-  1410, 1690, 1610,   // leg_3 (pins  6,  7,  8) — tibia re-cal 0.6.6
-  1520, 1295, 1318,   // leg_4 (pins  9, 10, 11) — tibia re-cal 0.6.6
-  1550, 1325, 1416,   // leg_5 (pins 12, 13, 14) — tibia re-cal 0.6.6
-  1530, 1290, 1351,   // leg_6 (pins 15, 16, 17) — tibia re-cal 0.6.6
+  1460, 1828, 1860,   // leg_1 (pins  0,  1,  2) — coxa alt; femur/tibia leg_changes
+  1575, 1890, 1901,   // leg_2 (pins  3,  4,  5) — coxa alt; femur/tibia leg_changes
+  1410, 1841, 1940,   // leg_3 (pins  6,  7,  8) — coxa alt; femur/tibia leg_changes
+  1520, 1155, 1050,   // leg_4 (pins  9, 10, 11) — coxa alt; femur/tibia leg_changes
+  1550, 1150, 1079,   // leg_5 (pins 12, 13, 14) — coxa alt; femur/tibia leg_changes
+  1530, 1172, 1134,   // leg_6 (pins 15, 16, 17) — coxa alt; femur/tibia leg_changes
 };
 
 // ============================================================================

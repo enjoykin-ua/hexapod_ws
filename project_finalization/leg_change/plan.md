@@ -34,9 +34,9 @@ dann Boden (am Desktop-Hauptsystem), dann ein Kurztest am Pi. Danach `leg_change
 | Segment | alt (Tag `legs-tibia-long`) | neu | Quelle |
 |---|---|---|---|
 | Coxa  | 0.0436 m | unverändert | — |
-| Femur | 0.07994 m | _TBD_ | Messung Schritt 3 |
-| Tibia | 0.200 m | _TBD_ | Messung Schritt 3 |
-| Massen/Inertien | s. §11 conventions | _TBD_ | proportional anpassen |
+| Femur | 0.07994 m | **0.060 m** | handover.md §1 (S1) |
+| Tibia | 0.200 m | **0.134 m** | handover.md §1 (S1) |
+| Massen | segment_mass 0.1167 (alle) | **coxa 0.1167 / femur 0.102 / tibia 0.118** | handover.md §1; Inertien auto via inertials.xacro |
 
 ---
 
@@ -119,25 +119,28 @@ Servo-Mitte, und die Cal bestimmt die echte rad↔pulse-Beziehung.
 ### Schritt 1 — Montage
 - [ ] 1.1 Servos auf power_on_mid, neue Femur+Tibia montiert, Coxa unangetastet
 
-### Schritt 2 — Servo-Cal
-- [ ] 2.1 Femur-Pulse (min/zero/max) für alle 6 → servo_mapping.yaml
-- [ ] 2.2 Tibia-Pulse (min/zero/max) für alle 6 → servo_mapping.yaml
-- [ ] 2.3 Coxa-Sichtprüfung (unverändert bestätigt, sonst nachkalibrieren)
-- [ ] 2.4 rad-0-Sichtprüfung: Bein gestreckt, HW == RViz, Sweep ohne Freeze
-- [ ] 2.5 mechanische Anschläge (Femur/Tibia) notiert → Basis für Schritt 4
+### Schritt 2 — Servo-Cal  (Messung: HW vom User → Handover; Eintrag: S2, stage_2_cal_plan.md)
+- [x] 2.1 Femur-Pulse (min/zero/max) für alle 6 → servo_mapping.yaml (S2)
+- [x] 2.2 Tibia-Pulse (min/zero/max) für alle 6 → servo_mapping.yaml (S2)
+- [x] 2.3 Coxa-Sichtprüfung (unverändert bestätigt — Coxa-Pins unberührt)
+- [ ] 2.4 rad-0-Sichtprüfung: Bein gestreckt, HW == RViz, Sweep ohne Freeze → S6 (HW)
+- [x] 2.5 mechanische Anschläge (Femur/Tibia) notiert → Handover §1
 
-### Schritt 3 — Geometrie
-- [ ] 3.1 Femur+Tibia-Längen gemessen, §1-Tabelle gefüllt
-- [ ] 3.2 physical_properties.xacro: Längen + Massen + Inertien
-- [ ] 3.3 config.py: Längen gespiegelt
+### Schritt 3 — Geometrie  ✅ S1 (Detail: stage_1_model_plan.md)
+- [x] 3.1 Femur+Tibia-Längen gemessen, §1-Tabelle gefüllt (0.060 / 0.134)
+- [x] 3.2 physical_properties.xacro: Längen + Massen-Split (coxa/femur/tibia_mass) + Inertien (auto)
+- [x] 3.2b leg.xacro: 3 box_inertia-Massen-Referenzen umgehängt
+- [x] 3.3 config.py: Längen gespiegelt
 
-### Schritt 4 — rad-Limits
-- [ ] 4.1 neue rad-Limits (symmetrisch, D1) aus Anschlägen abgeleitet
-- [ ] 4.2 hexapod.urdf.xacro (6 Beine) gesetzt
-- [ ] 4.3 config.py-Limits gespiegelt (D2)
+### Schritt 4 — rad-Limits  ✅ S1
+- [x] 4.1 neue rad-Limits (symmetrisch, D1): tibia_lower -1.00 → -0.28
+- [x] 4.2 hexapod.urdf.xacro (6 Beine) gesetzt
+- [x] 4.2b hexapod.ros2_control.xacro (6 Beine, command-Clamp) gesetzt — Handover-Lücke
+- [x] 4.3 config.py-Limits gespiegelt (D2)
+- [x] 4.4 automatisierter Wächter test_per_leg_limits.py (Symmetrie + URDF-Sync + IK-Anker)
 
 ### Schritt 5 — Cross-Check + Sim
-- [ ] 5.1 colcon test hexapod_kinematics grün (xacro↔config.py)
+- [x] 5.1 colcon test hexapod_kinematics grün (xacro↔config.py) — S1, 35 passed
 - [ ] 5.2 Envelope-Tools gerechnet (walking/standup/show) — kein out-of-reach
 - [ ] 5.3 Gazebo-Spawn + RViz: Modell stimmt visuell, Reachability-Viz plausibel
 
