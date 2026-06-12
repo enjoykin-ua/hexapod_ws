@@ -39,7 +39,7 @@ def generate_launch_description() -> LaunchDescription:
 
     step_height_arg = DeclareLaunchArgument(
         'step_height',
-        default_value='0.080',
+        default_value='0.040',
         description=(
             'Schwung-Höhe in m über Stand-Pose. Stage 1: Default 0.080 '
             '(= Stance-Modi).'
@@ -74,7 +74,7 @@ def generate_launch_description() -> LaunchDescription:
 
     radial_distance_arg = DeclareLaunchArgument(
         'radial_distance',
-        default_value='0.245',
+        default_value='0.145',
         description=(
             'Stand-Pose Foot-X im Bein-Frame (m). Stage 1: Default 0.245 = '
             'Stance-Modus "mittel" (mit Femur-Marge gewählt). Standup-Touchdown '
@@ -93,7 +93,7 @@ def generate_launch_description() -> LaunchDescription:
 
     step_length_max_arg = DeclareLaunchArgument(
         'step_length_max',
-        default_value='0.089',
+        default_value='0.03',
         description=(
             'Obere Schranke für Schritt-Länge in m. Aus '
             'step_length_max + cycle_time leitet Engine den maximalen '

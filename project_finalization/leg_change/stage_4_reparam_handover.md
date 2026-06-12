@@ -11,6 +11,34 @@
 
 ---
 
+## ⏳ FORTSCHRITT (Teil 1 ✅, Teil 2 begonnen — in kontext-begrenztem Chat)
+
+**Teil 1 (Produktiv-Posen) ERLEDIGT** — `hexapod_gait` baut, Werte verifiziert:
+- `gait_node.py`: `_STANCE_MODES` tief(0.160,−0.070,0.040) / mittel(0.145,−0.100,0.040) /
+  hoch(0.130,−0.130,0.040); `_SIT_SAFE_MIN_BH=−0.115`; Defaults `radial_distance` 0.145,
+  `standup_radial_distance` 0.170, `step_height` 0.040, `step_length_max` 0.03;
+  radial+standup `fp_range` auf (0.10, 0.21). (`body_height` −0.100 = mittel, unverändert.)
+- `gait.launch.py`: step_height 0.040, radial 0.145, step_length_max 0.03.
+- `stand.launch.py`: body_height −0.100, radial 0.145.
+- teleop `body_height_init` −0.100 **unverändert** (== mittel, schon konsistent).
+- **Femur-Marge real-validiert** (`walking_envelope_check` @ step 0.03 / diagonal):
+  tief 0.24 / mittel 0.49 / hoch 0.88 rad — sicher (besser als alte lange Beine).
+
+**Teil 2 (Test-Migration) STAND:** `hexapod_gait` **71 fail / 28 skip** (war 93 / 1).
+- ✅ `test_show_pose.py` — modul-`pytestmark = pytest.mark.skip` (Show raus).
+- ⬜ **OFFEN (7 Dateien)** — §3-Tabelle. Reihenfolge: niedrig (`test_joint_load`, `test_gait_patterns`)
+  → mittel (`test_sitdown`, `test_stance_switch`) → hoch (`test_startup_ramp`, `test_cartesian_standup`,
+  `test_reposition`: `_POWER_ON_MID` + `_URDF_LIMITS` tibia → −0.28/+2.50 + Posen).
+- ⚠️ **71 (nicht 70) fail** → evtl. 1 Test prüft die in Teil 1 geänderten Produktiv-Defaults;
+  beim `colcon test` sichtbar, mit-migrieren.
+- **Migrations-Zielwerte = die finalen Produktiv-Werte oben** (z.B. `test_stance_switch`
+  HOCH/MITTEL/TIEF = genau tief/mittel/hoch von oben).
+
+**Done am Ende:** `colcon test hexapod_gait hexapod_teleop` grün (show=skipped), v.a.
+`test_stance_switch` real-engine; `colcon test hexapod_kinematics` weiterhin 36/0.
+
+---
+
 ## 0. Stand + zuerst lesen
 
 **Erledigt (Werte stehen, Tests grün):**

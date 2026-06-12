@@ -19,7 +19,7 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     body_height_arg = DeclareLaunchArgument(
         'body_height',
-        default_value='-0.080',
+        default_value='-0.100',
         description=(
             'Foot-Z im Bein-Frame (m). Phase 13 Stage 0.4: Default -0.080 '
             '(mit radial 0.295), konsistent mit gait.launch.py. Der alte '
@@ -30,7 +30,7 @@ def generate_launch_description() -> LaunchDescription:
 
     radial_distance_arg = DeclareLaunchArgument(
         'radial_distance',
-        default_value='0.295',
+        default_value='0.145',
         description=(
             'Foot-X im Bein-Frame (m). Radiale Distanz vom coxa_joint '
             'zur Foot-Position. Phase 13 Stage 0.4: Default 0.295 (war 0.27) '
