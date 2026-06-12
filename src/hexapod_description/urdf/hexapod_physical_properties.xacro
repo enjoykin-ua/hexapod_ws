@@ -34,8 +34,11 @@
   <xacro:property name="foot_mass"   value="0.005"/>
 
   <!-- Joint-Limits (physisch verifiziert, siehe 00_conventions.md §11.4) -->
-  <xacro:property name="coxa_lower"   value="-1.57"/>
-  <xacro:property name="coxa_upper"   value=" 1.57"/>
+  <!-- Coxa: ±0.415 = echte mech. Grenze (rad+PWM doppelt verifiziert); die
+       frueheren ±1.57 waren die Datenblatt-Verifikations-Cal. Property +
+       config.py jetzt konsistent zu den per-Bein-URDF-Werten (leg_changes S3). -->
+  <xacro:property name="coxa_lower"   value="-0.415"/>
+  <xacro:property name="coxa_upper"   value=" 0.415"/>
   <xacro:property name="femur_lower"  value="-1.57"/>
   <xacro:property name="femur_upper"  value=" 1.57"/>
   <!-- Tibia-Beuge +2.50 (143°) = strikt-symmetrisches Mechanik-Maximum, das ALLE

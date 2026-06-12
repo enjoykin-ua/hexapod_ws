@@ -53,7 +53,10 @@ _L_FEMUR = 0.060
 _L_TIBIA = 0.134
 _FOOT_RADIUS = 0.008
 
-_COXA_LIMITS = (-1.57, 1.57)
+# Coxa ±0.415 = echte mech. Grenze (rad+PWM verifiziert); war ±1.57 (alte
+# Datenblatt-Cal). Seit leg_changes S3 konsistent zu properties.xacro +
+# per-Bein-URDF. Cross-Check test_config.py + test_per_leg_limits.
+_COXA_LIMITS = (-0.415, 0.415)
 _FEMUR_LIMITS = (-1.57, 1.57)
 # Tibia-Beuge +2.50 (143°) = strikt-symmetrisches Mechanik-Max, von allen 6
 # Servos puls-seitig erreichbar (leg_5-bound). Bein-Umbau (leg_changes, kuerzere

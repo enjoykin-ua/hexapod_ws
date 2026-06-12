@@ -14,15 +14,12 @@ Dieser Test verifiziert die drei Invarianten, die das Loch schliessen:
      Ein vergessener Wert an EINEM Bein bricht hier.
   2. **URDF-Sync** — ``hexapod.urdf.xacro`` == ``hexapod.ros2_control.xacro``
      (die beiden URDF-Limit-Quellen duerfen nicht auseinanderdriften).
-  3. **IK-Anker** — ``config.py`` femur/tibia == die per-Bein-URDF-Werte; haengt
-     den IK-Mirror an die ECHTEN per-Bein-Werte, nicht nur an die Property.
+  3. **IK-Anker** — ``config.py`` coxa/femur/tibia == die per-Bein-URDF-Werte;
+     haengt den IK-Mirror an die ECHTEN per-Bein-Werte, nicht nur an die Property.
 
-Coxa ist beim IK-Anker (3) bewusst ausgenommen: ``config.py`` ``_COXA_LIMITS``
-ist ``(-1.57, 1.57)``, die per-Bein-URDF-Werte sind aber ``(-0.415, 0.415)`` —
-eine VORBESTEHENDE Altlast (nicht Teil des Bein-Umbaus). ``test_config.py``
-bewacht config.py-Coxa bereits gegen die Property; eine Doppelpruefung hier
-wuerde nur die bekannte Abweichung rot faerben. Befund siehe
-``stage_1_model_plan.md`` Self-Review.
+Seit leg_changes S3 ist auch Coxa konsistent (``config.py`` ``_COXA_LIMITS`` =
+``(-0.415, 0.415)`` == per-Bein-URDF; die frueheren ``(-1.57, 1.57)`` waren die
+Datenblatt-Verifikations-Cal). Der Anker deckt jetzt alle 3 Joints ab.
 """
 
 from pathlib import Path
@@ -114,14 +111,18 @@ def test_urdf_matches_ros2_control():
             )
 
 
-def test_config_py_anchors_femur_tibia():
+def test_config_py_anchors_all_joints():
     """
-    config.py femur/tibia-Limits == die maßgeblichen per-Bein-URDF-Werte.
+    config.py coxa/femur/tibia-Limits == die maßgeblichen per-Bein-URDF-Werte.
 
-    Coxa bewusst ausgenommen (bekannte Altlast, s. Modul-Docstring).
+    Verankert den IK-Mirror an den ECHTEN per-Bein-Werten (nicht nur an der
+    Property). Coxa seit leg_changes S3 ebenfalls konsistent (±0.415).
     """
     reference = _parse_leg_calls(URDF_XACRO)[1]
     cfg = HEXAPOD.legs[0]
+    assert cfg.coxa_limits == reference['coxa'], (
+        f'config.py _COXA_LIMITS {cfg.coxa_limits} != urdf {reference["coxa"]}'
+    )
     assert cfg.femur_limits == reference['femur'], (
         f'config.py _FEMUR_LIMITS {cfg.femur_limits} != urdf {reference["femur"]}'
     )

@@ -60,17 +60,17 @@ _BODY_HEIGHT_BOX = 0.043      # base_link Kollisions-Box-Hoehe (m)
 _LEG_MOUNT_Z = 0.0            # Coxa-Achse auf base_link-Mitte
 _FOOT_RADIUS = 0.008          # Foot-Kugel-Radius (m)
 
-# power_on_mid (1500 us) rad pro Bein — Quelle: phase_13_stage_0_4_standup_plan
-# §3.1 / test_startup_ramp.py::_POWER_ON_MID. Tibia (3. Wert) nach Stage 0.6.6
-# Re-Cal aktualisiert (= pulse_us_to_radians(1500) mit neuer Tibia-Cal).
-# Bei Neu-Cal nachziehen.
+# power_on_mid (1500 us) rad pro Bein = pulse_us_to_radians(1500) mit der
+# aktuellen Cal. Bein-Umbau (leg_changes): neu gerechnet aus servo_mapping.yaml
+# (S3.1), Coxa gegen die alte Cal validiert (unveraendert). Bei Neu-Cal nachziehen
+# — weitere Konsumenten: hexapod.ros2_control.xacro initial + die 3 gait-Tests.
 _POWER_ON_MID = {
-    'leg_1': (-0.069, -0.469, 0.4946),
-    'leg_2': (0.156, -0.637, 0.5181),
-    'leg_3': (-0.111, -0.439, 0.2591),
-    'leg_4': (0.026, -0.477, 0.4286),
-    'leg_5': (0.104, -0.419, 0.1978),
-    'leg_6': (0.052, -0.496, 0.3503),
+    'leg_1': (-0.0692, -0.7732, 0.8491),
+    'leg_2': (0.1556, -0.9523, 0.9089),
+    'leg_3': (-0.1115, -0.8431, 1.0046),
+    'leg_4': (0.0259, -0.8157, 1.0485),
+    'leg_5': (0.1037, -0.8276, 0.9745),
+    'leg_6': (0.0519, -0.7697, 0.8464),
 }
 
 

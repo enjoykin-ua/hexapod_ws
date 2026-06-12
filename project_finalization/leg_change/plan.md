@@ -13,6 +13,36 @@
 
 ---
 
+## ⚠️ Test-Status (Migrations-Zustand bis S4 = Re-Param)
+
+> **Stand nach S1+S2.** Die S1-Geometrie (kürzere Beine) bricht erwartungsgemäß
+> ~93/204 `hexapod_gait`-Tests — sie prüfen Posen/Reichweiten, die für die alten
+> langen Beine kalibriert waren. **Migrations-Zustand, kein Bug.**
+
+| Paket | Status |
+|---|---|
+| `hexapod_kinematics` / `hexapod_hardware` / `hexapod_teleop` | 🟢 grün (S1/S2) |
+| `hexapod_gait` | 🔴 ~93 rot **bis S5** |
+
+`hexapod_gait`-Kategorien:
+- **power_on_mid** (`test_startup_ramp` + Teile standup/reposition): die 18 rad-Werte
+  in S3.1 neu gerechnet + in `standup_envelope_check.py` + `ros2_control.xacro`
+  eingetragen; die **Test-Kopien** werden in S5 migriert.
+- **Posen-/Reichweiten-/Massen-abhängig** (`stance_switch`, `sitdown`, `gait_patterns`,
+  `joint_load`, reposition/standup-reach): grün erst mit den NEUEN Posen (S5).
+- **Show-Pose** (`test_show_pose`, 23): Show RAUS aus diesem Thread → in S5 skippen/separat.
+
+**Done-Vertrag bleibt:** in **S4 (Re-Param)** sind ALLE gait-Tests wieder grün (mit
+neuen Posen migriert), BEVOR der Thread fertig ist. **Detail-Plan/Handover-Anker:**
+[`stage_4_reparam_handover.md`](stage_4_reparam_handover.md). Auf dem `leg_changes`-WIP-
+Branch sind die roten gait-Tests bis dahin bewusst akzeptiert (User-Entscheid) + hier notiert.
+
+> **Stage-Reihenfolge (korrigiert):** S1 Modell ✅ · S2 Cal ✅ · S3 Envelope ✅ ·
+> **S4 Re-Param** (nächste) · **S5 Sim** · S6 HW-Desktop · S7 Pi · S8 Abschluss.
+> (Re-Param VOR Sim — man kann nicht sinnvoll simulieren, bevor die Posen drin sind.)
+
+---
+
 ## 1. Ziel & Anlass
 
 Bei den HW-Tests (Phase 13, Pi-Bringup) hat sich gezeigt: die **Tibias sind zu
@@ -141,7 +171,8 @@ Servo-Mitte, und die Cal bestimmt die echte rad↔pulse-Beziehung.
 
 ### Schritt 5 — Cross-Check + Sim
 - [x] 5.1 colcon test hexapod_kinematics grün (xacro↔config.py) — S1, 35 passed
-- [ ] 5.2 Envelope-Tools gerechnet (walking/standup/show) — kein out-of-reach
+- [x] 5.2 Envelope-Tools gerechnet (walking/standup/torque) — S3, stage_3_envelope_plan.md §6
+      (Show entfällt; Empfehlungen: 3 Stance-Höhen, standup_radial ≥0.16, tibia −0.28, Coxa-Fix)
 - [ ] 5.3 Gazebo-Spawn + RViz: Modell stimmt visuell, Reachability-Viz plausibel
 
 ### Schritt 6 — Neu-Parametrierung
