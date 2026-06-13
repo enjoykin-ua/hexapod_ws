@@ -7,10 +7,12 @@
 > [`stage_5_sim_test_commands.md`](stage_5_sim_test_commands.md),
 > nicht im Chat ([[feedback_test_commands_in_doc_not_chat]]).
 
-> **🟢 STATUS:** Modell visuell ok (B.1–B.3 vom User bestätigt). Code/Params/Presets/
-> Tests **implementiert + grün** (s. §7). **Offen:** der User verifiziert das
-> finale Aufstehen + Tripod-Lauf mit den NEUEN Werten visuell in Sim (B.4/B.5
-> erneut), dann S5 fertig → S6.
+> **🟢 STATUS:** Modell/Params/Presets/Tests grün, Sim verifiziert.
+> ⚠️ **S6-Update (HW):** Die unten beschriebene „Einzel-Radius 0.160 / keine
+> Reposition"-Entscheidung wurde auf der HW **revidiert** — der enge Touchdown an
+> 0.160 reitet an der Femur-Wand (Schleifen). Stand jetzt: **Aufstehen/Hinsetzen am
+> breiten standup_radial 0.21 + Tripod-Reposition auf Walk-Radius 0.160** (schürffrei).
+> Walk-Radius 0.160 bleibt. Details: [`stage_6_hw_plan.md §5b`](stage_6_hw_plan.md).
 
 ---
 

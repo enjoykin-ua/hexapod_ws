@@ -230,16 +230,15 @@ def test_sit_from_hoch_direct(node):
     resp = node._on_sit_down(Trigger.Request(), Trigger.Response())
     assert resp.success is True
     assert node._pending_sitdown is False
-    # leg_changes: radial == standup_radial (0.160) → keine Phase-1-Reposition,
-    # direkt SITDOWN_LOWER.
-    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER
+    # leg_changes/S6: hoch -0.100 > _SIT_SAFE_MIN_BH → direkt hinsetzen (kein
+    # Routing über mittel); standup_radial 0.21 ≠ walk 0.160 → Phase-1-Reposition.
+    assert node._engine.state == GaitEngine.STATE_REPOSITION
 
 
 def test_sit_from_mittel_direct(node):
-    """Hinsetzen aus mittel (sit-safe) → direkt (kein Routing)."""
+    """Hinsetzen aus mittel (sit-safe) → direkt (kein Routing über mittel)."""
     resp = node._on_sit_down(Trigger.Request(), Trigger.Response())
     assert resp.success is True
     assert node._pending_sitdown is False
-    # Direkt in die Sitdown-Sequenz; leg_changes: radial == standup_radial →
-    # keine Phase-1-Reposition, direkt SITDOWN_LOWER (nicht Stance-Switch).
-    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER
+    # Direkt in die Sitdown-Sequenz (Phase-1-Reposition Füße raus), nicht Stance-Switch.
+    assert node._engine.state == GaitEngine.STATE_REPOSITION

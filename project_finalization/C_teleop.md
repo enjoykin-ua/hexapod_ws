@@ -75,15 +75,16 @@ validiert (Plan [`stance_modes_plan.md`](stance_modes_plan.md)):
 | **mittel** | −0.080 m | 0.160 m | 0.040 m | **Boot-/Standup-Basis** |
 | **tief** | −0.065 m | 0.160 m | 0.040 m | geduckt |
 
-> **leg_changes/S5 (kürzere Beine):** einheitlicher Radius 0.160 über alle Höhen →
-> `standup_radial == radial` → **alle Modi stehen direkt auf, keine Reposition**.
-> < 0.160 wäre nicht direkt aufstehbar (Bauch-Touchdown zwingt Femur über −90°).
+> **leg_changes/S5+S6 (kürzere Beine):** einheitlicher WALK-Radius 0.160 über alle
+> Höhen. Das Aufstehen/Hinsetzen läuft am breiten `standup_radial` **0.21**
+> (≈ power_on_mid → schürffreier Touchdown) **+ Tripod-Reposition** auf 0.160 —
+> am engen 0.160 würde der Bauch-Touchdown den Femur über −90° zwingen + schleifen.
 
 **Live verstellbar (Controller-Runtime):**
 
 | Parameter | Eingabe | Bereich | Schritt | Wirkung |
 |---|---|---|---|---|
-| Stance-Modus | **L2 / R2** (ohne R1) | tief · mittel · hoch | 1 Stufe (clamp) | nur Höhe (radial einheitlich 0.160; keine Reposition) |
+| Stance-Modus | **L2 / R2** (ohne R1) | tief · mittel · hoch | 1 Stufe (clamp) | nur Höhe (Walk-radial einheitlich 0.160; Aufstehen/Hinsetzen breit @ 0.21 + Reposition) |
 | Gangart | **D-Pad ←/→** | tripod · wave · tetrapod · ripple | 1 Stufe (cyclt) | nur in STANDING |
 | Schrittweite `step_length_max` | **D-Pad ↑/↓** | **0.030 – 0.070 m** (Start 0.050) | **0.010 m** | max. Tempo = step_length / stance_dur; Stride skaliert stufenlos mit Stick |
 | Fahr-Tempo | L-Stick / R-Stick X (+ **L1** langsam) | 0 … Max | analog | dosiert; clamp bei > max-leg-speed (Log-WARN ist normal) |

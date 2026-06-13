@@ -846,7 +846,12 @@ class GaitEngine:
         for leg in HEXAPOD.legs:
             touchdown = self._cart_touchdown[leg.name]
             if progress < p1:
-                # Phase 1 — Touchdown: kartesischer Smooth-Step-Lerp.
+                # Phase 1 — Touchdown: kartesischer Smooth-Step-Lerp (gerade
+                # Diagonale). Eine entkoppelte „senkrechte" Annäherung ist bei
+                # radial 0.160 NICHT machbar: die Vorderbeine (leg_1/leg_2) reiten
+                # ab power_on_mid an der Femur-(−90°)-Wand; xy-vor-z (einwärts bei
+                # hohem z) → IKError, z-vor-xy (einwärts bei tiefem z) → Schleifen.
+                # Die Diagonale koppelt beides feasibel. (HW-verifiziert S6.)
                 sub = progress / p1
                 s = sub * sub * (3.0 - 2.0 * sub)
                 targets[leg.name] = _lerp(
@@ -1092,11 +1097,12 @@ class GaitEngine:
         self._sitdown_flatten_duration = flatten_duration
         self._sitdown_bh_start = body_height_start
         self._sitdown_rest_joints = rest_joints
-        # Phase 1: Reposition AUS (radial → standup_radial), danach LOWER. Sind
-        # beide radii (nahezu) gleich (leg_changes: einheitlicher Stance-Radius
-        # 0.160 == standup_radial), entfällt die Füße-raus-Reposition → direkt
-        # absenken. Spiegelt den _finish_standup-Skip (kein No-op-Tripod-Cycle
-        # auf der Stelle, der sonst als „Shuffle" vor dem Hinsetzen sichtbar ist).
+        # Phase 1: Reposition AUS (radial → standup_radial), danach LOWER. Bei
+        # leg_changes/S6 ist standup_radial 0.21 ≠ walk 0.160 → die Füße steppen
+        # erst breit raus (Tripod, schürffrei), DANN senkt der Bauch (nahe der
+        # power_on_mid-Pose → schürffrei). Sind beide radii (nahezu) gleich,
+        # entfällt die Reposition → direkt absenken (spiegelt _finish_standup-Skip,
+        # kein No-op-Tripod-Shuffle auf der Stelle).
         if (
             abs(self.radial_distance - self.standup_radial_distance)
             > self._REPOSITION_EPS

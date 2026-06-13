@@ -3,13 +3,14 @@
 # =============================================================================
 #
 # Kanonische Sim-Lauf-Pose = Stance-Modus "mittel" mit den kurzen Beinen
-# (Femur 0.060 / Tibia 0.134). Einheitlicher Radius 0.160 → standup_radial ==
-# radial → direktes Aufstehen ohne Reposition.
+# (Femur 0.060 / Tibia 0.134). WALK-Radius 0.160. Das Aufstehen läuft am breiten
+# standup_radial 0.21 (Node-Default, hier nicht überschrieben → schürffrei) und
+# repositioniert dann auf 0.160 (S6-HW-Fix).
 #
 # Envelope-validiert (ALLE 4 cmd_vel-Szenarien forward/sidestep/yaw/diagonal):
 #   python3 tools/walking_envelope_check.py check \
 #     --radial 0.160 --body-height -0.080 --step-length 0.050 --step-height 0.040 --scenario all
-#   Standup: python3 tools/standup_envelope_check.py --radial 0.160 --bh-final -0.080
+#   Standup: python3 tools/standup_envelope_check.py --radial 0.210 --bh-final -0.080
 #
 # Dieses Preset ist der Test-Anker: tools/test_walking_envelope_check.py prueft,
 # dass es fuer "forward" GRUEN bleibt. Nach Cal-/Geometrie-Aenderung neu rechnen.

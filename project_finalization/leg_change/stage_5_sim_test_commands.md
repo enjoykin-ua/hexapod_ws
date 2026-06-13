@@ -74,9 +74,11 @@ ros2 launch hexapod_gait gait.launch.py use_sim_time:=true
 > Wieder-Aufstehen NACH einem Hinsetzen (aus dem SAT-Zustand). Aus STANDING
 > antwortet er `stand_up only from SAT` (= korrekt, kein Fehler).
 
-> **NEU ab S5-Re-Param:** mittel ist jetzt **radial 0.160 / body_height −0.080**,
-> `standup_radial == radial` → **direktes Aufstehen, KEINE Zwischen-Reposition**
-> mehr (kein „Füße erst breit, dann enger"). Vor dem Test neu bauen (`colcon build`).
+> **⚠️ ÜBERHOLT durch S6:** Diese B.4/B.4b-Notizen („keine Reposition") gelten nicht
+> mehr. Aktueller Stand (HW-Fix): **breit aufstehen @ standup_radial 0.21 → Reposition
+> auf Walk-Radius 0.160** (schürffrei). Aktuelle HW-Anleitung: [`stage_6_hw_test_commands.md`](stage_6_hw_test_commands.md).
+>
+> _(S5-Original:)_ mittel = **radial 0.160 / body_height −0.080**; vor dem Test bauen (`colcon build`).
 
 - [ ] Bauch hebt sauber ab; Füße schürfen **nicht** sichtbar nach innen; kein Kippeln/Zucken.
 - [ ] Endpose = mittel (radial 0.160, body_height −0.080), Roboter steht stabil, **etwas tiefer** als vorher.

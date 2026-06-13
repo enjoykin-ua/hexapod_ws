@@ -51,12 +51,15 @@ _POWER_ON_MID = {
 _BODY_HEIGHT_BOX = 0.043
 _FOOT_RADIUS = 0.008
 _COXA_Z_BELLY = _BODY_HEIGHT_BOX / 2.0          # 0.0215 m
-# Cartesian standup operiert an der BREITEN standup_radial (Touchdown bei
-# Bauch-Hoehe braucht >=0.16 wg. Femur-±1.57; danach narrowt die Reposition
-# auf Walk 0.145). Alt war _RADIAL == alte standup_radial 0.295.
+# leg_changes/S6: Standup-Touchdown am BREITEN standup_radial 0.210 (≈ power_on_mid
+# ~0.217 → nahezu senkrechter, schürffreier Touchdown; danach Tripod-Reposition auf
+# walk 0.160). Dieser Test isoliert die Standup-Phase: radial == standup_radial ==
+# _RADIAL (0.210) → endet in STANDING, ohne Reposition. Die Reposition 0.210→0.160
+# deckt test_reposition ab. (Touchdown am engen 0.160 reitet an der Femur-(−90°)-
+# Wand → schleift, deshalb wird breit aufgestanden, s. project-memory.)
 _BH_START = -0.0135
-_RADIAL = 0.17
-_BH_FINAL = -0.10
+_RADIAL = 0.210
+_BH_FINAL = -0.080
 _DURATION = 4.0
 _PHASE1_FRAC = 0.4
 
@@ -211,7 +214,7 @@ def test_touchdown_reaches_ground():
 # --- §6.1 Endpose == Stand-Pose ---------------------------------------------
 
 def test_endpoint_is_stand_pose():
-    """Ramp-Ende == Stand-Pose-IK (radial 0.17 / bh -0.10) für alle Beine."""
+    """Ramp-Ende == Stand-Pose-IK (radial 0.210 / bh -0.080) für alle Beine."""
     engine = _make_engine()
     _start(engine)
     angles = engine.compute_joint_angles(_DURATION)

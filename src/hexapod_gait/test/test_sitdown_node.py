@@ -69,15 +69,15 @@ def test_comms_loss_default_off(node):
 
 def test_sit_down_from_standing(node):
     """
-    Service sit_down aus STANDING startet die Sequenz.
+    Service sit_down aus STANDING startet die Sequenz (→ REPOSITION, Füße raus).
 
-    leg_changes/S5: radial == standup_radial (0.160) → Phase-1-Reposition
-    (Füße raus) entfällt, direkt SITDOWN_LOWER.
+    leg_changes/S6: standup_radial 0.21 ≠ walk 0.160 → Phase-1-Reposition (Füße
+    steppen breit raus, schürffrei), danach LOWER/FLATTEN.
     """
     assert node._engine.state == GaitEngine.STATE_STANDING
     resp = _call(node._on_sit_down)
     assert resp.success is True
-    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER
+    assert node._engine.state == GaitEngine.STATE_REPOSITION
     assert node._relay_off_after_sat is False  # Rest: bestromt bleiben
 
 
@@ -159,7 +159,7 @@ def test_shutdown_from_standing_arms_relay(node):
     assert resp.success is True
     assert node._relay_off_after_sat is True
     assert node._shutdown_latched is False  # erst bei SAT
-    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER
+    assert node._engine.state == GaitEngine.STATE_REPOSITION
 
 
 def test_shutdown_rejected_mid_sequence(node):
@@ -176,7 +176,7 @@ def test_toggle_from_standing_sits(node):
     assert node._engine.state == GaitEngine.STATE_STANDING
     resp = _call(node._on_sit_stand_toggle)
     assert resp.success is True
-    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER
+    assert node._engine.state == GaitEngine.STATE_REPOSITION
 
 
 def test_toggle_from_sat_stands(node):
@@ -252,7 +252,7 @@ def test_comms_loss_triggers_when_stale(node):
     node._comms_loss_sitdown_timeout = 5.0
     node._last_cmd_time = 100.0
     node._check_comms_loss(now=110.0)  # 10 s > 5 s
-    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER
+    assert node._engine.state == GaitEngine.STATE_REPOSITION
     assert node._relay_off_after_sat is False  # Rest, nicht Shutdown
 
 

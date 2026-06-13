@@ -178,9 +178,9 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         fp_range=(-0.110, -0.020, 0.001),
         description=(
             'Stand-Pose Foot-Z im Bein-Frame (m). Default -0.080 = Stance-Modus '
-            '"mittel" (Standup-Basis). leg_changes (kürzere Beine): radial 0.160 '
-            'einheitlich → alle Höhen direkt aufstehbar (standup_radial==radial, '
-            'keine Reposition). fp_range-Floor -0.110 für den Modus "hoch". '
+            '"mittel" (Standup-/Boot-Basis). leg_changes: Walk-Radius 0.160 '
+            'einheitlich; Aufstehen/Hinsetzen via breitem standup_radial 0.21 + '
+            'Reposition (schürffrei). fp_range-Floor -0.110 für den Modus "hoch". '
             'Live-Update nur in STANDING (analog cmd_body_height).'
         ),
     ),
@@ -189,24 +189,23 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         fp_range=(0.10, 0.21, 0.001),
         description=(
             'Radialer Foot-Neutral-Abstand vom Coxa-Mount im Bein-Frame (m). '
-            'leg_changes (kürzere Beine): Default 0.160 — das schmalste Radial, '
-            'aus dem direkt aufgestanden werden kann (bei < 0.160 zwingt der '
-            'Bauch-Touchdown den Femur über -90°/-1.57). Da standup_radial == '
-            'radial, entfällt die Reposition. Walking + Standup envelope-grün '
-            '(tools/walking_envelope_check + standup_envelope_check). '
-            'Live-Update nur in STANDING (Stand-Pose-Reset).'
+            'leg_changes: Default 0.160 = WALK-Pose (alle Stance-Höhen). Das '
+            'Aufstehen läuft am breiteren standup_radial_distance (0.21, schürffrei) '
+            'und repositioniert dann hierher. Walking envelope-grün '
+            '(tools/walking_envelope_check). Live-Update nur in STANDING.'
         ),
     ),
     _ParamSpec(
-        name='standup_radial_distance', default=0.160, standing_only=True,
-        fp_range=(0.10, 0.21, 0.001),
+        name='standup_radial_distance', default=0.210, standing_only=True,
+        fp_range=(0.10, 0.22, 0.001),
         description=(
-            'Radialer Foot-Abstand für die AUFSTEH-Pose (m). Breit genug, dass '
-            'der Standup-Touchdown (Bauch am Boden) den Femur nicht über ±90° '
-            'zwingt. leg_changes: Default 0.160 == radial_distance → die Engine '
-            'überspringt die Tripod-Reposition (Touchdown-Pose = Walk-Pose). '
-            'standup > radial würde nach dem Aufstehen auf radial reposition. '
-            'Live nur in STANDING.'
+            'Radialer Foot-Abstand für die AUFSTEH-Pose (m). leg_changes/S6: '
+            'Default 0.210 ≈ power_on_mid-Fuß-Radius (~0.217) → der Touchdown ist '
+            'nahezu SENKRECHT (Füße stehen schon dort, kaum Horizontalbewegung) → '
+            'schürffrei, statt am engen Walk-Radius 0.160 an der Femur-(−90°)-Wand '
+            'einwärts zu schleifen. Nach dem Aufstehen repositioniert die Engine '
+            'per Tripod (Beine gehoben → schürffrei) auf radial_distance 0.160. '
+            'standup == radial → keine Reposition. Live nur in STANDING.'
         ),
     ),
     _ParamSpec(
@@ -514,13 +513,14 @@ _GAIT_CYCLE_ORDER = ('tripod', 'wave', 'tetrapod', 'ripple')
 # data=True → höher (Index+1), False → tiefer (Index-1), geklemmt (kein Wrap).
 # "mittel" (Index 1) ist die Standup-/Boot-Basis.
 _StanceMode = namedtuple('_StanceMode', 'name radial body_height step_height')
-# leg_changes (S5, kürzere Beine, reach 0.074..0.194): EINHEITLICHER Radius 0.160
-# für alle Höhen — das schmalste Radial, aus dem der Bauch-Touchdown den Femur
-# nicht über -90° zwingt (< 0.160 → Standup unmöglich, standup_envelope_check).
-# Da radial == standup_radial überall, steht JEDE Höhe direkt auf (keine
-# Reposition, kein Routing über mittel). Walking + Standup envelope-grün zu
-# allen drei body_height. Das Envelope-Tool ist am Femur-Rand zu optimistisch →
-# mit der echten Engine/Sim validieren (test_stance_switch + B.4/B.5).
+# leg_changes (S5/S6, kürzere Beine, reach 0.074..0.194): einheitlicher WALK-
+# Radius 0.160 für alle Höhen. Das Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort
+# reiten die Vorderbeine an der Femur-(-90°)-Wand → Schleifen), sondern am breiten
+# standup_radial 0.21 (≈ power_on_mid, schürffreier Touchdown) → danach Tripod-
+# Reposition auf 0.160 (S6-HW-Finding, [[project_standup_vertical_touchdown_infeasible]]).
+# Kein Routing über mittel nötig (alle Höhen > _SIT_SAFE_MIN_BH). Walking grün @ 0.160,
+# Standup grün @ 0.21 zu allen drei body_height. Envelope am Femur-Rand optimistisch →
+# echte Engine/Sim/HW validieren (test_stance_switch + B.4/B.5 + S6).
 _STANCE_MODES = (
     _StanceMode('tief', 0.160, -0.065, 0.040),
     _StanceMode('mittel', 0.160, -0.080, 0.040),

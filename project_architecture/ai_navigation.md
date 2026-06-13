@@ -73,12 +73,13 @@
   `joy_to_twist.py` — L2/R2 ohne R1 → cycle_stance.
 - **Modi/Werte ändern:** nur die `_STANCE_MODES`-Tabelle (offline-validiert!). Default-Boot-Pose =
   Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`-Param-Defaults.
-- **Fallen:** (1) **leg_changes/S5: einheitlicher Radius 0.160 über alle Höhen** (tief −0.065 /
-  mittel −0.080 / hoch −0.100), `standup_radial == radial` → **alle direkt aufstehbar, KEINE
-  Reposition, kein Sit-Routing** (alle Höhen > `_SIT_SAFE_MIN_BH` −0.115). < 0.160 ist nicht direkt
-  aufstehbar (Bauch-Touchdown zwingt Femur über −90°, `standup_envelope_check`). Die Routing-Logik
-  (`_SIT_SAFE_MIN_BH`) bleibt nur als Sicherung für via /cmd_body_height tiefer gesetzte Höhen.
-  (2) Jeder neue Modus + jeder Übergang muss offline envelope-grün
+- **Fallen:** (1) **leg_changes/S5+S6: einheitlicher WALK-Radius 0.160 über alle Höhen** (tief −0.065 /
+  mittel −0.080 / hoch −0.100). Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort reiten die Vorderbeine
+  an der Femur-(−90°)-Wand → IKError/Schleifen), sondern am **breiten `standup_radial` 0.21**
+  (≈ power_on_mid → schürffreier Touchdown) **+ Tripod-Reposition** auf 0.160
+  ([[project_standup_vertical_touchdown_infeasible]]). Kein Sit-Routing über mittel nötig (alle Höhen >
+  `_SIT_SAFE_MIN_BH` −0.115); die Routing-Logik bleibt nur als Sicherung für via /cmd_body_height tiefer
+  gesetzte Höhen. (2) Jeder neue Modus + jeder Übergang muss offline envelope-grün
   + in-limit sein (Femur-±90° koppelt body_height↔step_height↔radial). (3) `switch_step_height` klein
   halten (Apex unter Femur-Wand bei Zwischenhöhen). (4) cmd_vel im Switch ignoriert (`set_command`-Guard).
 - **Validieren:** `colcon test hexapod_gait hexapod_teleop` (`test_stance_switch` —
