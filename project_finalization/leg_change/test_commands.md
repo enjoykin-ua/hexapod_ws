@@ -232,15 +232,11 @@ ros2 service call /save_calibration std_srvs/srv/Trigger
 
 ---
 
-# TEIL B — Modell + Sim (Schritt 3–6) — _Gerüst, wird nach der Cal gefüllt_
+# TEIL B — Sim/Gazebo (S5) → eigene Datei
 
-- Längen/Massen/Inertien → `physical_properties.xacro` + `config.py`
-- rad-Limits (symmetrisch) → `hexapod.urdf.xacro` (6×) + `config.py`
-- `colcon test --packages-select hexapod_kinematics` (xacro↔config.py-Drift)
-- Envelope-Tools (Mathe, **vor** Sim): `tools/walking_envelope_check.py`,
-  `tools/standup_envelope_check.py`, `tools/show_pose_cog_check.py`
-- Gazebo-Spawn + RViz + Reachability-Viz (`reachability_viz.launch.py`)
-- Stand-Pose / Laufhöhen (2 vs 3) / step_length neu (Sim)
+> Die S5-Sim-Tests (Modell-Visual-Check, Reachability-Viz, Aufstehen, Tripod-Lauf,
+> Live-Tuning) stehen in [`stage_5_sim_test_commands.md`](stage_5_sim_test_commands.md).
+> Plan dazu: [`stage_5_sim_plan.md`](stage_5_sim_plan.md).
 
 # TEIL C — HW-Validierung Desktop (Schritt 7) — _Gerüst_
 
