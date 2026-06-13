@@ -34,7 +34,7 @@ können später dazukommen (`controller:=ps4_bt`, `controller:=ps5`).
 | **L2 / R2** (Druck) | Körper **senken / heben um 1 cm** | clampt lokal + `gait_node`; nur STANDING |
 | **△ Triangle** (Druck) | **Sit/Stand-Toggle** → `/hexapod_sit_stand_toggle` | gait_node löst nach State auf |
 | **○ Circle** (lang) | **Shutdown** → `/hexapod_shutdown` | Long-Press, terminal (Relay aus) |
-| **✕ Cross** (lang) | **Show-Pose-HOOK** | nur Stub/Log — Verhalten kommt mit Block B4 |
+| **✕ Cross** (lang) | **Show-Pose** (B4) — **aktuell DEAKTIVIERT** (`show_enabled:false`) | leg_changes/S6: aktuelle Show-Pose auf HW instabil → Teleop schickt weder `/hexapod_show_toggle` noch `/cmd_show`. Code bleibt; `show_enabled:=true` reaktiviert. |
 | **D-Pad ←/→** | Gangart vorige/nächste (→ = next) | C2: Intent `/hexapod_cycle_gait`; nur STANDING |
 | **D-Pad ↑/↓** | Schrittweite größer/kleiner | C2: Intent `/hexapod_adjust_step_length`; clampt |
 

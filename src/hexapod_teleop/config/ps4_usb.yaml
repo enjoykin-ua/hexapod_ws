@@ -38,6 +38,10 @@ joy_to_twist:
     axis_ry: 4            # rechter Stick Y → leg_1 vertikal (hoch/runter)
     sign_show_lat: 1.0    # seitwärts-Vorzeichen (bei Bedarf -1.0)
     sign_show_vert: 1.0   # +1: Stick hoch → Bein heben (in Sim prüfen)
+    # leg_changes/S6: Show-Pose deaktiviert (auf echter HW instabil). Teleop
+    # schickt weder /hexapod_show_toggle (Cross) noch /cmd_show. Code bleibt;
+    # auf true setzen, sobald eine stabile Show-Pose existiert.
+    show_enabled: false
 
     # --- D-Pad (C2: Gangart + Schrittweite) ---
     axis_dpad_x: 6        # ←/→ : Gangart vorige/nächste (rechts=next)

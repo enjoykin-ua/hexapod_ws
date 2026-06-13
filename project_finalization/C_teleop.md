@@ -53,7 +53,7 @@ Daraus folgt:
 | **L2 / R2** (Druck, **ohne R1**) | **Stance-Modus** tiefer / höher (tief↔mittel↔hoch, geklemmt) | Intent `/hexapod_cycle_stance`; nur STANDING; gekoppelte Reposition. **In Show (mit R1) = Tibia-Reach**, s.u. | Stage 1 / B4.11 |
 | **△ Triangle** (Druck) | **Toggle Hinsetzen/Aufstehen** | Intent `/hexapod_sit_stand_toggle`; gait_node löst nach State auf | C1+ |
 | **○ Circle** (lang) | **Shutdown** (`/hexapod_shutdown`) | bewusst (Long-Press), terminal (Relay aus) | C1+ |
-| **✕ Cross** (lang) | **Show-Pose rein/raus** (Körper zurück + Vorderbeine hoch ↔ STANDING) | ✅ **B4 implementiert** — Intent `/hexapod_show_toggle`; gait_node löst nach State auf | C1+ (Hook), B4 |
+| **✕ Cross** (lang) | **Show-Pose rein/raus** — ⚠️ **aktuell DEAKTIVIERT** (`show_enabled:false`, leg_changes/S6: HW-instabil) | B4 implementiert, aber Teleop schickt `/hexapod_show_toggle` + `/cmd_show` nicht; gait_node-Code unangetastet, `show_enabled:=true` reaktiviert | C1+ (Hook), B4 |
 | **Show: L-Stick / R-Stick** (mit R1) | Vorderbeine **leg_6 / leg_1** bewegen: X=seitwärts, Y=hoch/runter | nur in SHOW_ACTIVE; `/cmd_show`; geclampt auf URDF-Limits | B4 |
 | **Show: L2 / R2** (mit R1) | **Tibia-Reach** leg_6 / leg_1 (Bein strecken, Tibia fährt auf) | nur in SHOW_ACTIVE; `/cmd_show` radial | B4.11 |
 | **D-Pad ←/→** | **Gangart** durchschalten (tripod→wave→tetrapod→ripple) | Intent `/hexapod_cycle_gait`; nur STANDING | C2 |

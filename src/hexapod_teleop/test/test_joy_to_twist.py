@@ -303,14 +303,26 @@ def test_show_from_joy_vertical_sign(node):
     assert arr.data[4] == pytest.approx(-0.4)
 
 
-def test_on_joy_publishes_cmd_show(node):
-    """_on_joy publisht /cmd_show jeden Callback (zustandsloser Teleop)."""
+def test_on_joy_publishes_cmd_show_when_enabled(node):
+    """_on_joy publisht /cmd_show jeden Callback, WENN show_enabled (zustandslos)."""
+    node._show_enabled = True
     node._cmd_show_pub = _FakeClient(ready=True)
     node._cmd_show_pub.publish = lambda msg: setattr(
         node._cmd_show_pub, 'last', list(msg.data))
     node._on_joy(_joy_show(lx=1.0, buttons=[_R1]))
     assert node._cmd_show_pub.last[0] == pytest.approx(1.0)
     assert len(node._cmd_show_pub.last) == 6
+
+
+def test_on_joy_no_cmd_show_when_disabled(node):
+    """leg_changes/S6: show_enabled=False (Default) → _on_joy publisht KEIN /cmd_show."""
+    node._show_enabled = False
+    node._cmd_show_pub = _FakeClient(ready=True)
+    node._cmd_show_pub.last = None
+    node._cmd_show_pub.publish = lambda msg: setattr(
+        node._cmd_show_pub, 'last', list(msg.data))
+    node._on_joy(_joy_show(lx=1.0, buttons=[_R1]))
+    assert node._cmd_show_pub.last is None  # nie publiziert
 
 
 def test_l2r2_cycle_stance_only_without_deadman(node):

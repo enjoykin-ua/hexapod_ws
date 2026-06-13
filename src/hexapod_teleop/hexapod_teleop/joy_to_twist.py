@@ -103,6 +103,12 @@ class JoyToTwist(Node):
         # Trigger drücken = Bein streckt sich raus (Tibia fährt auf). Body-Höhe
         # (L2/R2) gibt es nur OHNE R1 → kein Konflikt im Show.
         self.declare_parameter('sign_show_radial', 1.0)
+        # Show-Pose im Teleop aktiv? Default false (leg_changes/S6): die aktuelle
+        # Show-Pose ist auf echter HW nicht stabil → Teleop schickt WEDER den
+        # /hexapod_show_toggle-Intent (Cross) NOCH /cmd_show. Der gait_node-Show-
+        # Code bleibt unangetastet; Wiedereinschalten = show_enabled:=true (bzw.
+        # später eine neue, stabile Show-Pose daraus bauen).
+        self.declare_parameter('show_enabled', False)
 
         g = self.get_parameter
         self._axis_lx = int(g('axis_lx').value)
@@ -139,6 +145,7 @@ class JoyToTwist(Node):
         self._sign_show_lat = float(g('sign_show_lat').value)
         self._sign_show_vert = float(g('sign_show_vert').value)
         self._sign_show_radial = float(g('sign_show_radial').value)
+        self._show_enabled = bool(g('show_enabled').value)
 
         self._target_body_height = float(g('body_height_init').value)
 
@@ -308,10 +315,13 @@ class JoyToTwist(Node):
         now = time.monotonic()
 
         # 1) Fahren (Sticks, Dead-Man-gated). Plus /cmd_show (Vorderbeine, B4):
-        # immer publishen — der gait_node nutzt cmd_vel außerhalb SHOW und
-        # cmd_show nur in SHOW_ACTIVE (Teleop bleibt zustandslos).
+        # nur publishen wenn show_enabled — sonst bleibt die (auf HW instabile)
+        # Show-Pose komplett unerreichbar (leg_changes/S6). Der gait_node nutzt
+        # cmd_show ohnehin nur in SHOW_ACTIVE; ohne den Toggle (s.u.) wird dieser
+        # State nie betreten.
         self._cmd_vel_pub.publish(self._twist_from_joy(msg))
-        self._cmd_show_pub.publish(self._show_from_joy(msg))
+        if self._show_enabled:
+            self._cmd_show_pub.publish(self._show_from_joy(msg))
 
         # 2) Stance-Modus cyclen (L2/R2 Edge, NUR ohne R1). Stage 1: ersetzt die
         # frühere stufenlose Höhe (die brach die Lauf-Envelope). L2 = tiefer,
@@ -339,7 +349,7 @@ class JoyToTwist(Node):
             self._button_circle, self._button(msg, self._button_circle), now
         ):
             self._call_intent(self._shutdown_client, 'shutdown')
-        if self._longpress(
+        if self._show_enabled and self._longpress(
             self._button_cross, self._button(msg, self._button_cross), now
         ):
             self._show_pose_hook()

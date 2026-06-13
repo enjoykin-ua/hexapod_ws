@@ -101,6 +101,58 @@ ros2 service call /hexapod_stand_up  std_srvs/srv/Trigger
 
 ---
 
+## S6.2-D — Diagnose: leg_3 Coxa-Zucken (HW-seitig)
+> **Ausgangslage (bewiesen):** rad-Kommando glatt (RViz + FK/IK-Round-Trip exakt +
+> Coxa-Bahn −6.4°→0° glatt, bleibt unter rad 0 → lineare Slope → Command-Pulse glatt).
+> RViz zeigt kein Zucken. ⇒ Das Zucken entsteht **physisch an leg_3 Coxa (Pin 6)** —
+> Servo / Mechanik / Elektrik. Diese Schritte trennen die Ursache. real.launch läuft,
+> **kein gait** (außer D1). Kill-Switch bereit.
+
+**D1 — Commanded Pulse plotten (ist das Kommando wirklich glatt?)**
+```bash
+ros2 param set /hexapodsystem publish_servo_pulses true
+ros2 run rqt_plot rqt_plot /hexapodsystem/servo_pulses/data[6]   # index 6 = leg_3 coxa
+# dann (mit gait) Standup auslösen und den Pulse-Verlauf von index 6 ansehen
+```
+- [ ] leg_3-Coxa-Pulse beim Zucken: **glatt** (→ Ursache physisch, weiter D2) oder **Sprung/Knick** (→ Cal/Conversion, melden).
+
+**D2 — Isolierter langsamer Coxa-Sweep nur leg_3 (kein gait)**
+```bash
+# leg_3 coxa langsam -0.4 -> +0.4 (femur/tibia 0). LANGSAM (4 s).
+ros2 topic pub --once /leg_3_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
+'{joint_names: [leg_3_coxa_joint, leg_3_femur_joint, leg_3_tibia_joint], points: [{positions: [-0.4, 0.0, 0.0], time_from_start: {sec: 4}}]}'
+ros2 topic pub --once /leg_3_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
+'{joint_names: [leg_3_coxa_joint, leg_3_femur_joint, leg_3_tibia_joint], points: [{positions: [0.4, 0.0, 0.0], time_from_start: {sec: 8}}]}'
+```
+- [ ] Zuckt es an einem **bestimmten Winkel** (→ mechanisches Binden / Servo-Deadband dort) oder **zufällig/überall**?
+
+**D3 — Statisch halten (Zucken im Stillstand?)**
+```bash
+ros2 topic pub --once /leg_3_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
+'{joint_names: [leg_3_coxa_joint, leg_3_femur_joint, leg_3_tibia_joint], points: [{positions: [0.0, 0.0, 0.0], time_from_start: {sec: 2}}]}'
+# 30 s beobachten, ohne weiteres Kommando
+```
+- [ ] Zuckt es **im Stillstand** (→ Elektrik: Wackelkontakt / Servo-Jitter / Stromversorgung) oder **nur in Bewegung** (→ Mechanik: Backlash / Binden)?
+
+**D4 — Vergleich Nachbar (leg_3-spezifisch?)**
+```bash
+# gleicher Sweep auf leg_2 coxa (Pin 3) zum Vergleich
+ros2 topic pub --once /leg_2_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
+'{joint_names: [leg_2_coxa_joint, leg_2_femur_joint, leg_2_tibia_joint], points: [{positions: [-0.4, 0.0, 0.0], time_from_start: {sec: 4}}]}'
+```
+- [ ] Nur leg_3 zuckt (→ leg_3-Servo/Mechanik/Kabel) oder mehrere (→ generelleres Thema)?
+
+**D5 — Mechanik/Elektrik (Strom AUS, Terminal 1 Strg+C)**
+- [ ] leg_3 Coxa von Hand bewegen: **Backlash / loser Servo-Horn**? (beim Bein-Umbau evtl. gelockert)
+- [ ] Stecker/Kabel leg_3 Coxa (Pin 6) am Servo2040 + am Servo **fest**? Kabel ohne Bruchstelle?
+
+**Befund melden** → daraus folgt der Fix:
+- bestimmter Winkel + glatter Command-Pulse → mechanisch (gängig machen) oder Servo-Deadband (Servo tauschen).
+- im Stillstand → Wackelkontakt/Servo/Strom.
+- Cal-Hinweis (sekundär): leg_3 Coxa-Spans sind asymmetrisch (210 µs unter / 335 µs über pulse_zero 1410 bei symmetr. ±0.415) → `pulse_zero` evtl. nicht exakt mechanische Mitte. Eine **leg_3-Coxa-Re-Cal** (pulse_zero auf echte Mitte) balanciert das und glättet auch den rad-0-Knick fürs Laufen (relevant bei sidestep/yaw, wo die Coxa rad 0 kreuzt).
+
+---
+
 ## S6.3 — Laufen + Gangarten + Teleop aufgebockt  [S6-T4]
 ```bash
 # Terminal 4 — Teleop (PS4). USB: ps4_usb (Default). use_sim_time bleibt false.

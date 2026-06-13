@@ -183,6 +183,18 @@ Walking (0.160) unverändert. Standup grün @ 0.20, walking grün @ 0.160 (Envel
 
 ---
 
+## 5c. Show-Pose im Teleop deaktiviert (S6)
+
+Die aktuelle Show-Pose ist auf echter HW **nicht stabil** → im Teleop per Flag
+`show_enabled` (Default **false**) abgeschaltet: der Teleop schickt **weder**
+`/hexapod_show_toggle` (Cross) **noch** `/cmd_show`. Der gait_node-Show-Code
+(SHOW_ENTER/ACTIVE/EXIT, B4) bleibt **unangetastet** — Wiedereinschalten =
+`show_enabled:=true` (bzw. später eine neue, stabile Show-Pose daraus bauen).
+Geändert: `joy_to_twist.py` (Gate) + `ps4_usb.yaml`/`ps4_bt.yaml` (`show_enabled:false`)
++ README/C_teleop. Tests: teleop 31/0/1 (enabled→publisht, disabled→nicht).
+
+---
+
 ## 5. Fallstricke (HW)
 - **Cal-Verify ist Pflicht-Gate** — nie aufstehen, bevor rad-0 + Sweep sitzen.
 - **`use_sim_time:=false`** für gait auf HW (sonst Timer-Stille).
