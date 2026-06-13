@@ -22,7 +22,7 @@
 | Paket | Status |
 |---|---|
 | `hexapod_kinematics` / `hexapod_hardware` / `hexapod_teleop` | 🟢 grün (S1/S2) |
-| `hexapod_gait` | 🔴 ~93 rot **bis S5** |
+| `hexapod_gait` | 🟢 grün seit S4 (205/0/28). S5 Re-Param (radial 0.160) Tests mit-migriert, weiter grün. |
 
 `hexapod_gait`-Kategorien:
 - **power_on_mid** (`test_startup_ramp` + Teile standup/reposition): die 18 rad-Werte
@@ -173,13 +173,14 @@ Servo-Mitte, und die Cal bestimmt die echte rad↔pulse-Beziehung.
 - [x] 5.1 colcon test hexapod_kinematics grün (xacro↔config.py) — S1, 35 passed
 - [x] 5.2 Envelope-Tools gerechnet (walking/standup/torque) — S3, stage_3_envelope_plan.md §6
       (Show entfällt; Empfehlungen: 3 Stance-Höhen, standup_radial ≥0.16, tibia −0.28, Coxa-Fix)
-- [ ] 5.3 Gazebo-Spawn + RViz: Modell stimmt visuell, Reachability-Viz plausibel
+- [x] 5.3 Gazebo-Spawn + RViz: Modell visuell ok, Reachability-Viz plausibel (S5/B.1–B.3, User)
 
-### Schritt 6 — Neu-Parametrierung
-- [ ] 6.1 Stand-Pose (radial_distance, body_height) neu
-- [ ] 6.2 Laufhöhen / Stance-Modi (2 vs 3) festgelegt (D4)
-- [ ] 6.3 step_length / cycle_time / Walking-Params neu getunt (Sim)
-- [ ] 6.4 Show-Pose CoG-Marge (falls Show genutzt)
+### Schritt 6 — Neu-Parametrierung (S5, Detail: stage_5_sim_plan.md §6)
+- [x] 6.1 Stand-Pose neu: radial 0.160, body_height −0.080 (mittel) — envelope-grün, Code+Launch+teleop synchron
+- [x] 6.2 Stance-Modi (D4): 3 Höhen bei EINHEITL. radial 0.160 (tief −0.065/mittel −0.080/hoch −0.100); standup_radial==radial → keine Reposition
+- [x] 6.3 step_length_max 0.050 / D-Pad-Cycle 0.030–0.070 / step_height 0.040 (Sim-envelope); Presets aktualisiert
+- [~] 6.4 Show-Pose CoG-Marge — entfällt (Show raus aus diesem Thread, User)
+- [ ] 6.5 **User-Sim-Verify mit neuen Werten** (Aufstehen direkt + Tripod-Lauf stabil) → dann S5 fertig
 
 ### Schritt 7 — HW-Validierung Desktop
 - [ ] 7.1 aufgehängt: Init + Aufstehen sauber (kein Stall/Freeze)

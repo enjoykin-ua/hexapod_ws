@@ -1,45 +1,33 @@
 # =============================================================================
-# Hexapod gait_node Preset — "Aggressive Walk"
+# Hexapod gait_node Preset — "Aggressive Walk" (leg_changes / S5)
 # =============================================================================
 #
-# Phase 11 Stage E — schneller Walking-Stil für Phase-13-Vorbereitung
-# und Performance-Demonstration.
+# Schneller Stil / Stress-Test fuer IK + Trajectory-Generation. Stance-Pose =
+# "mittel" (radial 0.160, body_height -0.080). Groesster Stride der Cycle-Range
+# + schnellerer Takt + hoeherer Foot-Hub.
 #
-# Charakteristik (gegenüber gait.launch.py-Defaults):
-#   - cycle_time 1.5 (statt 2.0)  → schneller, aber konservativ
-#     (cycle_time=1.0 wäre maximum, wurde wegen IK-Out-of-Reach-Risiko
-#     verworfen siehe Plan-Doku Kritischer Punkt 4)
-#   - step_length_max 0.06 (statt 0.05) → größere Schritte
-#   - linear_max = step_length_max / stance_duration
-#                = 0.06 / (1.5 × 0.5)
-#                = 0.08 m/s (Faktor 1.6× Default 0.05 m/s)
-#   - step_height 0.04 (statt 0.03) → höhere Foot-Hub bei Swing
-#   - body_height -0.055 (statt -0.052) → etwas tiefer für mehr
-#     Stabilität bei höherem Tempo
+# Charakteristik (gegenueber sim_walk):
+#   - cycle_time 1.5 s (schneller)
+#   - step_length_max 0.070 (Obergrenze des D-Pad-Cycle, envelope-Marge zur Wand)
+#     → linear_max = 0.070 / (1.5 × 0.5) = 0.093 m/s
+#   - step_height 0.050
 #
-# Use-Case:
-#   - Phase-13-Performance-Test mit echter Hardware
-#   - Aggressive-Demo wenn Roboter "schnell" wirken soll
-#   - Stress-Test für IK / Trajectory-Generation
+# Envelope-validiert (alle 4 Szenarien GRUEN, cycle_time irrelevant fuer Reach):
+#   python3 tools/walking_envelope_check.py check \
+#     --radial 0.160 --body-height -0.080 --step-length 0.070 --step-height 0.050 --scenario all
 #
-# Verifikation (Stage E User-Smoke E-T3b, 2026-05-21):
-#   In Sim mit linear.x=0.07 m/s — Roboter läuft merklich schneller,
-#   keine IK-OutOfReach-Errors, keine Kipp-Anzeichen.
-#
-# WICHTIG für Phase 13:
-#   Auf echter HW VOR aktivem aggressive_walk:
-#   - Roboter aufgebockt halten (Beine ohne Bodenkontakt)
-#   - Stromaufnahme beobachten (höhere Geschwindigkeit = höherer Strom)
-#   - Bei first walk-Test linear.x schrittweise erhöhen statt direkt
-#     auf 0.07 m/s
+# WICHTIG fuer HW: erst aufgebockt, Strom beobachten, linear.x schrittweise hoch.
 #
 # Laden:
 #   ros2 launch hexapod_gait gait.launch.py \
-#     params_file:=src/hexapod_gait/config/presets/aggressive_walk.yaml
+#     params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/aggressive_walk.yaml
 # =============================================================================
+
 /gait_node:
   ros__parameters:
-    cycle_time: 1.5
-    step_length_max: 0.06
-    step_height: 0.04
-    body_height: -0.055
+    radial_distance: 0.160
+    body_height: -0.080
+    step_length_max: 0.070
+    step_height: 0.050
+    cycle_time: 1.50
+    gait_pattern: tripod

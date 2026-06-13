@@ -174,38 +174,39 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='body_height', default=-0.100, standing_only=True,
-        fp_range=(-0.140, -0.020, 0.001),
+        name='body_height', default=-0.080, standing_only=True,
+        fp_range=(-0.110, -0.020, 0.001),
         description=(
-            'Stand-Pose Foot-Z im Bein-Frame (m). Default -0.100 = Stance-Modus '
-            '"mittel" (Standup-Basis, Stage 1). fp_range-Floor -0.140 für den '
-            'Modus "hoch" (nur per Stance-Switch erreichbar, nicht direkt '
-            'aufstehbar). Live-Update nur in STANDING (analog cmd_body_height).'
+            'Stand-Pose Foot-Z im Bein-Frame (m). Default -0.080 = Stance-Modus '
+            '"mittel" (Standup-Basis). leg_changes (kürzere Beine): radial 0.160 '
+            'einheitlich → alle Höhen direkt aufstehbar (standup_radial==radial, '
+            'keine Reposition). fp_range-Floor -0.110 für den Modus "hoch". '
+            'Live-Update nur in STANDING (analog cmd_body_height).'
         ),
     ),
     _ParamSpec(
-        name='radial_distance', default=0.145, standing_only=True,
+        name='radial_distance', default=0.160, standing_only=True,
         fp_range=(0.10, 0.21, 0.001),
         description=(
-            'Radialer Foot-Neutral-Abstand vom Coxa-Mount '
-            'im Bein-Frame (m). Phase 13 Stage 0.4: Default 0.295 (war 0.27). '
-            'Weiter gestreckt -> Tibia knickt weniger -> in URDF-Limit '
-            '(Tibia -1.00/+2.50 ab Stage 1 Teil 2.1; war +1.30). Gueltige '
-            '(body_height, radial)-Paare siehe '
-            'phase_13_stage_0_4_standup_plan.md Tab. 3.3. '
+            'Radialer Foot-Neutral-Abstand vom Coxa-Mount im Bein-Frame (m). '
+            'leg_changes (kürzere Beine): Default 0.160 — das schmalste Radial, '
+            'aus dem direkt aufgestanden werden kann (bei < 0.160 zwingt der '
+            'Bauch-Touchdown den Femur über -90°/-1.57). Da standup_radial == '
+            'radial, entfällt die Reposition. Walking + Standup envelope-grün '
+            '(tools/walking_envelope_check + standup_envelope_check). '
             'Live-Update nur in STANDING (Stand-Pose-Reset).'
         ),
     ),
     _ParamSpec(
-        name='standup_radial_distance', default=0.170, standing_only=True,
+        name='standup_radial_distance', default=0.160, standing_only=True,
         fp_range=(0.10, 0.21, 0.001),
         description=(
-            'Phase 13 Stage 1 Teil 2.3 (Zwei-Phasen): radialer Foot-Abstand '
-            'für die AUFSTEH-Pose (m). Breit genug, dass der Standup-Touchdown '
-            '(Bauch am Boden) den Femur nicht über ±90° zwingt. Nach dem '
-            'Aufstehen repositioniert die Engine per Tripod auf radial_distance '
-            '(die nähere Walk-Pose). standup==radial_distance → keine '
-            'Reposition (Default-Verhalten). Live nur in STANDING.'
+            'Radialer Foot-Abstand für die AUFSTEH-Pose (m). Breit genug, dass '
+            'der Standup-Touchdown (Bauch am Boden) den Femur nicht über ±90° '
+            'zwingt. leg_changes: Default 0.160 == radial_distance → die Engine '
+            'überspringt die Tripod-Reposition (Touchdown-Pose = Walk-Pose). '
+            'standup > radial würde nach dem Aufstehen auf radial reposition. '
+            'Live nur in STANDING.'
         ),
     ),
     _ParamSpec(
@@ -227,12 +228,13 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_max', default=0.03,
+        name='step_length_max', default=0.050,
         fp_range=(0.01, 0.15, 0.001),
         description=(
             'Max Stride pro Cycle (m). Begrenzt linear_max = '
-            'step_length_max / stance_duration. Live-Update wirkt '
-            'sofort auf nächsten Cycle.'
+            'step_length_max / stance_duration. leg_changes: Default 0.050 '
+            '(max-leg-speed 0.05 m/s @ cycle 2.0) — envelope-grün bis ~0.08 '
+            '@ radial 0.160, mit Marge gewählt. Live-Update wirkt sofort.'
         ),
     ),
     _ParamSpec(
@@ -268,20 +270,21 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='body_height_min', default=-0.140, standing_only=True,
+        name='body_height_min', default=-0.110, standing_only=True,
         fp_range=(-0.140, -0.020, 0.001),
         description=(
             'Untere Schranke body_height (m). Cross-Constraint: '
-            'min < body_height < max. Stage 1: -0.140 (Floor für Modus "hoch"). '
-            'STANDING-only.'
+            'min < body_height < max. leg_changes: -0.110 (Floor für Modus '
+            '"hoch" -0.100). STANDING-only.'
         ),
     ),
     _ParamSpec(
-        name='body_height_max', default=-0.030, standing_only=True,
+        name='body_height_max', default=-0.060, standing_only=True,
         fp_range=(-0.120, -0.020, 0.001),
         description=(
             'Obere Schranke body_height (m). Cross-Constraint: '
-            'min < body_height < max. STANDING-only.'
+            'min < body_height < max. leg_changes: -0.060 (Decke über Modus '
+            '"tief" -0.065). STANDING-only.'
         ),
     ),
     _ParamSpec(
@@ -366,20 +369,20 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_intent_min', default=0.02,
+        name='step_length_intent_min', default=0.030,
         fp_range=(0.01, 0.15, 0.001),
         description=(
-            'Block C2: untere Clamp-Grenze für den Schrittweiten-Trim (m).'
+            'Block C2: untere Clamp-Grenze für den Schrittweiten-Trim (m). '
+            'leg_changes: 0.030 (Default-Start 0.050, D-Pad-↓ bis 0.030).'
         ),
     ),
     _ParamSpec(
-        name='step_length_intent_max', default=0.089,
+        name='step_length_intent_max', default=0.070,
         fp_range=(0.01, 0.15, 0.001),
         description=(
             'Block C2: obere Clamp-Grenze für den Schrittweiten-Trim (m). '
-            'Stage 1: 0.089 — das ist die mit der echten Engine über alle '
-            'Stance-Modi (inkl. geduckt) sichere Obergrenze. Größer trifft im '
-            'tief/mittel-Modus die Femur-Wand → IKError.'
+            'leg_changes: 0.070 — envelope-grün @ radial 0.160 (bis ~0.08, mit '
+            'Marge zur Femur-Wand). D-Pad-↑ bis hierher.'
         ),
     ),
     # Phase 13 Stage 1 — Stance-Modus-Wechsel.
@@ -505,28 +508,28 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
 # (/hexapod_cycle_gait). single_leg_* bleiben Debug-only (nicht im Cycle).
 _GAIT_CYCLE_ORDER = ('tripod', 'wave', 'tetrapod', 'ripple')
 
-# Phase 13 Stage 1 — Stance-Modi (radial, body_height, step_height), offline
-# envelope-validiert (tools/walking_envelope_check.py + joint_load). Reihenfolge
+# Stance-Modi (radial, body_height, step_height), offline envelope-validiert
+# (tools/walking_envelope_check.py + standup_envelope_check.py). Reihenfolge
 # aufsteigende Körperhöhe: Index 0 = tief (geduckt), 2 = hoch. /hexapod_cycle_stance
 # data=True → höher (Index+1), False → tiefer (Index-1), geklemmt (kein Wrap).
-# "mittel" (Index 1) ist die Standup-Basis (direkt aufstehbar @ standup_radial).
-# "hoch" (-0.140) ist NICHT direkt aufstehbar → nur via Switch von mittel.
+# "mittel" (Index 1) ist die Standup-/Boot-Basis.
 _StanceMode = namedtuple('_StanceMode', 'name radial body_height step_height')
-# WICHTIG: Radien mit Femur-Marge gewählt (NICHT am last-optimalen Min-Radial —
-# das stieß im echten Engine-Pfad an die Femur-±90°-Wand). Das Envelope-Tool ist
-# am Rand zu optimistisch → mit der echten Engine validieren (test_stance_switch).
-# Bein-Umbau (leg_changes, kürzere Beine, reach 0.074..0.194): Radien neu (S4).
-# Femur-Marge @ step_length 0.03 / diagonal: tief ~0.24 / mittel ~0.49 / hoch ~0.88
-# rad (komfortabler als die alten langen Beine). step_height 0.080→0.040 (kurze Tibia).
+# leg_changes (S5, kürzere Beine, reach 0.074..0.194): EINHEITLICHER Radius 0.160
+# für alle Höhen — das schmalste Radial, aus dem der Bauch-Touchdown den Femur
+# nicht über -90° zwingt (< 0.160 → Standup unmöglich, standup_envelope_check).
+# Da radial == standup_radial überall, steht JEDE Höhe direkt auf (keine
+# Reposition, kein Routing über mittel). Walking + Standup envelope-grün zu
+# allen drei body_height. Das Envelope-Tool ist am Femur-Rand zu optimistisch →
+# mit der echten Engine/Sim validieren (test_stance_switch + B.4/B.5).
 _STANCE_MODES = (
-    _StanceMode('tief', 0.160, -0.070, 0.040),
-    _StanceMode('mittel', 0.145, -0.100, 0.040),
-    _StanceMode('hoch', 0.130, -0.130, 0.040),
+    _StanceMode('tief', 0.160, -0.065, 0.040),
+    _StanceMode('mittel', 0.160, -0.080, 0.040),
+    _StanceMode('hoch', 0.160, -0.100, 0.040),
 )
 _STANCE_DEFAULT_IDX = 1   # mittel
-# Tiefste body_height, aus der direkt hingesetzt werden kann (Sit-Reposition geht
-# auf standup_radial 0.17). Modus "hoch" (-0.130) unterschreitet -0.115 → Hinsetzen
-# routet erst über mittel. ⚠️ leg_changes (S4): real-engine (test_sitdown) gegenchecken.
+# Tiefste body_height, aus der direkt hingesetzt werden kann. leg_changes: alle
+# Modi (tiefste "hoch" -0.100) liegen über -0.115 → jede Höhe direkt sit-/standup-
+# fähig, kein Routing nötig. ⚠️ real-engine (test_sitdown) gegenchecken.
 _SIT_SAFE_MIN_BH = -0.115
 
 # Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.

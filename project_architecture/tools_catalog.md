@@ -21,6 +21,6 @@
 | Tool | Zweck |
 |---|---|
 | `tools/hexapod-shell-aliases.sh` | Opt-in Aliases: `hexapod-save-walking-params`, `hexapod-load-walking-preset`, `hexapod-save-cal`, … Bei Cal-/Preset-Workflow darauf verweisen. ([[project_phase11_convenience_aliases]]) |
-| `hexapod_gait/config/presets/*.yaml` | Gespeicherte Gait-Configs (z.B. `feet_closer_walk.yaml` = feet-closer high Walk-Pose). Laden via `params_file:=`. |
+| `hexapod_gait/config/presets/*.yaml` | Gespeicherte Gait-Configs, alle envelope-validiert für die kurzen Beine (leg_changes/S5): `sim_walk` (kanonisch + Test-Anker), `defensive_walk` (langsam-sicher), `demo_walk`, `aggressive_walk`. Laden via `params_file:=`. |
 
 > **Pflege:** Neues Tool? Hier eintragen + in [`ai_navigation.md`](ai_navigation.md) §3 verlinken.

@@ -1092,13 +1092,23 @@ class GaitEngine:
         self._sitdown_flatten_duration = flatten_duration
         self._sitdown_bh_start = body_height_start
         self._sitdown_rest_joints = rest_joints
-        # Phase 1: Reposition AUS (radial → standup_radial), danach LOWER.
-        self.start_reposition(
-            t,
-            from_radial=self.radial_distance,
-            to_radial=self.standup_radial_distance,
-            after=self.STATE_SITDOWN_LOWER,
-        )
+        # Phase 1: Reposition AUS (radial → standup_radial), danach LOWER. Sind
+        # beide radii (nahezu) gleich (leg_changes: einheitlicher Stance-Radius
+        # 0.160 == standup_radial), entfällt die Füße-raus-Reposition → direkt
+        # absenken. Spiegelt den _finish_standup-Skip (kein No-op-Tripod-Cycle
+        # auf der Stelle, der sonst als „Shuffle" vor dem Hinsetzen sichtbar ist).
+        if (
+            abs(self.radial_distance - self.standup_radial_distance)
+            > self._REPOSITION_EPS
+        ):
+            self.start_reposition(
+                t,
+                from_radial=self.radial_distance,
+                to_radial=self.standup_radial_distance,
+                after=self.STATE_SITDOWN_LOWER,
+            )
+        else:
+            self.start_sitdown_lower(t)
         return True
 
     def start_sitdown_lower(self, t: float) -> None:

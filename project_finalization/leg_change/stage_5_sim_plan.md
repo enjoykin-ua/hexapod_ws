@@ -7,6 +7,11 @@
 > [`stage_5_sim_test_commands.md`](stage_5_sim_test_commands.md),
 > nicht im Chat ([[feedback_test_commands_in_doc_not_chat]]).
 
+> **🟢 STATUS:** Modell visuell ok (B.1–B.3 vom User bestätigt). Code/Params/Presets/
+> Tests **implementiert + grün** (s. §7). **Offen:** der User verifiziert das
+> finale Aufstehen + Tripod-Lauf mit den NEUEN Werten visuell in Sim (B.4/B.5
+> erneut), dann S5 fertig → S6.
+
 ---
 
 ## 0. Ziel dieser Stage (User-Vorgabe verfeinert)
@@ -154,15 +159,16 @@ S5.6  Preset-Cleanup (User-Entscheid: 4 Stile aktualisieren, 3 Artefakte lösche
 
 ```
 ### S5 — Sim/Gazebo
-- [ ] 5.3a Gazebo-Spawn: Modell visuell korrekt (kurze Beine), keine Mesh-/URDF-Fehler
-- [ ] 5.3b RViz display + Reachability-Viz: tf2 vollständig, Hülle plausibel, mittel-Pose mit Marge
-- [ ] 6.1  Stand-Pose mittel (radial/body_height) in Sim bestätigt (stabil aufgestanden)
-- [ ] 6.2  Aufsteh-Pfad: Zwei-Phasen + Reposition schürffrei/kippfrei; standup_radial + reposition_cycle_time final
-- [ ] 6.2b _SIT_SAFE_MIN_BH real-engine bestimmt; 2-vs-3-Höhen-Entscheid (D4) dokumentiert
-- [ ] 6.3  Tripod-Lauf @ mittel stabil (forward/sidestep/yaw/diagonal, kein IK-Freeze); step_height/step_length_max final
-- [ ] 6.5  Preset-Cleanup: sim_walk.yaml regeneriert (Test grün), veraltete Presets gelöscht, tools_catalog/ai_navigation nachgezogen
-- [ ] 6.6  colcon test gait/kinematics/teleop kein Regress; pytest tools/ grün
-- [ ] 6.7  Self-Review-Tabelle (CLAUDE.md §4) + test_commands.md Teil S5 final
+- [x] 5.3a Gazebo-Spawn: Modell visuell korrekt (kurze Beine), keine Mesh-/URDF-Fehler (User B.1)
+- [x] 5.3b RViz display + Reachability-Viz: tf2 vollständig, Hülle plausibel, mittel-Pose mit Marge (User B.2/B.3)
+- [x] 6.1  Stand-Pose-Werte berechnet (radial 0.160 / body_height -0.080), envelope-grün → Code+Launch+teleop
+- [x] 6.2  Aufsteh-Pfad: Einzel-Radius 0.160 == standup_radial → KEINE Reposition (radial 0.150 unmöglich, Min 0.160)
+- [x] 6.2b _SIT_SAFE_MIN_BH -0.115 bleibt (alle Höhen direkt sit-fähig); D4: 3 Höhen bei radial 0.160 (alle direkt aufstehbar)
+- [x] 6.3  step_length_max 0.050 (Default) / D-Pad-Cycle 0.030–0.070 / step_height 0.040 — envelope-grün
+- [x] 6.5  Preset-Cleanup: 4 aktualisiert (sim_walk Test-grün), 4 gelöscht, tools_catalog/ai_navigation/C_teleop/README nachgezogen
+- [x] 6.6  colcon test gait 205/0/28 · teleop 30/0/1 · kinematics 36/0/1 · pytest tools 11/0 — kein Regress
+- [x] 6.7  Self-Review-Tabelle (§7) + stage_5_sim_test_commands.md final
+- [ ] 6.8  **User-Sim-Verify mit NEUEN Werten**: Aufstehen (direkt, kein Reposition-Hop) + Tripod-Lauf stabil, kein Clamp-Spam
 ```
 (6.4 Show-CoG entfällt — Show ist aus diesem Thread raus, S4.)
 
@@ -197,4 +203,74 @@ S5.6  Preset-Cleanup (User-Entscheid: 4 Stile aktualisieren, 3 Artefakte lösche
 - **Gazebo lenient** → „läuft in Sim" ≠ „läuft auf HW". S5-Grün ist notwendig, nicht
   hinreichend; S6 (HW aufgehängt) bleibt Pflicht.
 - **sim_walk.yaml Test-Kopplung** — nicht einfach löschen ohne Test mitzubehandeln.
-```
+
+---
+
+## 6. Berechnete + implementierte Endwerte (S5)
+
+> **Kernbefund (korrigiert die User-Annahme „radial 0.150"):** Beim Aufstehen liegt
+> der Bauch am Boden (Coxa 21.5 mm hoch). Bei radial < 0.160 zwingt der Touchdown
+> den Femur über −90° (−1.57): radial 0.150 → Femur −1.668 (🔴), 0.155 → −1.582 (🔴),
+> **0.160 → grün**. → **0.160 ist das schmalste direkt-aufstehbare Radial.**
+>
+> **Design (User bestätigt): Einzel-Radius 0.160, keine Reposition.** `radial ==
+> standup_radial == 0.160` → die Engine überspringt die Reposition; alle drei Höhen
+> stehen direkt auf (kein Routing über mittel mehr).
+
+| Param | alt (S4) | **neu (S5)** | Beleg |
+|---|---|---|---|
+| `radial_distance` (Default = mittel) | 0.145 | **0.160** | walking + standup envelope-grün |
+| `standup_radial_distance` | 0.170 | **0.160** (= radial) | keine Reposition |
+| `body_height` (mittel/Default) | −0.100 | **−0.080** | „stand zu hoch" → 2 cm tiefer, stabiler; grün |
+| Stance tief / mittel / hoch (body_height) | −0.070/−0.100/−0.130 | **−0.065 / −0.080 / −0.100** | alle @ radial 0.160 standup-grün |
+| Stance radial (alle) | 0.160/0.145/0.130 | **0.160 einheitlich** | s. Kernbefund |
+| `step_height` | 0.040 | 0.040 | unverändert |
+| `step_length_max` (Default) | 0.030 | **0.050** | linear_max 0.05 m/s → Clamp-Spam weg; grün bis ~0.08 |
+| D-Pad-Cycle `step_length_intent_min/max` | 0.020/0.089 | **0.030 / 0.070** | feste Schrittweiten 0.03…0.07, Start 0.05 |
+| `body_height_min` / `_max` | −0.140/−0.030 | **−0.110 / −0.060** | umschließt tief −0.065 … hoch −0.100 |
+| `_SIT_SAFE_MIN_BH` | −0.115 | −0.115 | alle Höhen darüber → direkt sit-fähig |
+
+**Synchron geändert (4 Quellen + Tests + Presets):** `gait_node.py` (_STANCE_MODES,
+_GAIT_PARAMS, intent-Range) · `gait.launch.py` · `stand.launch.py` · teleop
+(`joy_to_twist.py` + `ps4_usb.yaml` + `ps4_bt.yaml`) · Tests (`test_param_callback`
+5×, `test_show_node` hoch→direkt + neuer Routing-Sicherungs-Test, `test_walking_envelope_check`
+radial-Range) · Presets (4 aktualisiert, 4 gelöscht) · Docs (presets/README,
+tools_catalog, ai_navigation, C_teleop §1a).
+
+**Folge-Bugfix (vom Sim-Test aufgedeckt): Sit-down-Shuffle.** `start_sitdown`
+rief **immer** `start_reposition(radial → standup_radial)` — bei gleichen radii
+(0.160) ein No-op-Tripod-„Schritt auf der Stelle" über `reposition_cycle_time`,
+sichtbar als unnötiger Shuffle vor dem Hinsetzen. Fix: `_REPOSITION_EPS`-Skip
+(wie `_finish_standup`) → bei radial ≈ standup_radial direkt `SITDOWN_LOWER`.
+Tests: 4× `test_sitdown_node` + 2× `test_show_node` REPOSITION→SITDOWN_LOWER
+(Default-radii gleich); `test_sitdown`/`test_reposition` (unterschiedliche radii)
+testen den Reposition-Pfad weiter. Standup war schon korrekt (hatte den Skip).
+
+### Verworfene Alternativen
+- **radial 0.150 (User-Wunsch):** kinematisch unmöglich für direktes Aufstehen
+  (Femur-Wand). Verworfen zugunsten 0.160 (1 cm breiter, dafür reposition-frei).
+- **Laufen 0.150 + Reposition auf Standup 0.160:** mehr Komplexität für 1 cm
+  schmaler. Verworfen (User wählte Einzel-Radius).
+- **2 Höhen / 1 Höhe:** nicht nötig — bei Einzel-Radius 0.160 sind alle 3 Höhen
+  problemlos direkt aufstehbar, also alle behalten.
+
+---
+
+## 7. Self-Review (CLAUDE.md §4)
+
+| Punkt | Status | Befund |
+|---|---|---|
+| radial 0.150 vs 0.160 — Annahme per Mathe falsifiziert, nicht blind umgesetzt | OK | standup_envelope_check: Min direkt-aufstehbar = 0.160 ([[feedback_validate_hardware_hypothesis_via_code]]) |
+| Walking + Standup envelope-grün für alle 3 Höhen @ radial 0.160 | OK | check (4 Szenarien) + standup −0.065/−0.080/−0.100 alle GRÜN |
+| Boot-Default 4-fach synchron (Node/gait.launch/stand.launch/teleop) | OK | mittel −0.080 / 0.160 überall; body_height_init == body_height |
+| rad-Limits NICHT angefasst (S1-final) | OK | nur Pose-Params geändert ([[project_two_joint_limit_sources]]) |
+| Test-Migration vollständig (kein Regress) | OK | gait 205/0/28 · teleop 30/0/1 · kinematics 36/0/1 · tools 11/0 |
+| Sit-Routing-Logik: tote „hoch"-Annahme ersetzt, Sicherungspfad weiter getestet | OK | test_sit_below_sit_safe_routes_through_mittel (erzwungen) + test_sit_from_hoch_direct |
+| Preset-Test-Anker (sim_walk) grün | OK | test_check_envelope_sim_preset_forward_green |
+| Sit-down-Shuffle (No-op-Reposition) — vom Sim-Test gefunden + gefixt | OK | _REPOSITION_EPS-Skip in start_sitdown; 6 Tests migriert |
+| `cmd_vel clamped`-Spam beim Lauf | 🟡 vormerken | max-leg-speed 0.050 == teleop-Voll-Stick 0.050 → Diagonal-Drift kippt knapp drüber (harmlos). D-Pad ↑ hebt step_length_max; ggf. Default 0.060 (User-Entscheid) |
+| `body_height_min/max` Node==Launch (S4-Lücke −0.140/−0.030) | OK | jetzt beidseitig −0.110/−0.060 |
+| Reposition-Engine-Code bleibt (für standup>radial), nur deaktiviert | OK | wertneutral; reaktivierbar falls je standup>radial gewünscht |
+| **Strom/Drehmoment-Beweis** | 🟢 später | Sim kinematisch; echter Strom erst S6/Boden |
+| **Sim-Visual-Verify der NEUEN Werte** (Aufstehen direkt + Lauf) | 🔴 offen | User B.4/B.5 erneut → dann S5 fertig (Bullet 6.8) |
+| Nicht-Tripod-Wackeln | 🟢 später | Open-loop, A5 IMU ([[project_nontripod_gait_wobble]]) |

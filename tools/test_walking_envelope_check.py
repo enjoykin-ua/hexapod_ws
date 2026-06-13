@@ -157,7 +157,9 @@ def test_recommend_returns_valid_preset_for_reasonable_height(joint_limits):
         body_height=-0.07, joint_limits=joint_limits)
     assert rec is not None
     assert rec.body_height == pytest.approx(-0.07)
-    assert 0.20 < rec.radial_distance < 0.33
+    # leg_changes (kürzere Beine): reach-Band schrumpft → recommend liefert
+    # radial im Bereich ~0.13..0.21 (war 0.24..0.30 bei den langen Beinen).
+    assert 0.13 < rec.radial_distance <= 0.21
     assert rec.step_length_max > 0
     assert rec.linear_max > 0
     assert rec.safety_margin == pytest.approx(0.10)

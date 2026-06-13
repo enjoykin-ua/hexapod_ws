@@ -19,22 +19,20 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     body_height_arg = DeclareLaunchArgument(
         'body_height',
-        default_value='-0.100',
+        default_value='-0.080',
         description=(
-            'Foot-Z im Bein-Frame (m). Phase 13 Stage 0.4: Default -0.080 '
-            '(mit radial 0.295), konsistent mit gait.launch.py. Der alte '
-            '-0.052 verletzte mit radial 0.27 das Tibia-Limit (1.33>1.161 '
-            'rad) — in lenienter Phase-5-Sim nie aufgefallen.'
+            'Foot-Z im Bein-Frame (m). leg_changes: Default -0.080 '
+            '(Stance-Modus "mittel"), konsistent mit gait.launch.py.'
         ),
     )
 
     radial_distance_arg = DeclareLaunchArgument(
         'radial_distance',
-        default_value='0.145',
+        default_value='0.160',
         description=(
             'Foot-X im Bein-Frame (m). Radiale Distanz vom coxa_joint '
-            'zur Foot-Position. Phase 13 Stage 0.4: Default 0.295 (war 0.27) '
-            '— weiter gestreckt, Tibia in URDF-Limit +-1.161.'
+            'zur Foot-Position. leg_changes: Default 0.160 (einheitlicher '
+            'Stance-Radius), konsistent mit gait.launch.py.'
         ),
     )
 

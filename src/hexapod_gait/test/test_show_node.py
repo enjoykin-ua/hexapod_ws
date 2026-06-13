@@ -200,13 +200,19 @@ def test_cycle_stance_rejected_when_not_standing(node):
     assert _STANCE_MODES[node._stance_idx].name == 'mittel'  # unverändert
 
 
-def test_sit_from_hoch_routes_through_mittel(node):
-    """Hinsetzen aus hoch (-0.140) → erst Stance-Switch auf mittel, dann sit."""
-    # In "hoch" versetzen (Index + Engine-Pose).
-    hoch_idx = len(_STANCE_MODES) - 1
-    node._stance_idx = hoch_idx
-    node._engine.radial_distance = _STANCE_MODES[hoch_idx].radial
-    node._engine.body_height = _STANCE_MODES[hoch_idx].body_height  # -0.140
+def test_sit_below_sit_safe_routes_through_mittel(node):
+    """
+    Hinsetzen unterhalb _SIT_SAFE_MIN_BH → erst Stance-Switch auf mittel, dann sit.
+
+    leg_changes (S5): mit dem einheitlichen Radius 0.160 liegt KEIN Stance-Modus
+    mehr unter der Schwelle (tiefste "hoch" -0.100 > -0.115) → alle Modi sitzen
+    direkt (siehe test_sit_from_hoch_direct). Die Routing-Sicherung kann aber via
+    /cmd_body_height (body_height bis -0.110) noch relevant werden — hier per
+    Engine-Pose unter die Schwelle erzwungen, um den Pfad abzudecken.
+    """
+    node._stance_idx = len(_STANCE_MODES) - 1   # hoch
+    node._engine.radial_distance = _STANCE_MODES[-1].radial
+    node._engine.body_height = -0.120   # < _SIT_SAFE_MIN_BH (-0.115), erzwungen
     resp = node._on_sit_down(Trigger.Request(), Trigger.Response())
     assert resp.success is True
     # NICHT direkt hingesetzt, sondern Switch auf mittel + pending.
@@ -215,10 +221,25 @@ def test_sit_from_hoch_routes_through_mittel(node):
     assert _STANCE_MODES[node._stance_idx].name == 'mittel'
 
 
+def test_sit_from_hoch_direct(node):
+    """leg_changes: Hinsetzen aus hoch (-0.100, sit-safe) → direkt, kein Routing."""
+    hoch_idx = len(_STANCE_MODES) - 1
+    node._stance_idx = hoch_idx
+    node._engine.radial_distance = _STANCE_MODES[hoch_idx].radial
+    node._engine.body_height = _STANCE_MODES[hoch_idx].body_height  # -0.100
+    resp = node._on_sit_down(Trigger.Request(), Trigger.Response())
+    assert resp.success is True
+    assert node._pending_sitdown is False
+    # leg_changes: radial == standup_radial (0.160) → keine Phase-1-Reposition,
+    # direkt SITDOWN_LOWER.
+    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER
+
+
 def test_sit_from_mittel_direct(node):
     """Hinsetzen aus mittel (sit-safe) → direkt (kein Routing)."""
     resp = node._on_sit_down(Trigger.Request(), Trigger.Response())
     assert resp.success is True
     assert node._pending_sitdown is False
-    # Direkt in die Sitdown-Sequenz (Reposition), nicht Stance-Switch.
-    assert node._engine.state == GaitEngine.STATE_REPOSITION
+    # Direkt in die Sitdown-Sequenz; leg_changes: radial == standup_radial →
+    # keine Phase-1-Reposition, direkt SITDOWN_LOWER (nicht Stance-Switch).
+    assert node._engine.state == GaitEngine.STATE_SITDOWN_LOWER

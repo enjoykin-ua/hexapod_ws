@@ -1,30 +1,28 @@
 # =============================================================================
-# Hexapod gait_node Preset — "Demo Walk"
+# Hexapod gait_node Preset — "Demo Walk" (leg_changes / S5)
 # =============================================================================
 #
-# Phase 11 Stage E — mittel-schneller Walking-Stil für Demonstrations-
-# Zwecke. Sichtbare Bein-Bewegung ohne aggressive Stride-Längen.
+# Mittel-schnell mit sichtbarer Bein-Bewegung (Demos/Videos). Stance-Pose =
+# "mittel" (radial 0.160, body_height -0.080). Hoeherer Foot-Hub als sim_walk.
 #
-# Charakteristik (gegenüber gait.launch.py-Defaults):
-#   - step_height 0.035 (statt 0.03) — Beine heben etwas höher,
-#     visuell aktiveres Walking
-#   - cycle_time + step_length_max: bleiben bei Defaults (2.0 s / 0.05 m)
-#     → linear_max = 0.05 m/s wie default
-#   - body_height bleibt bei -0.052 Default
+# Charakteristik (gegenueber sim_walk):
+#   - step_height 0.050 (Beine heben sichtbar hoeher)
+#   - cycle_time + step_length_max wie sim_walk (2.0 s / 0.050) → 0.050 m/s
 #
-# Use-Case:
-#   - Phase-11-Doku/Workshop-Beispiel
-#   - Demo-Videos
-#   - Erst-Eindruck wie Roboter in Sim aussieht
-#
-# Verifikation (Stage E User-Smoke E-T3a, 2026-05-21):
-#   In Sim mit linear.x=0.04 m/s — Roboter läuft stabil vorwärts,
-#   sichtbare Tripod-Gangart, keine IK-Errors.
+# Envelope-validiert (alle 4 Szenarien GRUEN):
+#   python3 tools/walking_envelope_check.py check \
+#     --radial 0.160 --body-height -0.080 --step-length 0.050 --step-height 0.050 --scenario all
 #
 # Laden:
 #   ros2 launch hexapod_gait gait.launch.py \
-#     params_file:=src/hexapod_gait/config/presets/demo_walk.yaml
+#     params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/demo_walk.yaml
 # =============================================================================
+
 /gait_node:
   ros__parameters:
-    step_height: 0.035
+    radial_distance: 0.160
+    body_height: -0.080
+    step_length_max: 0.050
+    step_height: 0.050
+    cycle_time: 2.00
+    gait_pattern: tripod

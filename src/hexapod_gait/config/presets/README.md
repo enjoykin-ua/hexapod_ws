@@ -61,15 +61,22 @@ hexapod-save-walking-params my_session
 
 ## Aktuelle Presets
 
-| Preset | Zweck | Stand |
-|---|---|---|
-| `defensive_walk.yaml` | langsam-sicher, niedrige Stride/Step-Height | manuell konfiguriert (Stage D) |
-| `current_state.yaml` | Snapshot der gait.launch.py-Defaults | manuell snapshotted (Stage D, 2026-05-20) |
-| `demo_walk.yaml` | mittel-schnell, etwas höhere Foot-Hub, sonst Defaults | manuell + Sim-verifiziert (Stage E, 2026-05-21) |
-| `aggressive_walk.yaml` | schnell (1.6× linear_max), größere Stride, Body tiefer | manuell + Sim-verifiziert (Stage E, 2026-05-21) |
+Alle envelope-validiert für die kurzen Beine (leg_changes / S5): einheitlicher
+Radius 0.160, body_height −0.080 (Stance-Modus „mittel"), direktes Aufstehen
+ohne Reposition. Reproduzierbar via `tools/walking_envelope_check.py check …`
+(Kopfzeile jeder Datei nennt den exakten Befehl).
 
-Pro Preset Details (Beschreibung, erwartete Beobachtung in Sim, Use-Cases)
-siehe [`docs_raspi/phase_11_sim_tuning_workshop.md`](../../../../docs_raspi/phase_11_sim_tuning_workshop.md).
+| Preset | Zweck | radial / bh / step_len / step_h / cycle |
+|---|---|---|
+| `sim_walk.yaml` | kanonische Sim-Lauf-Pose (Test-Anker) | 0.160 / −0.080 / 0.050 / 0.040 / 2.0 |
+| `defensive_walk.yaml` | langsam-sicher (Erst-HW, neue Cal) | 0.160 / −0.080 / 0.030 / 0.030 / 4.0 |
+| `demo_walk.yaml` | sichtbarer Lauf (Demo/Video) | 0.160 / −0.080 / 0.050 / 0.050 / 2.0 |
+| `aggressive_walk.yaml` | schnell / Stress-Test | 0.160 / −0.080 / 0.070 / 0.050 / 1.5 |
+
+> Gelöscht in S5 (veraltet, alte Lang-Bein-Radii): `current_state.yaml`,
+> `alias_test.yaml`, `my_test_session.yaml`, `feet_closer_walk.yaml`.
+> `feet_closer_walk` ist mit den kurzen Beinen redundant (jede Pose ist
+> feet-closer) → in `sim_walk` aufgegangen.
 
 ## Bewusst NICHT hier
 

@@ -74,12 +74,18 @@ ros2 launch hexapod_gait gait.launch.py use_sim_time:=true
 > Wieder-Aufstehen NACH einem Hinsetzen (aus dem SAT-Zustand). Aus STANDING
 > antwortet er `stand_up only from SAT` (= korrekt, kein Fehler).
 
-- [ ] Bauch hebt sauber ab; Füße schürfen **nicht** sichtbar nach innen; kein Kippeln/Zucken.
-- [ ] Endpose = mittel (radial 0.145, body_height −0.10), Roboter steht stabil.
-- [ ] **Beobachtung notieren:** war eine Zwischen-Reposition sichtbar (Füße erst breit,
-      dann enger), oder stand er direkt sauber? (→ entscheidet, ob Reposition nötig bleibt.)
+> **NEU ab S5-Re-Param:** mittel ist jetzt **radial 0.160 / body_height −0.080**,
+> `standup_radial == radial` → **direktes Aufstehen, KEINE Zwischen-Reposition**
+> mehr (kein „Füße erst breit, dann enger"). Vor dem Test neu bauen (`colcon build`).
 
-### B.4b — Reposition wegtunen (Experiment, live in rqt)
+- [ ] Bauch hebt sauber ab; Füße schürfen **nicht** sichtbar nach innen; kein Kippeln/Zucken.
+- [ ] Endpose = mittel (radial 0.160, body_height −0.080), Roboter steht stabil, **etwas tiefer** als vorher.
+- [ ] **Erwartet: KEIN Reposition-Hop** (steht direkt in der Lauf-Pose). Falls doch einer
+      sichtbar ist → melden (dann ist standup_radial ≠ radial geblieben).
+
+### B.4b — Reposition wegtunen (OPTIONAL — in S5 bereits berechnet+eingetragen)
+> Erledigt: `standup_radial == radial == 0.160` ist eingetragen → Reposition ist
+> bereits weg. Dieser Abschnitt nur, falls du den Aufsteh-Radius noch live variieren willst.
 Hypothese: mit den kurzen Beinen reicht die **schmale** Walk-Pose (radial 0.145)
 schon als Touchdown-Pose → `standup_radial` == `radial` → **keine Reposition** nötig.
 Test (Roboter steht gerade, alle Params standing-only = nur in STANDING setzbar):
@@ -115,11 +121,15 @@ ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
 - [ ] **forward** (linker Stick vor / x>0): stabiler Tripod, Beine heben sichtbar, kein Wegrutschen.
 - [ ] **sidestep** (y≠0), **yaw** (angular.z≠0), **diagonal**: jeweils stabil, kein Einknicken.
 - [ ] **Kein** IK-WARN-Spam in der gait-Konsole (`OutOfReach` / `IKError`).
+- [ ] **Clamp-Spam:** mit `step_length_max` jetzt 0.050 (max-leg-speed 0.05 m/s) sollte der
+      `cmd_vel clamped`-Spam bei normalem Stick-Tempo **weg** sein (nur bei Vollausschlag möglich).
 - [ ] Stance-Höhen mit Teleop durchschalten (L2/R2 → `/hexapod_cycle_stance`): **tief**
       und **hoch** ebenfalls aufstehen+laufen? (→ D4: behalten wir 3 Höhen, oder reduzieren.)
 > Stance auch deterministisch schaltbar: `ros2 service call /hexapod_cycle_stance std_srvs/srv/SetBool '{data: true}'` (höher) / `{data: false}` (tiefer).
 
-### B.5b — Lauf-Speed / `cmd_vel clamped`-Tuning (Experiment, live in rqt)
+### B.5b — Lauf-Speed / `cmd_vel clamped`-Tuning (OPTIONAL — in S5 bereits eingetragen)
+> Erledigt: `step_length_max` Default 0.050 + D-Pad-Cycle 0.030–0.070 eingetragen
+> (envelope-grün). Dieser Abschnitt nur, falls du live noch weiter hochgehen willst.
 `cmd_vel clamped ... > max-leg-speed 0.030 m/s` = das Teleop will schneller, als die
 Gangart liefert. `max-leg-speed = step_length_max / (cycle_time × 0.5)`. Hebel in rqt
 (`/gait_node`), beim Vorwärtslaufen die gait-Konsole beobachten:

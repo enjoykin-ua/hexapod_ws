@@ -45,7 +45,7 @@
 - **Validieren:** `walking_envelope_check recommend/check` (nutzt URDF-Limits live) +
   `standup_envelope_check` für den Aufsteh-Pfad (eigene Pose!). **Beide separat** — eine
   Walk-Pose kann gehen, der Standup-Pfad dorthin aber nicht (Femur-90°-Befund 2.3).
-- **Constraint-Fallen:** `body_height` fp_range-Floor = −0.120; `body_height_min ≤ body_height ≤ body_height_max`; `standing_only`-Params nur im STANDING setzbar.
+- **Constraint-Fallen:** `body_height` fp_range-Floor = −0.110 (leg_changes/S5); `body_height_min ≤ body_height ≤ body_height_max`; `standing_only`-Params nur im STANDING setzbar.
 
 ### Neue Gangart
 - **Wo:** `gait_patterns.py` — neuer `GaitPattern(phase_offset_per_leg, swing_duty)` +
@@ -73,9 +73,12 @@
   `joy_to_twist.py` — L2/R2 ohne R1 → cycle_stance.
 - **Modi/Werte ändern:** nur die `_STANCE_MODES`-Tabelle (offline-validiert!). Default-Boot-Pose =
   Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`-Param-Defaults.
-- **Fallen:** (1) **−0.140 (hoch) ist nicht direkt sit-/standup-fähig** (out-of-reach @ standup_radial
-  0.295) → Standup landet auf mittel, Sit aus hoch routet über mittel. Tiefer als −0.120 = immer
-  Routing nötig (`_SIT_SAFE_MIN_BH`). (2) Jeder neue Modus + jeder Übergang muss offline envelope-grün
+- **Fallen:** (1) **leg_changes/S5: einheitlicher Radius 0.160 über alle Höhen** (tief −0.065 /
+  mittel −0.080 / hoch −0.100), `standup_radial == radial` → **alle direkt aufstehbar, KEINE
+  Reposition, kein Sit-Routing** (alle Höhen > `_SIT_SAFE_MIN_BH` −0.115). < 0.160 ist nicht direkt
+  aufstehbar (Bauch-Touchdown zwingt Femur über −90°, `standup_envelope_check`). Die Routing-Logik
+  (`_SIT_SAFE_MIN_BH`) bleibt nur als Sicherung für via /cmd_body_height tiefer gesetzte Höhen.
+  (2) Jeder neue Modus + jeder Übergang muss offline envelope-grün
   + in-limit sein (Femur-±90° koppelt body_height↔step_height↔radial). (3) `switch_step_height` klein
   halten (Apex unter Femur-Wand bei Zwischenhöhen). (4) cmd_vel im Switch ignoriert (`set_command`-Guard).
 - **Validieren:** `colcon test hexapod_gait hexapod_teleop` (`test_stance_switch` —

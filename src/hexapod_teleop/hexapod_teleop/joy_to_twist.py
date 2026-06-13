@@ -83,14 +83,14 @@ class JoyToTwist(Node):
         self.declare_parameter('slow_factor', 0.5)
 
         # --- Body-Height (Topic-Pfad, gait_node clampt zusätzlich) ---
-        # Stage 1: body_height_init = Stance-Modus "mittel" (Standup-Basis),
-        # einmalig beim Start publisht (Stand-Sync). Stufenlose Höhe via L2/R2
-        # gibt es nicht mehr (→ Stance-Modi); _adjust_body_height bleibt nur
-        # Helper. min-Floor -0.140 (Modus "hoch").
-        self.declare_parameter('body_height_init', -0.100)
+        # body_height_init = Stance-Modus "mittel" (Standup-Basis), einmalig
+        # beim Start publisht (Stand-Sync). Stufenlose Höhe via L2/R2 gibt es
+        # nicht mehr (→ Stance-Modi); _adjust_body_height bleibt nur Helper.
+        # leg_changes: mittel -0.080, min-Floor -0.110 (Modus "hoch" -0.100).
+        self.declare_parameter('body_height_init', -0.080)
         self.declare_parameter('body_height_step', 0.01)
-        self.declare_parameter('body_height_min', -0.140)
-        self.declare_parameter('body_height_max', -0.030)
+        self.declare_parameter('body_height_min', -0.110)
+        self.declare_parameter('body_height_max', -0.060)
 
         # --- Show-Pose (B4): rechter Stick-Y (leg_1 vertikal) + Vorzeichen ---
         # Linker Stick → leg_6, rechter Stick → leg_1; X=seitwärts, Y=hoch/runter.

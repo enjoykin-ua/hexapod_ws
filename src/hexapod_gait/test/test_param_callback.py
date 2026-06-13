@@ -109,9 +109,9 @@ def test_param_set_cycle_time_updates_engine_linear_max(node):
     assert result[0].successful
     assert node._engine.cycle_time == pytest.approx(4.0)
     # stance_duration = 4.0 * 0.5 = 2.0 → linear_max = step_length_max/2.0.
-    # Node-Default step_length_max = 0.03 (leg_changes S4) → 0.015.
+    # Node-Default step_length_max = 0.050 (leg_changes S5) → 0.025.
     assert node._engine.stance_duration == pytest.approx(2.0)
-    assert node._engine.linear_max == pytest.approx(0.015)
+    assert node._engine.linear_max == pytest.approx(0.025)
 
 
 def test_param_set_tick_rate_restarts_timer(node):
@@ -141,16 +141,17 @@ def test_param_set_atomic_apply_two_valid(node):
     """
     Atomic happy path: zwei zusammen valide werden beide übernommen.
 
-    body_height_min = -0.040 + body_height = -0.035 wären sequenziell
-    inkonsistent (erstes Update bricht Cross-Constraint), atomic aber OK.
+    body_height_min = -0.075 + body_height = -0.070 wären sequenziell
+    inkonsistent (min -0.075 > aktuelles height -0.080 bricht erst die
+    Cross-Constraint), atomic aber OK.
     """
     result = node.set_parameters_atomically([
-        Parameter('body_height_min', Parameter.Type.DOUBLE, -0.040),
-        Parameter('body_height', Parameter.Type.DOUBLE, -0.035),
+        Parameter('body_height_min', Parameter.Type.DOUBLE, -0.075),
+        Parameter('body_height', Parameter.Type.DOUBLE, -0.070),
     ])
     assert result.successful, result.reason
-    assert node._body_height_min == pytest.approx(-0.040)
-    assert node._body_height == pytest.approx(-0.035)
+    assert node._body_height_min == pytest.approx(-0.075)
+    assert node._body_height == pytest.approx(-0.070)
 
 
 # ----- Validation Rejects ---------------------------------------------
@@ -160,15 +161,15 @@ def test_param_set_body_height_out_of_constraint_rejected(node):
     """
     body_height außerhalb [min, max] wird abgelehnt.
 
-    Default-Range ist [-0.140, -0.030], -0.029 ist out (über max).
+    Default-Range ist [-0.110, -0.060], -0.029 ist out (über max).
     """
     result = node.set_parameters([
         Parameter('body_height', Parameter.Type.DOUBLE, -0.029),
     ])
     assert not result[0].successful
     assert 'outside' in result[0].reason
-    # body_height unverändert (Stage-1-Default -0.100 = Modus mittel)
-    assert node._body_height == pytest.approx(-0.100)
+    # body_height unverändert (leg_changes-Default -0.080 = Modus mittel)
+    assert node._body_height == pytest.approx(-0.080)
 
 
 def test_param_set_min_above_max_rejected(node):
@@ -178,7 +179,7 @@ def test_param_set_min_above_max_rejected(node):
     ])
     assert not result[0].successful
     assert 'must be <' in result[0].reason
-    assert node._body_height_min == pytest.approx(-0.140)
+    assert node._body_height_min == pytest.approx(-0.110)
 
 
 def test_param_set_atomic_rollback_one_invalid(node):
@@ -235,11 +236,11 @@ def test_param_set_body_height_rejected_while_walking(node):
     assert node._engine.state == GaitEngine.STATE_WALKING
 
     result = node.set_parameters([
-        Parameter('body_height', Parameter.Type.DOUBLE, -0.060),
+        Parameter('body_height', Parameter.Type.DOUBLE, -0.075),
     ])
     assert not result[0].successful
     assert 'STATE_STANDING' in result[0].reason
-    assert node._body_height == pytest.approx(-0.100)  # unverändert (Stage-1-Default)
+    assert node._body_height == pytest.approx(-0.080)  # unverändert (leg_changes-Default)
 
 
 def test_param_set_step_height_allowed_while_walking(node):

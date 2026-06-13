@@ -69,19 +69,23 @@ Schrittweite (D-Pad ↑/↓). Keine separate Tempo-Stufe nötig (User 2026-06-03
 **Stance-Modi (Höhen)** — fest validierte Posen, per L2/R2 (ohne R1) umgeschaltet. Werte real-engine-
 validiert (Plan [`stance_modes_plan.md`](stance_modes_plan.md)):
 
-| Modus | body_height | radial | step_height | Tibia-Last | Femur-Marge | Hinweis |
-|---|---|---|---|---|---|---|
-| **hoch** | −0.140 m | 0.225 m | 0.080 m | ~11.5 % | ~0.36 rad | nicht direkt aufstehbar → Standup landet auf mittel; Hinsetzen routet über mittel |
-| **mittel** | −0.100 m | 0.245 m | 0.080 m | ~14.7 % | ~0.23 rad | **Boot-/Standup-Basis** |
-| **tief** | −0.070 m | 0.255 m | 0.080 m | ~16.7 % | ~0.15 rad | geduckt, Beine weiter außen |
+| Modus | body_height | radial | step_height | Hinweis |
+|---|---|---|---|---|
+| **hoch** | −0.100 m | 0.160 m | 0.040 m | direkt aufstehbar (einheitl. Radius) |
+| **mittel** | −0.080 m | 0.160 m | 0.040 m | **Boot-/Standup-Basis** |
+| **tief** | −0.065 m | 0.160 m | 0.040 m | geduckt |
+
+> **leg_changes/S5 (kürzere Beine):** einheitlicher Radius 0.160 über alle Höhen →
+> `standup_radial == radial` → **alle Modi stehen direkt auf, keine Reposition**.
+> < 0.160 wäre nicht direkt aufstehbar (Bauch-Touchdown zwingt Femur über −90°).
 
 **Live verstellbar (Controller-Runtime):**
 
 | Parameter | Eingabe | Bereich | Schritt | Wirkung |
 |---|---|---|---|---|
-| Stance-Modus | **L2 / R2** (ohne R1) | tief · mittel · hoch | 1 Stufe (clamp) | Höhe + radial (Reposition + Lerp) |
+| Stance-Modus | **L2 / R2** (ohne R1) | tief · mittel · hoch | 1 Stufe (clamp) | nur Höhe (radial einheitlich 0.160; keine Reposition) |
 | Gangart | **D-Pad ←/→** | tripod · wave · tetrapod · ripple | 1 Stufe (cyclt) | nur in STANDING |
-| Schrittweite `step_length_max` | **D-Pad ↑/↓** | **0.020 – 0.089 m** | **0.010 m** | max. Tempo = step_length / stance_dur; Stride skaliert stufenlos mit Stick |
+| Schrittweite `step_length_max` | **D-Pad ↑/↓** | **0.030 – 0.070 m** (Start 0.050) | **0.010 m** | max. Tempo = step_length / stance_dur; Stride skaliert stufenlos mit Stick |
 | Fahr-Tempo | L-Stick / R-Stick X (+ **L1** langsam) | 0 … Max | analog | dosiert; clamp bei > max-leg-speed (Log-WARN ist normal) |
 
 > Tieferes Tuning (Show-Skalen, Dauern, Switch-step_height usw.) per `ros2 param set /gait_node …` —

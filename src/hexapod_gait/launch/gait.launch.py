@@ -41,8 +41,8 @@ def generate_launch_description() -> LaunchDescription:
         'step_height',
         default_value='0.040',
         description=(
-            'Schwung-Höhe in m über Stand-Pose. Stage 1: Default 0.080 '
-            '(= Stance-Modi).'
+            'Schwung-Höhe in m über Stand-Pose. Default 0.040 (= Stance-Modi, '
+            'kurze Tibia).'
         ),
     )
 
@@ -64,21 +64,23 @@ def generate_launch_description() -> LaunchDescription:
 
     body_height_arg = DeclareLaunchArgument(
         'body_height',
-        default_value='-0.100',
+        default_value='-0.080',
         description=(
-            'Stand-Pose Foot-Z im Bein-Frame (m). Stage 1: Default -0.100 = '
-            'Stance-Modus "mittel" (Standup-Basis). Modi via /hexapod_cycle_stance '
-            '(L2/R2). hoch -0.140 nur per Switch (nicht direkt aufstehbar).'
+            'Stand-Pose Foot-Z im Bein-Frame (m). leg_changes: Default -0.080 = '
+            'Stance-Modus "mittel" (Standup-/Boot-Basis). Modi via '
+            '/hexapod_cycle_stance (L2/R2): tief -0.065 / mittel -0.080 / hoch '
+            '-0.100 — alle bei radial 0.160 direkt aufstehbar.'
         ),
     )
 
     radial_distance_arg = DeclareLaunchArgument(
         'radial_distance',
-        default_value='0.145',
+        default_value='0.160',
         description=(
-            'Stand-Pose Foot-X im Bein-Frame (m). Stage 1: Default 0.245 = '
-            'Stance-Modus "mittel" (mit Femur-Marge gewählt). Standup-Touchdown '
-            'nutzt standup_radial 0.295, repositioniert dann auf radial_distance.'
+            'Stand-Pose Foot-X im Bein-Frame (m). leg_changes: Default 0.160 — '
+            'einheitlich über alle Stance-Höhen, == standup_radial_distance, '
+            'daher keine Reposition (direktes Aufstehen). < 0.160 wäre nicht '
+            'mehr direkt aufstehbar (Femur-Wand am Bauch-Touchdown).'
         ),
     )
 
@@ -93,13 +95,13 @@ def generate_launch_description() -> LaunchDescription:
 
     step_length_max_arg = DeclareLaunchArgument(
         'step_length_max',
-        default_value='0.03',
+        default_value='0.050',
         description=(
             'Obere Schranke für Schritt-Länge in m. Aus '
             'step_length_max + cycle_time leitet Engine den maximalen '
             'cmd_vel.linear.x ab: linear_max = step_length_max / '
-            'stance_duration. Default 0.05 m → linear_max = 0.05 m/s '
-            'bei cycle_time=2 (DK-2-tauglich).'
+            'stance_duration. leg_changes: Default 0.050 → linear_max = '
+            '0.05 m/s bei cycle_time=2 (envelope-grün @ radial 0.160).'
         ),
     )
 
@@ -146,20 +148,20 @@ def generate_launch_description() -> LaunchDescription:
 
     body_height_min_arg = DeclareLaunchArgument(
         'body_height_min',
-        default_value='-0.140',
+        default_value='-0.110',
         description=(
             'Untere Schranke für body_height (m, Bein-Frame Z). '
-            'Stage 1: -0.140 (Floor für Stance-Modus "hoch").'
+            'leg_changes: -0.110 (Floor für Stance-Modus "hoch" -0.100).'
         ),
     )
 
     body_height_max_arg = DeclareLaunchArgument(
         'body_height_max',
-        default_value='-0.030',
+        default_value='-0.060',
         description=(
             'Obere Schranke für body_height (m, Bein-Frame Z). '
-            'Für /cmd_body_height-Subscriber (Phase 6). Default -0.030 '
-            'm = 50 mm höher als Default Stand-Pose (-0.080).'
+            'Für /cmd_body_height-Subscriber. leg_changes: -0.060 '
+            '(Decke über Stance-Modus "tief" -0.065).'
         ),
     )
 
