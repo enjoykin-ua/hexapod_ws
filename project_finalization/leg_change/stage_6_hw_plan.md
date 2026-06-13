@@ -2,7 +2,7 @@
 
 > **Vorgänger:** S5 (Sim) ✅ — Modell/Posen/Presets/Tests grün, Aufstehen +
 > Tripod-Lauf + Hinsetzen in Sim bestätigt. **S6-HW-Fix:** Aufstehen/Hinsetzen am
-> breiten standup_radial 0.21 (schürffrei) → Reposition auf Walk-Radius 0.160 (s. §5b).
+> breiten standup_radial 0.20 (schürffrei) → Reposition auf Walk-Radius 0.160 (s. §5b).
 > **Diese Stage = S6 (HW Desktop, aufgehängt → Boden).** Danach S7 (Pi-Kurztest).
 > **Plan nach CLAUDE.md §4** — User-Freigabe BEVOR HW läuft. HW-Befehle vollständig
 > in [`stage_6_hw_test_commands.md`](stage_6_hw_test_commands.md), nicht im Chat
@@ -13,7 +13,7 @@
 ## 0. Ziel + Sicherheits-Prinzip
 
 Die neuen Beine (Femur 0.060 / Tibia 0.134) + die S5-Parametrierung (radial 0.160,
-mittel −0.080; Aufstehen breit @ 0.21 + Reposition) auf der **echten Hardware** (Servo2040 + 18 Servos,
+mittel −0.080; Aufstehen breit @ 0.20 + Reposition) auf der **echten Hardware** (Servo2040 + 18 Servos,
 Desktop, `/dev/ttyACM0`) validieren. **Reihenfolge zwingend (CLAUDE.md §9):
 aufgebockt → Boden**, langsam, Kill-Switch in der Hand.
 
@@ -41,7 +41,7 @@ S6.1  Cal-Verify (= Plan-Bullet 2.4)  ── GATE ──
 S6.2  Aufstehen aufgebockt (= 7.1)
         Zusätzlich gait.launch.py use_sim_time:=false robot_description_file:=<urdf>
         → Auto-Standup-Rampe (8 s) von power_on_mid zur Stand-Pose (radial 0.160,
-          body_height −0.080). Touchdown breit @ standup_radial 0.21 (schürffrei),
+          body_height −0.080). Touchdown breit @ standup_radial 0.20 (schürffrei),
           dann Tripod-Reposition auf 0.160. Erwartung: smooth, kein Stall/Ruck, Touchdown schürffrei.
         Sit/Stand-Toggle (Triangle) je Höhe testen, inkl. **direkt-Sit aus „hoch"
           (−0.100)** — auf HW mit Schwerkraft-Last der größte Absenk-Weg (User-Caveat).
@@ -75,7 +75,7 @@ Cal-Korrekturen → `servo_mapping.yaml` (via Save-Service). Doku: dieser Plan +
 
 **HW (User führt aus, knappe Status-Meldung — `stage_6_hw_test_commands.md`):**
 - S6-T1 Cal-Verify: rad 0 = Beine gestreckt, HW == RViz; Sweep ohne Freeze/Stall.
-- S6-T2 Aufstehen aufgebockt: Touchdown breit @ 0.21 schürffrei → Reposition auf 0.160, kein Stall.
+- S6-T2 Aufstehen aufgebockt: Touchdown breit @ 0.20 schürffrei → Reposition auf 0.160, kein Stall.
 - S6-T3 Sit/Stand je Höhe aufgebockt, inkl. direkt-Sit aus „hoch".
 - S6-T4 Lauf aufgebockt: Tripod alle Richtungen + Stance-Switch + Schrittweite + Gangarten, kein Freeze/Stall.
 - S6-T5 Boden: Aufstehen schürffrei + Strom plausibel.
@@ -98,7 +98,7 @@ Cal-Korrekturen → `servo_mapping.yaml` (via Save-Service). Doku: dieser Plan +
 ```
 ### S6 — HW-Validierung Desktop
 - [ ] 2.4  Cal-Verify HW: rad 0 = Bein gestreckt, HW == RViz; Sweep ohne SAFETY_FREEZE/Stall
-- [ ] 7.1  aufgehängt: Init + Aufstehen sauber (Touchdown breit @ 0.21 schürffrei → Reposition auf 0.160, kein Stall/Freeze)
+- [ ] 7.1  aufgehängt: Init + Aufstehen sauber (Touchdown breit @ 0.20 schürffrei → Reposition auf 0.160, kein Stall/Freeze)
 - [ ] 7.1b aufgehängt: Sit/Stand je Höhe inkl. direkt-Sit aus "hoch" (−0.100) — kein Stall beim Absenken
 - [ ] 7.2  aufgehängt: Laufen (Tripod alle Richtungen) + Stance-Switch + Schrittweite + Gangarten + Teleop
 - [ ] 7.3  Boden: Aufstehen schürffrei + Strom plausibel
@@ -137,24 +137,24 @@ HW aufgefallen (Sim lenient + Test mit alter Config): [[project_standup_vertical
 Reverted.
 
 **✅ LÖSUNG (User-Idee): breit aufstehen + Reposition.** Statt am engen 0.160
-(Femur-Wand) am **breiten `standup_radial` 0.21** aufstehen — das liegt ≈ der
+(Femur-Wand) am **breiten `standup_radial` 0.20** aufstehen — das liegt ≈ der
 power_on_mid-Fuß-Pose (~0.217), d.h. die Füße stehen dort schon → der Touchdown
 ist **nahezu senkrecht** (kaum Horizontalbewegung) → **schürffrei**. Danach
 Tripod-Reposition (Beine gehoben → schürffrei) auf den Walk-Radius **0.160**.
 Spiegelbildlich beim Hinsetzen (Füße erst breit raus, dann Bauch senken). = der
 Reposition-Mechanismus, der in S5 deaktiviert war, gezielt zurück. Kein neuer
-Trajektorien-Code, nur `standup_radial_distance` 0.160 → **0.21**.
+Trajektorien-Code, nur `standup_radial_distance` 0.160 → **0.20**.
 
-**Tests:** `test_cartesian_standup` auf `_RADIAL`=0.21 (prüft die reale breite
+**Tests:** `test_cartesian_standup` auf `_RADIAL`=0.20 (prüft die reale breite
 Standup-Pose, in-limit) + sit-down-Tests zurück auf REPOSITION; gait-Suite grün.
-Walking (0.160) unverändert. Standup grün @ 0.21, walking grün @ 0.160 (Envelope).
+Walking (0.160) unverändert. Standup grün @ 0.20, walking grün @ 0.160 (Envelope).
 
 **Done-Vertrag (Code-Fix):**
 ```
 - [x] 5b.1 Vertikaler Touchdown (Option B, xy/z entkoppeln) versucht → auf HW INFEASIBLE → reverted
-- [x] 5b.2 LÖSUNG (User-Idee): breit aufstehen @ standup_radial 0.21 (≈ power_on_mid → fast senkrechter, schürffreier Touchdown) → Tripod-Reposition auf walk 0.160. Reposition reaktiviert.
-- [x] 5b.3 Tests migriert (test_cartesian_standup _RADIAL→0.21; sit-down zurück auf REPOSITION); gait 205/0/28
-- [ ] 5b.4 HW-Verify: Touchdown @ 0.21 schürffrei + Reposition sauber (User, aufgebockt)
+- [x] 5b.2 LÖSUNG (User-Idee): breit aufstehen @ standup_radial 0.20 (≈ power_on_mid → fast senkrechter, schürffreier Touchdown) → Tripod-Reposition auf walk 0.160. Reposition reaktiviert.
+- [x] 5b.3 Tests migriert (test_cartesian_standup _RADIAL→0.20; sit-down zurück auf REPOSITION); gait 205/0/28
+- [ ] 5b.4 HW-Verify: Touchdown @ 0.20 schürffrei + Reposition sauber (User, aufgebockt)
 ```
 
 > **❌ Option B (vertikaler Touchdown) ist bei radial 0.160 GEOMETRISCH NICHT

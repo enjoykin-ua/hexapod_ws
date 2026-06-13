@@ -179,7 +179,7 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         description=(
             'Stand-Pose Foot-Z im Bein-Frame (m). Default -0.080 = Stance-Modus '
             '"mittel" (Standup-/Boot-Basis). leg_changes: Walk-Radius 0.160 '
-            'einheitlich; Aufstehen/Hinsetzen via breitem standup_radial 0.21 + '
+            'einheitlich; Aufstehen/Hinsetzen via breitem standup_radial 0.20 + '
             'Reposition (schürffrei). fp_range-Floor -0.110 für den Modus "hoch". '
             'Live-Update nur in STANDING (analog cmd_body_height).'
         ),
@@ -196,15 +196,16 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='standup_radial_distance', default=0.210, standing_only=True,
+        name='standup_radial_distance', default=0.200, standing_only=True,
         fp_range=(0.10, 0.22, 0.001),
         description=(
             'Radialer Foot-Abstand für die AUFSTEH-Pose (m). leg_changes/S6: '
-            'Default 0.210 ≈ power_on_mid-Fuß-Radius (~0.217) → der Touchdown ist '
-            'nahezu SENKRECHT (Füße stehen schon dort, kaum Horizontalbewegung) → '
-            'schürffrei, statt am engen Walk-Radius 0.160 an der Femur-(−90°)-Wand '
-            'einwärts zu schleifen. Nach dem Aufstehen repositioniert die Engine '
-            'per Tripod (Beine gehoben → schürffrei) auf radial_distance 0.160. '
+            'Default 0.200 — nah an der power_on_mid-Fuß-Pose (~0.217) → Touchdown '
+            'nahezu SENKRECHT (kaum Horizontalbewegung → schürffrei), statt am engen '
+            'Walk-Radius 0.160 an der Femur-(−90°)-Wand einwärts zu schleifen. '
+            'Begrenzt durch die Reichweite bei der tiefsten Höhe (hoch −0.100): '
+            '(0.20,−0.100) d=0.186 < 0.194; 0.21 wäre dort out-of-reach. Nach dem '
+            'Aufstehen Tripod-Reposition (Beine gehoben → schürffrei) auf 0.160. '
             'standup == radial → keine Reposition. Live nur in STANDING.'
         ),
     ),
@@ -516,10 +517,11 @@ _StanceMode = namedtuple('_StanceMode', 'name radial body_height step_height')
 # leg_changes (S5/S6, kürzere Beine, reach 0.074..0.194): einheitlicher WALK-
 # Radius 0.160 für alle Höhen. Das Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort
 # reiten die Vorderbeine an der Femur-(-90°)-Wand → Schleifen), sondern am breiten
-# standup_radial 0.21 (≈ power_on_mid, schürffreier Touchdown) → danach Tripod-
+# standup_radial 0.20 (≈ power_on_mid, schürffreier Touchdown) → danach Tripod-
 # Reposition auf 0.160 (S6-HW-Finding, [[project_standup_vertical_touchdown_infeasible]]).
+# (0.20 statt 0.21: bei der tiefsten Höhe hoch −0.100 wäre 0.21 out-of-reach.)
 # Kein Routing über mittel nötig (alle Höhen > _SIT_SAFE_MIN_BH). Walking grün @ 0.160,
-# Standup grün @ 0.21 zu allen drei body_height. Envelope am Femur-Rand optimistisch →
+# Standup grün @ 0.20 zu allen drei body_height. Envelope am Femur-Rand optimistisch →
 # echte Engine/Sim/HW validieren (test_stance_switch + B.4/B.5 + S6).
 _STANCE_MODES = (
     _StanceMode('tief', 0.160, -0.065, 0.040),

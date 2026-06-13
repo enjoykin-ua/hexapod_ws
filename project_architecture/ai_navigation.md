@@ -75,7 +75,7 @@
   Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`-Param-Defaults.
 - **Fallen:** (1) **leg_changes/S5+S6: einheitlicher WALK-Radius 0.160 über alle Höhen** (tief −0.065 /
   mittel −0.080 / hoch −0.100). Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort reiten die Vorderbeine
-  an der Femur-(−90°)-Wand → IKError/Schleifen), sondern am **breiten `standup_radial` 0.21**
+  an der Femur-(−90°)-Wand → IKError/Schleifen), sondern am **breiten `standup_radial` 0.20**
   (≈ power_on_mid → schürffreier Touchdown) **+ Tripod-Reposition** auf 0.160
   ([[project_standup_vertical_touchdown_infeasible]]). Kein Sit-Routing über mittel nötig (alle Höhen >
   `_SIT_SAFE_MIN_BH` −0.115); die Routing-Logik bleibt nur als Sicherung für via /cmd_body_height tiefer

@@ -78,13 +78,13 @@ ros2 launch hexapod_gait gait.launch.py use_sim_time:=false \
   robot_description_file:=$(ros2 pkg prefix hexapod_description)/share/hexapod_description/urdf/hexapod.urdf.xacro
 ```
 > **S6-Update (schürffrei-Fix):** Aufstehen läuft jetzt am **breiten** standup_radial
-> **0.21** (≈ power_on_mid → Füße stehen schon dort → fast senkrechter, schürffreier
+> **0.20** (≈ power_on_mid → Füße stehen schon dort → fast senkrechter, schürffreier
 > Touchdown), **dann Tripod-Reposition auf 0.160** (Walk-Pose). Ein Reposition-Hop
 > ist also **erwartet + gewollt** (war vorher das Schleifen-Problem am engen 0.160).
 
-- [ ] Auto-Standup: Touchdown **breit** (~0.21), Bauch hebt **schürffrei** ab (kein Schleifen kurz vor Boden), dann **Reposition** (Beine gehoben + nach innen versetzt) auf radial 0.160.
+- [ ] Auto-Standup: Touchdown **breit** (~0.20), Bauch hebt **schürffrei** ab (kein Schleifen kurz vor Boden), dann **Reposition** (Beine gehoben + nach innen versetzt) auf radial 0.160.
 - [ ] **Schleift der Touchdown jetzt nicht mehr?** (Hauptfrage.) Reposition-Schritt selbst schürffrei (Beine gehoben)?
-- [ ] Steht stabil aufgebockt; Log: `Cartesian-Standup gestartet … radial=0.210, body_height=-0.080` (dann Reposition auf 0.160).
+- [ ] Steht stabil aufgebockt; Log: `Cartesian-Standup gestartet … radial=0.200, body_height=-0.080` (dann Reposition auf 0.160).
 
 ```bash
 # Terminal 3 — Hinsetzen/Aufstehen je Höhe testen (aufgebockt)

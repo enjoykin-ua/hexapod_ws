@@ -11,7 +11,7 @@
 > ⚠️ **S6-Update (HW):** Die unten beschriebene „Einzel-Radius 0.160 / keine
 > Reposition"-Entscheidung wurde auf der HW **revidiert** — der enge Touchdown an
 > 0.160 reitet an der Femur-Wand (Schleifen). Stand jetzt: **Aufstehen/Hinsetzen am
-> breiten standup_radial 0.21 + Tripod-Reposition auf Walk-Radius 0.160** (schürffrei).
+> breiten standup_radial 0.20 + Tripod-Reposition auf Walk-Radius 0.160** (schürffrei).
 > Walk-Radius 0.160 bleibt. Details: [`stage_6_hw_plan.md §5b`](stage_6_hw_plan.md).
 
 ---

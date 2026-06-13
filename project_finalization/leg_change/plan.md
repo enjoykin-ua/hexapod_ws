@@ -39,7 +39,7 @@ Branch sind die roten gait-Tests bis dahin bewusst akzeptiert (User-Entscheid) +
 
 > **Stage-Reihenfolge (korrigiert):** S1 Modell ✅ · S2 Cal ✅ · S3 Envelope ✅ ·
 > S4 Re-Param ✅ · S5 Sim ✅ (Sim verifiziert; Walk-Radius 0.160) · **S6 HW-Desktop
-> (aktiv)** — Aufstehen/Hinsetzen am breiten standup_radial 0.21 + Reposition auf
+> (aktiv)** — Aufstehen/Hinsetzen am breiten standup_radial 0.20 + Reposition auf
 > 0.160 (schürffrei, S6-HW-Fix) · S7 Pi · S8 Abschluss.
 > S5/S6-Detail: [`stage_5_sim_plan.md`](stage_5_sim_plan.md) · [`stage_6_hw_plan.md`](stage_6_hw_plan.md)
 > + [`stage_6_hw_test_commands.md`](stage_6_hw_test_commands.md).
@@ -180,7 +180,7 @@ Servo-Mitte, und die Cal bestimmt die echte rad↔pulse-Beziehung.
 
 ### Schritt 6 — Neu-Parametrierung (S5, Detail: stage_5_sim_plan.md §6)
 - [x] 6.1 Stand-Pose neu: radial 0.160, body_height −0.080 (mittel) — envelope-grün, Code+Launch+teleop synchron
-- [x] 6.2 Stance-Modi (D4): 3 Höhen bei EINHEITL. Walk-radial 0.160 (tief −0.065/mittel −0.080/hoch −0.100); Aufstehen/Hinsetzen breit @ standup_radial 0.21 + Reposition (schürffrei, S6)
+- [x] 6.2 Stance-Modi (D4): 3 Höhen bei EINHEITL. Walk-radial 0.160 (tief −0.065/mittel −0.080/hoch −0.100); Aufstehen/Hinsetzen breit @ standup_radial 0.20 + Reposition (schürffrei, S6)
 - [x] 6.3 step_length_max 0.050 / D-Pad-Cycle 0.030–0.070 / step_height 0.040 (Sim-envelope); Presets aktualisiert
 - [~] 6.4 Show-Pose CoG-Marge — entfällt (Show raus aus diesem Thread, User)
 - [ ] 6.5 **User-Sim-Verify mit neuen Werten** (Aufstehen direkt + Tripod-Lauf stabil) → dann S5 fertig
