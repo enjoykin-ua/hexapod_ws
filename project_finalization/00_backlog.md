@@ -79,7 +79,7 @@
 |---|---|---|---|
 | F1 | **servo2040 FW: Schalter → `status_flags` Bit 7** | 🟢 | 3-s-Halten + Arm-nach-CLOSED, LED-Rohpegel bleibt. Bench T1–T5 grün. Plan/Test/Progress: `F1_fw_switch_bit_*`. FW-Progress hier (Block F), NICHT phase_7. |
 | F2 | **hexapod_hardware: Bit 7 → latched Bool `/hexapod/shutdown_request`** | 🟢 | `read()` konsumiert `latest_state()`, latched Publisher; **+ GET_STATE-Poll in write()** (Live-Befund — sonst nie STATE_RESPONSE). Sub-Echo braucht reliable+transient_local. Live grün. `F2_*`. |
-| F3 | **gait_node: latched Bool `/hexapod/shutdown_complete`** | ⚪ | Vorhandenes `_shutdown_latched` (bei `_do_relay_off_and_latch`) als Topic rausgeben. |
+| F3 | **gait_node: latched Bool `/hexapod/shutdown_complete`** | 🟡 | Vorhandenes `_shutdown_latched` (bei `_do_relay_off_and_latch`) als latched Topic rausgeben (false→true einmalig). Plan/Test: `F3_*`. |
 | F4 | **hexapod_supervisor (neues Paket) + Guard** | ⚪ | Sub + Arm/Flanke + `/hexapod_shutdown`-Retry (K2) + Confirm/Backstop (F4) + `enable_os_shutdown`+Hostname-Guard (Dev-Host `enjoykin-ubuntu` blockt). |
 | F5 | **Integration + Pi-Deployment** | ⚪ | Bringup-Launch, polkit/sudoers für Shutdown, Branch `leg_changes` + Rebuild am Pi, End-to-End (Sim→Pi aufgebockt→Pi echt). |
 
