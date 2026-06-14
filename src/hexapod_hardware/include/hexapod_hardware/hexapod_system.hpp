@@ -18,6 +18,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -184,6 +185,20 @@ private:
   // nur conditional benutzt (Param-Toggle + Subscriber-Check).
   rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr
     pulses_pub_{};
+
+  // Block F2 — shutdown-switch state surfaced from the firmware's status_flags
+  // bit 7 (SHUTDOWN_REQUEST) to ROS. Latched (transient_local) so a late/
+  // restarting supervisor immediately gets the current value; published only on
+  // change (read() runs at control rate). See F2_hw_shutdown_publisher_plan.md.
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr shutdown_request_pub_{};
+  bool last_shutdown_request_{false};
+
+  // Block F2 — the plugin otherwise never requests state (joint feedback is
+  // echo-based; trips arrive as unsolicited ERROR_REPORT), so the firmware would
+  // never send a STATE_RESPONSE and latest_state() (carrying status_flags bit 7)
+  // would stay empty. write() sends a throttled GET_STATE every N ticks to drive
+  // the reply. ~5 Hz at a 50 Hz update rate; the 3 s FW hold hides the latency.
+  unsigned get_state_poll_counter_{0};
 
   // Helper: deklariert die 72 Live-Cal-Params + registriert Callback.
   // Aufgerufen am Ende von on_init.

@@ -54,6 +54,7 @@ constexpr uint8_t ANY_SERVO_OVERCURRENT_TRIPPED = 1u << 3;
 constexpr uint8_t ANY_SERVO_DISABLED = 1u << 4;
 constexpr uint8_t UNDERVOLTAGE_WARNING = 1u << 5;
 constexpr uint8_t RELAY_ON = 1u << 6;  // Stage 0.1: relay power-gate closed
+constexpr uint8_t SHUTDOWN_REQUEST = 1u << 7;  // Block F1/F2: shutdown switch held OPEN >= hold time
 }  // namespace status_flag
 
 constexpr std::size_t NUM_SERVOS = 18;

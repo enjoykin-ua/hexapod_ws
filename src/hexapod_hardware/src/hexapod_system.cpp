@@ -425,6 +425,20 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_configure(
     RCLCPP_INFO(
       plugin_logger(),
       "Stage 0.1: /hexapod_relay_set service ready (relay default OFF)");
+
+    // Block F2 — shutdown-switch state from firmware status_flags bit 7.
+    // Latched (transient_local, depth 1) so a late/restarting supervisor gets
+    // the current value immediately; read() publishes only on change. Created
+    // before the loopback early-return so CI/tests see the topic too.
+    shutdown_request_pub_ = node->create_publisher<std_msgs::msg::Bool>(
+      "/hexapod/shutdown_request", rclcpp::QoS(1).transient_local());
+    std_msgs::msg::Bool init_req;
+    init_req.data = false;
+    shutdown_request_pub_->publish(init_req);
+    last_shutdown_request_ = false;
+    RCLCPP_INFO(
+      plugin_logger(),
+      "Block F2: /hexapod/shutdown_request publisher ready (latched, init false)");
   } else {
     RCLCPP_WARN(
       plugin_logger(),
@@ -922,6 +936,20 @@ hardware_interface::return_type HexapodSystemHardware::read(
         "be deactivated by ros2_control until you manually re-activate.");
       return hardware_interface::return_type::ERROR;
     }
+
+    // ─── Block F2 — surface shutdown-switch state (status_flags bit 7) ───
+    // Publish only on change; latched QoS keeps the last value for late
+    // subscribers. latest_state() is nullopt until the first STATE_RESPONSE.
+    if (auto st = reader_.latest_state()) {
+      const bool req =
+        (st->status_flags & status_flag::SHUTDOWN_REQUEST) != 0;
+      if (req != last_shutdown_request_ && shutdown_request_pub_) {
+        std_msgs::msg::Bool m;
+        m.data = req;
+        shutdown_request_pub_->publish(m);
+        last_shutdown_request_ = req;
+      }
+    }
   }
   return hardware_interface::return_type::OK;
 }
@@ -1047,6 +1075,25 @@ hardware_interface::return_type HexapodSystemHardware::write(
       "write(): SerialPort write_all failed: %s. Controller will be "
       "deactivated; reconnect logic comes in D.7.", e.what());
     return hardware_interface::return_type::ERROR;
+  }
+
+  // ─── Block F2 — periodic GET_STATE poll ──────────────────────────────
+  // The firmware sends STATE_RESPONSE (carrying status_flags bit 7) only on
+  // request. Without this poll latest_state() never updates and the shutdown-
+  // switch bit would never reach read(). Throttled to ~5 Hz; best-effort, so a
+  // failed poll only warns (don't deactivate the controller over telemetry).
+  constexpr unsigned GET_STATE_POLL_EVERY = 10;  // ~5 Hz at a 50 Hz update rate
+  if (++get_state_poll_counter_ >= GET_STATE_POLL_EVERY) {
+    get_state_poll_counter_ = 0;
+    auto gs = encode_get_state(seq_.fetch_add(1));
+    try {
+      std::lock_guard<std::mutex> lk(serial_write_mutex_);
+      serial_port_.write_all(gs.data(), gs.size());
+    } catch (const std::exception & e) {
+      RCLCPP_WARN(plugin_logger(),
+        "write(): GET_STATE poll failed: %s (shutdown-switch telemetry only)",
+        e.what());
+    }
   }
   return hardware_interface::return_type::OK;
 }

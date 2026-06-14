@@ -458,6 +458,26 @@ TEST(PayloadDecoders, DecodeStateValid)
   EXPECT_EQ(decoded->status_flags, 0x04);
 }
 
+TEST(PayloadDecoders, DecodeStateShutdownRequestBit)
+{
+  // Block F2: status_flags bit 7 (SHUTDOWN_REQUEST) decodes and coexists with
+  // other flags (here RELAY_ON) without bleeding into low bits. 74 zero bytes
+  // (pulses + currents + voltage) followed by the status byte = 75 total.
+  std::vector<uint8_t> payload(74, 0);
+  payload.push_back(static_cast<uint8_t>(
+      hexapod_hardware::status_flag::SHUTDOWN_REQUEST |
+      hexapod_hardware::status_flag::RELAY_ON));  // 0x80 | 0x40 = 0xC0
+
+  auto decoded = decode_state(payload);
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_NE(
+    decoded->status_flags & hexapod_hardware::status_flag::SHUTDOWN_REQUEST, 0);
+  EXPECT_NE(
+    decoded->status_flags & hexapod_hardware::status_flag::RELAY_ON, 0);
+  EXPECT_EQ(
+    decoded->status_flags & hexapod_hardware::status_flag::WATCHDOG_TRIPPED, 0);
+}
+
 TEST(PayloadDecoders, DecodeStateRejectsWrongLength)
 {
   EXPECT_FALSE(decode_state({}).has_value());
