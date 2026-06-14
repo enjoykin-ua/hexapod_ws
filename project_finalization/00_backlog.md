@@ -68,6 +68,21 @@
 | E2 | **Terrain / Foot-Contact-Sensorik** | 💤 | Fuß-Schalter (im URDF conditional) → adaptiver Touchdown, unebener Boden, Schlupf/Sturz-Erkennung. **Binär = Kontakt, nicht Kraft.** Auf flachem Boden jetzt kein Gewinn → mit Balance/Terrain. |
 | E3 | **Preset-/Config-Management** | ⚪ | „Default-Walk"-Preset, gespeicherte Profile, sauberes Laden. |
 
+## Block F — Systemsteuerung / Lifecycle  🟡 AKTIV
+> Master-Plan + Architektur-Entscheidungen: [`F_systemsteuerung_plan.md`](F_systemsteuerung_plan.md).
+> Hardware-Shutdown-Schalter am Servo2040 (A1/GP27) → kontrolliertes Hinsetzen +
+> Relay-Aus + sauberer Pi-Shutdown. Viel der ROS-Kette existiert schon
+> (`/hexapod_shutdown`, Sit-Sequenz, `/hexapod_relay_set`) — neu sind FW-Bit,
+> Bool-Publisher, Supervisor-Node + Shutdown-Guard.
+
+| # | Stage | Status | Notiz |
+|---|---|---|---|
+| F1 | **servo2040 FW: Schalter → `status_flags` Bit 7** | 🟡 | 3-s-Halten + Arm-nach-CLOSED, LED-Rohpegel bleibt. Plan/Test: `F1_fw_switch_bit_*`. FW-Progress hier (Block F), NICHT phase_7. |
+| F2 | **hexapod_hardware: Bit 7 → latched Bool `/hexapod/shutdown_request`** | ⚪ | `latest_state()` wird heute nirgends konsumiert → in `read()` lesen + publishen (`transient_local`). |
+| F3 | **gait_node: latched Bool `/hexapod/shutdown_complete`** | ⚪ | Vorhandenes `_shutdown_latched` (bei `_do_relay_off_and_latch`) als Topic rausgeben. |
+| F4 | **hexapod_supervisor (neues Paket) + Guard** | ⚪ | Sub + Arm/Flanke + `/hexapod_shutdown`-Retry (K2) + Confirm/Backstop (F4) + `enable_os_shutdown`+Hostname-Guard (Dev-Host `enjoykin-ubuntu` blockt). |
+| F5 | **Integration + Pi-Deployment** | ⚪ | Bringup-Launch, polkit/sudoers für Shutdown, Branch `leg_changes` + Rebuild am Pi, End-to-End (Sim→Pi aufgebockt→Pi echt). |
+
 ---
 
 ## Empfohlene Reihenfolge (grob, Abhängigkeiten)
