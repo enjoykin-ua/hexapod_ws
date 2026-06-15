@@ -92,7 +92,8 @@ Relay-Aus **sofort bei SAT** (K1) → latch. *sitzt* → sofort Relay-Aus + latc
 | **F2** | `hexapod_hardware`: Bit 7 in `read()` konsumieren → latched Bool `/hexapod/shutdown_request` | Loopback/Unit + `ros2 topic echo` | (folgt) |
 | **F3** | `gait_node`: latched Bool `/hexapod/shutdown_complete` bei `_do_relay_off_and_latch` | Unit (test) + `ros2 topic echo` | (folgt) |
 | **F4** | `hexapod_supervisor` (neues rclpy-Paket): Sub + Arm/Flanke + `/hexapod_shutdown`-Retry + Confirm/Backstop + Guard-Modul | Mock-Services + **Dry-Run-Shutdown** | (folgt) |
-| **F5** | Integration: Bringup-Launch, Pi-Deployment (polkit/sudoers, Branch `leg_changes`), End-to-End | Sim (Guard aus) → Pi aufgebockt → Pi echt (Guard an) | (folgt) |
+| **F5** | Integration: Bringup-Launch, Pi-Deployment (polkit/sudoers, Branch `leg_changes`), End-to-End | Sim (Guard aus) → Pi aufgebockt → Pi echt (Guard an) | `F5_integration_plan.md` |
+| **F6** | Pi-Update Ablaufplan (Runbook): Branch-Wechsel + Subset-Rebuild + F5b-Scharfschalten am Pi | Smoke aufgebockt → End-to-End | `F6_pi_update_checklist.md` |
 
 > **Phasenweise:** Nur F1 ist jetzt detailliert geplant. F2–F5 werden je bei Beginn
 > als eigener `F<n>_*_plan.md` ausgearbeitet (Plan → Freigabe → Code).

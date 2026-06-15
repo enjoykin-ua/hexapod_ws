@@ -82,6 +82,7 @@
 | F3 | **gait_node: latched Bool `/hexapod/shutdown_complete`** | 🟢 | Vorhandenes `_shutdown_latched` als latched Topic (false→true einmalig). Unit + Live (aufgebockt) grün. `F3_*`. |
 | F4 | **hexapod_supervisor (neues Paket) + Guard** | 🟢 | Node + 3-Schicht-OS-Guard (DEV_HOSTS hart, `enable_os_shutdown`, Hostname). Arm/Flanke, K2-Retry, Backstop 12 s, Complete-Race-Fix. 15 Tests + Dev-Smoke + STANDING-Volltest (7,04 s, reason=complete) grün. Smoke/Test fanden Hostname-Typo + Race + zu-knappen Backstop. `F4_*`. |
 | F5 | **Integration + Pi-Deployment** | 🟡 | **F5a (jetzt, Dev):** supervisor.yaml + Einhängung in real.launch.py (Auto-Start, eine Config überall, Guard entscheidet per Host). **F5b (später, Pi):** pi_hostname + sudoers + Branch/Build + End-to-End — gekoppelt an Block D1 (ROS2-auf-Pi). Plan: `F5_integration_plan.md`. |
+| F6 | **Pi-Update Ablaufplan (Runbook)** | 🟡 | Branch-Wechsel `leg_changes` + Subset-Rebuild (`--packages-skip hexapod_gazebo hexapod_sensors`) + F5b-Scharfschalten am Pi (`hexapod-pi`). Cal-Recheck geparkt (Bein 3). `F6_pi_update_checklist.md`. |
 
 ---
 

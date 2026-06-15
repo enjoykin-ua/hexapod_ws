@@ -11,8 +11,8 @@
 - [x] F5a.3  `setup.py` installiert `config/*.yaml` (verifiziert installiert)
 - [x] F5a.4  `real.launch.py`: `with_supervisor`-Arg + Include supervisor.launch.py
 - [x] F5a.5  colcon build + alle Tests grün (Bringup-Loopback-Launch-Test inkl.), Lint grün
-- [ ] F5a.6  Live: `real.launch.py` → Supervisor auto-up; Flip → `guard=dev-host`;
-            `with_supervisor:=false` → kein Supervisor — **User** (aufgebockt)
+- [x] F5a.6  Live grün: Auto-Start, `guard=dev-host` (PC bleibt an, Roboter sitzt+Relay),
+            physischer Schalter end-to-end, `with_supervisor:=false` — User-bestätigt
 - [x] F5a.7  Self-Review (siehe unten)
 
 ## F5b — Pi-Deployment (später, vorbereitet, an Block D1 gekoppelt)
