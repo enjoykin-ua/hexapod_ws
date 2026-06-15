@@ -39,6 +39,10 @@ Launch-Args:
   - serial_port (default /dev/ttyACM0):
       USB-CDC-Device der Servo2040. Nur relevant wenn loopback_mode=false.
 
+  5. Block F5: hexapod_supervisor (controlled shutdown, real-HW only) wird
+     automatisch mit eingehaengt (with_supervisor:=false schaltet ihn ab).
+     Der Host-Guard entscheidet, ob ein OS-Shutdown wirklich feuert.
+
 Was dieser Launch bewusst NICHT macht (siehe Plan-Doku Stufe G):
   - kein gait + kein teleop (Konsistenz zu sim.launch.py; User startet
     bei Bedarf 'ros2 launch hexapod_gait gait.launch.py' separat).
@@ -48,8 +52,14 @@ Was dieser Launch bewusst NICHT macht (siehe Plan-Doku Stufe G):
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
     LaunchConfiguration,
@@ -176,12 +186,33 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Block F5 — shutdown supervisor (safety/lifecycle, real-HW only). Auto-starts
+    # with the base bringup so it is always present; the host guard decides whether
+    # an OS shutdown actually fires (dev is double-blocked). with_supervisor:=false
+    # disables it for pure sim/dev work.
+    declare_with_supervisor = DeclareLaunchArgument(
+        'with_supervisor', default_value='true',
+        description=(
+            'Start the hexapod_supervisor (controlled shutdown). false disables it; '
+            'OS shutdown only fires on the configured Pi host (guard).'
+        ),
+    )
+    supervisor = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            FindPackageShare('hexapod_supervisor'),
+            '/launch/supervisor.launch.py',
+        ]),
+        condition=IfCondition(LaunchConfiguration('with_supervisor')),
+    )
+
     return LaunchDescription([
         declare_loopback_mode,
         declare_serial_port,
         declare_initial_pose,
+        declare_with_supervisor,
         rsp,
         controller_manager,
         spawn_jsb,
         after_jsb_start_leg_controllers,
+        supervisor,
     ])

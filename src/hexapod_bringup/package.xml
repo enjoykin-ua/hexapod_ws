@@ -15,6 +15,7 @@
   <exec_depend>hexapod_gazebo</exec_depend>
   <exec_depend>hexapod_control</exec_depend>
   <exec_depend>hexapod_hardware</exec_depend>
+  <exec_depend>hexapod_supervisor</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>controller_manager</exec_depend>

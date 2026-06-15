@@ -1,36 +1,31 @@
 """
 Launch the hexapod shutdown supervisor (Block F4/F5).
 
-OS shutdown is disabled by default (enable_os_shutdown=false) — the node only
-logs 'would shut down now'. Block F5 wires the real Pi parameters/privileges.
+Loads config/supervisor.yaml as the single source of truth. The same config runs
+everywhere; the host guard decides whether an OS shutdown actually fires. On the
+dev host it only logs 'would shut down now'. On the Pi, set pi_hostname in the yaml
+(F5b) — that is the only value to change.
 """
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    """Start the shutdown_supervisor node with overridable guard params."""
-    enable_arg = DeclareLaunchArgument(
-        'enable_os_shutdown', default_value='false',
-        description='Master guard. false -> dry-run (log only). Arm on the Pi only.')
-    pi_hostname_arg = DeclareLaunchArgument(
-        'pi_hostname', default_value='',
-        description='OS shutdown fires only when gethostname()==pi_hostname.')
+    """Start the shutdown_supervisor node parameterised from supervisor.yaml."""
+    config = os.path.join(
+        get_package_share_directory('hexapod_supervisor'),
+        'config', 'supervisor.yaml')
 
     return LaunchDescription([
-        enable_arg,
-        pi_hostname_arg,
         Node(
             package='hexapod_supervisor',
             executable='shutdown_supervisor',
             name='shutdown_supervisor',
             output='screen',
-            parameters=[{
-                'enable_os_shutdown': LaunchConfiguration('enable_os_shutdown'),
-                'pi_hostname': LaunchConfiguration('pi_hostname'),
-            }],
+            parameters=[config],
         ),
     ])

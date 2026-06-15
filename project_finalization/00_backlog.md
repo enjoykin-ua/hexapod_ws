@@ -81,7 +81,7 @@
 | F2 | **hexapod_hardware: Bit 7 → latched Bool `/hexapod/shutdown_request`** | 🟢 | `read()` konsumiert `latest_state()`, latched Publisher; **+ GET_STATE-Poll in write()** (Live-Befund — sonst nie STATE_RESPONSE). Sub-Echo braucht reliable+transient_local. Live grün. `F2_*`. |
 | F3 | **gait_node: latched Bool `/hexapod/shutdown_complete`** | 🟢 | Vorhandenes `_shutdown_latched` als latched Topic (false→true einmalig). Unit + Live (aufgebockt) grün. `F3_*`. |
 | F4 | **hexapod_supervisor (neues Paket) + Guard** | 🟢 | Node + 3-Schicht-OS-Guard (DEV_HOSTS hart, `enable_os_shutdown`, Hostname). Arm/Flanke, K2-Retry, Backstop 12 s, Complete-Race-Fix. 15 Tests + Dev-Smoke + STANDING-Volltest (7,04 s, reason=complete) grün. Smoke/Test fanden Hostname-Typo + Race + zu-knappen Backstop. `F4_*`. |
-| F5 | **Integration + Pi-Deployment** | ⚪ | Bringup-Launch, polkit/sudoers für Shutdown, Branch `leg_changes` + Rebuild am Pi, End-to-End (Sim→Pi aufgebockt→Pi echt). |
+| F5 | **Integration + Pi-Deployment** | 🟡 | **F5a (jetzt, Dev):** supervisor.yaml + Einhängung in real.launch.py (Auto-Start, eine Config überall, Guard entscheidet per Host). **F5b (später, Pi):** pi_hostname + sudoers + Branch/Build + End-to-End — gekoppelt an Block D1 (ROS2-auf-Pi). Plan: `F5_integration_plan.md`. |
 
 ---
 

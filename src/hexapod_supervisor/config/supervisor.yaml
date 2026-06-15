@@ -1,0 +1,15 @@
+# Block F5 — shutdown supervisor configuration (one config, used everywhere).
+#
+# The same file runs on the dev host and on the Pi; the host guard decides whether
+# an OS shutdown actually fires. On the dev host (enjoykin-ubutu) it is blocked by
+# BOTH the hostname mismatch (host != pi_hostname) AND the hard DEV_HOSTS block, so
+# enable_os_shutdown: true is safe here. On the Pi, set pi_hostname to the Pi's
+# `hostname` output (F5b) — that is the ONLY value to change.
+shutdown_supervisor:
+  ros__parameters:
+    enable_os_shutdown: true        # master arm; dev stays safe via the two guards
+    pi_hostname: ''                 # EMPTY -> matches no host -> dev never shuts down
+    shutdown_command: 'sudo shutdown -h now'
+    shutdown_retry_period: 1.0      # s, retry /hexapod_shutdown until STANDING/SAT (K2)
+    shutdown_complete_timeout: 12.0  # s, backstop (measured STANDING->sit ~7 s, F4-L1)
+    force_relay_off_on_timeout: true
