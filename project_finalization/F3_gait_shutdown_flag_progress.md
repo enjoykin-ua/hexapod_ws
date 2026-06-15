@@ -11,7 +11,7 @@
 - [x] F3.4  `_do_relay_off_and_latch`: nach Latch `_publish_shutdown_complete(True)`
 - [x] F3.5  Unit-Tests F3-U1..U3 in test_sitdown_node.py (4 neue Tests)
 - [x] F3.6  colcon test + flake8 + pep257 grün (556 Tests, 0 failures)
-- [ ] F3.7  Live F3-L1 (`false`) + F3-L2 (`true` bei Shutdown, aufgebockt) — **User**
+- [x] F3.7  Live F3-L1 (`false`) + F3-L2 (`true` bei Shutdown, aufgebockt) — User-bestätigt
 - [x] F3.8  Self-Review-Tabelle (keine 🔴-Punkte)
 
 ## Self-Review (CLAUDE.md §4)
@@ -28,4 +28,4 @@
 
 ## Offen
 
-- **F3.7 Live-Tests** durch User (Board, aufgebockt). Danach Stage F3 fertig → F4.
+- Keine. Stage F3 **fertig** (alle Bullets ✅, Live user-bestätigt). → F4 (Supervisor + Guard).
