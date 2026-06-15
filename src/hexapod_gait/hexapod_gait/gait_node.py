@@ -41,8 +41,9 @@ from rcl_interfaces.msg import (
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float64, Float64MultiArray
+from std_msgs.msg import Bool, Float64, Float64MultiArray
 from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -764,6 +765,19 @@ class GaitNode(Node):
             )
             for leg in HEXAPOD.legs
         }
+
+        # Block F3 — latched "shutdown sequence complete" flag for the
+        # supervisor (Block F4): goes True the moment sit-down + relay-off
+        # finished (_do_relay_off_and_latch). Latched (transient_local +
+        # reliable, depth 1) so a late/restarting supervisor gets the current
+        # value; same QoS contract as /hexapod/shutdown_request (F2).
+        self._shutdown_complete_pub = self.create_publisher(
+            Bool, '/hexapod/shutdown_complete',
+            QoSProfile(
+                depth=1,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                reliability=ReliabilityPolicy.RELIABLE))
+        self._publish_shutdown_complete(False)
 
         self._cmd_vel_sub = self.create_subscription(
             Twist, '/cmd_vel', self._on_cmd_vel, 10
@@ -1584,9 +1598,16 @@ class GaitNode(Node):
         self._fire_relay(False)
         self._shutdown_latched = True
         self._relay_off_after_sat = False
+        # Block F3 — sit-down + relay-off are done: signal the supervisor (F4)
+        # that the OS may now shut down (no magic wait, see F_systemsteuerung E5).
+        self._publish_shutdown_complete(True)
         self.get_logger().info(
             'Shutdown terminal: relay off, stand_up gesperrt bis Relay-On/Reboot'
         )
+
+    def _publish_shutdown_complete(self, done: bool) -> None:
+        """Block F3 — latched /hexapod/shutdown_complete (False init, True latch)."""
+        self._shutdown_complete_pub.publish(Bool(data=done))
 
     def _fire_relay(self, on: bool) -> None:
         """

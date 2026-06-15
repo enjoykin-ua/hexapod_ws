@@ -9,11 +9,14 @@ Relay-Service ist im Unit-Test nicht verfügbar → _fire_relay skippt (wie Sim)
 Deckt B1.4 (Services + Guards), B1.5 (Shutdown-Latch) und B1.6 (Comms-Loss).
 """
 
+from unittest.mock import MagicMock
+
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_node import GaitNode
 from hexapod_kinematics import HEXAPOD
 import pytest
 import rclpy
+from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 from std_srvs.srv import SetBool, Trigger
 
 
@@ -167,6 +170,45 @@ def test_shutdown_rejected_mid_sequence(node):
     node._engine._state = GaitEngine.STATE_REPOSITION
     resp = _call(node._on_shutdown)
     assert resp.success is False
+
+
+# ----- F3: /hexapod/shutdown_complete latched flag --------------------- #
+
+def test_shutdown_complete_publisher_is_latched(node):
+    """F3-U1: Publisher existiert mit reliable + transient_local QoS."""
+    pub = node._shutdown_complete_pub
+    assert pub.topic_name == '/hexapod/shutdown_complete'
+    assert pub.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL
+    assert pub.qos_profile.reliability == ReliabilityPolicy.RELIABLE
+
+
+def test_publish_shutdown_complete_helper(node):
+    """F3-U1: Helper publisht den übergebenen bool als Bool-Message."""
+    node._shutdown_complete_pub.publish = MagicMock()
+    node._publish_shutdown_complete(False)
+    assert node._shutdown_complete_pub.publish.call_args[0][0].data is False
+    node._publish_shutdown_complete(True)
+    assert node._shutdown_complete_pub.publish.call_args[0][0].data is True
+
+
+def test_shutdown_complete_true_on_latch(node):
+    """F3-U2: shutdown aus SAT → _do_relay_off_and_latch publisht True."""
+    node._shutdown_complete_pub.publish = MagicMock()
+    node._engine._state = GaitEngine.STATE_SAT
+    _call(node._on_shutdown)
+    assert node._shutdown_latched is True
+    assert node._shutdown_complete_pub.publish.called
+    assert node._shutdown_complete_pub.publish.call_args[0][0].data is True
+
+
+def test_shutdown_complete_no_premature_true_from_standing(node):
+    """F3-U3: shutdown aus STANDING → noch kein Latch, kein True publiziert."""
+    node._shutdown_complete_pub.publish = MagicMock()
+    assert node._engine.state == GaitEngine.STATE_STANDING
+    _call(node._on_shutdown)
+    assert node._shutdown_latched is False  # erst bei SAT
+    for call in node._shutdown_complete_pub.publish.call_args_list:
+        assert call[0][0].data is not True
 
 
 # ----- Sit/Stand-Toggle (C1+ Teleop-Intent) --------------------------- #
