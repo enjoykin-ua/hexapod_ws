@@ -20,21 +20,31 @@
 ```bash
 ssh hexapod-pi
 cd ~/hexapod_ws
+git status                    # FIRST: sauber? (uncommitted Änderungen schützt git → checkout bricht sonst ab)
+git log --oneline -5          # lokale Commits, die NICHT auf origin sind?
 git fetch
 git checkout leg_changes      # vom bisherigen Branch (main o.ä.)
 git pull
 ```
+- **Sauber** → läuft glatt durch (getrackte Dateien werden auf `leg_changes` gebracht).
+- **Lokale Änderungen/Commits** → git überschreibt NICHT still (Abbruch/Konflikt). Erst
+  klären — ⚠️ v.a. falls `servo_mapping.yaml` lokal am Pi editiert wurde (Cal nicht
+  blind verlieren). Bewusst: `git stash` (aufheben) oder `git checkout -- <datei>` (verwerfen).
 
 ## 2. Subset bauen (am Pi)
 ```bash
-colcon build --symlink-install --packages-skip hexapod_gazebo hexapod_sensors
+colcon build --symlink-install
 source install/setup.bash
 ```
-- `hexapod_gazebo` + `hexapod_sensors` sind **sim-only** → skippen (Pi hat kein Gazebo).
+- **`hexapod_gazebo`** ist am Pi via `COLCON_IGNORE`-Marker (untracked, bleibt über
+  Branch-Wechsel) automatisch ausgeschlossen → kein `--packages-skip` nötig.
+- **`hexapod_sensors` NICHT skippen** — `hexapod_bringup` hängt davon ab (package.xml),
+  Skip → Bringup-Build failt (`package.sh not found`). hexapod_sensors baut sauber
+  (ament_python; `ros_gz_interfaces` ist nur Runtime, auf HW ungenutzt).
 - **Neues Paket `hexapod_supervisor`** baut automatisch mit. **Keine neuen apt-Pakete**
-  (rclpy/std_msgs/std_srvs/launch_ros sind alle da) → kein `rosdep` nötig.
-- Falls `git pull` Konflikte/Local-Changes meldet: am Pi nichts Wichtiges editiert →
-  `git stash` oder `git checkout -- .`, dann erneut.
+  (rclpy/std_msgs/std_srvs/launch_ros sind da) → kein `rosdep` nötig.
+- **Nach Branch-Wechsel mit `--symlink-install`:** bei „can't copy …yaml: doesn't
+  exist" (kaputter Symlink vom alten Branch) → `rm -rf build install log` und neu bauen.
 
 ## 3. Smoke-Verify aufgebockt (am Pi, USB-getethered ok)
 ```bash
