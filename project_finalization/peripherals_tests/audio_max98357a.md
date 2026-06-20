@@ -24,26 +24,87 @@ I2S-DAC. Das bewährte `hifiberry-dac`-Overlay beschreibt genau so ein Gerät un
 genutzt. Alternativen (`googlevoicehat-soundcard`, gerätespezifisches `max98357a`) sind Fallbacks,
 falls `hifiberry-dac` auf Pi 5/RP1 nicht greift (§7).
 
-## 3. Verdrahtung (BCM-Nummerierung / physische Pins)
+## 3. Verdrahtung — KRITISCH, sorgfältig prüfen
 
-| MAX98357A | Pi-Signal | BCM | Physischer Pin |
+> ⚠️ **Nach Beschriftung (Silkscreen) verdrahten, nicht nach Position.** MAX98357A-Breakouts
+> haben unterschiedliche Pin-Reihenfolgen und teils andere Namen. Gleiche immer das **Label auf
+> deiner Platine** mit der Tabelle ab. Es sind genau **5 Drähte** (2× Strom, 3× Signal) +
+> Lautsprecher.
+
+### 3.1 Verbindungstabelle (5 Drähte)
+
+| Amp-Pin (auch beschriftet als …) | → Pi physischer Pin | Pi-Funktion (BCM) | Richtung |
 |---|---|---|---|
-| `Vin` | 5 V | — | Pin 2 oder 4 |
-| `GND` | GND | — | z.B. Pin 6 |
-| `DIN` | I2S Data Out | GPIO21 | Pin 40 |
-| `BCLK` | I2S Bit Clock | GPIO18 | Pin 12 |
-| `LRC` | I2S Word Select | GPIO19 | Pin 35 |
-| `GAIN` | **offen lassen** | — | — (floating = 9 dB) |
-| `SD` | **offen lassen** | — | — (floating = an, Mono-Mix) |
+| `Vin` (auch `VIN`, `5V`, `V+`) | **Pin 2** (oder 4) | **5 V** | Versorgung |
+| `GND` (auch `G`, `−`, `GND`) | **Pin 6** (oder 9/14/39) | GND | Versorgung |
+| `BCLK` (auch `BLCK`, `SCK`, `SCLK`, `CLK`) | **Pin 12** | GPIO18 / PCM_CLK | **Pi → Amp** |
+| `LRC` (auch `LRCLK`, `WS`, `FS`) | **Pin 35** | GPIO19 / PCM_FS | **Pi → Amp** |
+| `DIN` (auch `SDIN`, `DATA`, `DAC`) | **Pin 40** | GPIO21 / PCM_DOUT | **Pi → Amp** |
+| `GAIN` | *offen lassen* | — | (9 dB Default) |
+| `SD` (auch `SD_MODE`, `SHUTDOWN`) | *offen lassen* (s. 3.4) | — | (an, (L+R)/2) |
 
-**Hinweise:**
-- **`Vin` auf 5 V** für volle Leistung (am 4-Ω-Speaker ~3 W). Akzeptiert 2,5–5,5 V.
-- **`SD` NICHT auf GND** ziehen — das ist Shutdown. Floating = eingeschaltet + Mono-Mix `(L+R)/2`.
-- **`GAIN`** floating = 9 dB (reicht). Lauter/leiser über GAIN-Beschaltung (3–15 dB) erst bei Bedarf.
-- **GPIO-Konflikt:** GPIO18/19/21 sind frei — Servo2040 hängt am USB, der F-Block-Shutdown-Schalter
-  sitzt am Servo2040 (GP27), nicht am Pi-GPIO. Kein Konflikt mit der Roboter-Funktion.
+Speaker an die `+`/`–`-Klemmen des Amp (bei dir schon gelötet).
 
-> **Strom abgeschaltet verdrahten.** Erst stecken, dann Pi booten.
+### 3.2 Pi-Header eindeutig identifizieren (nicht „von links" raten!)
+
+- Der Pi 5 hat denselben 40-Pin-Header wie Pi 4. **Pin 1** erkennst du am **quadratischen Lötpad**
+  (alle anderen rund) und sitzt an der Ecke nahe der microSD-Karte.
+- **Gerade** Pin-Nummern (2,4,6,…40) liegen in **einer** Reihe, **ungerade** (1,3,…39) in der anderen;
+  Pin 1 und 2 sind am selben Ende.
+- Gegencheck (optional, sicherste Methode — zeigt ASCII-Diagramm deiner Platine):
+  ```bash
+  sudo apt install -y python3-gpiozero && pinout
+  ```
+- Merke: **5 V = Pin 2 & 4** (beide am Pin-1-Ende). **Signal-Pins 12 / 35 / 40.**
+
+### 3.3 ⚠️ Sicherheit — so zerschießt du nichts
+
+1. **5 V GEHÖRT AUSSCHLIESSLICH AN `Vin`.** Landet die 5 V versehentlich an `BCLK`/`LRC`/`DIN`
+   (= GPIO), ist der **GPIO sofort zerstört** — Pi-GPIO sind **3,3 V** und **nicht 5-V-tolerant**.
+2. **`Vin`/`GND` nicht vertauschen.** Verpolung kann den Verstärker zerstören.
+3. **Kein verrutschter Draht** auf einen Nachbar-Pin (z.B. Pin 2 = 5 V neben Pin 1 = 3,3 V; Pin 4 = 5 V
+   neben Pin 6 = GND). Jeder Draht **einzeln** kontrollieren.
+4. **Lautsprecher = BTL (brückenverstärkt):** **keiner** der beiden `+`/`–`-Ausgänge ist Masse!
+   **Niemals** eine Lautsprecher-Klemme an `GND` oder an einen anderen Verstärker-Ausgang legen →
+   Amp-Schaden. (Deine +/−-Lötung ist ok — nur nicht nachträglich nach GND brücken.)
+5. **`SD` nie an GND** (= Shutdown — *kein* Schaden, aber kein Ton).
+6. Info, kein Risiko: Die Signal-Pins sind **3,3-V-Logik**; der MAX98357A akzeptiert 3,3-V-Logik
+   → **kein Level-Shifter nötig**.
+
+### 3.4 `SD` / `GAIN` — Verhalten + Fallback
+
+- **`GAIN` offen lassen** = 9 dB (reicht). Andere Stufen (3–15 dB) per Beschaltung — später, kein Risiko.
+- **`SD` offen lassen**: auf den meisten Breakouts (inkl. Adafruit) = **an, Mono-Mix (L+R)/2**.
+  Das Verhalten ist aber **board-spezifisch** (hängt vom Pull-Widerstand auf der Platine ab).
+- **Falls kein Ton** (aber Karte in `aplay -l` da → §6): `SD` ist der erste Verdächtige. Dann
+  `SD` fest auf **3,3 V** (Pin 1 oder 17) legen → **garantiert an** (dann Links-Kanal statt Mix).
+  Das ist **sicher** (Logik-Pin, innerhalb Vdd). Lieber Links-Kanal als versehentlicher Shutdown.
+
+### 3.5 GPIO-Konflikt-Check
+
+GPIO18/19/21 sind nach Projektstand frei (Servo2040 über USB; F-Block-Shutdown-Schalter am
+Servo2040 GP27, nicht am Pi-GPIO). **Vor dem Verdrahten kurz gegenprüfen**, dass keine andere
+Overlay-Zeile diese Pins belegt:
+
+```bash
+grep -nE 'dtoverlay|gpio|i2s' /boot/firmware/config.txt
+```
+
+### 3.6 Reihenfolge + Doppelprüfung VOR dem Einschalten
+
+> ⚠️ **Pi herunterfahren und vom Strom trennen, bevor du an die GPIO-Pins gehst.** Ungekeyte
+> Stiftleiste → ein Fehler kann den Pi beschädigen.
+
+1. `sudo shutdown -h now` → **Netzteil ziehen**.
+2. Die 5 Drähte + Lautsprecher nach 3.1 stecken.
+3. **Checkliste vor dem Einschalten** (am besten zusätzlich mit Multimeter/Durchgangsprüfer):
+   - [ ] `Vin` → Pin 2/4 (5 V) — **nicht** an einem GPIO
+   - [ ] `GND` → ein GND-Pin (z.B. 6)
+   - [ ] `BCLK` → Pin 12, `LRC` → Pin 35, `DIN` → Pin 40 — jeweils gegen das **Amp-Label** geprüft
+   - [ ] `Vin`/`GND` nicht vertauscht; kein Draht auf Nachbar-Pin verrutscht
+   - [ ] Lautsprecher an `+`/`–`, **nicht** an GND
+4. Netzteil dran, einschalten. **Der Verstärker darf NICHT sofort heiß werden** — wird er's,
+   **sofort ausschalten** → Fehlverdrahtung (meist Verpolung).
 
 ## 4. Tests-Liste
 
@@ -107,6 +168,10 @@ aplay -l
 Erwartung: eine Karte wie `card 0: sndrpihifiberry [snd_rpi_hifiberry_dac] ...`.
 **Kartennummer notieren** (hier als `N` bezeichnet; meist `0`).
 
+> Tipp: Statt der Nummer kannst du in allen folgenden Befehlen auch den **Kartennamen**
+> verwenden (robuster, ändert sich nicht): z.B. `-D plughw:CARD=sndrpihifiberry` statt
+> `-D plughw:N,0`. Den genauen Namen zeigt dir `aplay -l` in den eckigen Klammern.
+
 ### T2 — Testton
 
 ```bash
@@ -139,14 +204,16 @@ mpg123 -a plughw:N,0 ~/test.mp3
 
 ## 7. Done-Kriterien (Checkliste)
 
-- [ ] Verdrahtung nach §3 (SD/GAIN floating, Vin=5 V)
-- [ ] I2S aktiviert (`config.txt`), Overlay vorhanden, Pi rebootet
-- [ ] `aplay -l` listet die Hifiberry-/MAX98357A-Karte — *Kartennummer N notiert*
-- [ ] `speaker-test` hörbar
-- [ ] WAV (`aplay`) hörbar
-- [ ] MP3 (`mpg123`) hörbar
+- [x] Verdrahtung nach §3 (SD/GAIN floating, Vin=5 V)
+- [x] I2S aktiviert (`config.txt`), Overlay (`hifiberry-dac.dtbo`) vorhanden, Pi rebootet
+- [x] `aplay -l` listet die Karte `sndrpihifiberry [snd_rpi_hifiberry_dac]` — **Karte N = 0**
+- [x] `speaker-test` hörbar („Front Left/Right")
+- [x] WAV (`aplay`) hörbar („Front Center")
+- [x] MP3 (`mpg123`) hörbar (`ubludok.mp3`)
 
-Alle Bullets `[x]` → Audio-Hello-World **verifiziert**, Status in `00_overview.md` auf 🟢.
+✅ **Audio-Hello-World verifiziert.** 🟡 Offener Finetune-Punkt: leichtes **Knarzen** (als Hardware
+eingegrenzt → Stützelko + saubere Verkabelung im Finalaufbau, s. §8/§9). Kein Funktions-Blocker.
+Status in `00_overview.md` = 🟢.
 
 ## 8. Troubleshooting
 
@@ -158,6 +225,7 @@ Alle Bullets `[x]` → Audio-Hello-World **verifiziert**, Status in `00_overview
 | Ton verzerrt/leise | GAIN anpassen; Vin wirklich 5 V?; Speaker 4 Ω an Class-D ok |
 | `aplay`/`speaker-test`: „Device or resource busy" | anderer Prozess belegt die Karte; oder falsche `plughw:N,0`-Nummer (per `aplay -l` prüfen) |
 | Nur auf einem „Kanal" / Mono-Frage | MAX98357A ist Mono; `(L+R)/2`-Mix bei SD floating ist gewollt |
+| **Knacken/Knarzen** (auch bei reinem Sinus + bei leiser Wiedergabe; Buffer hilft kaum) | **Strom/Verkabelung**, nicht Pegel/Underrun. Fix: **Stützelko 100–470 µF** (Elko, `+`→Vin / `−`→GND, direkt am Amp) **+ 100 nF** parallel; alle Steckverbindungen **fest + kurz**; solide 5 V. Diagnose-Trennung: Sinus-Test (`speaker-test … -t sine`) vs. leiser MP3 (`mpg123 -f 8000 …`) — knarzt beides → Hardware. |
 
 ## 9. Offene Punkte / spätere Integration
 
@@ -166,3 +234,7 @@ Alle Bullets `[x]` → Audio-Hello-World **verifiziert**, Status in `00_overview
 - **Lautstärke in Software:** ALSA-`softvol`-Plugin (`~/.asoundrc`), da der MAX98357A keine
   HW-Lautstärke hat. Für Hello-World nicht nötig.
 - **Einbau-Pegel:** finale GAIN-Beschaltung erst nach Gehäuse-/Einbau-Test festlegen.
+- **Befund Knarzen (offen, Fix bekannt):** Wiedergabe läuft, aber leichtes Knacken/Knarzen.
+  Per Sinus-/Leise-Test als **Hardware** (Strom/Verkabelung) eingegrenzt — *nicht* Pegel/Underrun.
+  **Fix für den Finalaufbau:** Stützelko 100–470 µF (+100 nF) direkt an Vin/GND, kurze/feste
+  Leitungen, eigene saubere 5-V-Schiene. Aktuell kein Kondensator zur Hand → nachrüsten.

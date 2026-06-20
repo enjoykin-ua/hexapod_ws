@@ -10,9 +10,9 @@
 
 | # | Gerät | Schnittstelle | Status | Doku |
 |---|---|---|---|---|
-| 1 | **IMU BNO-055** | I2C / Qwiic | ⚪ offen | [`imu_bno055.md`](imu_bno055.md) |
+| 1 | **IMU BNO-055** | I2C / Qwiic | 🟢 verifiziert | [`imu_bno055.md`](imu_bno055.md) |
 | 2 | **AI-Kamera IMX500** (SC1174) | CSI / MIPI | ⚪ offen — **Machbarkeit zu klären** | `camera_imx500.md` (folgt) |
-| 3 | **Audio MAX98357A** + 4 Ω/3 W Speaker | I2S | ⚪ offen | [`audio_max98357a.md`](audio_max98357a.md) |
+| 3 | **Audio MAX98357A** + 4 Ω/3 W Speaker | I2S | 🟢 verifiziert (Knarzen offen) | [`audio_max98357a.md`](audio_max98357a.md) |
 
 Reihenfolge nach Risiko/Aufwand: **IMU → Kamera → Audio**.
 Status-Legende: ⚪ offen — 🟡 läuft teilweise — 🟢 verifiziert.
@@ -46,6 +46,21 @@ schwere Weg ist akzeptiert, *sofern* er zum Ziel führt.
 `hexapod_ws`-Repo, sondern in einen separaten Ordner (z.B. `~/imx500_camera_build/` auf dem Pi,
 analog zu `~/pimoroni_servo_fix/`). Die `camera_imx500.md` ist dann nur die **Anleitung**, die
 dorthin verweist.
+
+## Workflow: VS Code Remote-SSH nach Reboot wieder verbinden
+
+Nach jedem Pi-Reboot/Shutdown bricht die Remote-SSH-Verbindung ab. Wieder rein:
+
+1. **Pi-Hochlauf abwarten** (~30–60 s nach Einschalten), sonst läuft der Connect in einen Timeout.
+2. Im abgebrochenen VS-Code-Fenster erscheint meist „disconnected" → Button **„Reload Window"**/„Retry".
+   Klappt das nicht: Fenster schließen.
+3. Neu verbinden: `F1` → **„Remote-SSH: Connect to Host"** → `hexapod-pi`.
+4. Falls der Ordner nicht automatisch wieder aufgeht: **File → Open Recent** (bzw. Open Folder)
+   → der Arbeitsordner auf dem Pi.
+5. Terminal auf dem Pi öffnen: ``Ctrl+` `` — läuft auf dem Pi (nicht auf dem Dev-Rechner).
+
+> Tipp: Reconnect erst versuchen, wenn der Pi wirklich oben ist. Bei „Could not establish
+> connection" einfach 10–20 s warten und Schritt 3 wiederholen.
 
 ## Doku-Format
 
