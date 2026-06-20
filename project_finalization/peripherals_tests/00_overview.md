@@ -11,7 +11,7 @@
 | # | Gerät | Schnittstelle | Status | Doku |
 |---|---|---|---|---|
 | 1 | **IMU BNO-055** | I2C / Qwiic | 🟢 verifiziert | [`imu_bno055.md`](imu_bno055.md) |
-| 2 | **AI-Kamera IMX500** (SC1174) | CSI / MIPI | ⚪ offen — **Machbarkeit zu klären** | `camera_imx500.md` (folgt) |
+| 2 | **Kamera Pi v1.3** (OV5647) | CSI / MIPI | 🟢 verifiziert (Bild+Stream, MJPEG, keine AI) | [`camera_ov5647_v13.md`](camera_ov5647_v13.md) |
 | 3 | **Audio MAX98357A** + 4 Ω/3 W Speaker | I2S | 🟢 verifiziert (Knarzen offen) | [`audio_max98357a.md`](audio_max98357a.md) |
 
 Reihenfolge nach Risiko/Aufwand: **IMU → Kamera → Audio**.
@@ -25,27 +25,20 @@ Status-Legende: ⚪ offen — 🟡 läuft teilweise — 🟢 verifiziert.
   **kein `raspi-config`** (das gibt es auf Ubuntu Server nicht).
 - **Reboots macht der User** (CLAUDE.md §5). Die Docs markieren jeden nötigen Reboot klar;
   ausgeführt wird er von dir, nicht automatisch.
-- **Keine** zweite Paketquelle / PPA ohne explizites „GENEHMIGT" (CLAUDE.md §5) — relevant
-  v.a. für die Kamera.
+- **Keine** zweite Paketquelle / PPA ohne explizites „GENEHMIGT" (CLAUDE.md §5). Der Kamera-Weg
+  braucht keine PPA — nur `apt`-Build-Deps + from-source.
 
-## ⚠️ Kamera-Vorbehalt (wichtig, vorab geklärt)
+## Kamera (Pi v1.3 / OV5647) — Kurzkontext
 
-Ubuntu 24.04 hat **keinen IMX500-Sensor-Treiber** (bestätigt von einem Raspberry-Pi-Ingenieur
-im offiziellen Forum: Canonical-Kernel + Userland unterstützen den Sensor nicht). Die Kamera
-wird auf 24.04 **gar nicht erkannt** — kein `/dev/video0`, `rpicam-hello` findet nichts.
-Das `imx500-all`-Paket (Firmware + NN-Modelle + Postprocessing) ist **RPi-OS-only**.
-Ubuntu 25.04 hat den Kamera-Stack zwar nachgerüstet, ist aber **keine** ROS-2-Jazzy-Plattform
-(Jazzy = 24.04 LTS) → ein OS-Upgrade würde die ROS-Grundlage des Roboters brechen.
+Verwendet wird die **Raspberry Pi Camera Module v1.3 (Sensor OV5647)**. Deren Kernel-Treiber
++ CFE/PiSP-Kamera-Pipeline sind im Ubuntu-24.04-Kernel (`6.8.0-…-raspi`) **vorhanden**
+(verifiziert: Sensor bindet, `/dev/video0` registriert). Es fehlt nur das **Userland**
+(Pi-Fork `libcamera` + `rpicam-apps`), das **from source** gebaut wird — **reines Userland,
+kein Kernel-Eingriff, null Risiko** fürs Roboter-System. Ergebnis: Bild + Stream auf den
+Dev-Rechner (5 MP). Details: [`camera_ov5647_v13.md`](camera_ov5647_v13.md).
 
-**Konsequenz:** Die Kamera braucht einen eigenen **Machbarkeits-/from-source-Pfad**
-(libcamera/rpicam-apps + Sensor-Treiber selbst bauen auf 24.04). Das wird **zuerst
-recherchiert** (Aufwand + Erfolgschance), bevor irgendetwas am Pi angefasst wird. Der
-schwere Weg ist akzeptiert, *sofern* er zum Ziel führt.
-
-**Build-Ablage Kamera:** falls kompiliert werden muss, gehört Quellcode/Build **NICHT** ins
-`hexapod_ws`-Repo, sondern in einen separaten Ordner (z.B. `~/imx500_camera_build/` auf dem Pi,
-analog zu `~/pimoroni_servo_fix/`). Die `camera_imx500.md` ist dann nur die **Anleitung**, die
-dorthin verweist.
+**Build-Ablage:** Quellcode/Build gehört **NICHT** ins `hexapod_ws`-Repo, sondern nach
+`~/camera_build/` auf dem Pi (analog zu `~/pimoroni_servo_fix/`); Install nach `/usr/local`.
 
 ## Workflow: VS Code Remote-SSH nach Reboot wieder verbinden
 
