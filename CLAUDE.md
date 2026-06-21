@@ -121,6 +121,21 @@ Versions-Konflikte, die wir vermeiden wollen.
 > unkontrollierte System-Updates / Treiber-Eingriffe zerstört. Das passiert
 > nicht nochmal.
 
+### Git — niemals durch AI/Agent ausführen (ausnahmslos verboten)
+
+> **Absolut, ausnahmslos:** Der AI-Agent/Assistant führt **keine** Git-Operation
+> aus — **niemals**, auch nicht „nur kurz", read-only, via Skript, Alias, Tool
+> oder Hook. Git macht **ausschließlich der User selbst.**
+
+- **Verboten (Ausführung durch den Agenten):** jedes `git …` — u. a. `add`,
+  `commit`, `push`, `pull`, `fetch`, `clone`, `checkout`, `switch`, `branch`,
+  `merge`, `rebase`, `reset`, `revert`, `stash`, `tag`, `cherry-pick`,
+  `restore`, `clean`, `rm` **und** read-only (`status`, `log`, `diff`, `show`).
+  Auch nicht „zur Vorbereitung" oder „zur Sicherheit".
+- **Erlaubt:** Git-Befehle als **Vorschlag/Anleitung** ausgeben, die **der User**
+  selbst ausführt; wenn der Agent Git-Zustand braucht → den User bitten, ihn zu
+  liefern. Branch anlegen/wechseln, committen, pushen, mergen: **alles der User.**
+
 ### Niemals ohne explizites „GENEHMIGT" vom User:
 
 - `sudo apt full-upgrade` / `sudo apt dist-upgrade`
@@ -145,8 +160,7 @@ Versions-Konflikte, die wir vermeiden wollen.
   `docs/phase_0_setup.md` (z. B. `git`, `python3-colcon-common-extensions`,
   `ros-dev-tools`)
 - `pip install` in `venv` oder mit `--user`
-- Alles unter `~/hexapod_ws/`
-- `git`-Operationen im Workspace
+- Alles unter `~/hexapod_ws/` (**außer Git** — siehe Git-Verbot oben)
 - `colcon build`, `colcon test`
 - ROS-CLI-Befehle (`ros2 ...`, `rviz2`, `gz sim` etc.)
 
