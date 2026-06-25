@@ -18,7 +18,8 @@
                                   femur_lower:=^|${femur_lower}|
                                   femur_upper:=^|${femur_upper}|
                                   tibia_lower:=^|${tibia_lower}|
-                                  tibia_upper:=^|${tibia_upper}|">
+                                  tibia_upper:=^|${tibia_upper}|
+                                  femur_material:=orange">
 
     <!-- ===== Coxa ===== -->
     <joint name="leg_${id}_coxa_joint" type="revolute">
@@ -65,7 +66,7 @@
         <geometry>
           <box size="${femur_length} ${femur_width} ${femur_height}"/>
         </geometry>
-        <material name="orange"/>
+        <material name="${femur_material}"/>
       </visual>
       <collision>
         <origin xyz="${femur_length/2} 0 0" rpy="0 0 0"/>

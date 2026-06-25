@@ -31,6 +31,7 @@ debugging in isolation from the controller stack).
 
 from launch import LaunchDescription
 from launch.actions import (
+    AppendEnvironmentVariable,
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     RegisterEventHandler,
@@ -63,6 +64,10 @@ def generate_launch_description() -> LaunchDescription:
     bridge_foot_contact_config = PathJoinSubstitution([
         pkg_hexapod_bringup, 'config', 'bridge_foot_contact.yaml',
     ])
+    bridge_imu_config = PathJoinSubstitution([
+        pkg_hexapod_bringup, 'config', 'bridge_imu.yaml',
+    ])
+    worlds_dir = PathJoinSubstitution([pkg_hexapod_gazebo, 'worlds'])
 
     declare_urdf = DeclareLaunchArgument(
         'urdf',
@@ -71,8 +76,13 @@ def generate_launch_description() -> LaunchDescription:
     )
     declare_world = DeclareLaunchArgument(
         'world',
-        default_value='empty.sdf',
-        description='Gazebo world file (resolved against gz-sim search paths).',
+        default_value='empty_imu.sdf',
+        description=(
+            'Gazebo world file (resolved against gz-sim search paths; '
+            'hexapod_gazebo/worlds wird auf GZ_SIM_RESOURCE_PATH gelegt). '
+            'Default empty_imu.sdf = empty.sdf + gz-sim-imu-system, sonst '
+            'bliebe der IMU-Sensor stumm.'
+        ),
     )
     declare_spawn_z = DeclareLaunchArgument(
         'spawn_z',
@@ -94,6 +104,15 @@ def generate_launch_description() -> LaunchDescription:
             'keine /leg_<n>/foot_contact-Topics in ROS.'
         ),
     )
+    declare_enable_imu = DeclareLaunchArgument(
+        'enable_imu',
+        default_value='true',
+        description=(
+            'Block A5 Stufe 0: IMU aktivieren. Bei true: gz-IMU-Sensor (Sim), '
+            'IMU-Bridge und imu_monitor starten. Bei false: kein imu_link/'
+            'Sensor, kein /imu/data.'
+        ),
+    )
 
     # robot_description: xacro is evaluated at launch time.
     # ParameterValue with value_type=str prevents rclpy from trying to
@@ -104,8 +123,15 @@ def generate_launch_description() -> LaunchDescription:
         Command([
             'xacro ', LaunchConfiguration('urdf'),
             ' enable_foot_contact:=', LaunchConfiguration('enable_foot_contact'),
+            ' enable_imu:=', LaunchConfiguration('enable_imu'),
         ]),
         value_type=str,
+    )
+
+    # hexapod_gazebo/worlds auf den gz-Suchpfad legen, damit empty_imu.sdf
+    # (und künftige Schräg-Welten) per Name auflösbar sind.
+    set_gz_resource_path = AppendEnvironmentVariable(
+        'GZ_SIM_RESOURCE_PATH', worlds_dir,
     )
 
     gz_sim = IncludeLaunchDescription(
@@ -182,6 +208,33 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration('enable_foot_contact')),
     )
 
+    # IMU-Bridge: gz.msgs.IMU (/imu/sim) -> sensor_msgs/Imu (/imu/data).
+    # Conditional auf enable_imu (Block A5 Stufe 0).
+    imu_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='ros_gz_imu_bridge',
+        output='screen',
+        parameters=[{
+            'config_file': bridge_imu_config,
+            'use_sim_time': True,
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_imu')),
+    )
+
+    # imu_monitor (hexapod_sensors): /imu/data -> roll/pitch-Log + /imu/monitor
+    # + world->base_link-tf (Modell-Neigung in RViz). Reine Beobachtung.
+    imu_monitor = Node(
+        package='hexapod_sensors',
+        executable='imu_monitor',
+        name='imu_monitor',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_imu')),
+    )
+
     # --- Controller spawners (each is a one-shot node) ---
     # The spawner loads, configures and activates a controller via the
     # /controller_manager/spawner service, then exits. We chain them via
@@ -237,12 +290,16 @@ def generate_launch_description() -> LaunchDescription:
         declare_world,
         declare_spawn_z,
         declare_enable_foot_contact,
+        declare_enable_imu,
+        set_gz_resource_path,
         gz_sim,
         robot_state_publisher,
         spawn,
         bridge,
         foot_contact_bridge,
         foot_contact_publisher,
+        imu_bridge,
+        imu_monitor,
         after_spawn_start_jsb,
         after_jsb_start_leg_controllers,
     ])

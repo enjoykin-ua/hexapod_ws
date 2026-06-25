@@ -1,0 +1,18 @@
+# ros_gz_bridge config für die IMU (Block A5 Stufe 0).
+#
+# Conditional in sim.launch.py geladen wenn enable_imu:=true.
+# Mappt den Gazebo-IMU-Sensor-Output auf das ROS-Konventions-Topic /imu/data,
+# das der imu_monitor (hexapod_sensors) konsumiert.
+#
+# Pipeline:
+#   gz.msgs.IMU (auf /imu/sim) -> bridge ->
+#     sensor_msgs/Imu (auf /imu/data) -> imu_monitor
+#
+# Der gz_topic_name kommt aus dem <topic>-Element in
+# hexapod_description/urdf/hexapod.imu.xacro.
+
+- ros_topic_name: /imu/data
+  gz_topic_name: /imu/sim
+  ros_type_name: sensor_msgs/msg/Imu
+  gz_type_name: gz.msgs.IMU
+  direction: GZ_TO_ROS

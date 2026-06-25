@@ -7,6 +7,11 @@
        gestartet (siehe hexapod_bringup/launch/sim.launch.py). -->
   <xacro:arg name="enable_foot_contact" default="true"/>
 
+  <!-- Block A5 Stufe 0: Toggle für IMU (BNO-055). Default true; bei false kein
+       imu_link/Sensor, Bridge + imu_monitor starten im Launch nicht. Der
+       gz-IMU-Sensor-Block ist zusätzlich use_sim-geguarded (nur Sim). -->
+  <xacro:arg name="enable_imu" default="true"/>
+
   <!-- Phase 9 Stufe F: Sim/HW-Switch + Hardware-Parameter.
        Diese drei Args sind die "öffentliche Schnittstelle" des URDF-
        Moduls für Phase 9. Konsumiert werden sie in
@@ -84,12 +89,15 @@
        (neuer, viel engerer Ueberstreck-Anschlag der kurzen Tibia; handover.md §1),
        Beuge +2.50 unveraendert. Symmetrie ueber alle 6 Beine + Sync urdf↔ros2_control
        jetzt per test_per_leg_limits (hexapod_kinematics) abgesichert. -->
+  <!-- leg_1-Femur GRÜN als Orientierungs-Marker (vorne rechts) — sichtbar in
+       Gazebo + RViz, macht Front/Bein-Zuordnung beim Balance-/Kipp-Test eindeutig. -->
   <xacro:leg id="1"
              mount_x="${ body_length/2}" mount_y="${-body_width/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/4}"
              coxa_lower="-0.415"  coxa_upper="0.415"
              femur_lower="-1.57"  femur_upper="1.57"
-             tibia_lower="-0.28"  tibia_upper="2.50"/>
+             tibia_lower="-0.28"  tibia_upper="2.50"
+             femur_material="green"/>
   <xacro:leg id="2"
              mount_x="0"                 mount_y="${-body_width_middle/2}"
              mount_z="${leg_mount_z}"    mount_yaw="${-pi/2}"
@@ -130,6 +138,11 @@
   <!-- ===== Foot-Bodenkontakt-Sensoren (Phase 5 Stufe D, conditional) ===== -->
   <xacro:if value="$(arg enable_foot_contact)">
     <xacro:include filename="hexapod.foot_contact.xacro"/>
+  </xacro:if>
+
+  <!-- ===== IMU (Block A5 Stufe 0, conditional) ===== -->
+  <xacro:if value="$(arg enable_imu)">
+    <xacro:include filename="hexapod.imu.xacro"/>
   </xacro:if>
 
 </robot>

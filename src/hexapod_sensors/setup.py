@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'foot_contact_publisher = '
             'hexapod_sensors.foot_contact_publisher:main',
+            'imu_monitor = hexapod_sensors.imu_monitor:main',
         ],
     },
 )

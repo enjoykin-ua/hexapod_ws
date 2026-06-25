@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    IMU (BNO-055) — Block A5 Stufe 0.
+
+    - imu_link + imu_joint existieren IMMER (tf-Frame, auch auf HW).
+    - Der gz-IMU-Sensor-Block ist use_sim-geguarded (nur Sim). Auf HW liefert
+      der bno055-Treiber /imu/data direkt.
+    - Toggle via xacro-arg enable_imu (conditional include in hexapod.urdf.xacro).
+
+    Sim-Pipeline (spiegelt hexapod.foot_contact.xacro):
+      gz-IMU-Sensor (Topic /imu/sim) -> ros_gz_bridge -> sensor_msgs/Imu auf
+      /imu/data -> imu_monitor (hexapod_sensors): roll/pitch + /imu/monitor +
+      world->base_link-tf (Modell-Neigung in RViz).
+
+    WICHTIG: Der gz-IMU-Sensor publisht nur, wenn die Welt das
+    gz-sim-imu-system-Plugin lädt — empty.sdf hat es NICHT, daher empty_imu.sdf.
+
+    Mount-Orientierung: rpy 0 0 0 = REP-103/REP-145 (+X vorne, +Z oben). Auf HW
+    per Kipp-Test einmessen und hier (oder via BNO-Achsen-Remap) setzen.
+  -->
+
+  <!-- imu_link: passiver Sensor-Frame. Kleine Dummy-Inertia, da der Link bei
+       aktivem Sensor NICHT in base_link gelumpt wird (preserve/lumping unten). -->
+  <link name="imu_link">
+    <xacro:box_inertia mass="0.01" x="0.02" y="0.02" z="0.02"/>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- gz-IMU-Sensor: nur im Sim-Pfad. preserve/lumping am JOINT (sonst lumpt gz
+       den Link in base_link und der Sensor hat keinen Frame), Sensor am LINK. -->
+  <xacro:if value="$(arg use_sim)">
+    <gazebo reference="imu_joint">
+      <preserveFixedJoint>true</preserveFixedJoint>
+      <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
+
+    <gazebo reference="imu_link">
+      <sensor name="imu_sensor" type="imu">
+        <always_on>1</always_on>
+        <update_rate>100</update_rate>
+        <visualize>false</visualize>
+        <topic>/imu/sim</topic>
+        <imu/>
+      </sensor>
+    </gazebo>
+  </xacro:if>
+
+</robot>
