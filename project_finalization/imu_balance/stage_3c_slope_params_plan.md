@@ -16,7 +16,7 @@
 
 | Teil | Inhalt | Kern-Deliverable |
 |---|---|---|
-| **3c-1** | Offline-θ→Param-**Tabelle** + Online-Eval; `body_height`/`radial`/`step` adaptiv + **hang-bewusste Schwunghöhe** | YAML-Tabelle + gait_node liest IMU-θ → setzt Params rate-limitiert; Klettern > 12° |
+| **3c-1** | Offline-θ→Param-**Tabelle** + Online-Eval; `body_height`/`radial`/`step` adaptiv + **hang-bewusste Schwunghöhe** — **Detail-Plan: [stage_3c_1_param_table_plan.md](stage_3c_1_param_table_plan.md)** (finalisiert, wartet auf Freigabe) | YAML-Tabelle + gait_node liest IMU-θ → setzt Params rate-limitiert; Klettern > 12° |
 | **3c-2** | **Auto-Gangart-Switch** (Tripod→Wave, Hysterese) + **Setpoint-Blend α·θ** | steilere Hänge stabiler + mehr Beinrange |
 | **3c-3** | **Offline-Batch** (20 linear + 20 wechselnd) + **A/B-Entscheidung** (mit Daten) + **Torque-Report** | dokumentierte Hülle + Weg-A bestätigt + HW-Realitäts-Check |
 
@@ -94,7 +94,9 @@
 
 ## 4. Offene Punkte (je Teil-Stufe vorm Code kurz bestätigen)
 
-- **3c-1:** Tabellen-Schrittweite (2°?) + Param-Slew-Raten (Startwerte) + Totband (2–3°?).
+- **3c-1:** ✅ **geklärt** (Klärungs-Round) → [stage_3c_1_param_table_plan.md](stage_3c_1_param_table_plan.md) §0:
+  θ-Sweep ±35°/1°, 3-D-Gitter + Dump→`curate`→YAML, Apex per-Bein-Gradient, θ-Schätzung =
+  tilt+corr, θ-Totband 2.5°, Slew-Startwerte, Slope-Adapt-Opt-in > Stance-Modi.
 - **3c-2:** `gait_switch_deg` (~15°?) + Hysterese + α(θ)-Form (linear ab θ_α? gedeckelt?).
 - **3c-3:** Batch-Winkel-Set + Akzeptanz der Weg-A-Bestätigung.
 - Sonst: Startwerte auf der Rampe tunen (alle live).
