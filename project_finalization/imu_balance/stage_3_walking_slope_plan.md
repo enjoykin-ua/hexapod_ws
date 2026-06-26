@@ -40,7 +40,7 @@ eigenem §4-Review → Freigabe → Code → Test → Self-Review (wie Stufe 2):
 |---|---|---|
 | **3a** | Leveling im WALKING (Stellpfad-Gating → WALKING + Fuß-Scrub) | [`stage_3a_leveling_walking_plan.md`](stage_3a_leveling_walking_plan.md) |
 | **3b** | Wackel-Dämpfung (Gyro-D-Term im BalanceController, B3-Fix) | (folgt) |
-| **3c** | θ→Parameter-Familie + Auto-Gait-Switch + flüssige In-Lauf-Höhe; **A/B-Entscheidung** | (folgt) |
+| **3c** | θ→Parameter-Familie + Auto-Gait-Switch + flüssige In-Lauf-Höhe; **A/B-Entscheidung** | [`stage_3c_slope_params_plan.md`](stage_3c_slope_params_plan.md) |
 | **3d** | Slip-Erkennung + Robustheit | (folgt) |
 
 **Reihenfolge: 3a → 3b → 3c → 3d.** Begründung (Plan-Review): 3a/3b halten die Params
