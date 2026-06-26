@@ -31,6 +31,31 @@ def rotate_z(point: Point3, yaw: float) -> Point3:
     return (c * x - s * y, s * x + c * y, z)
 
 
+def rotate_xy(point: Point3, roll: float, pitch: float) -> Point3:
+    """
+    Drehe einen 3D-Punkt um die Base-X-Achse (roll), dann Base-Y-Achse (pitch).
+
+    Body-Leveling (Block A5 Stufe 2): ``R = Ry(pitch) · Rx(roll)`` — erst roll
+    um +X, dann pitch um +Y, beides um den base_link-Ursprung. ``roll``/``pitch``
+    in Radiant, REP-103-Konvention (roll um +X, pitch um +Y).
+
+    Für kleine Leveling-Winkel ist die Reihenfolge unkritisch; sie ist hier
+    fest als Rx-zuerst definiert, damit der Stellpfad deterministisch ist.
+    """
+    x, y, z = point
+    cr = math.cos(roll)
+    sr = math.sin(roll)
+    # Rx(roll): X fest, Y/Z drehen.
+    y1 = cr * y - sr * z
+    z1 = sr * y + cr * z
+    cp = math.cos(pitch)
+    sp = math.sin(pitch)
+    # Ry(pitch): Y fest, X/Z drehen.
+    x2 = cp * x + sp * z1
+    z2 = -sp * x + cp * z1
+    return (x2, y1, z2)
+
+
 def base_to_leg_frame(point_in_base: Point3, leg_cfg: LegConfig) -> Point3:
     """
     Transformiere einen Punkt aus base_link in den Bein-Frame des Beins.

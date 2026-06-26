@@ -1,0 +1,105 @@
+<?xml version="1.0" ?>
+<!--
+  slope.sdf.xacro — Block A5 Stufe 2 (statisches Körper-Leveling).
+
+  Parametrische Schräg-Welt: = empty_imu.sdf (alle Plugins inkl.
+  gz-sim-imu-system + contact-system) ABER der flache ground_plane ist durch
+  eine um `slope_deg` (Pitch um +Y) geneigte, hochreibende **statische Box**
+  ersetzt. Der Roboter spawnt darauf (sim.launch.py spawn_pitch_deg := slope_deg
+  → Body bei Kontakt parallel zur Fläche, kein Faceplant).
+
+  Winkel via xacro-Arg:  xacro slope.sdf.xacro slope_deg:=8.0  → konkretes SDF.
+  Genutzt von hexapod_bringup/launch/slope.launch.py (expandiert zur Laufzeit).
+
+  Welt-Name bleibt "empty", damit /world/empty/...-Topics (Ground-Truth-Pose
+  für den 2.7-Vergleich IMU vs. echter Rampenwinkel) unverändert bleiben.
+
+  Box-Struktur (eine geneigte Platte) bewusst so gehalten, dass die Stufe-3-
+  Keilwelt (flach→Steigung, zum Hineinlaufen) daraus erweiterbar ist.
+-->
+<sdf version="1.6" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="slope_deg" default="8.0"/>
+  <!-- Grad → Radiant (expliziter Faktor, version-unabhängig von xacro-math). -->
+  <xacro:property name="slope_rad"
+    value="${$(arg slope_deg) * 0.017453292519943295}"/>
+
+  <world name="empty">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-contact-system"
+      name="gz::sim::systems::Contact">
+    </plugin>
+    <!-- A5 Stufe 0/2: nötig, damit <sensor type="imu"> Daten publisht. -->
+    <plugin
+      filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Geneigte Stützfläche statt flachem ground_plane. Box-Mitte 0.1 m
+         unter dem Ursprung (= halbe Dicke), um Pitch=slope_rad gekippt, sodass
+         die Oberseite ~durch den Ursprung läuft. Hohe Reibung (mu=mu2=1.2),
+         damit Leveling sauber ohne Schlupf getestet werden kann. -->
+    <model name="slope">
+      <static>true</static>
+      <pose>0 0 -0.1 0 ${slope_rad} 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>6 6 0.2</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.2</mu>
+                <mu2>1.2</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>6 6 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.7 0.7 0.75 1</ambient>
+            <diffuse>0.7 0.7 0.75 1</diffuse>
+            <specular>0.3 0.3 0.3 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

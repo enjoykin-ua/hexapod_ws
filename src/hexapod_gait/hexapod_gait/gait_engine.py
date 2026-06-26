@@ -46,6 +46,7 @@ from hexapod_kinematics import (
     leg_fk,
     leg_ik,
     leg_to_base_frame,
+    rotate_xy,
     rotate_z,
 )
 
@@ -70,6 +71,12 @@ _STANCE_SETTLING_TIME = 0.3
 # 1=vorne-R, 2=mitte-R, 3=hinten-R, 4=hinten-L, 5=mitte-L, 6=vorne-L.
 _SHOW_SUPPORT_LEGS = ('leg_2', 'leg_3', 'leg_4', 'leg_5')
 _SHOW_FRONT_LEGS = ('leg_1', 'leg_6')
+
+# Block A5 Stufe 2 — Body-Leveling-Stellpfad. Skalierungs-Stufen für den
+# IKError-Fallback (Risiko 1): volle Korrektur → halbe → viertel → 0
+# (= keine Leveling-Rotation, reine Stand-Pose). Schlägt selbst 0.0 fehl, ist
+# die Grundpose out-of-envelope → echter IKError/Freeze (NICHT durch Leveling).
+_LEVEL_FALLBACK_SCALES = (1.0, 0.5, 0.25, 0.0)
 
 
 class GaitEngine:
@@ -198,6 +205,15 @@ class GaitEngine:
         # If None: IK runs lenient (= phase-5 behaviour). gait_node passes
         # the URDF-parsed limits in here on startup.
         self.joint_limits: dict[str, JointLimits] = joint_limits or {}
+
+        # Block A5 Stufe 2 — Body-Leveling-Offset (rad), vom BalanceController
+        # via gait_node gesetzt. Nur im STANDING-Pfad als Rotation auf die
+        # Fuß-Targets angewandt; WALKING/STOPPING bleiben unbeeinflusst (Stufe 2).
+        # max_level_angle = harter Envelope-Clamp (offline bewiesen, Stufe 3
+        # erweiterbar); vom Node aus den Params gesetzt.
+        self._level_roll = 0.0
+        self._level_pitch = 0.0
+        self.max_level_angle = math.radians(10.0)
 
         self._state = self.STATE_STANDING
         self._v_body: Vec2 = (0.0, 0.0)
@@ -583,6 +599,20 @@ class GaitEngine:
             v_leg_3[1] * stance_duration,
         )
 
+    def set_body_orientation_offset(
+        self, corr_roll: float, corr_pitch: float,
+    ) -> None:
+        """
+        Block A5 Stufe 2 — Body-Leveling-Korrektur cachen (rad).
+
+        Wird vom gait_node pro Tick aus dem ``BalanceController`` gesetzt (nur
+        STANDING; sonst 0/0 + Controller-Reset). ``compute_joint_angles`` wendet
+        sie im STANDING-Pfad als Rotation ``R(corr_roll, corr_pitch)`` auf alle
+        Fuß-Targets an (geclampt auf ``max_level_angle``, mit IKError-Fallback).
+        """
+        self._level_roll = corr_roll
+        self._level_pitch = corr_pitch
+
     def compute_foot_targets(self, t: float) -> dict:
         """
         Berechne Foot-Position pro Bein im Bein-Frame zur Zeit t.
@@ -760,6 +790,14 @@ class GaitEngine:
             return self._compute_stance_switch_angles(t)
 
         targets = self.compute_foot_targets(t)
+
+        # Block A5 Stufe 2 — Body-Leveling nur im STANDING-Pfad (Stufe 2).
+        # WALKING/STOPPING bleiben unbeeinflusst (Leveling im Lauf = Stufe 3).
+        if self._state == self.STATE_STANDING and (
+            self._level_roll != 0.0 or self._level_pitch != 0.0
+        ):
+            return self._compute_leveled_ik(targets, t)
+
         angles = {}
         for leg in HEXAPOD.legs:
             # Stage 0.6: per-leg joint_limits an IK durchreichen wenn
@@ -772,6 +810,62 @@ class GaitEngine:
                     f'IK failed for {leg.name} at t={t:.3f}s, target='
                     f'{targets[leg.name]}: {exc}'
                 ) from exc
+        return angles
+
+    def _compute_leveled_ik(
+        self, targets: dict, t: float,
+    ) -> dict[str, JointAngles]:
+        """
+        STANDING-Body-Leveling als Rotation auf alle Fuß-Targets (Clamp+Fallback).
+
+        ``R(corr_roll, corr_pitch)`` (Base-Frame-Round-Trip) → IK.
+        Die Korrektur wird hart auf ``±max_level_angle`` geclampt (Risiko 1: nie
+        out-of-envelope durch Leveling). Wirft die IK trotzdem (z.B. eine Stance-/
+        Offset-Kombination außerhalb des Offline-Beweises), wird die Korrektur
+        skaliert (1→0.5→0.25→0) und erneut versucht — sanfte Degradation
+        („weniger Leveling") statt Freeze. Erst wenn selbst Skala 0.0 (= reine
+        Stand-Pose, keine Rotation) failt, ist die GRUNDpose out-of-envelope →
+        IKError (echter Freeze, NICHT durch Leveling). Strong-Exception-Safe:
+        baut das angles-Dict frisch pro Versuch, kein Teil-State bei IKError.
+        """
+        # Vorzeichen (kritisch): eine Rotation der Fuß-Targets um A dreht den
+        # Körper (relativ zu den aufgesetzten Füßen) um −A. Der Controller liefert
+        # corr = gewünschte KÖRPER-Drehung (= −gemessene Neigung). Um den Körper um
+        # corr zu drehen, müssen die Füße also um −corr rotiert werden — sonst
+        # positive Rückkopplung (Leveling verschlimmert die Neigung).
+        m = self.max_level_angle
+        roll = -max(-m, min(m, self._level_roll))
+        pitch = -max(-m, min(m, self._level_pitch))
+        last_exc: IKError | None = None
+        for scale in _LEVEL_FALLBACK_SCALES:
+            try:
+                return self._leveled_ik_at(targets, roll * scale, pitch * scale)
+            except IKError as exc:
+                last_exc = exc
+        raise IKError(
+            f'IK failed for STANDING leveled pose at t={t:.3f}s '
+            f'(roll={roll:.4f}, pitch={pitch:.4f}, even at scale 0): {last_exc}'
+        ) from last_exc
+
+    def _leveled_ik_at(
+        self, targets: dict, roll: float, pitch: float,
+    ) -> dict[str, JointAngles]:
+        """
+        Rotiere alle Fuß-Targets um ``(roll, pitch)`` im Base-Frame und IK pro Bein.
+
+        Pro Bein: ``leg_to_base_frame`` → ``rotate_xy(roll, pitch)`` um den
+        base-Ursprung → ``base_to_leg_frame`` → ``leg_ik`` (= B4-Round-Trip als
+        Rotation). Bei ``roll==pitch==0`` ist der Round-Trip die Identität →
+        exakt die ungelevelte Stand-Pose-IK.
+        """
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            base_pt = leg_to_base_frame(targets[leg.name], leg)
+            rot = rotate_xy(base_pt, roll, pitch)
+            leg_pt = base_to_leg_frame(rot, leg)
+            angles[leg.name] = leg_ik(
+                *leg_pt, leg, self.joint_limits.get(leg.name),
+            )
         return angles
 
     def _compute_startup_ramp_angles(

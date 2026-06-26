@@ -30,6 +30,7 @@ import xml.etree.ElementTree as ET
 
 from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import Twist
+from hexapod_gait.balance_controller import BalanceController
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
 from hexapod_gait.tip_monitor import (
@@ -827,14 +828,28 @@ class GaitNode(Node):
         self.declare_parameter('tip_angle_crit_deg', 25.0)
         self.declare_parameter('tip_rate_crit_dps', 80.0)
         self.declare_parameter('tip_debounce_ticks', 5)
+        # Stufe 2: Tip-Params als Member halten → Live-Rebuild des Monitors
+        # über _on_param_change (Feintuning auf der Schräge, §4-Entscheidung).
         self._tip_detection_enable = bool(
             self.get_parameter('tip_detection_enable').value
         )
+        self._tip_angle_warn_deg = float(
+            self.get_parameter('tip_angle_warn_deg').value
+        )
+        self._tip_angle_crit_deg = float(
+            self.get_parameter('tip_angle_crit_deg').value
+        )
+        self._tip_rate_crit_dps = float(
+            self.get_parameter('tip_rate_crit_dps').value
+        )
+        self._tip_debounce_ticks = int(
+            self.get_parameter('tip_debounce_ticks').value
+        )
         self._tip_monitor = TipMonitor(
-            math.radians(float(self.get_parameter('tip_angle_warn_deg').value)),
-            math.radians(float(self.get_parameter('tip_angle_crit_deg').value)),
-            math.radians(float(self.get_parameter('tip_rate_crit_dps').value)),
-            int(self.get_parameter('tip_debounce_ticks').value),
+            math.radians(self._tip_angle_warn_deg),
+            math.radians(self._tip_angle_crit_deg),
+            math.radians(self._tip_rate_crit_dps),
+            self._tip_debounce_ticks,
         )
         self._imu_roll: float | None = None
         self._imu_pitch = 0.0
@@ -843,6 +858,43 @@ class GaitNode(Node):
         self._imu_sub = self.create_subscription(
             Imu, '/imu/data', self._on_imu, qos_profile_sensor_data,
         )
+
+        # Block A5 Stufe 2 — statisches Körper-Leveling. BalanceController
+        # (ROS-frei) konsumiert die IMU-roll/pitch und liefert pro Tick eine
+        # Körper-Rotations-Korrektur, die die Engine im STANDING-Pfad auf die
+        # Fuß-Targets dreht (set_body_orientation_offset). Params menschenlesbar
+        # in Grad / Grad-pro-s → rad. Default leveling_enable=False (Opt-in;
+        # auf flachem Boden ohnehin No-Op, da Korrektur → 0). Alle Params live
+        # tunbar (§4-Entscheidung) — siehe _apply_param.
+        self.declare_parameter('leveling_enable', False)
+        self.declare_parameter('leveling_kp', 0.4)
+        self.declare_parameter('leveling_ki', 0.1)
+        self.declare_parameter('leveling_deadband_deg', 1.5)
+        self.declare_parameter('leveling_slew_max_dps', 8.0)
+        self.declare_parameter('leveling_max_angle_deg', 10.0)
+        self.declare_parameter('leveling_startup_grace', True)
+        self._leveling_enable = bool(
+            self.get_parameter('leveling_enable').value
+        )
+        self._leveling_startup_grace = bool(
+            self.get_parameter('leveling_startup_grace').value
+        )
+        self._leveling_max_angle_deg = float(
+            self.get_parameter('leveling_max_angle_deg').value
+        )
+        self._balance = BalanceController(
+            kp=float(self.get_parameter('leveling_kp').value),
+            ki=float(self.get_parameter('leveling_ki').value),
+            deadband=math.radians(
+                float(self.get_parameter('leveling_deadband_deg').value)
+            ),
+            slew_max=math.radians(
+                float(self.get_parameter('leveling_slew_max_dps').value)
+            ),
+            max_level_angle=math.radians(self._leveling_max_angle_deg),
+        )
+        self._engine.max_level_angle = math.radians(self._leveling_max_angle_deg)
+        self._last_leveling_t: float | None = None
 
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
@@ -1264,6 +1316,9 @@ class GaitNode(Node):
         if self._engine.state == GaitEngine.STATE_SHOW_ACTIVE:
             self._update_show_offsets(now)
 
+        # Block A5 Stufe 2 — Body-Leveling-Korrektur setzen (nur STANDING).
+        self._update_leveling()
+
         try:
             angles_per_leg = self._engine.compute_joint_angles(t)
         except IKError as exc:
@@ -1332,6 +1387,43 @@ class GaitNode(Node):
         # plugin will process the Trigger request on its own executor.
         self._safety_freeze_client.call_async(Trigger.Request())
 
+    def _update_leveling(self) -> None:
+        """
+        Block A5 Stufe 2 — Body-Leveling-Korrektur pro Tick setzen (nur STANDING).
+
+        STANDING + Leveling aktiv + IMU vorhanden: ``BalanceController.update`` →
+        ``engine.set_body_orientation_offset``. Sonst: Controller-``reset`` +
+        Offset 0/0 (kein Leveling im Lauf/Aufstehen/Show — Stufe 2). ``dt`` aus
+        ``time.monotonic`` (erster Tick dt=0 → Controller hält 0, Slew-Step 0).
+        """
+        if (
+            not self._leveling_enable
+            or self._imu_roll is None
+            or self._engine.state != GaitEngine.STATE_STANDING
+        ):
+            self._balance.reset()
+            self._engine.set_body_orientation_offset(0.0, 0.0)
+            self._last_leveling_t = None
+            return
+        now = time.monotonic()
+        dt = (
+            0.0 if self._last_leveling_t is None
+            else now - self._last_leveling_t
+        )
+        self._last_leveling_t = now
+        corr = self._balance.update(self._imu_roll, self._imu_pitch, dt)
+        self._engine.set_body_orientation_offset(*corr)
+
+    def _rebuild_tip_monitor(self) -> None:
+        """Baue den TipMonitor aus den aktuellen Tip-Param-Membern neu (Live-Tuning)."""
+        self._tip_monitor = TipMonitor(
+            math.radians(self._tip_angle_warn_deg),
+            math.radians(self._tip_angle_crit_deg),
+            math.radians(self._tip_rate_crit_dps),
+            self._tip_debounce_ticks,
+        )
+        self._tip_crit_fired = False
+
     def _update_tip(self) -> str:
         """
         Block A5 Stufe 1 — Kipp-Level aus der IMU (nur STANDING/WALKING).
@@ -1339,6 +1431,11 @@ class GaitNode(Node):
         Gating: in allen anderen States (Aufstehen/Hinsetzen/Reposition/Show/
         Stance-Switch) kippt der Körper gewollt → TipMonitor reset + NONE.
         Ohne bisher empfangene IMU → NONE.
+
+        Stufe 2 — Startup-Grace: während aktiver Leveling-Konvergenz (Controller
+        noch nicht im Totband) Tip in STANDING unterdrücken, damit die Anfangs-
+        Schräglage auf der Rampe nicht als Kippen feuert (WARN wäre dort eh nur
+        cmd_vel=0). Greift nur bei aktivem Leveling + Grace-Flag.
         """
         if not self._tip_detection_enable:
             return TIP_NONE
@@ -1349,6 +1446,14 @@ class GaitNode(Node):
             self._tip_crit_fired = False
             return TIP_NONE
         if self._imu_roll is None:
+            return TIP_NONE
+        if (
+            self._leveling_enable
+            and self._leveling_startup_grace
+            and self._engine.state == GaitEngine.STATE_STANDING
+            and not self._balance.converged
+        ):
+            self._tip_monitor.reset()
             return TIP_NONE
         return self._tip_monitor.update(
             self._imu_roll, self._imu_pitch, self._imu_tilt_rate,
@@ -1976,6 +2081,42 @@ class GaitNode(Node):
             self._stance_switch_step_height = value
         elif name == 'gait_pattern':
             self._load_gait_pattern(value)
+        # Block A5 Stufe 2 — Leveling-Params live (§4-Entscheidung).
+        elif name == 'leveling_enable':
+            self._leveling_enable = bool(value)
+            if not self._leveling_enable:
+                self._balance.reset()
+                self._engine.set_body_orientation_offset(0.0, 0.0)
+                self._last_leveling_t = None
+        elif name == 'leveling_startup_grace':
+            self._leveling_startup_grace = bool(value)
+        elif name == 'leveling_kp':
+            self._balance.set_gains(kp=value)
+        elif name == 'leveling_ki':
+            self._balance.set_gains(ki=value)
+        elif name == 'leveling_deadband_deg':
+            self._balance.set_gains(deadband=math.radians(value))
+        elif name == 'leveling_slew_max_dps':
+            self._balance.set_gains(slew_max=math.radians(value))
+        elif name == 'leveling_max_angle_deg':
+            self._leveling_max_angle_deg = value
+            self._balance.set_gains(max_level_angle=math.radians(value))
+            self._engine.max_level_angle = math.radians(value)
+        # Block A5 Stufe 1 — Tip-Params live (§4-Entscheidung): Monitor rebuild.
+        elif name == 'tip_detection_enable':
+            self._tip_detection_enable = bool(value)
+        elif name == 'tip_angle_warn_deg':
+            self._tip_angle_warn_deg = value
+            self._rebuild_tip_monitor()
+        elif name == 'tip_angle_crit_deg':
+            self._tip_angle_crit_deg = value
+            self._rebuild_tip_monitor()
+        elif name == 'tip_rate_crit_dps':
+            self._tip_rate_crit_dps = value
+            self._rebuild_tip_monitor()
+        elif name == 'tip_debounce_ticks':
+            self._tip_debounce_ticks = int(value)
+            self._rebuild_tip_monitor()
 
     def _restart_timer(self) -> None:
         """

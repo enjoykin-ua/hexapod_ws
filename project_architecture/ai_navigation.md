@@ -113,6 +113,38 @@
   `B4_show_pose_plan.md` §4a/§9 nachfahren) · **Sim** (RViz+Gazebo, [`B4_show_pose_test_commands.md`](../project_finalization/B4_show_pose_test_commands.md))
   · **HW aufgebockt → Boden** (CoG-kritisch, nur 4 Stützbeine!).
 
+### IMU-Balance / Leveling / Kipp-Erkennung (A5) ändern
+- **Voll-Doku:** [`../project_finalization/imu_balance/`](../project_finalization/imu_balance/00_imu_balance_plan.md)
+  (Master-Plan + Stufen-Pläne + `imu_balance_progress.md` Done-Vertrag + Self-Reviews).
+- **Stand:** Stufe 0 (IMU-Plumbing/Viz) + 1 (Kipp-Erkennung→Safe-State) + 2 (statisches
+  Leveling) 🟢 Sim. Stufe 3 (Leveling im Laufen + Hang-Params) ⚪ offen.
+- **Wo (3 Schichten, je Fähigkeit):**
+  - **Regler (ROS-frei):** `tip_monitor.py` (`TipMonitor` — Schwellen/Entprellung/Latch,
+    Stufe 1) · `balance_controller.py` (`BalanceController` — Totband-PI+Slew+Anti-Windup,
+    Stufe 2). Beide unit-testbar wie `hexapod_kinematics`.
+  - **Stellpfad (Engine):** `gait_engine.py` — `set_body_orientation_offset` +
+    `_compute_leveled_ik`/`_leveled_ik_at` (R(roll,pitch)-Rotation aller Fuß-Targets via
+    `rotate_xy`, **nur STANDING-Pfad**, Clamp `max_level_angle` VOR IK + IKError-Fallback).
+  - **ROS-Glue (Node):** `gait_node.py` — `/imu/data`-Sub (Sensor-QoS), `_update_tip`
+    (+Startup-Grace), `_update_leveling`, `_rebuild_tip_monitor`, alle `tip_*`/`leveling_*`-Params
+    **live** via `_on_param_change`.
+- **Verhalten tunen:** alles über **Params** (live): `leveling_kp/ki/deadband_deg/slew_max_dps/`
+  `max_level_angle_deg/enable/startup_grace`, `tip_angle_warn/crit_deg`, `tip_rate_crit_dps`,
+  `tip_debounce_ticks`. NICHTS in Engine/Regler hardcoden.
+- **Fallen:** (1) **`max_level_angle` ist offline-bewiesen** (10°, `tools/leveling_envelope_check.py`,
+  ECHTE URDF-Limits) — beim Anheben Tool neu laufen lassen (θ-Arg). (2) **gz-IMU ist
+  spawn-referenziert** → Roboter in Sim **flach spawnen** (`slope.launch.py` Default), sonst
+  maskiert ein gepitchter Spawn die Hang-Neigung (Memory `project_gz_imu_spawn_referenced`).
+  (3) **Leveling-Vorzeichen:** Fuß-Rotation = −Körper-Korrektur (sonst positive Rückkopplung);
+  Round-Trip-Test pinnt es. (4) Leveling **nur STANDING** (WALKING = Stufe 3). (5) Zwei
+  Limit-Quellen — Clamp gegen **URDF**-Limits, nicht config.py.
+- **Schräg-Welt:** `ros2 launch hexapod_bringup slope.launch.py slope_deg:=8.0` (parametrisch,
+  flach gespawnt).
+- **Validieren:** `colcon test hexapod_kinematics hexapod_gait` (`test_balance_controller`,
+  `test_gait_engine_leveling`, `test_leveling_node`, `test_rotate_xy`, `test_tip_monitor`) + Lint ·
+  **Offline** `python3 tools/leveling_envelope_check.py` · **Sim**
+  ([`stage_2_static_leveling_test_commands.md`](../project_finalization/imu_balance/stage_2_static_leveling_test_commands.md)).
+
 ### Neuer Knoten / Topic
 - **Wo:** Bringup-Launch (`hexapod_bringup`), ggf. eigenes Paket. Topic-Konventionen aus
   `architecture.md` §4 einhalten.
@@ -132,6 +164,7 @@
 | Joint-Limits (URDF) | `hexapod_description/urdf/hexapod.urdf.xacro` (+ `ros2_control.xacro`, `physical_properties.xacro`) |
 | Puls-Cal je Servo | `hexapod_hardware/config/servo_mapping.yaml` |
 | Gait-Logik / State-Machine | `hexapod_gait/hexapod_gait/gait_engine.py`, `gait_node.py` |
+| IMU-Balance / Leveling / Kipp-Erkennung (A5) | `hexapod_gait/{tip_monitor,balance_controller}.py`, `gait_engine._compute_leveled_ik`, `gait_node._update_{tip,leveling}`; `project_finalization/imu_balance/` |
 | Gangmuster | `hexapod_gait/hexapod_gait/gait_patterns.py` |
 | Lauf-Presets | `hexapod_gait/config/presets/*.yaml` |
 | Controller-Config | `hexapod_control/config/controllers{,.real}.yaml` |

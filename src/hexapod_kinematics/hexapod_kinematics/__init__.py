@@ -4,6 +4,7 @@ from hexapod_kinematics.config import HEXAPOD, HexapodConfig, LegConfig
 from hexapod_kinematics.geometry import (
     base_to_leg_frame,
     leg_to_base_frame,
+    rotate_xy,
     rotate_z,
 )
 from hexapod_kinematics.leg_ik import IKError, JointLimits, leg_fk, leg_ik
@@ -18,5 +19,6 @@ __all__ = [
     'leg_fk',
     'leg_ik',
     'leg_to_base_frame',
+    'rotate_xy',
     'rotate_z',
 ]

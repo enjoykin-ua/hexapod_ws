@@ -43,6 +43,7 @@ from launch.substitutions import (
     Command,
     LaunchConfiguration,
     PathJoinSubstitution,
+    PythonExpression,
 )
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -92,6 +93,23 @@ def generate_launch_description() -> LaunchDescription:
             'Phase 13 Stage 0.5: niedrig (5 cm) gewaehlt, damit der Bauch '
             'in der power_on_mid-Startpose nahe am Boden zur Ruhe kommt und '
             'das "Aufstehen vom Bauch" sichtbar ist. Live justierbar (7.2).'
+        ),
+    )
+    declare_spawn_roll_deg = DeclareLaunchArgument(
+        'spawn_roll_deg',
+        default_value='0.0',
+        description=(
+            'Block A5 Stufe 2: Spawn-Orientierung Roll (Grad). Default 0 = '
+            'flach (unverändert). Auf Schräg-Welten = Hangwinkel, damit der '
+            'Body bei Kontakt parallel zur geneigten Fläche steht.'
+        ),
+    )
+    declare_spawn_pitch_deg = DeclareLaunchArgument(
+        'spawn_pitch_deg',
+        default_value='0.0',
+        description=(
+            'Block A5 Stufe 2: Spawn-Orientierung Pitch (Grad). Default 0 = '
+            'flach (unverändert). Auf slope.sdf = slope_deg (Box um +Y geneigt).'
         ),
     )
     declare_enable_foot_contact = DeclareLaunchArgument(
@@ -164,6 +182,14 @@ def generate_launch_description() -> LaunchDescription:
             '-topic', '/robot_description',
             '-name', 'hexapod',
             '-z', LaunchConfiguration('spawn_z'),
+            # Block A5 Stufe 2: Spawn-Orientierung (Grad → rad). Default 0/0 =
+            # unverändertes flaches Spawnen; auf Schräg-Welten = Hangwinkel.
+            '-R', PythonExpression([
+                LaunchConfiguration('spawn_roll_deg'), ' * 0.017453292519943295',
+            ]),
+            '-P', PythonExpression([
+                LaunchConfiguration('spawn_pitch_deg'), ' * 0.017453292519943295',
+            ]),
         ],
     )
 
@@ -289,6 +315,8 @@ def generate_launch_description() -> LaunchDescription:
         declare_urdf,
         declare_world,
         declare_spawn_z,
+        declare_spawn_roll_deg,
+        declare_spawn_pitch_deg,
         declare_enable_foot_contact,
         declare_enable_imu,
         set_gz_resource_path,

@@ -13,7 +13,16 @@
 
 - **Fertig (Sim verifiziert):** Stufe 0 (IMU-Plumbing/Viz) 🟢 · Stufe 1 (Kipp-
   Erkennung → Safe-State) 🟢. Branch `imu_balance` (**User committet selbst**).
-- **Vorausgeplant (⚪ offen):** Stufe 2/3/4 — Pläne geschrieben, Code je nach Freigabe.
+- **Stufe 2 (statisches Leveling): 🟢 fertig (Sim verifiziert).** 2.1–2.10 ✅
+  (615 Tests, 0 Fehler; max_level_angle=10° offline bestätigt; Live: pitch 8°→1.5°
+  Totband, korrekte Richtung, kein Freeze). **Self-Review fand + behob einen
+  Vorzeichen-Bug** im Stellpfad; Live-Diagnose deckte die **spawn-referenzierte
+  gz-IMU** auf (→ flach spawnen, Memory). **User committet selbst.**
+- **➡️ NÄCHSTER SCHRITT:** **Stufe 3** (Leveling im Laufen + Hang-Params),
+  [stage_3_walking_slope_plan.md](stage_3_walking_slope_plan.md) — §4-Plan-Review
+  (A/B-Entscheidung mit Daten) zuerst.
+- **Vorausgeplant (⚪ offen):** Stufe 3/4 — Pläne geschrieben (+ Stufe-2-Review-
+  Verfeinerungen), Code je nach Freigabe.
 - **➡️ NÄCHSTER SCHRITT:** **Stufe 2 (statisches Leveling)**,
   [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md). **§4-Plan-Review
   erledigt** — Entscheidungen stehen in §4/§5: Clamp = fester max 10° + IKError-Fallback ·
@@ -22,8 +31,9 @@
   **User liest den Plan → dann Code (2.1–2.10).** Test-Markdown erst am Ende der Stufe.
 - **Arbeitsweise:** CLAUDE.md §4 (Plan → Freigabe → Code → Test → Self-Review),
   §5 (**Agent macht NIE git**). Stufen-Pläne haben `[ ]`-Template; **abgehakt wird hier**.
-- **Doku-Querverweise noch offen (Master §7):** `architecture.md` (`/imu/data` von
-  „geplant" auf real) · `ai_navigation.md` (Eintrag „ich ändere Balance/IMU → …").
+- **Doku-Querverweise (Master §7) ✅ nachgezogen:** `architecture.md` (`/imu/data`
+  real → gait_node, hexapod_sensors-IMU, slope-Welt, geometry.rotate_xy) ·
+  `ai_navigation.md` (Eintrag „IMU-Balance/Leveling/Kipp ändern" + §3-Tabelle).
 
 ---
 
@@ -100,7 +110,47 @@ Plan: [`stage_1_tip_detection_plan.md`](stage_1_tip_detection_plan.md)
 
 ---
 
-## Stufen 2–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
+## Stufe 2 — Statisches Körper-Leveling  🟢 fertig (Sim verifiziert)
+
+Plan: [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md)
+
+```
+- [x] 2.1 Parametrische slope.sdf.xacro (geneigte Box, Winkel via xacro-Arg, gz-sim-imu-system) + slope.launch.py (expandiert Welt, spawnt um Hangwinkel gepitcht) + sim.launch.py spawn_roll/pitch_deg-Args  [xacro expandiert, `gz sdf --check`=Valid, beide Launches konstruieren; Hinweis: Body-pitched-Spawn + Auto-Standup (kein echter pre-stood-Spawn) → Live-Check 2.7]
+- [x] 2.2 BalanceController (ROS-frei): Totband-PI + Slew + Anti-Windup + max-Clamp + Unit-Tests  [11 Unit-Tests grün, inkl. Closed-Loop-Konvergenz]
+- [x] 2.3 geometry.rotate_xy-Helfer + gait_engine: set_body_orientation_offset + R-Rotation in compute_joint_angles (STANDING) + Clamp VOR IK (URDF-Limits) + IKError-Fallback (skalieren statt freezen)  [15 Tests grün: rotate_xy + Round-Trip + Clamp + Fallback-Degradation + STANDING-Gating]
+- [x] 2.4 gait_node: BalanceController-Wiring (STANDING-Gating) + Params + Live-Tuning via _on_param_change (Leveling- UND Stufe-1-Tip-Params) + optionaler Startup-Grace-Gate  [9 Node-Tests grün; rclpy-Smoke ok]
+- [x] 2.5 Offline-Envelope/CoG-Check (tools/leveling_envelope_check.py, θ als Arg, ECHTE URDF-Limits) für θ∈{5,8,10,12,15°} × Stance × {roll,pitch,combined}; CoG via compute_load  [10° in ALLEN Modi in-limit + CoG-stabil (Marge ~180–200mm); ab 12° combined/tief→LIM, ab 15° überall combined→LIM ⇒ max_level_angle=10° bestätigt; 5 Tool-Tests grün]
+- [x] 2.6 Fuß-Scrub bewertet  [bei 10° voll: 15–21mm (roll/pitch), 24–33mm (combined, hoch); bei 5° 10–14mm. Über Slew 8°/s ~1.25s verteilt → ~0.4mm/Tick. v1 AKZEPTIERT; Reposition-Trigger vorgemerkt falls 2.7 Schlupf zeigt]
+- [x] 2.7 Sim-Verify auf milder Schräge (8°) **live bestätigt:** flach gespawnt → IMU pitch 8° (Ground-Truth bestätigt); Leveling AN → pitch 8°→1.5° (= Totband), **Richtung korrekt** (Vorzeichen-Fix verifiziert), glatt, kein Freeze. Doku: [stage_2_static_leveling_test_commands.md](stage_2_static_leveling_test_commands.md)
+- [x] 2.8 README/Konzept-Update (Leveling, Stellpfad, Clamp+Fallback, parametrische Welt, Params, Tool)  [hexapod_gait/README.md]
+- [x] 2.9 colcon test + Lint grün  [615 Tests, 0 Fehler/Failures, 53 skipped; +35 ggü. Stufe 1; flake8/pep257 grün]
+- [x] 2.10 kritische Self-Review-Tabelle  [unten]
+```
+
+### Stufe-2-Post-Review
+
+| Punkt | Status |
+|---|---|
+| BalanceController (Totband-PI/Slew/Anti-Windup/Clamp) | OK (11 Unit-Tests inkl. Closed-Loop-Konvergenz) |
+| Engine-Stellpfad Round-Trip (rotate_xy + Frames + IK/FK) | OK (FK reproduziert rotierte Targets, abs 1e-6) |
+| Clamp VOR IK auf max_level_angle | OK (white-box-Test: 30°-Offset → 10° angewandt) |
+| IKError-Fallback (skalieren statt freezen) | OK (60°-Offset degradiert, kein Raise; echte Bad-Pose raised) |
+| max_level_angle=10° envelope-sicher (URDF-Limits) | OK (Tool: alle Stance×{roll,pitch,combined} in-limit+CoG-stabil; ab 12° combined LIM) |
+| Nur-STANDING-Gating | OK (WALKING ignoriert Offset, Test) |
+| Live-Tuning Leveling+Tip | OK (Node-Tests + rclpy-Smoke; Monitor-Rebuild) |
+| Startup-Grace unterdrückt Tip bei Konvergenz | OK (Node-Test) |
+| **Leveling-RICHTUNG (levelt vs. anti-levelt)** | ✅ **Bug im Self-Review gefunden + behoben + live bestätigt:** Engine wandte `R(+corr)` an → positive Rückkopplung. Fix: Füße um `−corr`. **Live (T2.2): pitch 8°→1.5°, korrekte Richtung.** Regressionsgesichert (Round-Trip-Test `-roll,-pitch`; Tool ±-Vorzeichen) |
+| **Spawn-Pose / gz-IMU-Referenz** | ✅ **Live-Befund (T2.0/T2.1):** gz-IMU ist **spawn-referenziert** → gepitchter Spawn maskierte die Neigung (las 0° statt 8°). Fix: `slope.launch.py` spawnt jetzt **flach** → IMU liest echten Hang (8° verifiziert, Ground-Truth bestätigt). Memory `project_gz_imu_spawn_referenced` |
+| Inter-Bein-Selbstkollision (A4) bei Leveling | 🟡 vormerken: compute_load prüft CoG/Polygon, NICHT Inter-Bein-Kollision; bei ≤10° auf Stand-Pose (~25mm Scrub) gering — visuell in T2.2 prüfen |
+| Auto-Standup statt pre-stood-Spawn auf Schräge | 🟡 live (T2.1): mild tragfähig; bei Haken slope_deg senken; pre-stood = Stufe 3 |
+| Fuß-Scrub bei 10° (15–33mm, ~0.4mm/Tick) | OK (akzeptiert v1; Reposition vorgemerkt falls T2.2 Schlupf) |
+| dt aus monotonic (nicht /clock) in Leveling | 🟢 später (konsistent mit bestehendem wall-clock-Tick; RTF=1 unkritisch) |
+| Tip-Live-Tuning löscht CRIT-Latch (Rebuild) | 🟡 minor: nur beim aktiven Tunen relevant, akzeptabel |
+| CoG-Check flat-leveled-Annahme | 🟢 später (gültig für gelevelte Pose = Body horizontal) |
+
+---
+
+## Stufen 3–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +
 Test-Markdown pro Stufe nach Freigabe:

@@ -9,12 +9,12 @@
 |---|---|---|
 | `hexapod_description` | xacro/URDF | Roboter-Modell, Meshes, Joint-Limits, ros2_control-Tags, `display.launch.py`. |
 | `hexapod_control` | yaml | Controller-Configs: `controllers.yaml` (Sim), `controllers.real.yaml` (HW). |
-| `hexapod_kinematics` | Python | IK/FK (`leg_ik`, `leg_fk`), Geometrie + Limits (`config.py`), `JointLimits`, `HEXAPOD`. |
-| `hexapod_gait` | Python | `gait_node` (Knoten), `gait_engine` (State-Machine), `gait_patterns`, `trajectory_gen`, `reachability_viz`; `gait.launch.py`, `stand.launch.py`, `reachability_viz.launch.py`; `config/presets/`. |
+| `hexapod_kinematics` | Python | IK/FK (`leg_ik`, `leg_fk`), Geometrie (`geometry.py`: `rotate_z`, `rotate_xy`, base↔leg-Frame) + Limits (`config.py`), `JointLimits`, `HEXAPOD`. |
+| `hexapod_gait` | Python | `gait_node` (Knoten), `gait_engine` (State-Machine + Body-Leveling-Stellpfad), `gait_patterns`, `trajectory_gen`, `tip_monitor` (A5 Stufe 1), `balance_controller` (A5 Stufe 2), `reachability_viz`; `gait.launch.py`, `stand.launch.py`; `config/presets/`. |
 | `hexapod_teleop` | Python | `joy_to_twist` (Joy→cmd_vel/cmd_body_height), `config/ps4_usb.yaml`, `joy_teleop.launch.py`. |
 | `hexapod_hardware` | C++ | `ros2_control`-SystemInterface-Plugin ↔ Servo2040; `calibration.cpp` (rad↔pulse); `config/servo_mapping.yaml` (Puls-Cal je Pin). |
-| `hexapod_sensors` | (Python/URDF) | IMU / Foot-Contact (geplant/teilweise; **Inhalt vor Nutzung verifizieren**). Topic-Konvention IMU: `/imu/data`. |
-| `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `sim.launch.py` (Gazebo-Seite). |
+| `hexapod_sensors` | Python/URDF | **IMU real** (A5 Stufe 0): `imu_monitor` (`/imu/data`→roll/pitch, `/imu/monitor`, world→base_link-tf); Foot-Contact-Publisher. IMU-xacro in `hexapod_description` (`hexapod.imu.xacro`). |
+| `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `worlds/empty_imu.sdf` (+ `slope.sdf.xacro`, A5 Stufe 2), `sim.launch.py` (Gazebo-Seite). |
 | `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). |
 
 ## 2. Node-Graph
@@ -45,7 +45,7 @@
 | `/joy` | Joy | joy_node → joy_to_twist | Achsen/Buttons |
 | `/robot_description` | String | rsp/launch | URDF-XML (Limit-Quelle fürs Plugin + gait) |
 | `/hexapod_safety_freeze` | Trigger (srv) | gait_node → hardware | Hard-Stop-Anforderung |
-| `/imu/data` | Imu | (geplant) sensors → balance | Orientierung/Beschl. |
+| `/imu/data` | Imu | sensors/sim → gait_node | Orientierung/Gyro → Kipp-Erkennung (A5 St.1) + Body-Leveling (A5 St.2, `leveling_enable`, nur STANDING). Sensor-QoS best_effort. ⚠️ gz-IMU **spawn-referenziert** → Sim flach spawnen |
 
 ## 5. Hardware-Kette (HW-Pfad)
 ```

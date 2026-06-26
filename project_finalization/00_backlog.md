@@ -25,7 +25,7 @@
 | A2 | **Pose-Optimierung gegen Hitze** | ⏸️ | Mit A1 die last-minimale/-gleichmäßige Pose festziehen. Pausiert (keine Extrempunkte gesehen). |
 | A3 | **Tibia-Längen-/Geometrie-Studie** | ⏸️ | Nur falls Hitze später doch kritisch (HW-TABU, erst A1-Modell rechnen). |
 | A4 | **Selbst-Kollisions-Check (Weg B)** | ⏸️ | Bewusst OHNE (Weg A, Tibia hart freigeschaltet). Nachrüsten bei Balance/Terrain/Body-Pose. Plan: `docs_raspi/phase_13_stage_1_collision_check_plan.md`. |
-| A5 | **IMU-Integration → Balance** | 🟡 | **Aktiv** → [`imu_balance/`](imu_balance/00_imu_balance_plan.md); Stufe 0 (Plumbing+Viz) Sim-fertig. Eigenes Sensor-Plugin, `/imu/data`; Körper-Leveling, Kipp-Erkennung; Vorstufe Terrain. **Auch der echte Fix für das dynamische Körper-Wackeln von Tetrapod/Ripple (B3)** — aktive Lage-Regelung macht die asymmetrisch stützenden Gangarten ruhig. |
+| A5 | **IMU-Integration → Balance** | 🟡 | **Aktiv** (Branch `imu_balance`) → [`imu_balance/`](imu_balance/00_imu_balance_plan.md). **Stufe 0** (Plumbing+Viz) · **1** (Kipp-Erkennung→Safe-State) · **2** (statisches Körper-Leveling) 🟢 **Sim-fertig**; **Stufe 3** (Leveling im Laufen + Hang-Params, A/B-Entscheidung) ⚪ offen. `/imu/data`, `BalanceController`+`TipMonitor` (ROS-frei), Rotations-Stellpfad in der Engine. **Auch der echte Fix für das dynamische Körper-Wackeln von Tetrapod/Ripple (B3)** — aktive Lage-Regelung macht die asymmetrisch stützenden Gangarten ruhig (Stufe 3). |
 
 ## Block B — Lokomotion-Kern  ⬅ ALS NÄCHSTES
 | # | Stage | Status | Notiz |
