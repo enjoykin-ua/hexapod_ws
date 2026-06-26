@@ -18,9 +18,13 @@
   Totband, korrekte Richtung, kein Freeze). **Self-Review fand + behob einen
   Vorzeichen-Bug** im Stellpfad; Live-Diagnose deckte die **spawn-referenzierte
   gz-IMU** auf (→ flach spawnen, Memory). **User committet selbst.**
-- **➡️ NÄCHSTER SCHRITT:** **Stufe 3** (Leveling im Laufen + Hang-Params),
-  [stage_3_walking_slope_plan.md](stage_3_walking_slope_plan.md) — §4-Plan-Review
-  (A/B-Entscheidung mit Daten) zuerst.
+- **Stufe 3 zerlegt in 3a→3b→3c→3d** ([stage_3_walking_slope_plan.md](stage_3_walking_slope_plan.md) §0.5).
+  **3a (Leveling im WALKING): 🟢 fertig (Sim verifiziert).** 620 Tests; Gating
+  WALKING+STOPPING, state-abh. Clamp 10°/4°, Ramp-Welt; Live: Leveling wirkt (klein
+  ~4°), Ramp-Geometrie-Bug gefixt, Kletter-Deckel ~12° (fixe Params) = 3c-Input.
+  **User committet selbst.**
+- **➡️ NÄCHSTER SCHRITT:** **3b** (Wackel-Dämpfung, Gyro-D-Term im BalanceController,
+  B3-Fix) ODER **3c** (Hang-Param-Adaption fürs Klettern) — User-Wahl; je §4-Plan-Review.
 - **Vorausgeplant (⚪ offen):** Stufe 3/4 — Pläne geschrieben (+ Stufe-2-Review-
   Verfeinerungen), Code je nach Freigabe.
 - **➡️ NÄCHSTER SCHRITT:** **Stufe 2 (statisches Leveling)**,
@@ -150,7 +154,48 @@ Plan: [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md)
 
 ---
 
-## Stufen 3–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
+## Stufe 3a — Leveling im WALKING  🟢 fertig (Sim verifiziert)
+
+Plan: [`stage_3a_leveling_walking_plan.md`](stage_3a_leveling_walking_plan.md)
+
+```
+- [x] 3a.1 Stellpfad-Gating Engine+Node auf WALKING (+STOPPING) + state-abh. Clamp (STANDING 10° / WALKING 4°)  [py-compile + Smoke]
+- [x] 3a.2 Offline-Walking-Hüllen-Check vs θ (leveling_envelope_check --walking, Fallback-frei) → Walking-Hülle: Pitch/Roll ~4°, combined ~2° (Swing-Apex bindet)
+- [x] 3a.3 Ramp-Welt ramp.sdf.xacro (flach→Hang→Plateau, Winkel via Arg) + ramp.launch.py + sim.launch.py spawn_x  [xacro+gz sdf valid, Launches konstruieren]
+- [x] 3a.4 Unit/Engine-Tests (Leveling WALKING+STOPPING, Walking-Clamp 4° vs STANDING 10°, Round-Trip) + Node-Tests + Tool-Tests  [620 colcon + 7 Tool grün]
+- [x] 3a.5 Sim-Verify **live bestätigt:** Rampe (8°-Welt sauber, kein Absatz, kurzer Anlauf) hochgelaufen; Leveling AN → Körper-Neigung sichtbar (klein, ~Walking-Clamp 4°) kleiner als AUS, kein Freeze. Ramp-Geometrie-Fix (Absatz→0mm) + spawn_x=−0.7 + gait `leveling_enable`-Launch-Arg. **Kletter-Deckel ~12° (fixe Params) = 3c-Input**
+- [x] 3a.6 README/Konzept-Update (Gating WALKING, state-abh. Clamp, Walking-Hülle, Ramp-Welt)  [hexapod_gait/README.md]
+- [x] 3a.7 colcon test + Lint grün  [620 Tests, 0 Fehler; +7 Tool-Tests; ramp/sim-Launch konstruieren]
+- [x] 3a.8 kritische Self-Review-Tabelle  [unten]
+```
+
+> **Befund 3a:** uniformes Walking-Leveling cappt bei **~4° (Pitch/Roll), ~2° (combined)** —
+> der gelevelte Swing-Apex bindet (nicht step_height senken → Schürf-Gefahr; mehr Range =
+> 3c hang-bewusste Schwunghöhe). State-abh. Clamp: STANDING 10° (kein Regress), WALKING 4°.
+
+### Stufe-3a-Post-Review
+
+| Punkt | Status |
+|---|---|
+| Gating Engine+Node auf WALKING+STOPPING | OK (test_walking_applies_leveling, test_stopping_applies_leveling) |
+| State-abhängiger Clamp (STANDING 10° / WALKING 4°) | OK (test_walking/standing_uses_*_clamp) |
+| Walking-Hülle offline gemessen (~4°/2°) | OK (Tool --walking + 2 Tool-Tests) |
+| Vorzeichen im Walking (FK-Round-Trip) | OK (Round-Trip-Test, aus Stufe 2 getragen) |
+| **Controller-Clamp-Sprung beim State-Wechsel** | ✅ **Self-Review-Fund + Fix:** Engine-Clamp sprang 4°→10° beim Anhalten am Hang (Ruck). Fix: Controller-Clamp state-abhängig mitführen → dessen Slew glättet WALKING↔STANDING. Engine-Clamps = Backstop |
+| Swing-Apex bindet → kleiner Walking-Clamp | 🟡 ~4° ist klein; echte Hang-Range = 3c (hang-bewusste Schwunghöhe, NICHT step_height senken) |
+| **Tip-Interaktion auf Steilrampe** | 🟡 erwartet: ab ~18° Rampe übersteigt Rest-Neigung (Hang−4°) `tip_angle_warn` → Stopp. Steil-Test: tip-Schwelle live hoch; echter Fix (residual-tip) = 3c |
+| Ramp-Welt Übergang flach→Rampe | 🟡 live (T3a.1): evtl. kleiner Lip am Knick (x=0) — Roboter sollte drüberlaufen |
+| Fuß-Scrub im Walking | 🟢 selbst-begrenzend (Füße replanten je Schritt); live T3a.2 sichten |
+| Climbing-Ceiling | 🟢 später: Sim CoG/µ (~50°), HW = Servo-Torque (Block A) — separat messen |
+| use_sim_time / dt aus monotonic | 🟢 später (wie Stufe 2, wall-clock-Tick) |
+| **Leveling im Lauf wirkt (Live)** | ✅ verifiziert: Körper-Neigung mit Leveling sichtbar kleiner (klein ~4°-Clamp, erwartet) |
+| **Ramp-Geometrie-Bug (Live-Fund)** | ✅ Plateau lag tiefer (Box-Überschuss) → fixed (Oberkante exakt am Plateau, 0mm Absatz, alle Winkel); spawn_x −0.7 (war zu weit) |
+| **Kletter-Stall >12° (fixe Params, Live)** | 🟡 → **3c**: Vortrieb/CoG am Steilhang (nicht Reibung — Fuß µ=1.0); Fußschalter = Stufe-4-Terrain, kein Smooth-Slope-Vortrieb; HW-Ceiling = Servo-Torque |
+| ros2-param-set „Node not found" (Live) | ✅ stale Daemon; `leveling_enable` als gait.launch-Arg ergänzt (umgeht es) |
+
+---
+
+## Stufen 3b–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +
 Test-Markdown pro Stufe nach Freigabe:

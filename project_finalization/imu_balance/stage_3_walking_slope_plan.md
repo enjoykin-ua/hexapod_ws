@@ -31,6 +31,34 @@
   Schrittweite am Hang live anpassen" = (1), **nicht** (2) → glatte Hänge brauchen
   kein Weg B.
 
+## 0.5 Sub-Stufen-Zuschnitt (§4-Plan-Review)
+
+Stufe 3 ist zu groß für einen §4-Block → **in Sub-Stufen geschnitten**, jede mit
+eigenem §4-Review → Freigabe → Code → Test → Self-Review (wie Stufe 2):
+
+| Sub | Inhalt | eigener Plan |
+|---|---|---|
+| **3a** | Leveling im WALKING (Stellpfad-Gating → WALKING + Fuß-Scrub) | [`stage_3a_leveling_walking_plan.md`](stage_3a_leveling_walking_plan.md) |
+| **3b** | Wackel-Dämpfung (Gyro-D-Term im BalanceController, B3-Fix) | (folgt) |
+| **3c** | θ→Parameter-Familie + Auto-Gait-Switch + flüssige In-Lauf-Höhe; **A/B-Entscheidung** | (folgt) |
+| **3d** | Slip-Erkennung + Robustheit | (folgt) |
+
+**Reihenfolge: 3a → 3b → 3c → 3d.** Begründung (Plan-Review): 3a/3b halten die Params
+**fix** und legen nur Leveling/Dämpfung obendrauf → konsumieren die θ→Param-Familie (3c)
+**nicht** → 3c-Vorziehen bringt 3a/3b keinen Mehrwert. 3a-Risiko (IKError-Freeze durch
+Über-Leveln) ist durch den Stufe-2-Fallback + einen kleinen Offline-Walking-Hüllen-Check
+(in 3a gezogen) gedeckt. 3a + 3b brauchen **beide** den „Gating auf WALKING"-Schritt → 3a
+zuerst, 3b reitet drauf.
+
+**Gelockte Entscheidungen (§4-Review):**
+- **Wackel-Dämpfung** = Gyro-D-Term **im `BalanceController`** (ein Modul, zwei
+  überlagerte Terme: langsamer Winkel-Loop + schneller Raten-Loop). Master D3.
+- **Setpoint** = **horizontal (α=0)** in 3a/3b; α·θ-Mitneigen-Blend erst in 3c, wenn
+  steilere Hänge/Envelope es verlangen.
+- **A/B** bleibt offen → datengetrieben in **3c** (Weg-A-Fundament zuerst, progressiv).
+- **Ramp-/Keil-Welt** (flach→Hang→flach): Roboter spawnt **flach**, läuft in den Hang
+  (reales Szenario, umgeht Standup-auf-Schräge, hält die IMU welt-referenziert).
+
 ## 1. Logik-Skizze
 
 ### A. Leveling im WALKING
@@ -75,8 +103,20 @@
 - **Traktions-/Torque-Vorbehalt (aus Stufe-2-Review):** Höhe löst Geometrie/
   Stabilität, **nicht „Klettern" allein** — Hochkommen braucht zusätzlich Traktion
   (µ) + Torque-Reserve (Block-A-Torque-Tool). Sonst Slip/Stall trotz richtiger Höhe.
+- **Schürf-/Clearance-Vorbehalt (aus 3a, User-Hinweis):** mehr Walking-Leveling-Range
+  NICHT durch blindes Senken von `step_height` holen — am Hang kratzt der Swing-Fuß
+  dann (bergauf steigt der Boden zum Fuß hin an; aktuelle Höhe ist auf HW „grad so
+  genug"). 3c braucht **hang-bewusste Schwunghöhe** (bergauf MEHR anheben, asymmetrisch)
+  statt kleinerer Schritte. Das ist auch der Grund, warum 3a den gelevelten Swing-Apex
+  als Engpass hat (Walking-Clamp ~4°).
 - **Auto-Gangart-Switch:** moderater Hang → Tripod; steiler → Wave (statisch
   stabiler, 5 Füße unten). Reuse B3 `gait_pattern`.
+- **Kletter-Stall-Befund (aus 3a-Sim, fixe Params):** mit fixen Walk-Params bleibt der
+  Roboter ab **~12°** stecken (Vortrieb/CoG, NICHT Reibung — Fuß µ=1.0). Genau das soll
+  3c lösen: Körper tiefer + Schritt/Stance hang-adaptiv (+ ggf. Wave). **Fußschalter
+  helfen hier NICHT** (Traktion/Vortrieb unverändert) — die sind Stufe-4-Terrain
+  (Kontakt/Schlupf erkennen). **Echter Kletter-Ceiling auf HW = Servo-Torque** (Block-A-
+  Torque-Tool messen), nicht Sim-Reibung (~50°).
 
 ### D. Slip-Erkennung (User-Idee)
 - Leveling-Integrator läuft (korrigiert), Kippung bessert sich aber nicht →

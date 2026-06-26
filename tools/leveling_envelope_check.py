@@ -48,6 +48,8 @@ _TOOL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_TOOL_DIR))
 import walking_envelope_check as wec  # noqa: E402
 
+from hexapod_gait.gait_engine import GaitEngine  # noqa: E402
+from hexapod_gait.gait_patterns import GAIT_PRESETS  # noqa: E402
 from hexapod_gait.joint_load import compute_load  # noqa: E402
 from hexapod_gait.trajectory_gen import stand_pose  # noqa: E402
 from hexapod_kinematics import (  # noqa: E402
@@ -132,6 +134,51 @@ def evaluate(
     }
 
 
+def evaluate_walking(
+    theta_deg: float,
+    roll_f: float,
+    pitch_f: float,
+    body_height: float,
+    limits: dict[str, JointLimits],
+    radial: float = _RADIAL,
+    step: float = 0.05,
+    n_samples: int = 48,
+    walk: tuple = (0.05, 0.0, 0.0),
+) -> dict:
+    """
+    Gelevelter Tripod-Walking-Cycle bei θ — schlimmste Phase über die IK.
+
+    Baut eine GaitEngine, schaltet sie per cmd_vel in WALKING, setzt den
+    Leveling-Offset und tastet einen ganzen Cycle ab. Wirft eine Phase IKError
+    (out-of-limit/reach), ist das ``in_limit=False``. (CoG wird hier NICHT
+    geprüft — die laufende Stütz-Konfiguration ist dynamisch; CoG-Screen läuft
+    statisch via ``evaluate`` + in Gazebo. Hier zählt die Joint-Hülle.)
+    """
+    eng = GaitEngine(
+        pattern=GAIT_PRESETS['tripod'], step_height=0.04, cycle_time=2.0,
+        radial_distance=radial, body_height=body_height,
+        step_length_max=step, joint_limits=limits,
+    )
+    eng.set_command(walk[0], walk[1], walk[2], 0.0)  # → WALKING
+    # Foot-Rotation direkt anwenden (wie static evaluate) — NICHT über
+    # compute_joint_angles, dessen IKError-Fallback eine Limit-Verletzung
+    # maskieren würde. Hier soll die rohe Hülle gemessen werden.
+    cr = math.radians(theta_deg) * roll_f
+    cp = math.radians(theta_deg) * pitch_f
+    for k in range(n_samples):
+        t = 2.0 * k / n_samples
+        targets = eng.compute_foot_targets(t)  # rohe Foot-Targets (Bein-Frame)
+        for leg in HEXAPOD.legs:
+            base_pt = leg_to_base_frame(targets[leg.name], leg)
+            rot = rotate_xy(base_pt, cr, cp)
+            leg_pt = base_to_leg_frame(rot, leg)
+            try:
+                leg_ik(*leg_pt, leg, limits[leg.name])
+            except IKError:
+                return {'in_limit': False, 'ok': False}
+    return {'in_limit': True, 'ok': True}
+
+
 def max_safe_theta(
     limits: dict[str, JointLimits],
     theta_candidates,
@@ -162,12 +209,31 @@ def _fmt_margin(m) -> str:
     return '   n/a' if m is None else f'{m * 1000.0:6.1f}'
 
 
+def max_safe_theta_walking(
+    limits: dict[str, JointLimits], theta_candidates, radial: float = _RADIAL,
+) -> float:
+    """Größter θ-Kandidat, bei dem ALLE Stance×Orientierungs-Modi im Walking-Cycle in-limit sind."""
+    best = 0.0
+    for theta in sorted(theta_candidates):
+        ok = all(
+            evaluate_walking(theta, rf, pf, bh, limits, radial)['in_limit']
+            for _, bh in _STANCE_MODES
+            for _, rf, pf in _ORIENT_MODES
+        )
+        if ok:
+            best = theta
+        else:
+            break
+    return best
+
+
 def run_report(
-    theta_list, limits, radial=_RADIAL, min_margin_m=0.005,
+    theta_list, limits, radial=_RADIAL, min_margin_m=0.005, walking=False,
 ) -> None:
-    """Tabelle θ × Stance × Orientierung ausgeben."""
+    """Tabelle θ × Stance × Orientierung ausgeben (statisch oder Walking-Cycle)."""
+    mode = 'WALKING-Cycle' if walking else 'statisch'
     print(
-        f'Leveling-Envelope-Check  (radial={radial:.3f} m, '
+        f'Leveling-Envelope-Check ({mode})  (radial={radial:.3f} m, '
         f'min_margin={min_margin_m * 1000:.1f} mm, URDF-Limits)\n'
     )
     header = f'{"θ°":>4} {"stance":>7} {"orient":>9} {"in-lim":>7} {"margin/mm":>10} {"OK":>4}'
@@ -176,7 +242,11 @@ def run_report(
     for theta in theta_list:
         for sname, bh in _STANCE_MODES:
             for oname, rf, pf in _ORIENT_MODES:
-                r = evaluate(theta, rf, pf, bh, limits, radial, min_margin_m)
+                if walking:
+                    w = evaluate_walking(theta, rf, pf, bh, limits, radial)
+                    r = {'in_limit': w['in_limit'], 'margin_m': None, 'ok': w['ok']}
+                else:
+                    r = evaluate(theta, rf, pf, bh, limits, radial, min_margin_m)
                 flag = 'OK' if r['ok'] else ('LIM' if not r['in_limit'] else 'CoG')
                 print(
                     f'{theta:4.0f} {sname:>7} {oname:>9} '
@@ -210,16 +280,23 @@ def main() -> int:
         '--urdf', type=Path, default=_URDF_XACRO,
         help='Pfad zur URDF-xacro (Default: committed Stage-D-URDF).',
     )
+    parser.add_argument(
+        '--walking', action='store_true',
+        help='Stufe 3a: gelevelten Tripod-WALKING-Cycle prüfen statt statisch.',
+    )
     args = parser.parse_args()
 
     limits = wec.load_joint_limits(args.urdf)
     theta_list = [float(x) for x in args.theta_list.split(',') if x.strip()]
     min_margin_m = args.min_margin_mm / 1000.0
 
-    run_report(theta_list, limits, args.radial, min_margin_m)
+    run_report(theta_list, limits, args.radial, min_margin_m, args.walking)
 
     candidates = sorted(set(theta_list) | {args.max_level_angle})
-    best = max_safe_theta(limits, candidates, args.radial, min_margin_m)
+    if args.walking:
+        best = max_safe_theta_walking(limits, candidates, args.radial)
+    else:
+        best = max_safe_theta(limits, candidates, args.radial, min_margin_m)
     print(f'→ Max. envelope-sicherer Hangwinkel (alle Stance×Modi): {best:.0f}°')
     if best >= args.max_level_angle:
         print(

@@ -212,6 +212,18 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Block A5 Stufe 2/3a — Body-Leveling direkt beim Start aktivierbar (umgeht
+    # ros2-param-set-Daemon-Probleme). Default false (Opt-in). Live-Tuning der
+    # übrigen leveling_*-Params weiter via rqt_reconfigure / ros2 param set.
+    leveling_enable_arg = DeclareLaunchArgument(
+        'leveling_enable',
+        default_value='false',
+        description=(
+            'Body-Leveling (A5 Stufe 2/3a) beim Start aktivieren. '
+            'true = Körper hält horizontal (STANDING bis 10°, WALKING bis ~4°).'
+        ),
+    )
+
     def setup_gait_node(context, *args, **kwargs):
         """
         Build Node-Aktion mit conditional params_file-Loading.
@@ -269,6 +281,9 @@ def generate_launch_description() -> LaunchDescription:
             'use_sim_time': (
                 LaunchConfiguration('use_sim_time').perform(context).lower()
                 == 'true'),
+            'leveling_enable': (
+                LaunchConfiguration('leveling_enable').perform(context).lower()
+                == 'true'),
             'robot_description': urdf_xml,
         }
 
@@ -304,6 +319,7 @@ def generate_launch_description() -> LaunchDescription:
         body_height_min_arg,
         body_height_max_arg,
         use_sim_time_arg,
+        leveling_enable_arg,
         params_file_arg,
         robot_description_file_arg,
         OpaqueFunction(function=setup_gait_node),

@@ -62,6 +62,15 @@ from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 
+# Block A5 Stufe 2/3a — States, in denen das Body-Leveling im Node aktiv ist:
+# STANDING (Stufe 2) + WALKING/STOPPING (Leveling im Lauf, Stufe 3a).
+_LEVELING_NODE_STATES = (
+    GaitEngine.STATE_STANDING,
+    GaitEngine.STATE_WALKING,
+    GaitEngine.STATE_STOPPING,
+)
+
+
 # =====================================================================
 # Stage 0.6 — URDF Joint-Limits Parser
 # =====================================================================
@@ -872,6 +881,7 @@ class GaitNode(Node):
         self.declare_parameter('leveling_deadband_deg', 1.5)
         self.declare_parameter('leveling_slew_max_dps', 8.0)
         self.declare_parameter('leveling_max_angle_deg', 10.0)
+        self.declare_parameter('leveling_max_angle_walking_deg', 4.0)
         self.declare_parameter('leveling_startup_grace', True)
         self._leveling_enable = bool(
             self.get_parameter('leveling_enable').value
@@ -881,6 +891,9 @@ class GaitNode(Node):
         )
         self._leveling_max_angle_deg = float(
             self.get_parameter('leveling_max_angle_deg').value
+        )
+        self._leveling_max_angle_walking_deg = float(
+            self.get_parameter('leveling_max_angle_walking_deg').value
         )
         self._balance = BalanceController(
             kp=float(self.get_parameter('leveling_kp').value),
@@ -894,6 +907,9 @@ class GaitNode(Node):
             max_level_angle=math.radians(self._leveling_max_angle_deg),
         )
         self._engine.max_level_angle = math.radians(self._leveling_max_angle_deg)
+        self._engine.max_level_angle_walking = math.radians(
+            self._leveling_max_angle_walking_deg
+        )
         self._last_leveling_t: float | None = None
 
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
@@ -1389,17 +1405,18 @@ class GaitNode(Node):
 
     def _update_leveling(self) -> None:
         """
-        Block A5 Stufe 2 — Body-Leveling-Korrektur pro Tick setzen (nur STANDING).
+        Block A5 Stufe 2/3a — Body-Leveling-Korrektur pro Tick setzen.
 
-        STANDING + Leveling aktiv + IMU vorhanden: ``BalanceController.update`` →
-        ``engine.set_body_orientation_offset``. Sonst: Controller-``reset`` +
-        Offset 0/0 (kein Leveling im Lauf/Aufstehen/Show — Stufe 2). ``dt`` aus
-        ``time.monotonic`` (erster Tick dt=0 → Controller hält 0, Slew-Step 0).
+        In STANDING (Stufe 2) **und** WALKING/STOPPING (Stufe 3a) + Leveling aktiv +
+        IMU vorhanden: ``BalanceController.update`` → ``engine.set_body_orientation_offset``.
+        Sonst (Aufstehen/Show/Stance-Switch/SAT): Controller-``reset`` + Offset 0/0
+        (dort kippt der Körper gewollt). ``dt`` aus ``time.monotonic`` (erster Tick
+        dt=0 → Controller hält 0, Slew-Step 0).
         """
         if (
             not self._leveling_enable
             or self._imu_roll is None
-            or self._engine.state != GaitEngine.STATE_STANDING
+            or self._engine.state not in _LEVELING_NODE_STATES
         ):
             self._balance.reset()
             self._engine.set_body_orientation_offset(0.0, 0.0)
@@ -1411,6 +1428,17 @@ class GaitNode(Node):
             else now - self._last_leveling_t
         )
         self._last_leveling_t = now
+        # Stufe 3a — Self-Review-Fix: den state-abhängigen Clamp AUCH am Controller
+        # setzen (STANDING 10° / WALKING/STOPPING 4°), damit dessen Slew-Limit den
+        # Übergang glättet. Sonst springt der reine Engine-Clamp beim State-Wechsel
+        # (z.B. Anhalten am Hang: 4°→10° in einem Tick) → Körper-Ruck. Die
+        # Engine-Clamps bleiben als Backstop.
+        state_max = (
+            self._engine.max_level_angle
+            if self._engine.state == GaitEngine.STATE_STANDING
+            else self._engine.max_level_angle_walking
+        )
+        self._balance.set_gains(max_level_angle=state_max)
         corr = self._balance.update(self._imu_roll, self._imu_pitch, dt)
         self._engine.set_body_orientation_offset(*corr)
 
@@ -2102,6 +2130,9 @@ class GaitNode(Node):
             self._leveling_max_angle_deg = value
             self._balance.set_gains(max_level_angle=math.radians(value))
             self._engine.max_level_angle = math.radians(value)
+        elif name == 'leveling_max_angle_walking_deg':
+            self._leveling_max_angle_walking_deg = value
+            self._engine.max_level_angle_walking = math.radians(value)
         # Block A5 Stufe 1 — Tip-Params live (§4-Entscheidung): Monitor rebuild.
         elif name == 'tip_detection_enable':
             self._tip_detection_enable = bool(value)

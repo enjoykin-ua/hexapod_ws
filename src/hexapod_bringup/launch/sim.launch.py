@@ -95,6 +95,14 @@ def generate_launch_description() -> LaunchDescription:
             'das "Aufstehen vom Bauch" sichtbar ist. Live justierbar (7.2).'
         ),
     )
+    declare_spawn_x = DeclareLaunchArgument(
+        'spawn_x',
+        default_value='0.0',
+        description=(
+            'Block A5 Stufe 3a: Spawn-X (m). Default 0. Auf der Ramp-Welt negativ '
+            '(ebener Anlauf), damit der Roboter flach startet und in den Hang läuft.'
+        ),
+    )
     declare_spawn_roll_deg = DeclareLaunchArgument(
         'spawn_roll_deg',
         default_value='0.0',
@@ -181,6 +189,7 @@ def generate_launch_description() -> LaunchDescription:
         arguments=[
             '-topic', '/robot_description',
             '-name', 'hexapod',
+            '-x', LaunchConfiguration('spawn_x'),
             '-z', LaunchConfiguration('spawn_z'),
             # Block A5 Stufe 2: Spawn-Orientierung (Grad → rad). Default 0/0 =
             # unverändertes flaches Spawnen; auf Schräg-Welten = Hangwinkel.
@@ -315,6 +324,7 @@ def generate_launch_description() -> LaunchDescription:
         declare_urdf,
         declare_world,
         declare_spawn_z,
+        declare_spawn_x,
         declare_spawn_roll_deg,
         declare_spawn_pitch_deg,
         declare_enable_foot_contact,

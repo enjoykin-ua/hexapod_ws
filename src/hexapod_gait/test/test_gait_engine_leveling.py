@@ -31,13 +31,14 @@ def _urdf_limits() -> dict[str, JointLimits]:
     }
 
 
-def _engine(max_level_deg=10.0, limits=None) -> GaitEngine:
+def _engine(max_level_deg=10.0, max_level_walking_deg=4.0, limits=None) -> GaitEngine:
     eng = GaitEngine(
         pattern=_TRIPOD, step_height=0.04, cycle_time=2.0,
         radial_distance=_RADIAL, body_height=_BODY_H, step_length_max=0.03,
         joint_limits=limits if limits is not None else _urdf_limits(),
     )
     eng.max_level_angle = math.radians(max_level_deg)
+    eng.max_level_angle_walking = math.radians(max_level_walking_deg)
     return eng
 
 
@@ -125,14 +126,52 @@ def test_genuine_bad_base_pose_still_raises():
         eng.compute_joint_angles(0.0)
 
 
-def test_walking_ignores_leveling():
-    # In WALKING wird das Offset NICHT angewandt (Stufe 2 = nur STANDING).
+def test_walking_applies_leveling():
+    # Stufe 3a: in WALKING wird das Offset angewandt (nicht mehr ignoriert).
     eng = _engine()
-    eng.set_body_orientation_offset(math.radians(8.0), 0.0)
     eng.set_command(0.05, 0.0, 0.0, 0.0)  # → WALKING
     assert eng.state == GaitEngine.STATE_WALKING
+    eng.set_body_orientation_offset(math.radians(3.0), 0.0)  # < walking-Clamp 4°
     walking = eng.compute_joint_angles(0.3)
 
-    ref = _engine()  # gleiche Engine ohne Offset
+    ref = _engine()
     ref.set_command(0.05, 0.0, 0.0, 0.0)
-    assert walking == ref.compute_joint_angles(0.3)
+    assert walking != ref.compute_joint_angles(0.3)
+
+
+def test_walking_uses_walking_clamp():
+    # In WALKING gilt der engere Walking-Clamp (4°), nicht der STANDING-Clamp (10°).
+    eng = _engine(max_level_deg=10.0, max_level_walking_deg=4.0)
+    eng.set_command(0.05, 0.0, 0.0, 0.0)  # → WALKING
+    eng.set_body_orientation_offset(math.radians(8.0), 0.0)  # > 4°
+    got = eng.compute_joint_angles(0.3)
+    # Foot-Rotation = −clamp(8°, 4°) = −4° auf die Walking-Targets.
+    targets = eng.compute_foot_targets(0.3)
+    expected = eng._leveled_ik_at(targets, math.radians(-4.0), 0.0)
+    assert got == expected
+
+
+def test_standing_uses_standing_clamp():
+    # In STANDING gilt der volle Clamp (10°) — 8° wird voll angewandt.
+    eng = _engine(max_level_deg=10.0, max_level_walking_deg=4.0)
+    eng.set_body_orientation_offset(math.radians(8.0), 0.0)
+    got = eng.compute_joint_angles(0.0)
+    expected = eng._leveled_ik_at(
+        eng._compute_standing_targets(), math.radians(-8.0), 0.0,
+    )
+    assert got == expected
+
+
+def test_stopping_applies_leveling():
+    # STOPPING ist auch im Leveling-Pfad (kein Aufschnappen beim Auslaufen).
+    eng = _engine()
+    eng.set_command(0.05, 0.0, 0.0, 0.0)  # WALKING
+    eng.set_command(0.0, 0.0, 0.0, 0.5)   # → STOPPING
+    assert eng.state == GaitEngine.STATE_STOPPING
+    eng.set_body_orientation_offset(math.radians(3.0), 0.0)
+    got = eng.compute_joint_angles(0.5)
+
+    ref = _engine()
+    ref.set_command(0.05, 0.0, 0.0, 0.0)
+    ref.set_command(0.0, 0.0, 0.0, 0.5)
+    assert got != ref.compute_joint_angles(0.5)

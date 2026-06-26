@@ -62,3 +62,21 @@ def test_zero_theta_is_stable_plain_stand(limits):
     r = lec.evaluate(0.0, 1.0, 1.0, -0.080, limits)
     assert r['in_limit'] and r['ok']
     assert r['margin_m'] > 0.05  # flacher Stand: dicke CoG-Marge
+
+
+# ---------------------------------------------------------------------------
+# Walking-Hülle (Stufe 3a)
+# ---------------------------------------------------------------------------
+
+
+def test_walking_envelope_tighter_than_static(limits):
+    # Walking-Leveling cappt früher als statisch (gelevelter Swing-Apex bindet):
+    # combined 10° ist statisch in-limit, im Walking-Cycle aber NICHT mehr.
+    assert lec.evaluate(10.0, 1.0, 1.0, -0.080, limits)['in_limit']
+    assert not lec.evaluate_walking(10.0, 1.0, 1.0, -0.080, limits)['in_limit']
+    # Kleiner Winkel (3° Pitch) bleibt im Walking-Cycle in-limit.
+    assert lec.evaluate_walking(3.0, 0.0, 1.0, -0.080, limits)['in_limit']
+
+
+def test_walking_zero_theta_in_limit(limits):
+    assert lec.evaluate_walking(0.0, 1.0, 1.0, -0.080, limits)['in_limit']

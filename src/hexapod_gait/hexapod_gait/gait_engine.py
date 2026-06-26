@@ -78,6 +78,12 @@ _SHOW_FRONT_LEGS = ('leg_1', 'leg_6')
 # die Grundpose out-of-envelope → echter IKError/Freeze (NICHT durch Leveling).
 _LEVEL_FALLBACK_SCALES = (1.0, 0.5, 0.25, 0.0)
 
+# Block A5 Stufe 3a — States mit aktivem Body-Leveling: STANDING (Stufe 2) +
+# WALKING/STOPPING (Leveling im Lauf, Stufe 3a). Werte = die STATE_*-Strings der
+# GaitEngine (Modul-Konstante, damit der Bare-Name-Lookup in compute_joint_angles
+# greift). Aufsteh-/Show-/Stance-/SAT-States kippen gewollt → kein Leveling.
+_LEVELING_STATES = ('STANDING', 'WALKING', 'STOPPING')
+
 
 class GaitEngine:
     """Omnidirektionale Gait-Engine mit State-Machine (Stufe H)."""
@@ -213,7 +219,13 @@ class GaitEngine:
         # erweiterbar); vom Node aus den Params gesetzt.
         self._level_roll = 0.0
         self._level_pitch = 0.0
+        # State-abhängiger Clamp (Stufe 3a): STANDING nutzt die volle, offline
+        # bewiesene Hülle (~10°); WALKING/STOPPING die engere Walking-Hülle
+        # (~4° bei Default-step_height — der gelevelte Swing-Apex bindet). Beide
+        # vom Node aus Params gesetzt. Mehr Walking-Range = 3c (hang-bewusste
+        # Schwunghöhe + Param-Adaption), NICHT step_height senken (Schürf-Gefahr).
         self.max_level_angle = math.radians(10.0)
+        self.max_level_angle_walking = math.radians(4.0)
 
         self._state = self.STATE_STANDING
         self._v_body: Vec2 = (0.0, 0.0)
@@ -605,9 +617,9 @@ class GaitEngine:
         """
         Block A5 Stufe 2 — Body-Leveling-Korrektur cachen (rad).
 
-        Wird vom gait_node pro Tick aus dem ``BalanceController`` gesetzt (nur
-        STANDING; sonst 0/0 + Controller-Reset). ``compute_joint_angles`` wendet
-        sie im STANDING-Pfad als Rotation ``R(corr_roll, corr_pitch)`` auf alle
+        Wird vom gait_node pro Tick aus dem ``BalanceController`` gesetzt (in
+        STANDING/WALKING/STOPPING; sonst 0/0 + Controller-Reset). ``compute_joint_angles``
+        wendet sie in diesen States als Rotation ``R(corr_roll, corr_pitch)`` auf alle
         Fuß-Targets an (geclampt auf ``max_level_angle``, mit IKError-Fallback).
         """
         self._level_roll = corr_roll
@@ -791,9 +803,11 @@ class GaitEngine:
 
         targets = self.compute_foot_targets(t)
 
-        # Block A5 Stufe 2 — Body-Leveling nur im STANDING-Pfad (Stufe 2).
-        # WALKING/STOPPING bleiben unbeeinflusst (Leveling im Lauf = Stufe 3).
-        if self._state == self.STATE_STANDING and (
+        # Block A5 Stufe 2/3a — Body-Leveling. Stufe 2: nur STANDING. Stufe 3a:
+        # zusätzlich WALKING + STOPPING (Leveling im Lauf). Andere States
+        # (Aufstehen/Show/Stance-Switch/SAT) durchlaufen diesen Zweig nicht
+        # (eigene compute_*-Pfade), kippen dort gewollt → kein Leveling.
+        if self._state in _LEVELING_STATES and (
             self._level_roll != 0.0 or self._level_pitch != 0.0
         ):
             return self._compute_leveled_ik(targets, t)
@@ -816,7 +830,7 @@ class GaitEngine:
         self, targets: dict, t: float,
     ) -> dict[str, JointAngles]:
         """
-        STANDING-Body-Leveling als Rotation auf alle Fuß-Targets (Clamp+Fallback).
+        Body-Leveling als Rotation auf alle Fuß-Targets (Clamp+Fallback).
 
         ``R(corr_roll, corr_pitch)`` (Base-Frame-Round-Trip) → IK.
         Die Korrektur wird hart auf ``±max_level_angle`` geclampt (Risiko 1: nie
@@ -833,7 +847,12 @@ class GaitEngine:
         # corr = gewünschte KÖRPER-Drehung (= −gemessene Neigung). Um den Körper um
         # corr zu drehen, müssen die Füße also um −corr rotiert werden — sonst
         # positive Rückkopplung (Leveling verschlimmert die Neigung).
-        m = self.max_level_angle
+        # State-abhängiger Clamp: STANDING volle Hülle, WALKING/STOPPING enger.
+        m = (
+            self.max_level_angle
+            if self._state == self.STATE_STANDING
+            else self.max_level_angle_walking
+        )
         roll = -max(-m, min(m, self._level_roll))
         pitch = -max(-m, min(m, self._level_pitch))
         last_exc: IKError | None = None

@@ -1,0 +1,118 @@
+<?xml version="1.0" ?>
+<!--
+  ramp.sdf.xacro — Block A5 Stufe 3a (Leveling im WALKING).
+
+  Welt zum "in den Hang LAUFEN": ebener Anlauf (flacher ground_plane bei z=0) →
+  geneigte Rampe (Steigung `slope_deg`, steigt von x=0 nach +x) → ebenes Plateau
+  oben. Der Roboter spawnt **flach** auf dem ebenen Teil (IMU welt-referenziert —
+  Memory project_gz_imu_spawn_referenced), läuft per cmd_vel (+x) hoch und neigt
+  sich dabei auf die Rampe.
+
+  = empty_imu.sdf-Plugins (gz-sim-imu-system + contact) + ground_plane + Rampe +
+  Plateau. Reibung mu=mu2=1.2. Welt-Name "empty". Winkel via xacro-Arg.
+
+  GEOMETRIE (Anschlüsse exakt — kein Versatz):
+  - Rampen-Oberfläche liegt auf der Ebene z = tan(θ)·x → schneidet den
+    ground_plane (z=0) bei x=0 (Junction Anlauf↔Rampe).
+  - Die Rampen-Box ist so platziert, dass ihre OBERE Vorderkante exakt bei
+    (x=ramp_run, z=tan(θ)·ramp_run) endet (Box-Überschuss herausgerechnet).
+  - Das Plateau beginnt genau dort, Oberseite auf derselben Höhe → kein Absatz.
+-->
+<sdf version="1.6" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="slope_deg" default="8.0"/>
+  <xacro:property name="th" value="${$(arg slope_deg) * 0.017453292519943295}"/>
+  <xacro:property name="ramp_run" value="1.5"/>     <!-- horiz. Rampen-Länge (m) -->
+  <xacro:property name="L" value="2.0"/>            <!-- Box-Länge entlang Steigung -->
+  <xacro:property name="T" value="0.4"/>            <!-- Box-Dicke -->
+  <xacro:property name="W" value="4.0"/>            <!-- Box-Breite -->
+  <!-- Box-Mitte so, dass die obere Vorderkante bei (ramp_run, tan(θ)·ramp_run) sitzt. -->
+  <xacro:property name="ramp_cx" value="${ramp_run - (L/2)*cos(th) + (T/2)*sin(th)}"/>
+  <xacro:property name="ramp_cz" value="${tan(th)*ramp_cx - (T/2)/cos(th)}"/>
+  <xacro:property name="top_z" value="${tan(th)*ramp_run}"/>   <!-- Plateau-Höhe -->
+  <xacro:property name="plateau_len" value="3.0"/>
+
+  <world name="empty">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ebener Anlauf: flacher ground_plane bei z=0 (Roboter spawnt hier flach). -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <surface><friction><ode><mu>1.2</mu><mu2>1.2</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Geneigte Rampe: Oberfläche z=tan(θ)·x, Oberkante endet bei (ramp_run, top_z). -->
+    <model name="ramp">
+      <static>true</static>
+      <pose>${ramp_cx} 0 ${ramp_cz} 0 ${-th} 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>${L} ${W} ${T}</size></box></geometry>
+          <surface><friction><ode><mu>1.2</mu><mu2>1.2</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>${L} ${W} ${T}</size></box></geometry>
+          <material>
+            <ambient>0.7 0.6 0.5 1</ambient>
+            <diffuse>0.7 0.6 0.5 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Ebenes Plateau: Oberseite bei top_z, beginnt bei x=ramp_run (kein Absatz). -->
+    <model name="plateau">
+      <static>true</static>
+      <pose>${ramp_run + plateau_len/2} 0 ${top_z - T/2} 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>${plateau_len} ${W} ${T}</size></box></geometry>
+          <surface><friction><ode><mu>1.2</mu><mu2>1.2</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>${plateau_len} ${W} ${T}</size></box></geometry>
+          <material>
+            <ambient>0.75 0.75 0.7 1</ambient>
+            <diffuse>0.75 0.75 0.7 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

@@ -81,6 +81,27 @@ def test_leveling_max_angle_live_updates_engine(node):
     assert node._engine.max_level_angle == pytest.approx(math.radians(6.0))
 
 
+def test_leveling_max_angle_walking_param(node):
+    assert node.has_parameter('leveling_max_angle_walking_deg')
+    assert node._engine.max_level_angle_walking == pytest.approx(math.radians(4.0))
+    res = node.set_parameters([
+        Parameter('leveling_max_angle_walking_deg', Parameter.Type.DOUBLE, 5.0),
+    ])
+    assert res[0].successful
+    assert node._engine.max_level_angle_walking == pytest.approx(math.radians(5.0))
+
+
+def test_leveling_active_in_walking(node):
+    # Stufe 3a: _update_leveling setzt das Offset auch in WALKING.
+    node._leveling_enable = True
+    node._imu_roll, node._imu_pitch = math.radians(6.0), 0.0
+    node._engine.set_command(0.05, 0.0, 0.0, 0.0)  # → WALKING
+    assert node._engine.state == GaitEngine.STATE_WALKING
+    node._last_leveling_t = time.monotonic() - 0.5  # dt erzwingen
+    node._update_leveling()
+    assert node._engine._level_roll < 0.0
+
+
 def test_leveling_enable_live(node):
     res = node.set_parameters([
         Parameter('leveling_enable', Parameter.Type.BOOL, True),

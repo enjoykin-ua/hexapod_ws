@@ -39,11 +39,12 @@ Körperlage gegen Kippen — Sicherheitsnetz, bevor Stufe 2 aktiv levelt.
   `_on_param_change`/rqt_reconfigure verstellbar (Monitor-Rebuild). Winkel-Feintuning auf
   der Schräge.
 
-## Statisches Körper-Leveling (Block A5 Stufe 2)
+## Körper-Leveling (Block A5 Stufe 2 + 3a)
 
-Auf einer statischen Schräge hält der `gait_node` den Körper **horizontal** (roll/pitch
-→ 0), indem die Fuß-Targets um eine Körper-Rotation gedreht werden. **Nur `STANDING`**
-(Leveling im Lauf = Stufe 3). Drei Schichten (analog Stufe 1):
+Auf einer Schräge hält der `gait_node` den Körper **horizontal** (roll/pitch → 0),
+indem die Fuß-Targets um eine Körper-Rotation gedreht werden. **Stufe 2:** im `STANDING`.
+**Stufe 3a:** zusätzlich im `WALKING`/`STOPPING` (Leveling im Lauf). Drei Schichten
+(analog Stufe 1):
 
 - **Regler:** ROS-frei in [balance_controller.py](hexapod_gait/balance_controller.py)
   (`BalanceController`). Pro Achse **Totband-PI + Slew-Rate-Limit + Anti-Windup**:
@@ -53,29 +54,38 @@ Auf einer statischen Schräge hält der `gait_node` den Körper **horizontal** (
   Schnittstelle `update(roll, pitch, dt) → (corr_roll, corr_pitch)` — **austauschbar**
   (Dual-Tiefpass-Schema als 2. Impl möglich).
 - **Stellpfad:** in der `GaitEngine` (`set_body_orientation_offset` →
-  `compute_joint_angles`, nur STANDING-Pfad). Pro Bein der B4-Round-Trip als **Rotation**:
-  `leg_to_base_frame` → `rotate_xy(corr_roll, corr_pitch)` um den base-Ursprung →
-  `base_to_leg_frame` → `leg_ik`.
+  `compute_joint_angles`, in STANDING/WALKING/STOPPING). Pro Bein der B4-Round-Trip als
+  **Rotation**: `leg_to_base_frame` → `rotate_xy(corr_roll, corr_pitch)` um den
+  base-Ursprung → `base_to_leg_frame` → `leg_ik`. Vorzeichen: Fuß-Rotation = **−corr**
+  (eine Fuß-Rotation A dreht den Körper um −A; sonst positive Rückkopplung).
+- **State-abhängiger Clamp (Stufe 3a):** STANDING nutzt die volle Hülle
+  (`leveling_max_angle_deg`, ~10° offline bewiesen); WALKING/STOPPING die **engere
+  Walking-Hülle** (`leveling_max_angle_walking_deg`, ~4°) — der gelevelte **Swing-Apex**
+  bindet. Mehr Walking-Range = Stufe 3c (hang-bewusste Schwunghöhe; `step_height` NICHT
+  senken → Schürf-Gefahr bergauf). Offline: `tools/leveling_envelope_check.py --walking`.
 - **Clamp + Fallback (Risiko 1):** die Korrektur wird **vor der IK** hart auf
   `max_level_angle` geclampt (offline als envelope-sicher bewiesen, s.u.). Wirft die IK
   trotzdem, wird die Korrektur skaliert (1→0.5→0.25→0) und neu versucht — **sanfte
   Degradation statt Roboter-Freeze**. Erst wenn selbst Skala 0 (reine Stand-Pose) failt,
   ist die Grundpose out-of-envelope → echter `IKError`. Limits = **URDF-geparst** (nicht
   config.py — „zwei Limit-Quellen").
-- **ROS-Glue:** im Tick (nur STANDING) `BalanceController.update` →
+- **ROS-Glue:** im Tick (STANDING/WALKING/STOPPING) `BalanceController.update` →
   `engine.set_body_orientation_offset`; sonst Reset + Offset 0/0. Bei aktivem Leveling +
   `leveling_startup_grace` wird die Stufe-1-Kipp-Erkennung während der Konvergenz
   (Controller noch nicht im Totband) unterdrückt — die Anfangs-Schräglage auf der Rampe
   feuert sonst WARN.
 - **Parameter (live):** `leveling_enable` (Default **false**, Opt-in; auf flachem Boden
   ohnehin No-Op), `leveling_kp`, `leveling_ki`, `leveling_deadband_deg`,
-  `leveling_slew_max_dps`, `leveling_max_angle_deg` (Default **10°**), `leveling_startup_grace`.
+  `leveling_slew_max_dps`, `leveling_max_angle_deg` (STANDING-Clamp, **10°**),
+  `leveling_max_angle_walking_deg` (WALKING-Clamp, **4°**), `leveling_startup_grace`.
 - **Envelope-Beweis:** [`tools/leveling_envelope_check.py`](../../tools/leveling_envelope_check.py)
   prüft offline (echte URDF-Limits + CoG via `compute_load`), dass die gelevelte Stand-Pose
   bei θ in-limit + CoG-stabil ist. Bestätigt `max_level_angle=10°` für alle Stance-Modi
   × {roll, pitch, combined}; ab 12° (combined) wird's eng.
-- **Schräg-Welt:** `ros2 launch hexapod_bringup slope.launch.py slope_deg:=8.0` (geneigte
-  Box + gz-IMU, Roboter um den Hangwinkel gepitcht gespawnt).
+- **Schräg-Welten:** `ros2 launch hexapod_bringup slope.launch.py slope_deg:=8.0`
+  (statische Box, Stufe 2) · `ros2 launch hexapod_bringup ramp.launch.py slope_deg:=8.0`
+  (flach→Hang→Plateau zum Hineinlaufen, Stufe 3a). Beide spawnen **flach** (gz-IMU
+  spawn-referenziert → sonst maskiert ein gepitchter Spawn die Neigung).
 
 ## Launch-Quickstart
 
@@ -258,7 +268,8 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `leveling_kp` / `leveling_ki` | `0.4` / `0.1` | Leveling-PI-Gains (live tunbar) |
 | `leveling_deadband_deg` | `1.5` | Totband — kein Servo-Jagen um die Soll |
 | `leveling_slew_max_dps` | `8.0` | Slew-Rate-Limit der Korrektur (°/s) |
-| `leveling_max_angle_deg` | `10.0` | Harter Clamp vor IK (offline-bewiesen, Risiko 1) |
+| `leveling_max_angle_deg` | `10.0` | STANDING-Clamp vor IK (offline-bewiesen, Risiko 1) |
+| `leveling_max_angle_walking_deg` | `4.0` | WALKING/STOPPING-Clamp (Stufe 3a, Swing-Apex bindet) |
 | `leveling_startup_grace` | `true` | Tip während Leveling-Konvergenz unterdrücken |
 
 ## State-Machine
