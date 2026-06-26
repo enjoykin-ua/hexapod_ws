@@ -9,6 +9,24 @@
 
 ---
 
+## Stand & nächster Schritt (Übergabe)
+
+- **Fertig (Sim verifiziert):** Stufe 0 (IMU-Plumbing/Viz) 🟢 · Stufe 1 (Kipp-
+  Erkennung → Safe-State) 🟢. Branch `imu_balance` (**User committet selbst**).
+- **Vorausgeplant (⚪ offen):** Stufe 2/3/4 — Pläne geschrieben, Code je nach Freigabe.
+- **➡️ NÄCHSTER SCHRITT:** **Stufe 2 (statisches Leveling)**,
+  [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md). **§4-Plan-Review
+  erledigt** — Entscheidungen stehen in §4/§5: Clamp = fester max 10° + IKError-Fallback ·
+  Setpoint horizontal · parametrische `slope.sdf` + stehend spawnen (5/8/10°) · Tip
+  unverändert + Startup-Grace (milde Hänge) · Leveling+Tip live tunbar · nur STANDING.
+  **User liest den Plan → dann Code (2.1–2.10).** Test-Markdown erst am Ende der Stufe.
+- **Arbeitsweise:** CLAUDE.md §4 (Plan → Freigabe → Code → Test → Self-Review),
+  §5 (**Agent macht NIE git**). Stufen-Pläne haben `[ ]`-Template; **abgehakt wird hier**.
+- **Doku-Querverweise noch offen (Master §7):** `architecture.md` (`/imu/data` von
+  „geplant" auf real) · `ai_navigation.md` (Eintrag „ich ändere Balance/IMU → …").
+
+---
+
 ## Stufe 0 — IMU-Plumbing & Viz  🟢 fertig (Sim verifiziert)
 
 Plan: [`stage_0_imu_plumbing_plan.md`](stage_0_imu_plumbing_plan.md)
@@ -48,36 +66,49 @@ Plan: [`stage_0_imu_plumbing_plan.md`](stage_0_imu_plumbing_plan.md)
 
 ---
 
-## Stufe 1 — Kipp-/Sturz-Erkennung → Safe-State  ⚪ offen
+## Stufe 1 — Kipp-/Sturz-Erkennung → Safe-State  🟢 fertig (Sim verifiziert)
 
 Plan: [`stage_1_tip_detection_plan.md`](stage_1_tip_detection_plan.md)
 
 ```
-- [ ] 1.1 TipMonitor: Schwellen-/Hysterese-/Edge-Logik als testbare Funktion/Klasse (ohne ROS)
-- [ ] 1.2 /imu/data-Subscriber in gait_node (sensor-QoS) + roll/pitch/gyro-Ableitung
-- [ ] 1.3 State-Gating (Auswertung nur in STANDING/WALKING, sonst reset)
-- [ ] 1.4 Reaktion ueber VORHANDENE Safe-State-Mechanik (/hexapod_safety_freeze | B1-Sit), edge/latch, EIN Arbiter mit comms-loss - freeze/sit/gestaffelt nach §4
-- [ ] 1.5 Parameter deklariert + dokumentiert (tip_angle_warn/crit, tip_rate_crit, debounce_ticks)
-- [ ] 1.6 T1.1-T1.6 grün (Unit + Sim)
-- [ ] 1.7 README/Konzept-Update (Safe-State-Verhalten, Schwellen, Gating, Arbiter)
-- [ ] 1.8 colcon test + Lint grün
-- [ ] 1.9 kritische Self-Review-Tabelle
+- [x] 1.1 TipMonitor: Schwellen-/Entprellung-/Latch-Logik als testbare Klasse (ohne ROS)  [9 Unit-Tests grün]
+- [x] 1.2 /imu/data-Subscriber in gait_node (sensor-QoS best_effort) + roll/pitch + Kipprate
+- [x] 1.3 State-Gating (Auswertung nur in STANDING/WALKING, sonst reset)
+- [x] 1.4 Reaktion: WARN->cmd_vel=0, CRIT->/hexapod_safety_freeze (edge/latch); KEIN Sit (User-Entscheid)
+- [x] 1.5 Parameter deklariert + dokumentiert (tip_detection_enable, tip_angle_warn/crit_deg, tip_rate_crit_dps, tip_debounce_ticks)
+- [x] 1.6 T1.6 (Unit) + T1.1-T1.5 (Sim) grün  [CRIT feuert+lokaler Stopp; T1.2/T1.3 ohne Fehlalarm; T1.4-Gating implizit via Aufstehen in T1.2/T1.3]
+- [x] 1.7 README/Konzept-Update (hexapod_gait README: Safe-State, Schwellen, Gating, no-IMU-degradation)
+- [x] 1.8 colcon test + Lint grün  [580 Tests, 0 Fehler]
+- [x] 1.9 kritische Self-Review-Tabelle  [unten]
 ```
 
 ### Stufe-1-Post-Review
-_(nach Implementierung)_
+
+| Punkt | Status |
+|---|---|
+| TipMonitor-Logik (Schwellen/Entprellung/Latch/Reset) | OK (9 Unit-Tests) |
+| WARN→cmd_vel=0 vor set_command | OK (Tick-Hook vor set_command) |
+| CRIT→freeze einmalig (edge) + skip publish | OK (Latch + `_tip_crit_fired`); in Sim kein freeze-Service → lokaler Stopp (JTC hält), erwartet |
+| Gating nur STANDING/WALKING | OK (Live: Aufstehen in T1.2/T1.3 ohne Fehlalarm) |
+| Ohne IMU: graceful (NONE, normales Laufen) | OK (`_imu_roll is None` → NONE) |
+| QoS `/imu/data` best_effort | OK (`qos_profile_sensor_data`) |
+| Kein Hinsetzen als crit-Reaktion | OK (User: Sit würde am Hang selbst kippen) |
+| tip-Params Init-only (nicht in `_on_param_change`) | 🟡 Live-Tuning erst Stufe 2 (Relaunch zum Ändern) |
+| Recovery nach CRIT-Freeze | 🟡 via State-Wechsel (sit/stand-Service) → reset; auf flachem Boden ungetestet |
+| Live T1.1/T1.5 (crit feuert) | OK (Topple → „Kipp-CRIT … Safety-Freeze"; präzise Schwelle → Stufe-2-Rampe) |
+| Live-Funktionstest (Integration) | OK (T1.1–T1.5 Sim grün) |
 
 ---
 
-## Stufen 2–4 — noch nicht ausgeplant
+## Stufen 2–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
-Werden nach Freigabe + Abschluss der Vorstufen separat geplant (CLAUDE.md §4):
+Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +
+Test-Markdown pro Stufe nach Freigabe:
 
-- **Stufe 2 — Statisches Leveling:** `BalanceController` (austauschbar) +
-  Rotations-Stellpfad + Envelope-Clamp + **Schräg-Welt(en)**. Risiken 1/2/3/6
-  werden hier scharf.
-- **Stufe 3 — Leveling im Laufen + Hang-Parameter:** Gyro-Dämpfung,
-  θ→Parameter-Familie (Weg A), Gangart-Auto-Switch. **A/B-Entscheidung mit Daten.**
-- **Stufe 4 — Terrain (Weg B):** Fußkontakt-Consumer, adaptiver Touchdown. Viel
-  später, eigene Planung.
+- **Stufe 2 — Statisches Leveling:** [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md)
+  — `BalanceController` + Rotations-Stellpfad + Clamp + Schräg-Welten. Risiken 1/2/3/6 scharf.
+- **Stufe 3 — Leveling im Laufen + Hang-Parameter:** [`stage_3_walking_slope_plan.md`](stage_3_walking_slope_plan.md)
+  — Gyro-Dämpfung, θ→Parameter-Familie (Weg A), Gangart-Auto-Switch. **A/B-Entscheidung mit Daten.**
+- **Stufe 4 — Terrain (Weg B + Fußkontakte):** [`stage_4_terrain_adaptive_plan.md`](stage_4_terrain_adaptive_plan.md)
+  — adaptiver Touchdown, Plausibilitäts-Fail-Safe. Forschungs-grade, braucht E2-Taster.
 ```

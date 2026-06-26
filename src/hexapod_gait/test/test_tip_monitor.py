@@ -1,0 +1,94 @@
+"""Unit-Tests für TipMonitor (Block A5 Stufe 1) — ohne ROS."""
+
+import math
+
+from hexapod_gait.tip_monitor import (
+    quat_to_roll_pitch,
+    TIP_CRIT,
+    TIP_NONE,
+    TIP_WARN,
+    TipMonitor,
+)
+
+
+WARN = math.radians(15.0)
+CRIT = math.radians(25.0)
+RATE = math.radians(80.0)
+DEB = 5
+
+
+def _mon():
+    return TipMonitor(WARN, CRIT, RATE, DEB)
+
+
+def test_level_below_warn_is_none():
+    m = _mon()
+    for _ in range(20):
+        assert m.update(math.radians(5.0), 0.0, 0.0) == TIP_NONE
+
+
+def test_warn_needs_debounce():
+    m = _mon()
+    # debounce-1 Ticks über warn -> noch NONE
+    for _ in range(DEB - 1):
+        assert m.update(math.radians(18.0), 0.0, 0.0) == TIP_NONE
+    # debounce-ter Tick -> WARN
+    assert m.update(math.radians(18.0), 0.0, 0.0) == TIP_WARN
+
+
+def test_warn_resets_below_threshold():
+    m = _mon()
+    for _ in range(DEB - 1):
+        m.update(math.radians(18.0), 0.0, 0.0)
+    # einmal drunter -> Zähler zurück, kein WARN beim nächsten Über-Tick
+    assert m.update(math.radians(5.0), 0.0, 0.0) == TIP_NONE
+    assert m.update(math.radians(18.0), 0.0, 0.0) == TIP_NONE
+
+
+def test_crit_by_angle_latches():
+    m = _mon()
+    for _ in range(DEB - 1):
+        assert m.update(math.radians(30.0), 0.0, 0.0) == TIP_NONE
+    assert m.update(math.radians(30.0), 0.0, 0.0) == TIP_CRIT
+    assert m.crit_latched
+    # bleibt CRIT, auch wenn Winkel wieder eben wird (Latch)
+    assert m.update(0.0, 0.0, 0.0) == TIP_CRIT
+
+
+def test_crit_by_pitch_axis():
+    m = _mon()
+    for _ in range(DEB):
+        m.update(0.0, math.radians(30.0), 0.0)
+    assert m.crit_latched
+
+
+def test_crit_by_rate():
+    m = _mon()
+    # Winkel klein, aber Kipprate über rate_crit
+    for _ in range(DEB - 1):
+        assert m.update(0.0, 0.0, math.radians(120.0)) == TIP_NONE
+    assert m.update(0.0, 0.0, math.radians(120.0)) == TIP_CRIT
+
+
+def test_reset_clears_latch_and_counts():
+    m = _mon()
+    for _ in range(DEB):
+        m.update(math.radians(30.0), 0.0, 0.0)
+    assert m.crit_latched
+    m.reset()
+    assert not m.crit_latched
+    assert m.update(math.radians(5.0), 0.0, 0.0) == TIP_NONE
+
+
+def test_quat_identity_is_level():
+    roll, pitch = quat_to_roll_pitch(0.0, 0.0, 0.0, 1.0)
+    assert abs(roll) < 1e-9
+    assert abs(pitch) < 1e-9
+
+
+def test_quat_roll_20deg():
+    # 20° Roll um X: q = (sin(10°), 0, 0, cos(10°))
+    half = math.radians(10.0)
+    roll, pitch = quat_to_roll_pitch(math.sin(half), 0.0, 0.0, math.cos(half))
+    assert abs(roll - math.radians(20.0)) < 1e-6
+    assert abs(pitch) < 1e-6

@@ -8,6 +8,10 @@
 > **Verifiziert gegen den echten Code** (foot_contact.xacro, ros2_control.xacro,
 > urdf.xacro, sim.launch.py, empty.sdf, gz Harmonic 8.11.0). Korrekturen aus der
 > Verifikation sind unten markiert.
+>
+> **Status: 🟢 fertig (Sim verifiziert).** Die `[ ]` in §3 sind das **Template**
+> (§4-Konvention: abgehakt wird im Progress-File) — der echte Stand steht in
+> [`imu_balance_progress.md`](imu_balance_progress.md).
 
 ---
 

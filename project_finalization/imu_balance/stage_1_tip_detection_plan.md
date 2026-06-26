@@ -5,6 +5,10 @@
 > schnellem Kippen einen **Safe-State** auslöst. Billig, sicherheitsrelevant, und
 > das **Sicherheitsnetz**, bevor Stufe 2 anfängt, Körper-Rotationen zu kommandieren.
 > Plan nach CLAUDE.md §4. Test-Befehle: [`stage_1_tip_detection_test_commands.md`](stage_1_tip_detection_test_commands.md).
+>
+> **Status: 🟢 fertig (Sim verifiziert).** Die `[ ]` in §3 sind das **Template**
+> (§4-Konvention: abgehakt wird im Progress-File) — der echte Stand (alle `1.x`
+> `[x]` + Self-Review) steht in [`imu_balance_progress.md`](imu_balance_progress.md).
 
 ---
 
@@ -80,19 +84,23 @@ HW fein), gewollte Hangneigung als Sonderfall (→ Stufe 3, siehe §4).
 
 ---
 
-## 4. Offene Punkte für User-Review
+## 4. Entscheidungen + Offene Punkte
 
-- **Reaktion: freeze vs. hinsetzen vs. gestaffelt?** *Vorschlag: gestaffelt* —
-  `warn` → stoppen, `crit` → hinsetzen (auf einem Hang ist reiner Freeze evtl. der
-  Kippstart; Hinsetzen senkt den CoG). Endgültig du.
-- **Schwellwerte (Startwerte):** `tip_angle_warn` ≈ ? °, `tip_angle_crit` ≈ ? °,
-  `tip_rate_crit` ≈ ? °/s — auf der Rampe in Gazebo bestimmen.
-- **Wechselwirkung mit Hang (Vormerker Stufe 3):** ab Stufe 3 ist eine **gewollte**
-  Körperneigung am Hang normal → die Kipp-Schwelle muss dann relativ zum *gelevelten
-  Soll* statt absolut messen. Für Stufe 1 (flach) **absolut ok**; offener Punkt für
-  Stufe 3.
-- **Ort bestätigen:** `gait_node` (Vorschlag, hat State + Service-Clients) vs.
-  eigener Safety-Node.
+**Entschieden (User-Freigabe):**
+- **Reaktion:** gestaffelt — `warn` (15°) → `cmd_vel=0` (stoppen/setteln); `crit`
+  (25° **oder** 80°/s) → `/hexapod_safety_freeze` (hart, gelatcht, einmalig). **Kein
+  Hinsetzen** (am Hang würde die Sitz-Bewegung selbst den CoG über die bergab-Kante
+  schieben → kippt beim Hinsetzen).
+- **Startwerte:** `tip_angle_warn_deg=15`, `tip_angle_crit_deg=25`,
+  `tip_rate_crit_dps=80`, `tip_debounce_ticks=5` (0.1 s). Init-only; Winkel-Feintuning
+  auf der Schräge in Stufe 2 (+ HW). Flach laufen roll/pitch bei ±0.1° → viel Marge.
+- **Ort:** `gait_node` (State + Tick + Service-Clients); Logik ROS-frei in `TipMonitor`.
+
+**Offen (später):**
+- **Wechselwirkung mit Hang (Stufe 3):** dann ist gewollte Körperneigung normal →
+  Schwelle relativ zum *gelevelten Soll* statt absolut. Für Stufe 1 (flach) absolut ok.
+- **Live-Tuning:** tip-Params sind Init-only (nicht in `_on_param_change`); bei Bedarf
+  in Stufe 2 fürs Rampen-Tuning live-schaltbar machen.
 
 ---
 
@@ -103,5 +111,5 @@ HW fein), gewollte Hangneigung als Sonderfall (→ Stufe 3, siehe §4).
 | Ort | `gait_node` | eigener Safety-Node | gait_node hat State + Tick + Service-Clients schon; eigener Node müsste State spiegeln. |
 | Schwellen-Logik | ROS-freie Klasse `TipMonitor` | inline im Tick | unit-testbar, wie `BalanceController`/Kinematik. |
 | Auslöse-Art | edge-getriggert/gelatcht | level (jeden Tick) | verhindert Reaktions-Spam + garantiert Single-Action. |
-| Safe-State | **vorhandene** Mechanik (freeze/B1-Sit), ein Arbiter | neue eigene Safe-State-Maschine | kein Duplikat, kein Konflikt mit comms-loss-Fail-safe. |
+| Safe-State | WARN→`cmd_vel=0`, CRIT→vorhandenes `/hexapod_safety_freeze` | Hinsetzen (B1) als crit-Reaktion | Sit würde am Hang selbst kippen (CoG über bergab-Kante); freeze ist hart + universell aus jedem State. |
 | Bezugsgröße | absolute Kippung (Stufe 1, flach) | relativ-zum-Soll | relativ erst mit Leveling sinnvoll (Stufe 3). |

@@ -24,6 +24,7 @@ linear zwischen Goals → smooth Bewegung.
 
 from collections import namedtuple
 from dataclasses import dataclass
+import math
 import time
 import xml.etree.ElementTree as ET
 
@@ -31,6 +32,13 @@ from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import Twist
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
+from hexapod_gait.tip_monitor import (
+    quat_to_roll_pitch,
+    TIP_CRIT,
+    TIP_NONE,
+    TIP_WARN,
+    TipMonitor,
+)
 from hexapod_kinematics import HEXAPOD, IKError, JointLimits
 from rcl_interfaces.msg import (
     FloatingPointRange,
@@ -41,8 +49,13 @@ from rcl_interfaces.msg import (
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import JointState
+from rclpy.qos import (
+    DurabilityPolicy,
+    qos_profile_sensor_data,
+    QoSProfile,
+    ReliabilityPolicy,
+)
+from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Bool, Float64, Float64MultiArray
 from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -803,6 +816,34 @@ class GaitNode(Node):
             JointState, '/joint_states', self._on_joint_states, 10
         )
 
+        # Block A5 Stufe 1 — Kipp-/Sturz-Erkennung. /imu/data mit Sensor-QoS
+        # (best_effort) abonnieren; Schwellen-Logik in der ROS-freien
+        # TipMonitor-Klasse. Params in Grad / Grad-pro-s (menschenlesbar) -> rad.
+        # Deklaration VOR add_on_set_parameters_callback -> loest _on_param_change
+        # nicht aus (Live-Set tunet hier nicht; Relaunch zum Aendern, Feintuning
+        # auf der Rampe in Stufe 2).
+        self.declare_parameter('tip_detection_enable', True)
+        self.declare_parameter('tip_angle_warn_deg', 15.0)
+        self.declare_parameter('tip_angle_crit_deg', 25.0)
+        self.declare_parameter('tip_rate_crit_dps', 80.0)
+        self.declare_parameter('tip_debounce_ticks', 5)
+        self._tip_detection_enable = bool(
+            self.get_parameter('tip_detection_enable').value
+        )
+        self._tip_monitor = TipMonitor(
+            math.radians(float(self.get_parameter('tip_angle_warn_deg').value)),
+            math.radians(float(self.get_parameter('tip_angle_crit_deg').value)),
+            math.radians(float(self.get_parameter('tip_rate_crit_dps').value)),
+            int(self.get_parameter('tip_debounce_ticks').value),
+        )
+        self._imu_roll: float | None = None
+        self._imu_pitch = 0.0
+        self._imu_tilt_rate = 0.0
+        self._tip_crit_fired = False
+        self._imu_sub = self.create_subscription(
+            Imu, '/imu/data', self._on_imu, qos_profile_sensor_data,
+        )
+
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
         self._t_start = time.monotonic()
@@ -946,6 +987,16 @@ class GaitNode(Node):
         self._last_cmd_v_x = float(msg.linear.x)
         self._last_cmd_v_y = float(msg.linear.y)
         self._last_cmd_omega_z = float(msg.angular.z)
+
+    def _on_imu(self, msg: Imu) -> None:
+        """IMU-Empfang (Block A5 Stufe 1): roll/pitch + Kipprate cachen."""
+        q = msg.orientation
+        self._imu_roll, self._imu_pitch = quat_to_roll_pitch(
+            q.x, q.y, q.z, q.w
+        )
+        self._imu_tilt_rate = math.hypot(
+            msg.angular_velocity.x, msg.angular_velocity.y
+        )
 
     def _on_cmd_show(self, msg: Float64MultiArray) -> None:
         """
@@ -1173,6 +1224,25 @@ class GaitNode(Node):
                 throttle_duration_sec=2.0,
             )
 
+        # Block A5 Stufe 1 — Kipp-/Sturz-Erkennung (nur STANDING/WALKING).
+        # WARN: Befehl auf 0 → Roboter stoppt/settelt. CRIT (Winkel/Rate):
+        # Safety-Freeze (einmalig, gelatcht) + diesen Tick nicht publishen.
+        tip = self._update_tip()
+        if tip == TIP_CRIT:
+            if not self._tip_crit_fired:
+                self.get_logger().error(
+                    'Kipp-CRIT erkannt (Winkel/Rate über Limit) — Safety-Freeze'
+                )
+                self._trigger_safety_freeze()
+                self._tip_crit_fired = True
+            return
+        if tip == TIP_WARN:
+            v_x, v_y, omega_z = 0.0, 0.0, 0.0
+            self.get_logger().warn(
+                'Kipp-WARN erkannt — stoppe (cmd_vel=0)',
+                throttle_duration_sec=2.0,
+            )
+
         # State VOR set_command merken, damit wir den
         # STARTUP_RAMP→STANDING-Uebergang loggen koennen, der entweder
         # in set_command (n/a, da Ramp cmd_vel ignoriert) ODER in
@@ -1261,6 +1331,28 @@ class GaitNode(Node):
         # call_async returns a Future we deliberately ignore — the
         # plugin will process the Trigger request on its own executor.
         self._safety_freeze_client.call_async(Trigger.Request())
+
+    def _update_tip(self) -> str:
+        """
+        Block A5 Stufe 1 — Kipp-Level aus der IMU (nur STANDING/WALKING).
+
+        Gating: in allen anderen States (Aufstehen/Hinsetzen/Reposition/Show/
+        Stance-Switch) kippt der Körper gewollt → TipMonitor reset + NONE.
+        Ohne bisher empfangene IMU → NONE.
+        """
+        if not self._tip_detection_enable:
+            return TIP_NONE
+        if self._engine.state not in (
+            GaitEngine.STATE_STANDING, GaitEngine.STATE_WALKING,
+        ):
+            self._tip_monitor.reset()
+            self._tip_crit_fired = False
+            return TIP_NONE
+        if self._imu_roll is None:
+            return TIP_NONE
+        return self._tip_monitor.update(
+            self._imu_roll, self._imu_pitch, self._imu_tilt_rate,
+        )
 
     # ===== Block B1 — Hinsetz-/Abschalt-Services + Fail-safe ============== #
 

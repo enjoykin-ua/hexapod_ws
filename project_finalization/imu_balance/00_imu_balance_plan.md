@@ -91,8 +91,12 @@ Zwei Wege, einen Hang zu meistern:
 | **3** | Leveling im Laufen + Hang-Params | Gyro-Dämpfung, θ→Parameter-Familie (Weg A), Gangart-Auto-Switch | Hang hoch/runter in Gazebo, ruhiges Nicht-Tripod |
 | **4** | Terrain (Weg B) | Fußkontakt-Consumer, adaptiver Touchdown, Schlupf | unebenes Terrain — **viel später, eigene Planung** |
 
-**Diese Doku plant Stufe 0 + 1 aus.** Stufe 2–4 werden nach Freigabe der
-Vorstufen separat ausgeplant (CLAUDE.md §4: Plan pro Schritt).
+**Stufen-Pläne:** [Stufe 0](stage_0_imu_plumbing_plan.md) · [Stufe 1](stage_1_tip_detection_plan.md) ·
+[Stufe 2](stage_2_static_leveling_plan.md) · [Stufe 3](stage_3_walking_slope_plan.md) ·
+[Stufe 4](stage_4_terrain_adaptive_plan.md). Stufe 0+1 = 🟢 (Sim). Pläne 2–4 sind
+**vorausgeplant** (Logik/Tests/offene Punkte) zum Nachlesen — **implementiert wird
+pro Stufe nach §4** (Plan-Review → Freigabe → Code); die „Offene Punkte" je Stufe
+werden vor dem Code entschieden. Test-Markdowns entstehen erst am Ende jeder Stufe.
 
 ---
 

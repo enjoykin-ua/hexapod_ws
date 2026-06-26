@@ -13,6 +13,29 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 | [gait_engine.py](hexapod_gait/gait_engine.py) | Pure-Python State-Machine STANDING / WALKING / STOPPING / STARTUP_RAMP / CARTESIAN_STANDUP / REPOSITION / SITDOWN_LOWER / SITDOWN_FLATTEN / SAT + Body-Frame-Mapping |
 | [gait_patterns.py](hexapod_gait/gait_patterns.py) | `GaitPattern`-Dataclass + Presets `TRIPOD`, `SINGLE_LEG_1..6`, erweiterbar für Wave/Ripple |
 | [trajectory_gen.py](hexapod_gait/trajectory_gen.py) | Pure-Python `swing_traj` (Halbsinus) + `stance_traj` (linear) im Bein-Frame |
+| [tip_monitor.py](hexapod_gait/tip_monitor.py) | Pure-Python Kipp-/Sturz-Erkennung (Schwellen + Entprellung + Latch), Block A5 Stufe 1 |
+
+## Kipp-/Sturz-Erkennung (Block A5 Stufe 1)
+
+`gait_node` abonniert `/imu/data` (`sensor_msgs/Imu`, Sensor-QoS) und überwacht die
+Körperlage gegen Kippen — Sicherheitsnetz, bevor Stufe 2 aktiv levelt.
+
+- **Logik:** ROS-frei in [tip_monitor.py](hexapod_gait/tip_monitor.py) (`TipMonitor`):
+  roll/pitch (aus Quaternion) + Kipprate (`hypot(gyro_x, gyro_y)`) gegen Schwellen,
+  mit Entprellung (N Ticks) + Latch.
+- **Reaktion:**
+  - **WARN** (`tip_angle_warn_deg`, Default 15°): `cmd_vel` → 0, Roboter stoppt/settelt.
+  - **CRIT** (`tip_angle_crit_deg` 25° **oder** `tip_rate_crit_dps` 80°/s): einmaliger
+    `/hexapod_safety_freeze` (hart, gelatcht) + dieser Tick publisht nicht. Recovery:
+    State-Wechsel (sit/stand-Service) setzt zurück. **Kein Hinsetzen** (am Hang würde
+    die Sitz-Bewegung selbst kippen).
+- **State-Gating:** nur in `STANDING`/`WALKING`; beim Aufstehen/Hinsetzen/Reposition/
+  Show/Stance-Switch ausgesetzt (Körper kippt dort *gewollt*).
+- **Ohne IMU** (kein `/imu/data`, z.B. `enable_imu:=false`): `TipMonitor` bleibt inaktiv
+  → normales Laufen (graceful degradation).
+- **Parameter (Init-only):** `tip_detection_enable`, `tip_angle_warn_deg`,
+  `tip_angle_crit_deg`, `tip_rate_crit_dps`, `tip_debounce_ticks`. Winkel-Feintuning auf
+  der Schräge in Stufe 2.
 
 ## Launch-Quickstart
 
