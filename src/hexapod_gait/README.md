@@ -15,6 +15,7 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 | [trajectory_gen.py](hexapod_gait/trajectory_gen.py) | Pure-Python `swing_traj` (Halbsinus) + `stance_traj` (linear) im Bein-Frame |
 | [tip_monitor.py](hexapod_gait/tip_monitor.py) | Pure-Python Kipp-/Sturz-Erkennung (Schwellen + Entprellung + Latch), Block A5 Stufe 1 |
 | [balance_controller.py](hexapod_gait/balance_controller.py) | Pure-Python Body-Leveling-Regler (Totband-PI + Slew + Anti-Windup), Block A5 Stufe 2 |
+| [slope_estimator.py](hexapod_gait/slope_estimator.py) | Pure-Python Hang-Schätzung (langsamer Tiefpass + Residual), Block A5 TF-1 |
 
 ## Kipp-/Sturz-Erkennung (Block A5 Stufe 1)
 
@@ -38,6 +39,35 @@ Körperlage gegen Kippen — Sicherheitsnetz, bevor Stufe 2 aktiv levelt.
   `tip_angle_crit_deg`, `tip_rate_crit_dps`, `tip_debounce_ticks` — via
   `_on_param_change`/rqt_reconfigure verstellbar (Monitor-Rebuild). Winkel-Feintuning auf
   der Schräge.
+- **TF-1 (slope-bewusst):** seit Terrain-Following bekommt der `TipMonitor` das **Residual**
+  (Ist-Neigung − Hang-Schätzung) statt der rohen Neigung (s.u.) — feuert relativ zum Hang,
+  nicht absolut.
+
+## Passiv Terrain-Following + slope-bewusster Tip (Block A5 TF-1)
+
+Beim Hang-Laufen folgt der Körper bei **Nominal-Stance** dem Boden von allein (Bein-Geometrie
+identisch zur Flach-Pose — kein aktiver Stellpfad; aktive Stabilisierung = TF-2). TF-1 macht
+nur die **Kipp-Erkennung hang-tauglich**, damit die gewollte Hang-Neigung nicht fälschlich als
+Kippen feuert.
+
+- **Hang-Schätzung:** ROS-frei in [slope_estimator.py](hexapod_gait/slope_estimator.py)
+  (`SlopeEstimator`): langsamer Tiefpass (EMA, `alpha = dt/(τ+dt)`) auf roll/pitch. Weil der
+  Körper dem Boden folgt, **ist** die langsame Komponente der Untergrund (= „der Hang").
+  - **Snap-Init:** erstes Sample nach `reset()` springt direkt auf die Messung (kein Hochlauf
+    von 0 → kein künstlicher Residual-Sprung beim Wiedereintritt auf einem Hang).
+  - **Clamp** (`slope_clamp_deg`, Default **40°**): begrenzt die Schätzung, damit ein
+    *langsames* Wegkippen sie nicht beliebig „mitwandern" lässt (sonst würde der Residual nie
+    groß → blind für langsames Umkippen).
+  - **State-Gating:** aktiv nur in `STANDING`/`WALKING` (wie die Tip-Auswertung); in Transition-
+    States Reset (Körper kippt dort *gewollt*). Publiziert auf `/imu/slope` (Grad, Sim-Verify).
+- **Slope-bewusster Tip:** der `TipMonitor` bekommt `residual = IMU − Hang-Schätzung`. Stetiger
+  Hang → Residual ≈ 0 → **kein Fehlalarm**; echter Kipp → Filter lagt → Residual wächst → feuert
+  wie gehabt. Die **Kipprate bleibt roh** (Sturz-Drehrate ist hang-unabhängig → primärer
+  Schnell-Fänger).
+- **Parameter (live):** `slope_aware_tip_enable` (Default **true**, strikt besser als absolut
+  sobald IMU da), `slope_estimate_tau_s` (Default **0.5**, folgt dem Rampen-Eintritt, trackt
+  keinen Sturz), `slope_clamp_deg` (Default **40°**).
+- **Ohne IMU:** Schätzung reset, `TipMonitor` inaktiv (graceful, wie Stufe 1).
 
 ## Körper-Leveling (Block A5 Stufe 2 + 3a)
 
@@ -271,6 +301,9 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `leveling_max_angle_deg` | `10.0` | STANDING-Clamp vor IK (offline-bewiesen, Risiko 1) |
 | `leveling_max_angle_walking_deg` | `4.0` | WALKING/STOPPING-Clamp (Stufe 3a, Swing-Apex bindet) |
 | `leveling_startup_grace` | `true` | Tip während Leveling-Konvergenz unterdrücken |
+| `slope_aware_tip_enable` | `true` | TF-1: Tip gegen Residual (IMU − Hang) statt absolut |
+| `slope_estimate_tau_s` | `0.5` | TF-1: Tiefpass-τ der Hang-Schätzung (s) |
+| `slope_clamp_deg` | `40.0` | TF-1: Betrags-Grenze der Hang-Schätzung |
 
 ## State-Machine
 

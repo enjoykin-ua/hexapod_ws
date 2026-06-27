@@ -33,6 +33,7 @@ from geometry_msgs.msg import Twist
 from hexapod_gait.balance_controller import BalanceController
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
+from hexapod_gait.slope_estimator import SlopeEstimator
 from hexapod_gait.tip_monitor import (
     quat_to_roll_pitch,
     TIP_CRIT,
@@ -912,6 +913,35 @@ class GaitNode(Node):
         )
         self._last_leveling_t: float | None = None
 
+        # Block A5 TF-1 — passiv Terrain-Following + slope-bewusster Tip.
+        # Ein langsamer Tiefpass auf die IMU-Neigung schätzt den Untergrund
+        # (der Körper folgt ihm bei passivem TF von allein); der TipMonitor
+        # bekommt das Residual (Ist − Hang) statt der rohen Neigung → er feuert
+        # relativ zum Hang, nicht absolut (kein Fehlalarm auf gewollter Hang-
+        # Neigung). Kein neuer Stellpfad — aktive Stabilisierung ist TF-2.
+        # Params live tunbar (§4); Clamp ±40° deckt die Charakterisierung bis
+        # 35° ab, ohne dass die Schätzung künstlich sättigt.
+        self.declare_parameter('slope_aware_tip_enable', True)
+        self.declare_parameter('slope_estimate_tau_s', 0.5)
+        self.declare_parameter('slope_clamp_deg', 40.0)
+        self._slope_aware_tip_enable = bool(
+            self.get_parameter('slope_aware_tip_enable').value
+        )
+        self._slope_estimate_tau_s = float(
+            self.get_parameter('slope_estimate_tau_s').value
+        )
+        self._slope_clamp_deg = float(
+            self.get_parameter('slope_clamp_deg').value
+        )
+        self._slope_est = SlopeEstimator(
+            self._slope_estimate_tau_s,
+            math.radians(self._slope_clamp_deg),
+        )
+        self._last_slope_t: float | None = None
+        self._slope_pub = self.create_publisher(
+            Float64MultiArray, '/imu/slope', 10,
+        )
+
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
         self._t_start = time.monotonic()
@@ -1292,6 +1322,10 @@ class GaitNode(Node):
                 throttle_duration_sec=2.0,
             )
 
+        # Block A5 TF-1 — Hang-Schätzung VOR der Tip-Auswertung aktualisieren
+        # (der slope-bewusste Tip nutzt das Residual gegen diese Schätzung).
+        self._update_slope_estimate()
+
         # Block A5 Stufe 1 — Kipp-/Sturz-Erkennung (nur STANDING/WALKING).
         # WARN: Befehl auf 0 → Roboter stoppt/settelt. CRIT (Winkel/Rate):
         # Safety-Freeze (einmalig, gelatcht) + diesen Tick nicht publishen.
@@ -1452,6 +1486,44 @@ class GaitNode(Node):
         )
         self._tip_crit_fired = False
 
+    def _update_slope_estimate(self) -> None:
+        """
+        Block A5 TF-1 — Hang-Schätzung (langsamer Tiefpass auf die IMU-Neigung).
+
+        Aktiv nur in STANDING/WALKING (deckungsgleich mit der Tip-Auswertung) —
+        in Transition-States (Aufstehen/Hinsetzen/Reposition/Show/Stance-Switch)
+        kippt der Körper *gewollt*, das ist nicht der Untergrund → Schätzung
+        reset (Snap-Init beim Wiedereintritt verhindert einen künstlichen
+        Residual-Sprung). Ohne IMU → reset, nicht publizieren.
+
+        Publiziert die Schätzung in Grad auf ``/imu/slope`` (Sim-Verifikation:
+        „trackt die Schätzung den echten Hang?", Grundlage für TF-2).
+        """
+        if self._imu_roll is None:
+            self._slope_est.reset()
+            self._last_slope_t = None
+            return
+        if self._engine.state not in (
+            GaitEngine.STATE_STANDING, GaitEngine.STATE_WALKING,
+        ):
+            self._slope_est.reset()
+            self._last_slope_t = None
+        else:
+            now = time.monotonic()
+            dt = (
+                0.0 if self._last_slope_t is None
+                else now - self._last_slope_t
+            )
+            self._last_slope_t = now
+            self._slope_est.update(self._imu_roll, self._imu_pitch, dt)
+
+        msg = Float64MultiArray()
+        msg.data = [
+            math.degrees(self._slope_est.slope_roll),
+            math.degrees(self._slope_est.slope_pitch),
+        ]
+        self._slope_pub.publish(msg)
+
     def _update_tip(self) -> str:
         """
         Block A5 Stufe 1 — Kipp-Level aus der IMU (nur STANDING/WALKING).
@@ -1464,6 +1536,12 @@ class GaitNode(Node):
         noch nicht im Totband) Tip in STANDING unterdrücken, damit die Anfangs-
         Schräglage auf der Rampe nicht als Kippen feuert (WARN wäre dort eh nur
         cmd_vel=0). Greift nur bei aktivem Leveling + Grace-Flag.
+
+        TF-1 — slope-bewusster Tip: bei ``slope_aware_tip_enable`` bekommt der
+        Monitor das **Residual** (Ist-Neigung − Hang-Schätzung) statt der rohen
+        Neigung → ein stetiger Hang fällt heraus (Residual ≈ 0), ein echter Kipp
+        bleibt sichtbar (Filter lagt). Die **Kipprate bleibt roh** (Sturz-Drehrate
+        ist hang-unabhängig → primärer Schnell-Fänger).
         """
         if not self._tip_detection_enable:
             return TIP_NONE
@@ -1483,8 +1561,14 @@ class GaitNode(Node):
         ):
             self._tip_monitor.reset()
             return TIP_NONE
+        if self._slope_aware_tip_enable:
+            roll_in, pitch_in = self._slope_est.residual(
+                self._imu_roll, self._imu_pitch,
+            )
+        else:
+            roll_in, pitch_in = self._imu_roll, self._imu_pitch
         return self._tip_monitor.update(
-            self._imu_roll, self._imu_pitch, self._imu_tilt_rate,
+            roll_in, pitch_in, self._imu_tilt_rate,
         )
 
     # ===== Block B1 — Hinsetz-/Abschalt-Services + Fail-safe ============== #
@@ -2000,6 +2084,21 @@ class GaitNode(Node):
                     ),
                 )
 
+        # 1h. TF-1 slope-Params: τ >= 0 (0 = Filter aus), clamp > 0.
+        for p in params:
+            if p.name == 'slope_estimate_tau_s' and p.value < 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'slope_estimate_tau_s must be >= 0, got {p.value}'
+                    ),
+                )
+            if p.name == 'slope_clamp_deg' and p.value <= 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'slope_clamp_deg must be > 0, got {p.value}',
+                )
+
         # === 2. APPLY (kein Fail mehr möglich) ===
         for p in params:
             self._apply_param(p.name, p.value)
@@ -2148,6 +2247,15 @@ class GaitNode(Node):
         elif name == 'tip_debounce_ticks':
             self._tip_debounce_ticks = int(value)
             self._rebuild_tip_monitor()
+        # Block A5 TF-1 — slope-bewusster Tip + Hang-Schätzung live (§4).
+        elif name == 'slope_aware_tip_enable':
+            self._slope_aware_tip_enable = bool(value)
+        elif name == 'slope_estimate_tau_s':
+            self._slope_estimate_tau_s = float(value)
+            self._slope_est.tau = float(value)
+        elif name == 'slope_clamp_deg':
+            self._slope_clamp_deg = float(value)
+            self._slope_est.clamp = math.radians(float(value))
 
     def _restart_timer(self) -> None:
         """

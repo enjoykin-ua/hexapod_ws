@@ -32,8 +32,14 @@
   pitch → folgen**.
   - **Neuer Plan:** [`terrain_following_plan.md`](stage_3_terrain_following_plan.md) (TF-1/2/3).
   - **Warum + Nachweis (Bein-Streckung = Leveling-Artefakt):** [`terrain_following_pivot_retro.md`](terrain_following_pivot_retro.md).
-  - **➡️ NÄCHSTER SCHRITT:** **TF-1** (passiv terrain-following + slope-bewusster Tip) — Plan-Doku
-    [`stage_3a_passive_tf_plan.md`](stage_3a_passive_tf_plan.md) **geschrieben** → User liest → Freigabe → Code.
+  - **TF-1 (passiv TF + slope-bewusster Tip): 🟡 Code + Tests fertig — Sim-Verify (User) offen.**
+    `SlopeEstimator` (ROS-frei, langsamer Tiefpass + Snap-Init + Clamp ±40°) + slope-bewusster
+    Tip (residual beide Achsen an unveränderte `TipMonitor`, Kipprate roh) + `/imu/slope`-Topic.
+    §4-Entscheide: τ=0.5 s, Charakterisierung 8/12/16/20/25/35°. 21 neue Tests (gait 243 grün).
+    Self-Review unten. **User committet selbst.**
+  - **➡️ NÄCHSTER SCHRITT:** **Sim-Verify TF-1** durch den User — Test-Doku
+    [`stage_3a_passive_tf_test_commands.md`](stage_3a_passive_tf_test_commands.md) (Rampen-Ladder
+    8–35°): kommt er passiv hoch, bis wie steil (Kippen/Traktion)? Befund = Input für **TF-2**.
 - **Verworfen + markiert (Referenz):** `stage_3c_slope_params_plan.md`, `stage_3c_1_param_table_plan.md`,
   `stage_3c_1_test_commands.md`. Stufe 0/1/2 + `BalanceController`/Welten **bleiben** Fundament.
 - **Arbeitsweise:** CLAUDE.md §4 (Plan → Freigabe → Code → Test → Self-Review),
@@ -216,11 +222,64 @@ Plan: [`stage_3a_leveling_walking_plan.md`](discarded/stage_3a_leveling_walking_
 ## Terrain-Following (TF) — ⚪ offen, neuer Ansatz
 
 Umbrella: [`stage_3_terrain_following_plan.md`](stage_3_terrain_following_plan.md). Stufen:
-- **TF-1** (passiv terrain-following + slope-bewusster Tip) — Plan: [`stage_3a_passive_tf_plan.md`](stage_3a_passive_tf_plan.md) ⚪ **zum Review**
-- **TF-2** (aktive Körper-Stabilisierung: roll→0, pitch→folgen + Gyro-Wackel-Dämpfung) — Plan folgt
+- **TF-1** (passiv terrain-following + slope-bewusster Tip) — Plan: [`stage_3a_passive_tf_plan.md`](stage_3a_passive_tf_plan.md) 🟡 **Code+Tests fertig, Sim-Verify (User) offen**
+- **TF-2** (aktive Körper-Stabilisierung: roll→0, pitch→folgen + Gyro-Wackel-Dämpfung) — Plan: [`stage_3b_active_tf_plan.md`](stage_3b_active_tf_plan.md) 🟢 **§4-Freigabe erteilt (User) — Code nach Commit.** Entscheide: `leveling_mode {horizontal,terrain}` Default terrain · Gyro-D **vor** Slew · `Kd≈0.03` beide Achsen live · **roll→0 roh** · Gating wie 3a · Startup-Grace bleibt. Checkliste `TF2.1…` im Plan §3.
+- **TF-Quer** (Quer-/Diagonal-Traversieren: roll-Residual + cmd_vel-Richtungslogik) — nach TF-2, [TF-2-Plan §6](stage_3b_active_tf_plan.md). ⚪ vorgemerkt (User-Wunsch, in ai_navigation nach TF-2-Abschluss).
 - **TF-3** (optional: Schwerpunkt-Hilfe + Schlupf) — Plan folgt
 
-Checklisten je Teil-Stufe nach §4-Freigabe (TF-1 = `TF1.1…` im Plan).
+### TF-1 — Passiv TF + slope-bewusster Tip
+
+Plan: [`stage_3a_passive_tf_plan.md`](stage_3a_passive_tf_plan.md) · Test-Doku:
+[`stage_3a_passive_tf_test_commands.md`](stage_3a_passive_tf_test_commands.md)
+
+**§4-Freigabe-Entscheidungen (User):** residual **beide Achsen** (roll+pitch) · `/imu/slope`
+**publizieren** · τ-Start **0.5 s** · Charakterisierung **8/12/16/20/25/35°** · Slope-Clamp
+**±40°** (deckt 35° ab, sonst künstliche Sättigung → Agent-Entscheidung).
+
+```
+TF-1:
+- [x] TF1.1 Hang-Schätzung in gait_node (langsamer Tiefpass auf roll/pitch, τ-Param, Clamp ±max)  [ROS-frei in slope_estimator.py, Snap-Init; _update_slope_estimate, State-Gating STANDING/WALKING]
+- [x] TF1.2 slope-bewusster Tip: residual (= IMU − Schätzung) an TipMonitor, tilt_rate roh; Param slope_aware_tip_enable (+ live)  [residual beide Achsen; TipMonitor unverändert]
+- [x] TF1.3 (optional) Hang-Schätzung auf /imu/slope publizieren (Sim-Verifikation)  [Float64MultiArray [roll_deg, pitch_deg]]
+- [x] TF1.4 Unit-Tests (Tiefpass, residual+Clamp, slope-aware Tip feuert/feuert-nicht) + Node-Smoke  [test_slope_estimator.py 14 Tests + test_leveling_node.py TF-1-Block 7 Tests]
+- [x] TF1.5 colcon test + Lint grün  [gait 243 / kinematics 42 passed, 0 Fehler; flake8/pep257 grün]
+- [x] TF1.6 README/Konzept-Update (hexapod_gait: passiv TF, Hang-Schätzung, slope-bewusster Tip)
+- [x] TF1.7 Test-Doku stage_3a_passive_tf_test_commands.md (Rampen-Ladder 8–35°)  [Sim-Verify durch User offen]
+- [x] TF1.8 kritische Self-Review-Tabelle (OK/🔴/🟡/🟢)  [unten]
+```
+
+> **Sim-Verify (User, erste Runde 8/16/35°):** Hang-Schätzung **bestätigt** —
+> `/imu/slope` trackt den echten Hang, Körper hangparallel, kein Fehlalarm.
+> **Zentraler Befund:** die Kletter-Grenze ist der **Knick** (Übergang flach↔Hang /
+> Hang↔Plateau), **nicht** das Laufen *auf* dem Hang. 8° sauber; 16° kommt hoch, aber
+> am konvexen Plateau-Scheitel hängen die mittleren Beine auf der Kante + vordere/hintere
+> ohne Bodenkontakt; 35° = quasi Stufe/Bordstein, Knick flach→Hang passiv nicht machbar.
+> **Scope-Trennung:** Wackeln/Seitneigung → TF-2 (Dämpfung+roll→0); „Bein findet keinen
+> Boden an Kante/Stufe" → **Stufe 4 (Fußkontakte)**, NICHT TF-2. Details + Tabelle in der
+> [Test-Doku](stage_3a_passive_tf_test_commands.md) (Abschnitt „Befund: die Grenze ist der KNICK").
+
+### TF-1-Post-Review
+
+| Punkt | Status |
+|---|---|
+| `SlopeEstimator` (EMA `α=dt/(τ+dt)`, Clamp, Snap-Init) | OK (14 Unit-Tests: Konvergenz/Lag, Clamp, τ-Sonderfälle, Residual) |
+| Residual an `TipMonitor`, Kipprate roh | OK (`test_slope_aware_tip_ignores_constant_slope` + Roh-Gegenprobe feuert) |
+| `TipMonitor` unverändert (bekommt nur residual) | OK (kein Refactor; Stufe-1-Logik bleibt geprüft) |
+| Estimator-State-Gating = Tip-Gating (STANDING/WALKING) | OK (mirror; Transition-States reset) |
+| Snap-Init verhindert Fehl-Tip beim (Wieder-)Eintritt am Hang | OK (`test_slope_estimate_snaps_in_standing`; residual ≈ 0 ab Tick 1) |
+| Slope-Clamp ±40° deckt Charakterisierung bis 35° | OK (sonst sättigt die Schätzung bei <Hang → künstlicher residual) |
+| `/imu/slope` publiziert jeden Tick (Grad) | OK; in Transition-States [0,0] (reset) — harmlos, beobachtbar |
+| Live-Params + Validierung (τ≥0, clamp>0) | OK (`test_slope_params_live_tunable` + `_reject_invalid`) |
+| Ohne IMU graceful (reset, kein publish, Tip NONE) | OK (`test_slope_estimate_reset_without_imu`) |
+| Reihenfolge im Tick (Schätzung VOR Tip) | OK (residual nutzt die aktuelle Schätzung) |
+| residual **beide** Achsen vs. nur pitch | OK (User-Entscheid; beim Geradeaus-Klettern folgt roll-LP ~0 → `res_roll ≈ roll`, Tip bleibt empfindlich) |
+| Gait-Ripple im Walking → residual | 🟢 Ripple ist schnell (bleibt im residual), aber klein (< WARN); Entprellung (Stufe 1) fängt es — wie auf flachem Boden |
+| Flat→Ramp-Knick: kurzer residual-Spike beim Eintritt | 🟡 **Sim beobachten** (T3): τ-Lag erzeugt kurz residual ~ Pitch-Sprung; Debounce(5)+15°-Marge sollte es absorbieren; sonst τ leicht senken |
+| Kein neuer Stellpfad (passiv) → kein IK/Envelope-Risiko | OK (Risiko 1/2/6 N/A für TF-1; aktive Rotation erst TF-2) |
+| `/imu/slope` in `architecture.md` nachziehen | 🟢 später (bei Live-Schaltung, Master §7 — Sim-only Diagnose-Topic) |
+| use_sim_time / dt aus monotonic | 🟢 später (konsistent mit bestehendem wall-clock-Tick, wie Stufe 2/3a) |
+| **Passiver Kletter-Limit (Sim)** | ✅ **User-Sim-Verify (8/16/35°):** Grenze = **Knick/Kante** (konvexer Plateau-Scheitel, Stufe bei 35°), nicht Hang-Laufen. Schätzung trackt korrekt, kein Fehlalarm. Scope: Wackeln→TF-2, Bodenkontakt-an-Kante→Stufe 4 |
+| **Hang-Schätzung trackt echten Hang (Live)** | ✅ `/imu/slope` ≈ echter Hangwinkel (8°: −7.98°), pendelt ein; Körper hangparallel |
 
 ---
 

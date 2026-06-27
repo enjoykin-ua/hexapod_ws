@@ -52,11 +52,12 @@ steiler als die ~8° des Voll-Levelings. Wird in TF-1 gemessen.
 | Stufe | Inhalt | Kern-Deliverable |
 |---|---|---|
 | **TF-1** ([Plan](stage_3a_passive_tf_plan.md)) | **Passiv terrain-following + slope-bewusster Tip** | Leveling-fürs-Klettern aus (Körper folgt passiv dem Hang); `TipMonitor` slope-relativ → kein Fehlalarm am Hang. **Test:** wie steil kommt er von allein hoch, ab wann kippt/rutscht er? |
-| **TF-2** | **Aktive Körper-Stabilisierung** (roll → 0, pitch → folgen) + **Gyro-Wackel-Dämpfung** | `BalanceController` per-Achse umgepolt + D-Term → Körper bleibt sauber parallel (flach waagerecht, Hang hangparallel), Wackeln gedämpft. Der sichtbare IMU-Mehrwert (hilft auch Nicht-Tripod-Gangarten). |
+| **TF-2** ([Plan](stage_3b_active_tf_plan.md)) | **Aktive Körper-Stabilisierung** (roll → 0, pitch → folgen) + **Gyro-Wackel-Dämpfung** | `BalanceController` per-Achse umgepolt (pitch-Eingang = Residual, roll roh) + D-Term → Körper bleibt sauber parallel (flach waagerecht, Hang hangparallel), Wackeln gedämpft. Der sichtbare IMU-Mehrwert (hilft auch Nicht-Tripod-Gangarten). |
 | **TF-3** *(optional/später)* | **Schwerpunkt-Hilfe für steiler + Schlupf-Erkennung** | Gewicht in den Hang verlagern (kippt nicht nach hinten) ohne zu leveln; Schlupf-Indikator aus dem Regler-Zustand. Echtes unebenes Terrain + **Fußkontakte = Stufe 4** (eigene Planung). |
+| **TF-Quer** *(eigener Nachfolge-Block, nach TF-2)* | **Quer-/Diagonal-Traversieren am Hang** | roll-Eingang auf **Residual** (folgt dem Seithang) **+ `cmd_vel`-Richtungslogik** (Seithang folgen vs. Schieflage ausgleichen, je nach Fahrtrichtung). TF-2 regelt roll→0 (Geradeaus) → Quer ist dort suboptimal; sauber erst mit Richtungs-Disambiguierung. Details: [TF-2-Plan §6](stage_3b_active_tf_plan.md). |
 
-**Reihenfolge: TF-1 → TF-2 → (TF-3).** Jede mit eigenem §4-Review → Freigabe → Code → Test →
-Self-Review.
+**Reihenfolge: TF-1 → TF-2 → (TF-3) → (TF-Quer).** Jede mit eigenem §4-Review → Freigabe → Code →
+Test → Self-Review.
 
 ## 3. Gelockte Entscheidungen
 
@@ -78,7 +79,9 @@ Self-Review.
 - **TF-2:** Gains roll-P/I vs. Gyro-D · Filter-Zeitkonstante „langsam = Hang" vs. „schnell =
   Wackeln" · wie viel pitch-Dämpfung (ohne den Hang-Follow zu bremsen).
 - **Quer-/Diagonal-Hang:** „roll→0" stimmt exakt nur fürs Geradeaus-Klettern; Seithang hätte
-  eine gewollte roll-Komponente → **später** (Randfall, Fokus = hochlaufen).
+  eine gewollte roll-Komponente → **eigener Nachfolge-Block „TF-Quer"** (roll-Residual +
+  `cmd_vel`-Richtungslogik), nach TF-2. Details: [TF-2-Plan §6](stage_3b_active_tf_plan.md).
+  Fokus jetzt = hochlaufen.
 - **Persistente Flach-Schieflage** (statischer mechanischer Lean) vs. Hang: per IMU allein nur
   über die Achsen-Trennung gelöst (roll→0); ein statischer *pitch*-Lean würde gefolgt. Perfekt
   erst mit Fußkontakten (Stufe 4) — für Sim unkritisch (symmetrisch).
