@@ -51,7 +51,7 @@ steiler als die ~8° des Voll-Levelings. Wird in TF-1 gemessen.
 
 | Stufe | Inhalt | Kern-Deliverable |
 |---|---|---|
-| **TF-1** | **Passiv terrain-following + slope-bewusster Tip** | Leveling-fürs-Klettern aus (Körper folgt passiv dem Hang); `TipMonitor` slope-relativ → kein Fehlalarm am Hang. **Test:** wie steil kommt er von allein hoch, ab wann kippt/rutscht er? |
+| **TF-1** ([Plan](stage_3a_passive_tf_plan.md)) | **Passiv terrain-following + slope-bewusster Tip** | Leveling-fürs-Klettern aus (Körper folgt passiv dem Hang); `TipMonitor` slope-relativ → kein Fehlalarm am Hang. **Test:** wie steil kommt er von allein hoch, ab wann kippt/rutscht er? |
 | **TF-2** | **Aktive Körper-Stabilisierung** (roll → 0, pitch → folgen) + **Gyro-Wackel-Dämpfung** | `BalanceController` per-Achse umgepolt + D-Term → Körper bleibt sauber parallel (flach waagerecht, Hang hangparallel), Wackeln gedämpft. Der sichtbare IMU-Mehrwert (hilft auch Nicht-Tripod-Gangarten). |
 | **TF-3** *(optional/später)* | **Schwerpunkt-Hilfe für steiler + Schlupf-Erkennung** | Gewicht in den Hang verlagern (kippt nicht nach hinten) ohne zu leveln; Schlupf-Indikator aus dem Regler-Zustand. Echtes unebenes Terrain + **Fußkontakte = Stufe 4** (eigene Planung). |
 

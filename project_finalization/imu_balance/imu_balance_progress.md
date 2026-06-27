@@ -32,7 +32,8 @@
   pitch → folgen**.
   - **Neuer Plan:** [`terrain_following_plan.md`](stage_3_terrain_following_plan.md) (TF-1/2/3).
   - **Warum + Nachweis (Bein-Streckung = Leveling-Artefakt):** [`terrain_following_pivot_retro.md`](terrain_following_pivot_retro.md).
-  - **➡️ NÄCHSTER SCHRITT:** **TF-1** (passiv terrain-following + slope-bewusster Tip) — §4-Plan-Review.
+  - **➡️ NÄCHSTER SCHRITT:** **TF-1** (passiv terrain-following + slope-bewusster Tip) — Plan-Doku
+    [`stage_3a_passive_tf_plan.md`](stage_3a_passive_tf_plan.md) **geschrieben** → User liest → Freigabe → Code.
 - **Verworfen + markiert (Referenz):** `stage_3c_slope_params_plan.md`, `stage_3c_1_param_table_plan.md`,
   `stage_3c_1_test_commands.md`. Stufe 0/1/2 + `BalanceController`/Welten **bleiben** Fundament.
 - **Arbeitsweise:** CLAUDE.md §4 (Plan → Freigabe → Code → Test → Self-Review),
@@ -214,10 +215,12 @@ Plan: [`stage_3a_leveling_walking_plan.md`](discarded/stage_3a_leveling_walking_
 
 ## Terrain-Following (TF) — ⚪ offen, neuer Ansatz
 
-Plan: [`terrain_following_plan.md`](stage_3_terrain_following_plan.md). Stufen **TF-1** (passiv
-terrain-following + slope-bewusster Tip) → **TF-2** (aktive Körper-Stabilisierung:
-roll→0, pitch→folgen + Gyro-Wackel-Dämpfung) → **TF-3** (optional: Schwerpunkt-Hilfe +
-Schlupf). Checklisten je Teil-Stufe nach §4-Freigabe.
+Umbrella: [`stage_3_terrain_following_plan.md`](stage_3_terrain_following_plan.md). Stufen:
+- **TF-1** (passiv terrain-following + slope-bewusster Tip) — Plan: [`stage_3a_passive_tf_plan.md`](stage_3a_passive_tf_plan.md) ⚪ **zum Review**
+- **TF-2** (aktive Körper-Stabilisierung: roll→0, pitch→folgen + Gyro-Wackel-Dämpfung) — Plan folgt
+- **TF-3** (optional: Schwerpunkt-Hilfe + Schlupf) — Plan folgt
+
+Checklisten je Teil-Stufe nach §4-Freigabe (TF-1 = `TF1.1…` im Plan).
 
 ---
 
