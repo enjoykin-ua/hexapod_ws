@@ -1,6 +1,6 @@
 # Stufe 3 — Leveling im Laufen + Wackel-Dämpfung + Hang-Parameter
 
-> Stufe 3 von Block A5 ([Master](00_imu_balance_plan.md)). **Ziel:** den Hang
+> Stufe 3 von Block A5 ([Master](../00_imu_balance_plan.md)). **Ziel:** den Hang
 > **laufend** meistern — (a) Leveling auch im WALKING, (b) Dämpfung des
 > dynamischen Körper-Wackelns der Nicht-Tripod-Gangarten (= der A5-Fix für B3),
 > (c) Anpassung der Gait-Parameter an den Hangwinkel (Weg-A-Fundament) inkl.

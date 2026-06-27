@@ -18,21 +18,23 @@
   Totband, korrekte Richtung, kein Freeze). **Self-Review fand + behob einen
   Vorzeichen-Bug** im Stellpfad; Live-Diagnose deckte die **spawn-referenzierte
   gz-IMU** auf (→ flach spawnen, Memory). **User committet selbst.**
-- **Stufe 3 zerlegt in 3a→3b→3c→3d** ([stage_3_walking_slope_plan.md](stage_3_walking_slope_plan.md) §0.5).
+- **Stufe 3 zerlegt in 3a→3b→3c→3d** ([stage_3_walking_slope_plan.md](discarded/stage_3_walking_slope_plan.md) §0.5).
   **3a (Leveling im WALKING): 🟢 fertig (Sim verifiziert).** 620 Tests; Gating
   WALKING+STOPPING, state-abh. Clamp 10°/4°, Ramp-Welt; Live: Leveling wirkt (klein
   ~4°), Ramp-Geometrie-Bug gefixt, Kletter-Deckel ~12° (fixe Params) = 3c-Input.
   **User committet selbst.**
-- **➡️ NÄCHSTER SCHRITT:** **3b** (Wackel-Dämpfung, Gyro-D-Term im BalanceController,
-  B3-Fix) ODER **3c** (Hang-Param-Adaption fürs Klettern) — User-Wahl; je §4-Plan-Review.
-- **Vorausgeplant (⚪ offen):** Stufe 3/4 — Pläne geschrieben (+ Stufe-2-Review-
-  Verfeinerungen), Code je nach Freigabe.
-- **➡️ NÄCHSTER SCHRITT:** **Stufe 2 (statisches Leveling)**,
-  [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md). **§4-Plan-Review
-  erledigt** — Entscheidungen stehen in §4/§5: Clamp = fester max 10° + IKError-Fallback ·
-  Setpoint horizontal · parametrische `slope.sdf` + stehend spawnen (5/8/10°) · Tip
-  unverändert + Startup-Grace (milde Hänge) · Leveling+Tip live tunbar · nur STANDING.
-  **User liest den Plan → dann Code (2.1–2.10).** Test-Markdown erst am Ende der Stufe.
+- **⚠️ RICHTUNGSWECHSEL (2026-06-27): Klettern via Leveln → Terrain-Following.** Stufe 3c-1
+  (θ→Param-Tabelle + Voll-Leveling) wurde **gebaut + Sim-getestet → verworfen**: Körper
+  waagerecht halten sieht sprawlig aus, Plateau-Reset-Bug, Trippeln. Der **Code wurde
+  zurückgesetzt** (`git reset` auf „3c 1 plan created"; liegt in der History). **Neuer
+  Ansatz:** Körper folgt dem Boden (flach → waagerecht, Hang → hangparallel), IMU für
+  **Sicherheit + Wackel-Dämpfung + Hang-Wissen**. Achsen-Trennung: **roll → 0 ausrichten,
+  pitch → folgen**.
+  - **Neuer Plan:** [`terrain_following_plan.md`](stage_3_terrain_following_plan.md) (TF-1/2/3).
+  - **Warum + Nachweis (Bein-Streckung = Leveling-Artefakt):** [`terrain_following_pivot_retro.md`](terrain_following_pivot_retro.md).
+  - **➡️ NÄCHSTER SCHRITT:** **TF-1** (passiv terrain-following + slope-bewusster Tip) — §4-Plan-Review.
+- **Verworfen + markiert (Referenz):** `stage_3c_slope_params_plan.md`, `stage_3c_1_param_table_plan.md`,
+  `stage_3c_1_test_commands.md`. Stufe 0/1/2 + `BalanceController`/Welten **bleiben** Fundament.
 - **Arbeitsweise:** CLAUDE.md §4 (Plan → Freigabe → Code → Test → Self-Review),
   §5 (**Agent macht NIE git**). Stufen-Pläne haben `[ ]`-Template; **abgehakt wird hier**.
 - **Doku-Querverweise (Master §7) ✅ nachgezogen:** `architecture.md` (`/imu/data`
@@ -156,7 +158,7 @@ Plan: [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md)
 
 ## Stufe 3a — Leveling im WALKING  🟢 fertig (Sim verifiziert)
 
-Plan: [`stage_3a_leveling_walking_plan.md`](stage_3a_leveling_walking_plan.md)
+Plan: [`stage_3a_leveling_walking_plan.md`](discarded/stage_3a_leveling_walking_plan.md)
 
 ```
 - [x] 3a.1 Stellpfad-Gating Engine+Node auf WALKING (+STOPPING) + state-abh. Clamp (STANDING 10° / WALKING 4°)  [py-compile + Smoke]
@@ -195,6 +197,30 @@ Plan: [`stage_3a_leveling_walking_plan.md`](stage_3a_leveling_walking_plan.md)
 
 ---
 
+## Stufe 3c-1 — θ→Param-Tabelle + Voll-Leveling  ❌ VERWORFEN (siehe Retro)
+
+> **Gebaut + Sim-getestet → verworfen** (2026-06-27). Voll-Leveling fürs Klettern sieht
+> sprawlig aus + Plateau-Reset-Bug + Trippeln. **Code zurückgesetzt** (`git reset` auf
+> „3c 1 plan created"; liegt in der History). **Nachfolge: Terrain-Following.**
+>
+> Begründung, Sim-Befunde + Nachweis (Bein-Streckung war ein Leveling-Artefakt):
+> [`terrain_following_pivot_retro.md`](terrain_following_pivot_retro.md).
+> Neuer Plan: [`terrain_following_plan.md`](stage_3_terrain_following_plan.md).
+>
+> Die ehemalige 3c-1-Checkliste + Post-Review-Tabelle stehen in der Git-History
+> (Commit-Stand vor dem Reset) bzw. im verworfenen [Plan](discarded/stage_3c_1_param_table_plan.md).
+
+---
+
+## Terrain-Following (TF) — ⚪ offen, neuer Ansatz
+
+Plan: [`terrain_following_plan.md`](stage_3_terrain_following_plan.md). Stufen **TF-1** (passiv
+terrain-following + slope-bewusster Tip) → **TF-2** (aktive Körper-Stabilisierung:
+roll→0, pitch→folgen + Gyro-Wackel-Dämpfung) → **TF-3** (optional: Schwerpunkt-Hilfe +
+Schlupf). Checklisten je Teil-Stufe nach §4-Freigabe.
+
+---
+
 ## Stufen 3b–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +
@@ -202,7 +228,7 @@ Test-Markdown pro Stufe nach Freigabe:
 
 - **Stufe 2 — Statisches Leveling:** [`stage_2_static_leveling_plan.md`](stage_2_static_leveling_plan.md)
   — `BalanceController` + Rotations-Stellpfad + Clamp + Schräg-Welten. Risiken 1/2/3/6 scharf.
-- **Stufe 3 — Leveling im Laufen + Hang-Parameter:** [`stage_3_walking_slope_plan.md`](stage_3_walking_slope_plan.md)
+- **Stufe 3 — Leveling im Laufen + Hang-Parameter:** [`stage_3_walking_slope_plan.md`](discarded/stage_3_walking_slope_plan.md)
   — Gyro-Dämpfung, θ→Parameter-Familie (Weg A), Gangart-Auto-Switch. **A/B-Entscheidung mit Daten.**
 - **Stufe 4 — Terrain (Weg B + Fußkontakte):** [`stage_4_terrain_adaptive_plan.md`](stage_4_terrain_adaptive_plan.md)
   — adaptiver Touchdown, Plausibilitäts-Fail-Safe. Forschungs-grade, braucht E2-Taster.

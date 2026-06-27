@@ -13,6 +13,23 @@
 
 ---
 
+## ⚠️ RICHTUNGSWECHSEL (Stand 2026-06-27) — Klettern: Leveln → Terrain-Following
+
+Der Sim-Test von Stufe 3c-1 hat gezeigt, dass **Körper-Leveln zur Wasserwaage fürs Klettern
+der falsche Ansatz ist** (sieht sprawlig aus, Plateau-Reset-Bug, Trippeln). **Neuer Ansatz:
+Terrain-Following** — der Körper folgt dem Boden (flach → waagerecht, Hang → hangparallel);
+der IMU dient für **Sicherheit + Wackel-Dämpfung + Hang-Wissen**, nicht zum Waagerecht-Zwingen.
+
+- **Neuer Plan:** [`terrain_following_plan.md`](stage_3_terrain_following_plan.md) (TF-1/2/3).
+- **Warum + was verworfen wurde:** [`terrain_following_pivot_retro.md`](terrain_following_pivot_retro.md).
+- **Betroffen unten:** §1 „Stufe 3" (Leveling im Lauf / Weg-A-Geometrie-Tabelle) ist fürs
+  **Klettern verworfen** — die 3c-Pläne (`stage_3c_*`) sind als VERWORFEN markiert. Stufe 0/1/2
+  + `BalanceController`/Welten **bleiben** als Fundament (Regler wird für TF umgepolt). Die
+  3b/3d-Ideen (Wackel-Dämpfung, Schlupf) leben im TF-Plan weiter. Das Folgende ist insoweit
+  **historischer Kontext** des verworfenen Wegs.
+
+---
+
 ## 0. Kontext-Befund (warum das billiger ist als es klingt)
 
 Drei Dinge aus der Code-Analyse, die die Integration stark vereinfachen:
@@ -92,7 +109,7 @@ Zwei Wege, einen Hang zu meistern:
 | **4** | Terrain (Weg B) | Fußkontakt-Consumer, adaptiver Touchdown, Schlupf | unebenes Terrain — **viel später, eigene Planung** |
 
 **Stufen-Pläne:** [Stufe 0](stage_0_imu_plumbing_plan.md) · [Stufe 1](stage_1_tip_detection_plan.md) ·
-[Stufe 2](stage_2_static_leveling_plan.md) · [Stufe 3](stage_3_walking_slope_plan.md) ·
+[Stufe 2](stage_2_static_leveling_plan.md) · [Stufe 3](discarded/stage_3_walking_slope_plan.md) ·
 [Stufe 4](stage_4_terrain_adaptive_plan.md). Stufe 0+1 = 🟢 (Sim). Pläne 2–4 sind
 **vorausgeplant** (Logik/Tests/offene Punkte) zum Nachlesen — **implementiert wird
 pro Stufe nach §4** (Plan-Review → Freigabe → Code); die „Offene Punkte" je Stufe

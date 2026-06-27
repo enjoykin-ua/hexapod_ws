@@ -1,5 +1,12 @@
 # Stufe 3c-1 — θ→Param-Tabelle + hang-bewusste Schwunghöhe + Online-Eval
 
+> # ❌ VERWORFEN (2026-06-27)
+> Dieser Ansatz (Klettern via Voll-Leveling + θ-Geometrie-Tabelle) wurde nach dem Sim-Test
+> verworfen — sieht sprawlig aus, Plateau-Reset-Bug, Trippeln. **Nachfolge: Terrain-Following**
+> ([Plan](../stage_3_terrain_following_plan.md), [Retro/Begründung](../terrain_following_pivot_retro.md)).
+> Code wurde zurückgesetzt (Git-History). Dieses Dokument bleibt nur als **Referenz** des
+> verworfenen Wegs.
+
 > Erste Teil-Stufe von [3c](stage_3c_slope_params_plan.md) (Block A5). **Ziel:** den in
 > 3a beobachteten **Kletter-Deckel ~12°** lösen, indem die Walk-Geometrie (body_height /
 > radial / step_length / step_height-Boost) **kontinuierlich an den Hangwinkel θ** angepasst
@@ -206,6 +213,7 @@ engine.set_slope_gradient(*(-slope_unit · tan θ))
 |---|---|---|---|
 | Tool-Suchraum | 3-D-Gitter (bh×rad×step_len), step_height nur ≥Basis | (a) nur bh+step_len (zu eng, lässt radial-Reserve liegen); (b) volle 4-D inkl. step_height-Senkung | radial ist echter Kletter-Hebel (Stützbreite↔Reichweite); step_height senken = Schürf-TABU |
 | Tabellen-Erzeugung | Dump (volle grüne Menge) → separates `curate` → YAML | direkt in einem Lauf die „beste" Zeile picken | Politik explizit+inspizierbar; roher Dump bleibt aus dem Agent-Kontext (User) |
+| **Auswahl-Politik (User-Entscheid)** | **Option A `--anchor-nominal`**: θ=0 = Nominal-Stance, step ≤ Nominal, body/radial ≤ Nominal + nur am Hang nach Bedarf | max-Vortrieb (committet die θ=0-Zeile aggressiv: −0.060/0.170/0.13) | flach = unverändert (Umbrella §1.C „θ=0 = Stance-Modi"); slope_adapt = reiner Hang-Hebel. **Preis:** Voll-Leveling (α=0) envelope-teuer → Range nur ~±8° (max-Vortrieb käme ±20°). Upgrade auf Option B = reiner Tabellen-Tausch (`slope_param_file` live), kein Code |
 | Glattheit | Monotonie über θ im `curate` erzwungen | unabhängiges Per-θ-Optimum | springende Tabelle ⇒ Online-Interpolation fährt durch unbewiesene Sätze |
 | θ-Schätzung | `slope = IMU-tilt + angewandte Leveling-corr` | nur IMU-tilt | gelevelter Körper liest sonst ~0 statt Hang |
 | Apex-Boost | `max(0, fwd·tan θ)` per Bein, skaliert Sinus-Hülle | step_height global senken (3a-Versuchung) | Schürffrei bergauf, glatter Touchdown, bergab keine Reduktion |

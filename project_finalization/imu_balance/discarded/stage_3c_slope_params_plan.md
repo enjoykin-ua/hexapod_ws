@@ -1,5 +1,11 @@
 # Stufe 3c — Hang-Parameter-Adaption (Weg A) + Auto-Gait-Switch
 
+> # ❌ VERWORFEN fürs Klettern (2026-06-27)
+> Der Weg-A-Ansatz (Körper-Leveling + θ-Geometrie-Tabelle, um steiler zu klettern) wurde nach
+> dem 3c-1-Sim-Test verworfen → **Terrain-Following** ([Plan](../stage_3_terrain_following_plan.md),
+> [Retro](../terrain_following_pivot_retro.md)). Die **3b/3d-Ideen** (Wackel-Dämpfung via Gyro-D,
+> Schlupf-Erkennung) leben im TF-Plan weiter (TF-2/TF-3). Dieses Dokument bleibt als Referenz.
+
 > Sub-Stufe von [Stufe 3](stage_3_walking_slope_plan.md) (Block A5). **Ziel:** den
 > Roboter **steilere Hänge hochlaufen** lassen, indem Walk-Parameter an den Hangwinkel
 > θ angepasst werden (Weg-A-Fundament). Löst den in **3a** beobachteten **Kletter-Deckel
