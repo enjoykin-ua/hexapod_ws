@@ -25,10 +25,20 @@
 > Freeze (= Stufe 1); `cliff_depth` 0.03 = Grenze folgbares Terrain ↔ Abgrund (→ `engine.cliff_probe_depth`);
 > Default `slip_detection_enable` false. **🟢 Sim-verifiziert (nach Leaky-Fix):** Fall 1 (sauber über
 > Kante) **und** Fall 2 (Roboter kippt, intermittierender Kontakt) freezen jetzt beide; flach kein
-> Fehlalarm. **➡️ NÄCHSTER SCHRITT: S4-5** (Plausibilität/Sensor-Fault-Fail-Safe = letzter Stufe-4-
-> Baustein) — **Plan geschrieben + §4-freigegeben** ([stage_4e](stage_4e_plausibility_plan.md):
-> stuck-on+dead, ignorieren+warnen, latched, Inject-Hook), Implementierung steht aus. Tests **715
-> grün** (+21 S4-4). **User committet selbst.** ⏸️
+> Fehlalarm. **S4-5 (Plausibilität/Sensor-Fault-Fail-Safe = letzter Stufe-4-Baustein) 🟢
+> Code+Tests+Doku fertig, Sim-Verify offen:** `SensorHealthMonitor` (ROS-frei, wie TipMonitor) flaggt
+> **stuck-on** (Kontakt im Schwung-Apex, leaky) + **dead** (kein Touchdown über `dead_cycles`); Reaktion
+> = geflaggtes Bein latched **maskieren** (S4-2 adaptiv-aus via `set_adaptive_masked_legs` + aus S4-4-
+> Stütz-Zählung) + throttled WARN — **kein** Freeze (Taster = Optimierung, nie load-bearing). Sim-Hook
+> `sensor_fault_inject` (`'<leg>:stuck_on|stuck_off'`); Default `sensor_plausibility_enable` false.
+> **⚠️ T1-Sim 1. Runde fand Falsch-Positiv-Kaskade** (gz-Apex-Artefakt flaggte alle gesunden Beine) →
+> **Redesign:** stuck-on = **3 lückenlose Apex-Pässe in Folge** (statt leaky-Ticks), dead = „überhaupt
+> kein Kontakt"; Logs englisch. **S4-5 🟢 Sim-verifiziert** (T1 stuck_on: Maske bleibt [1] über ~35 s,
+> keine FP; T2 stuck_off: **kein** Fehl-Freeze, Roboter läuft, Maske [2]). T2 1. Runde fand den
+> Slip-Race (Freeze gewann gg. dead) + Geister-Flags → **Fix:** nie-kontaktiertes Bein sofort aus
+> Slip-Freeze (`_ever_contacted`, an S4-5 gekoppelt) + Sensor-Health-reset bei Freeze. **➡️ STUFE-4-KERN
+> KOMPLETT** (S4-1/2/4/5/6 sim-verifiziert; offen nur das optionale S4-3 free-gait). Tests **749 grün**
+> (+34 S4-5). **User committet selbst.** ⏸️
 > Zurückgestellt: ramp_walk-Standup-Regression [[project_ramp_walk_standup_joint_space_regression]].
 > **⏸️ Zurückgestellt (eigene Aufgabe, NICHT S4-2):** `ramp_walk` steht **joint-space statt
 > kartesisch** auf (alle 6 Füße schleifen gleichzeitig nach innen, HW-Risiko) — Verdacht:
@@ -369,13 +379,15 @@ TF-2:
 
 Umbrella: [`stage_4_terrain_adaptive_plan.md`](stage_4_terrain_adaptive_plan.md) (Methode **fixed-timing**
 gewählt; free-gait als dokumentierte Alternative). Teil-Stufen: **S4-1 🟢** (Consumer+Verifikation) →
-**S4-2 🟢 Sim-verifiziert** (adaptiver Touchdown, Option A) → **S4-6 (vorgezogen, als Nächstes)** → (S4-4/S4-5) → (S4-3).
+**S4-2 🟢 Sim-verifiziert** (adaptiver Touchdown, Option A) → **S4-6 🟢** (Stufen-/Graben-Welt) →
+**S4-4 🟢** (Slip→Freeze) → **S4-5 🟢 Sim-verifiziert** (Sensor-Fault-Fail-Safe) → (S4-3 optional).
 
-> **➡️ NÄCHSTER SCHRITT: S4-6 (vorgezogen) — Mini-Stufen-/Knick-Welt.** S4-2 ist Sim-verifiziert
-> stabil + selektiv (Befund im S4-2-Block unten); der sichtbare Payoff braucht einen Höhensprung
-> ≫ 6 mm (auf dem sanften 8°-Hang verlangt das Terrain nur ~6 mm). Daher zuerst eine echte Stufen-/
-> Knick-SDF bauen (eigene maßstabsgerechte Welt, z.B. 2–3 cm Kante), dann S4-2 dort demonstrieren.
-> Slip/Plausibilität (S4-4/S4-5) danach. **User committet selbst.**
+> **✅ STUFE-4-KERN KOMPLETT (sim-verifiziert):** S4-1 (Consumer) · S4-2 (adaptiver Touchdown) · S4-6
+> (Stufen-/Graben-Welt) · S4-4 (Slip→Freeze) · S4-5 (Sensor-Fault-Fail-Safe). **Offen bleibt nur das
+> optionale S4-3 (free-gait)** — separat geplant, nur falls fixed-timing nicht reicht.
+> **Reihenfolge-Historie:** S4-6 (Stufen-/Graben-Welt) wurde **vorgezogen** (sichtbarer S4-2-Payoff
+> braucht Höhensprung ≫ 6 mm), danach S4-4 (Slip→Freeze), dann S4-5 (Sensor-Fault-Fail-Safe).
+> **User committet selbst.**
 
 ### S4-1 — Fußkontakt-Consumer + Verifikation
 
@@ -588,6 +600,71 @@ S4-4:
 | Bein-Zurückziehen / Sensor-Fault | 🟢 später: S4-4b (Zurückziehen) / S4-5 (Plausibilität) — v1 = nur Freeze |
 | **Sim-Verify (User): Leaky-Fix bestätigt ✅** | 1. Runde inkonsistent (Fall 1 froze, Fall 2 kippte ohne Freeze — intermittierender Kontakt setzte den consecutive-Zähler zurück). **Leaky-Zähler** (Kontakt = −1) **re-verifiziert: auch der kippende Fall freezt jetzt.** Fall 1 + Fall 2 beide → Freeze; flach kein Fehlalarm |
 | **Residual: sehr schnelles Kippen kann Debounce überholen** | 🟡 Leaky braucht ~Debounce Ticks Akkumulation; bei extrem schnellem Tip Stufe-1-Tip als Backstop / Kombination mit Tip-Winkel = spätere Robustheit (S4-5-nah) |
+
+### S4-5 — Plausibilität + Sensor-Fault-Fail-Safe  🟢 Sim-verifiziert (T1 stuck_on + T2 dead/stuck_off) — Stufe-4-Kern komplett
+
+Plan: [`stage_4e_plausibility_plan.md`](stage_4e_plausibility_plan.md) (§4-Freigabe erteilt) ·
+Test-Doku: [`stage_4e_plausibility_test_commands.md`](stage_4e_plausibility_test_commands.md)
+
+> **§4-Entscheide (User):** Scope **stuck-on + dead** · Schwellen apex_band **0.3/0.7** ·
+> dead_cycles **2** (Cycles → Ticks via cycle_time·tick_rate) · Reaktion **ignorieren + warnen**
+> (kein Freeze) · **latched** bis State-Wechsel · Sim-**Inject-Hook** (`sensor_fault_inject`) · Default
+> `sensor_plausibility_enable` **false**. **User committet selbst.**
+>
+> **⚠️ REDESIGN nach Sim-Verify 1. Runde (T1):** der erste Entwurf (leaky-entprellte Apex-Kontakt-
+> Ticks, `apex_fault_count` 5) **falsch-positivte alle gesunden Beine** nacheinander (Log: `[1]` →
+> `[1,3,5]` → … → `[1,2,3,4,5,6]`). **Ursache (datenbelegt):** der gz-Kontakt + `contact_timeout` +
+> Fußkugel-Clearance meldet auch gesund **lückenhaften** Apex-Kontakt (das bekannte S4-1/S4-2-Apex-
+> Artefakt; die `apex`-Diag-Zähler klettern für ALLE Beine) + Walk-Start-Transient. **Fix:** stuck-on =
+> **3 lückenlose Apex-Pässe in Folge** (`sensor_apex_fault_cycles`); ein gesundes Bein hat pro Pass eine
+> Lücke → Reset → trippt nie; nur ein klemmender Sensor (immer True) erreicht lückenlose Pässe. dead
+> = **„überhaupt kein Kontakt"** (statt „keine Touchdown-Flanke") → ein stuck-on erscheint nie als dead.
+> Logs für dieses Stage auf **Englisch** (User-Wunsch). **T1-Re-Verify ✅** (Maske bleibt [1] über
+> ~35 s, keine FP-Kaskade, kein Freeze). **T2 (dead, flach) durch User offen.**
+
+```
+S4-5:
+- [x] S4-5.1 SensorHealthMonitor (ROS-frei): stuck-on (Apex-Kontakt, leaky) + dead (kein Touchdown über dead_ticks) + Latch + reset
+- [x] S4-5.2 gait_node: Monitor-Wiring (WALKING-Gating) + Maskierung geflaggter Beine (S4-2 adaptiv-aus + S4-4 ausgeschlossen) + throttled WARN
+- [x] S4-5.3 Sim-Test-Hook sensor_fault_inject (Bein + stuck_on/stuck_off, Default aus, klar Debug)
+- [x] S4-5.4 Params: sensor_plausibility_enable (false), sensor_apex_band_low/high (0.3/0.7), sensor_apex_fault_cycles (3), sensor_dead_cycles (2) — alle live, validiert, Monitor-Rebuild
+- [x] S4-5.5 Unit-Tests (stuck-on Pass-Logik, gappy-Apex kein FP, dead, stuck-on≠dead, gesund, Latch) + Node-Smoke (Maskierung, inject, ever_contacted-Slip-Ausschluss, Freeze-Gate)
+- [x] S4-5.6 colcon test + Lint grün  [749 colcon-Aggregat, 0 Fehler; +34: 13 SensorHealthMonitor + 21 Node; ament_flake8/pep257 grün]
+- [x] S4-5.7 README/Konzept (Sensor-Health, Plausibilitäts-Anker Gait-Phase, Maskierung, Params)
+- [x] S4-5.8 Test-Doku stage_4e_plausibility_test_commands.md (inject stuck_on/stuck_off)  [**Sim-Verify ✅ T1 (stuck_on, Maske [1]) + T2 (stuck_off, kein Freeze, Maske [2])**]
+- [x] S4-5.9 kritische Self-Review-Tabelle  [unten]
+```
+
+### S4-5-Post-Review
+
+| Punkt | Status |
+|---|---|
+| **Sim-Verify 1. Runde (T1): Falsch-Positiv-Kaskade** | 🔴→✅ **gefunden + behoben.** Erst-Entwurf (leaky Apex-Kontakt-Ticks, count 5) flaggte alle gesunden Beine nacheinander (`[1]`→…→`[1..6]`). Ursache (Diag-belegt): gz-Apex-Artefakt (lückenhafter Kontakt, alle Beine) + Walk-Start-Transient. **Fix:** Pass-Logik (s.u.) |
+| SensorHealthMonitor (stuck-on Pass-Logik / dead / Latch / reset) | OK (13 Unit-Tests) |
+| **stuck-on = 3 lückenlose Apex-Pässe in Folge** (robust gg. Artefakt) | OK (`test_stuck_on_flags_after_full_passes`, `test_gappy_apex_never_stuck_on`, `test_single_full_pass_does_not_persist` = Walk-Start-Transient gefiltert) |
+| **Apex-Band 0.3 past `contact_timeout`-Nachhall** | OK (`test_early_swing_contact_below_band_ignored`: Kontakt bei Phase 0.1 öffnet keinen Pass) |
+| Min-Pass-Länge filtert Band-Rand-Clips | OK (`test_short_apex_pass_does_not_count`, 2 Ticks < 3) |
+| **dead = „überhaupt kein Kontakt" → stuck-on nie als dead** | OK (`test_stuck_on_never_flagged_dead` + `test_any_contact_resets_dead`; löst die Reihenfolge-Kollision stuck_on/dead) |
+| **Sim-Verify T2: Slip-Freeze gewann das Rennen gg. dead** | 🔴→✅ **gefunden + behoben.** Inject `2:stuck_off` → S4-4 freezte nach ~1.5 s (stoppte den Roboter), die dead-Erkennung (2 Cycles ~4 s) kam zu spät → genau der Fehl-Freeze, den §4.1 verhindern will. **Fix:** nie-kontaktiertes Bein (`_ever_contacted`) sofort aus dem Slip-Freeze (an S4-5 gekoppelt) (`test_never_contacted_leg_no_false_freeze`, Gegenproben `test_contacted_then_lost_leg_still_freezes` + `test_never_contacted_freezes_without_plausibility`) |
+| **Geister-Flags nach Freeze (eingefrorene Kontakte + laufende Phase)** | 🔴→✅ behoben: `_update_sensor_health` reset/skip bei `_slip_freeze_fired`/`_tip_crit_fired` (`test_sensor_health_resets_on_active_freeze`) |
+| **Grenze: Sensor stirbt mitten im Lauf = sicherer Freeze (Plan §0)** | 🟢 bewusst — vom echten Slip nicht unterscheidbar; nur stuck-off-von-Start wird fahrbar gehalten |
+| dead = 2 **Cycles** (cycle_time-unabhängig); dead_ticks Rebuild | OK (`test_dead_ticks_recomputed_on_cycle_time`: cycle 2.0→200, 1.0→100; + Rebuild auch bei tick_rate) |
+| gesundes Bein nie faulty (Voll-Cycle-Regression) | OK (`test_healthy_leg_never_faulty`, 8 Cycles × 6 Beine) |
+| Maskierung S4-2 **adaptiv-aus** (per-Bein) | OK (Engine `set_adaptive_masked_legs` + Gate in `_compute_walking_targets`; `test_masking_excludes_from_adaptive`) |
+| Maskierung S4-4 **aus Stütz-Zählung** (is_stance=False → Zähler 0) | OK (`test_masking_excludes_from_support_freeze`: alle maskiert → kein Freeze trotz no-contact) |
+| WALKING-Gating + Latch fällt beim Anhalten | OK (`test_not_walking_resets_latch`; reset in STOPPING/STANDING) |
+| Inject-Hook (Cache-Override jeden Tick, **vor** allen Consumern) | OK (`test_fault_inject_parse_and_apply` + e2e `test_inject_stuck_on_flags_and_masks_end_to_end`) |
+| Param-Validierung (Band∈[0,1] + low<high atomar, count/cycles≥1, inject-Format) | OK (parametrisiert + `test_apex_band_cross_constraint_rejected`) |
+| throttled WARN (steigende Flanke einmalig + 5 s Reminder) | OK (Flanke via `new_faulty − _sensor_faulty`; `throttle_duration_sec`) |
+| Default false (Opt-in), graceful ohne Pipeline | OK (Default-Test; ohne Topics alle Kontakte False → dead-Pfad nur wenn enable+WALKING) |
+| **Monitor-Rebuild bei Live-Tuning löscht Latch** | 🟡 minor: wie Tip-Rebuild (Stufe 2) — nur beim aktiven Tunen relevant, akzeptabel |
+| **stuck-on vs dead am selben Bein** | OK: Apex feuert (~20 Ticks im Band) lange vor dead (200 Ticks @ Default) → reason `stuck_on`, danach latched (kein Umflaggen) |
+| **Faulty-Bein einziges über der Kante → kein S4-4-Freeze** | 🟢 dokumentierter Tradeoff (Plan §0): Backstop = Stufe-1-Tip + die **gesunden** Beine |
+| mehrdeutiger mid-Stance-Gap NICHT als Fault | 🟢 bleibt sicherer S4-4-Freeze (echter Halt-Verlust > Sensor-Annahme; Plan-Entscheid) |
+| Auto-Recovery / Un-Flag bei wieder-gesundem Sensor | 🟢 später (S4-5b); v1 latched + WARN-Logs trackbar |
+| Inject korrumpiert `/foot_contacts` + ContactDiagnostic | 🟢 gewollt (end-to-end-Sim des Faults), klar Debug-Hook |
+| **Sim-Verify (User) — T1 ✅** | inject `1:stuck_on` → `Sensor fault leg 1 (stuck_on)`, Maske bleibt **[1]** über ~35 s (Beine 2–6 NICHT geflaggt trotz Apex-Artefakt → Pass-Logik greift), kein Freeze. |
+| **Sim-Verify (User) — T2 ✅ (nach Fix)** | inject `2:stuck_off` → **kein** ERROR/Freeze, Roboter läuft durchgehend; `Sensor fault leg 2 (dead)` nach ~2 Cycles, Maske bleibt **[2]** (keine Kaskade, Beine 1/3/4/5/6 gesund trotz Apex-Artefakt). 1. Runde fand Slip-Race + Geister-Flags → behoben. |
 
 ---
 

@@ -78,7 +78,9 @@ def test_resets_when_not_walking(node):
 
 
 def test_freeze_on_sustained_support_loss(node):
-    # Grace 0 + debounce 2 + min 1 → ein Stance-Bein ohne Kontakt → Freeze.
+    # Grace 0 + debounce 2 + min 1 → ein Stance-Bein verliert Halt → Freeze.
+    # Der ever_contacted-Ausschluss (T2-Fix) verlangt, dass das Bein vorher
+    # Kontakt HATTE (echter Verlust/Slip, nicht ein toter Sensor von Anfang an).
     node.set_parameters([
         Parameter('slip_detection_enable', Parameter.Type.BOOL, True),
         Parameter('slip_grace_stance_phase', Parameter.Type.DOUBLE, 0.0),
@@ -87,9 +89,13 @@ def test_freeze_on_sustained_support_loss(node):
     ])
     node._engine.set_command(0.05, 0.0, 0.0, 0.0)  # WALKING
     assert node._engine.state == GaitEngine.STATE_WALKING
+    # Phase 1: Kontakt etablieren (ever_contacted) — t=0.5: Gruppe B in Stance.
     for leg_id in range(1, 7):
-        node._foot_contact[leg_id] = False  # nirgends Halt
-    # t=0.5: Tripod-Gruppe B (offset 0.5) in Stance → zählt
+        node._foot_contact[leg_id] = True
+    node._update_support(0.5)
+    # Phase 2: Halt verlieren (echter Slip/Kante) → Freeze.
+    for leg_id in range(1, 7):
+        node._foot_contact[leg_id] = False
     frozen = False
     for _ in range(4):
         frozen = node._update_support(0.5)

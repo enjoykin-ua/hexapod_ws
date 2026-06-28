@@ -34,6 +34,7 @@ from hexapod_gait.balance_controller import BalanceController
 from hexapod_gait.contact_diagnostic import ContactDiagnostic
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
+from hexapod_gait.sensor_health_monitor import SensorHealthMonitor
 from hexapod_gait.slope_estimator import SlopeEstimator
 from hexapod_gait.support_monitor import SupportMonitor
 from hexapod_gait.tip_monitor import (
@@ -1045,9 +1046,58 @@ class GaitNode(Node):
             grace_stance_phase=self._slip_grace_stance_phase,
         )
         self._slip_freeze_fired = False
+        # S4-5/S4-4-Glue: pro WALKING-Episode merken, ob ein Bein **je** Kontakt
+        # hatte. Ein Bein, das nie Kontakt hatte (toter/stuck-off-Sensor von
+        # Anfang an), gab nie Stütze → es kann sie nicht „verlieren" → aus der
+        # Slip-Freeze-Zählung ausschließen (sonst Fehl-Freeze BEVOR die dead-
+        # Erkennung über 2 Cycles maskieren kann — Sim-Befund T2). Ein echter
+        # Slip/Kante (Bein HATTE Kontakt, verliert ihn) bleibt ein Freeze.
+        self._ever_contacted = {leg_id: False for leg_id in range(1, 7)}
         self._engine.cliff_probe_depth = (
             self._cliff_depth if self._slip_detection_enable else 0.0
         )
+
+        # Block A5 Stufe 4 / S4-5 — Plausibilität + Sensor-Fault-Fail-Safe.
+        # Opt-in (Default false). Ein defekter Fußkontakt-Sensor (stuck-on =
+        # klemmt „Kontakt" / dead = klemmt „kein Kontakt") darf S4-2/S4-4 nicht
+        # korrumpieren. Plausibilitäts-Anker = Gait-Phase (Apex = Fuß oben →
+        # Kontakt unmöglich; kein Touchdown über N Cycles = tot). Reaktion:
+        # geflaggtes Bein latched MASKIEREN (adaptiv-aus + aus Slip-Zählung) +
+        # throttled WARN — kein Freeze (Taster = Optimierung, nie load-bearing).
+        # `sensor_dead_cycles` ist cycle_time-UNABHÄNGIG (Cycles); der Node
+        # rechnet via cycle_time·tick_rate in Ticks um (→ Rebuild).
+        self.declare_parameter('sensor_plausibility_enable', False)
+        self.declare_parameter('sensor_apex_band_low', 0.3)
+        self.declare_parameter('sensor_apex_band_high', 0.7)
+        self.declare_parameter('sensor_apex_fault_cycles', 3)
+        self.declare_parameter('sensor_dead_cycles', 2)
+        # Sim-Test-Hook (Default aus, klar Debug): zwingt den gecachten Kontakt
+        # EINES Beins auf einen Klemm-Wert, um die Erkennung in der fault-freien
+        # Sim zu provozieren. Format '<leg>:stuck_on' | '<leg>:stuck_off';
+        # '' / 'none' = aus.
+        self.declare_parameter('sensor_fault_inject', '')
+        self._sensor_plausibility_enable = bool(
+            self.get_parameter('sensor_plausibility_enable').value
+        )
+        self._sensor_apex_band_low = float(
+            self.get_parameter('sensor_apex_band_low').value
+        )
+        self._sensor_apex_band_high = float(
+            self.get_parameter('sensor_apex_band_high').value
+        )
+        self._sensor_apex_fault_cycles = int(
+            self.get_parameter('sensor_apex_fault_cycles').value
+        )
+        self._sensor_dead_cycles = int(
+            self.get_parameter('sensor_dead_cycles').value
+        )
+        self._sensor_fault_inject = self._parse_sensor_fault_inject(
+            self.get_parameter('sensor_fault_inject').value
+        )
+        # Set der aktuell maskierten Beine (latched bis State-Wechsel/Reset).
+        self._sensor_faulty: set[int] = set()
+        self._sensor_health_monitor = None
+        self._rebuild_sensor_health_monitor()
 
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
@@ -1494,6 +1544,15 @@ class GaitNode(Node):
         # Block A5 Stufe 2 — Body-Leveling-Korrektur setzen (nur STANDING).
         self._update_leveling()
 
+        # Block A5 S4-5 — Sim-Fault-Inject (Debug): EINEN gecachten Kontakt auf
+        # Klemm-Wert zwingen, BEVOR irgendwas ihn liest (Erkennung provozieren).
+        self._apply_sensor_fault_inject()
+
+        # Block A5 S4-5 — Sensor-Plausibilität: defekte Sensoren flaggen +
+        # maskieren (Set self._sensor_faulty) + warnen. VOR foot_contacts/support,
+        # damit die Maskierung auf S4-2 (adaptiv) und S4-4 (Slip) durchschlägt.
+        self._update_sensor_health(t)
+
         # Block A5 S4-1 — Fußkontakt cachen + Diagnose (kein Verhaltens-Change).
         self._update_foot_contacts(t)
 
@@ -1706,6 +1765,9 @@ class GaitNode(Node):
         self._engine.adaptive_touchdown_enable = (
             self._adaptive_touchdown_enable and pipeline_live
         )
+        # S4-5 — geflaggte Beine vom adaptiven Touchdown ausnehmen (Open-Loop;
+        # ihr Kontakt ist nicht vertrauenswürdig). Leeres Set = Normalfall.
+        self._engine.set_adaptive_masked_legs(self._sensor_faulty)
 
         msg = Float64MultiArray()
         msg.data = [1.0 if self._foot_contact[i] else 0.0 for i in range(1, 7)]
@@ -1732,13 +1794,28 @@ class GaitNode(Node):
         if self._engine.state != GaitEngine.STATE_WALKING:
             self._support_monitor.reset()
             self._slip_freeze_fired = False
+            self._ever_contacted = {leg_id: False for leg_id in range(1, 7)}
             return False
         states = self._engine.leg_gait_states(t)
         legs = {}
         for leg_id in range(1, 7):
             is_swing, local_phase = states.get(leg_id, (False, 0.0))
+            if self._foot_contact[leg_id]:
+                self._ever_contacted[leg_id] = True
+            # Aus der Stütz-Verlust-Zählung ausschließen (als „nicht Stance"
+            # durchreichen → SupportMonitor-Lost-Zähler bleibt 0). Beides nur bei
+            # aktivem S4-5 (pures S4-4 behält sein verifiziertes Freeze-Verhalten):
+            #  - als defekt geflaggtes Bein (Kontakt nicht vertrauenswürdig);
+            #  - T2-Fix: Bein, das diese Episode NIE Kontakt hatte (toter Sensor
+            #    von Anfang an) — es gab nie Stütze, also kein „Verlust"; sonst
+            #    Fehl-Freeze BEVOR die dead-Erkennung (2 Cycles) maskieren kann.
+            excluded = leg_id in self._sensor_faulty or (
+                self._sensor_plausibility_enable
+                and not self._ever_contacted[leg_id]
+            )
+            is_stance = (not is_swing) and (not excluded)
             legs[leg_id] = (
-                not is_swing, local_phase, self._foot_contact[leg_id],
+                is_stance, local_phase, self._foot_contact[leg_id],
             )
         n_lost, freeze = self._support_monitor.update(legs)
         if freeze:
@@ -1760,6 +1837,123 @@ class GaitNode(Node):
             grace_stance_phase=self._slip_grace_stance_phase,
         )
         self._slip_freeze_fired = False
+
+    @staticmethod
+    def _parse_sensor_fault_inject(raw):
+        """
+        S4-5 — den Test-Hook-String parsen → ``(leg, value)`` oder ``None``.
+
+        ``'<leg>:stuck_on'`` → ``(leg, True)`` (klemmt Kontakt), ``'<leg>:stuck_off'``
+        → ``(leg, False)`` (klemmt kein-Kontakt). ``''`` / ``'none'`` (und alles
+        Ungültige, das die Validierung nicht abfängt) → ``None`` (aus). ``leg`` ∈ 1..6.
+        """
+        s = str(raw).strip().lower()
+        if not s or s == 'none':
+            return None
+        parts = s.split(':')
+        if len(parts) != 2:
+            return None
+        leg_s, mode = parts
+        try:
+            leg = int(leg_s)
+        except ValueError:
+            return None
+        if leg not in range(1, 7):
+            return None
+        if mode == 'stuck_on':
+            return (leg, True)
+        if mode == 'stuck_off':
+            return (leg, False)
+        return None
+
+    def _apply_sensor_fault_inject(self) -> None:
+        """
+        S4-5 Test-Hook — den gecachten Kontakt EINES Beins auf Klemm-Wert zwingen.
+
+        Läuft pro Tick **vor** allen Kontakt-Consumern (Health-Monitor, Engine,
+        Support), damit der injizierte Fault end-to-end sichtbar ist. ``None`` =
+        aus (Normalfall, kein Overhead). Der nächste Subscriber-Callback
+        überschreibt den Cache wieder mit dem echten Wert → die Injection wird
+        jeden Tick neu angewandt (deterministisch zum Tick-Zeitpunkt).
+        """
+        inj = self._sensor_fault_inject
+        if inj is None:
+            return
+        leg, value = inj
+        self._foot_contact[leg] = value
+
+    def _update_sensor_health(self, t: float) -> None:
+        """
+        Block A5 S4-5 — Fußkontakt-Sensor-Plausibilität → flaggen + warnen.
+
+        Speist den ``SensorHealthMonitor`` mit ``(is_swing, local_phase, contact)``
+        pro Bein (Phase read-only aus ``engine.leg_gait_states``) und pflegt das
+        Set ``self._sensor_faulty`` (latched bis State-Wechsel). Auf der steigenden
+        Flanke eines neuen Faults: WARN mit Grund; solange Beine maskiert sind:
+        throttled Reminder. **Keine Reaktion außer Maskierung** (Open-Loop +
+        Slip-Ausschluss erledigen ``_update_foot_contacts`` / ``_update_support``).
+        Nur in WALKING ausgewertet (sonst reset → Latch fällt beim Anhalten).
+        """
+        if not self._sensor_plausibility_enable:
+            if self._sensor_faulty:
+                self._sensor_faulty = set()
+                self._sensor_health_monitor.reset()
+            return
+        # Bei aktivem Safety-Freeze (Slip oder Tip) ist der Roboter eingefroren:
+        # der Engine-State bleibt WALKING und t läuft weiter, aber die Beine
+        # bewegen sich nicht → die berechnete Phase cyclet über eingefrorene
+        # Kontakte → Geister-Flags (Sim-Befund T2). Daher: nicht auswerten, reset.
+        if self._slip_freeze_fired or self._tip_crit_fired:
+            if self._sensor_faulty:
+                self._sensor_faulty = set()
+            self._sensor_health_monitor.reset()
+            return
+        if self._engine.state != GaitEngine.STATE_WALKING:
+            if self._sensor_faulty:
+                self._sensor_faulty = set()
+            self._sensor_health_monitor.reset()
+            return
+
+        states = self._engine.leg_gait_states(t)
+        legs = {}
+        for leg_id in range(1, 7):
+            is_swing, local_phase = states.get(leg_id, (False, 0.0))
+            legs[leg_id] = (is_swing, local_phase, self._foot_contact[leg_id])
+        result = self._sensor_health_monitor.update(legs)
+
+        new_faulty = {lid for lid, (faulty, _) in result.items() if faulty}
+        for leg_id in sorted(new_faulty - self._sensor_faulty):
+            reason = result[leg_id][1]
+            self.get_logger().warn(
+                f'Sensor fault leg {leg_id} ({reason}) — ignoring contact '
+                '(adaptive off + excluded from slip count)'
+            )
+        self._sensor_faulty = new_faulty
+        if self._sensor_faulty:
+            self.get_logger().warn(
+                f'Foot-contact sensor(s) masked: {sorted(self._sensor_faulty)}',
+                throttle_duration_sec=5.0,
+            )
+
+    def _rebuild_sensor_health_monitor(self) -> None:
+        """
+        Baue den SensorHealthMonitor mit aktuellen Params neu (S4-5, live-Tuning).
+
+        ``dead_ticks`` wird hier aus ``sensor_dead_cycles · cycle_time ·
+        tick_rate`` gerechnet (cycle_time-unabhängiger Param in Cycles) — daher
+        auch Rebuild bei cycle_time/tick_rate-Änderung. Latch (``_sensor_faulty``)
+        wird mit zurückgesetzt.
+        """
+        dead_ticks = max(1, int(round(
+            self._sensor_dead_cycles * self._cycle_time * self._tick_rate
+        )))
+        self._sensor_health_monitor = SensorHealthMonitor(
+            apex_lo=self._sensor_apex_band_low,
+            apex_hi=self._sensor_apex_band_high,
+            apex_fault_cycles=self._sensor_apex_fault_cycles,
+            dead_ticks=dead_ticks,
+        )
+        self._sensor_faulty = set()
 
     def _debug_leg1_contact(self, t: float) -> None:
         """
@@ -2464,6 +2658,64 @@ class GaitNode(Node):
                     ),
                 )
 
+        # 1l. S4-5 Plausibilität: apex_band ∈ [0,1] mit low < high (atomar),
+        # apex_fault_cycles ≥ 1, dead_cycles ≥ 1, inject-Format gültig.
+        apex_lo = self._sensor_apex_band_low
+        apex_hi = self._sensor_apex_band_high
+        for p in params:
+            if p.name == 'sensor_apex_band_low':
+                if not 0.0 <= p.value <= 1.0:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            f'sensor_apex_band_low must be in [0,1], got {p.value}'
+                        ),
+                    )
+                apex_lo = p.value
+            if p.name == 'sensor_apex_band_high':
+                if not 0.0 <= p.value <= 1.0:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            f'sensor_apex_band_high must be in [0,1], got '
+                            f'{p.value}'
+                        ),
+                    )
+                apex_hi = p.value
+            if p.name == 'sensor_apex_fault_cycles' and p.value < 1:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'sensor_apex_fault_cycles must be >= 1, got {p.value}'
+                    ),
+                )
+            if p.name == 'sensor_dead_cycles' and p.value < 1:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'sensor_dead_cycles must be >= 1, got {p.value}',
+                )
+            if (
+                p.name == 'sensor_fault_inject'
+                and str(p.value).strip().lower() not in ('', 'none')
+                and self._parse_sensor_fault_inject(p.value) is None
+            ):
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        "sensor_fault_inject must be '' | 'none' | "
+                        "'<1-6>:stuck_on' | '<1-6>:stuck_off', got "
+                        f"'{p.value}'"
+                    ),
+                )
+        if apex_lo >= apex_hi:
+            return SetParametersResult(
+                successful=False,
+                reason=(
+                    f'sensor_apex_band_low ({apex_lo}) must be < '
+                    f'sensor_apex_band_high ({apex_hi})'
+                ),
+            )
+
         # === 2. APPLY (kein Fail mehr möglich) ===
         for p in params:
             self._apply_param(p.name, p.value)
@@ -2495,10 +2747,14 @@ class GaitNode(Node):
         elif name == 'cycle_time':
             self._cycle_time = value
             self._engine.cycle_time = value
+            # S4-5: dead_ticks = dead_cycles·cycle_time·tick_rate → Rebuild.
+            self._rebuild_sensor_health_monitor()
         elif name == 'tick_rate':
             self._tick_rate = value
             self._tfs_seconds = self._tfs_factor / self._tick_rate
             self._restart_timer()
+            # S4-5: dead_ticks hängt an tick_rate → Rebuild.
+            self._rebuild_sensor_health_monitor()
         elif name == 'radial_distance':
             self._radial_distance = value
             self._engine.radial_distance = value
@@ -2666,6 +2922,27 @@ class GaitNode(Node):
         elif name == 'slip_grace_stance_phase':
             self._slip_grace_stance_phase = float(value)
             self._rebuild_support_monitor()
+        # Block A5 S4-5 — Plausibilität live. enable + inject wirken direkt;
+        # Monitor-Params (Band/Count/dead_cycles) → Rebuild (auch dead_ticks).
+        elif name == 'sensor_plausibility_enable':
+            self._sensor_plausibility_enable = bool(value)
+            if not self._sensor_plausibility_enable:
+                self._sensor_health_monitor.reset()
+                self._sensor_faulty = set()
+        elif name == 'sensor_apex_band_low':
+            self._sensor_apex_band_low = float(value)
+            self._rebuild_sensor_health_monitor()
+        elif name == 'sensor_apex_band_high':
+            self._sensor_apex_band_high = float(value)
+            self._rebuild_sensor_health_monitor()
+        elif name == 'sensor_apex_fault_cycles':
+            self._sensor_apex_fault_cycles = int(value)
+            self._rebuild_sensor_health_monitor()
+        elif name == 'sensor_dead_cycles':
+            self._sensor_dead_cycles = int(value)
+            self._rebuild_sensor_health_monitor()
+        elif name == 'sensor_fault_inject':
+            self._sensor_fault_inject = self._parse_sensor_fault_inject(value)
 
     def _restart_timer(self) -> None:
         """

@@ -7,15 +7,18 @@
 > **Branch:** `imu_balance`. **Arbeitsweise:** CLAUDE.md §4 — pro Teil-Stufe Plan → Freigabe →
 > Code → Test → kritischer Self-Review. Done-Vertrag: [`imu_balance_progress.md`](imu_balance_progress.md).
 >
-> **Status: 🟡 aktiv.** Methode **fixed-timing gewählt** (s.u.). **S4-1 🟢 fertig** (Kontakt-Signal
+> **Status: 🟢 Kern komplett (S4-1/2/4/5/6 sim-verifiziert); offen nur optionales S4-3 free-gait.** Methode **fixed-timing gewählt** (s.u.). **S4-1 🟢 fertig** (Kontakt-Signal
 > verifiziert: Sensor korrekt, der ~13-Tick-Offset = reiner Ausführungs-Lag des schnellen
 > Aufsetzers). **S4-2 🟢 Sim-verifiziert (Option A)** — Erst-Entwurf war closed-loop-instabil
 > (Körper-Anker verloren + ~13-Tick-Lag → Drift); **Option A** (downward-only, an `body_height`
 > verankert, lag-Gate) ist Sim-bestätigt stabil + reicht selektiv am konvexen Knick nach (~6 mm auf
 > 8°-Hang); sichtbarer Payoff → **S4-6** (Stufe/Graben). **S4-6 🟢 Sim-verifiziert** (Graben:
 > `cmd_z` −0.105 vs −0.080, Roll ±1.3° vs ±2.7°). **S4-4 🟢 Sim-verifiziert** (Slip/Kontaktverlust →
-> Freeze; `SupportMonitor` mit Leaky-Zähler — auch der kippende Fall freezt). **➡️ Als Nächstes:
-> S4-5** (Plausibilität/Sensor-Fault = letzter Stufe-4-Baustein). —
+> Freeze; `SupportMonitor` mit Leaky-Zähler — auch der kippende Fall freezt). **S4-5 🟢 Sim-verifiziert**
+> (`SensorHealthMonitor`: stuck-on = lückenlose Apex-Pässe / dead → maskieren + warnen, kein Freeze;
+> Inject-Hook. T1 ✅ Maske [1] / T2 ✅ kein Fehl-Freeze, Maske [2]; FP-Kaskade + Slip-Race + Geister-
+> Flags gefunden + behoben). **✅ STUFE-4-KERN KOMPLETT** (S4-1/2/4/5/6 sim-verifiziert; offen nur das
+> optionale S4-3 free-gait). —
 > Detailplan: [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md),
 > Test-Doku: [`stage_4b_adaptive_touchdown_test_commands.md`](stage_4b_adaptive_touchdown_test_commands.md).
 > S4-1-Detail: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md).
@@ -86,13 +89,12 @@ nur, wenn fixed-timing nachweislich nicht reicht — dann als großer eigener Bl
 | **S4-2** 🟢 ([Plan](stage_4b_adaptive_touchdown_plan.md)) | **Adaptiver Touchdown (Option A)** | downward-only ab Stance-Gate, an `body_height` verankert (Erst-Entwurf war closed-loop-instabil). **Sim-verifiziert stabil + selektives Nachreichen** (~6 mm am 8°-Scheitel). Sichtbarer Payoff (großer Höhensprung) → **S4-6**. |
 | **S4-3** *(später, evtl.)* | **Kontakt-getriggertes Timing (free-gait)** | nur falls fixed-timing nicht reicht — großer eigener Block. |
 | **S4-4** 🟢 ([Plan](stage_4d_slip_detection_plan.md)) | **Slip / Kontaktverlust → Freeze** | `SupportMonitor` (ROS-frei, **Leaky-Zähler**): Stance-Bein ohne Kontakt nach Grace → Freeze (= Stufe 1). `cliff_depth` 0.03 = Grenze folgbar↔Abgrund. **Sim-verifiziert** (Kante `step_drop:=0.06`: freezt statt drüber, auch im kippenden Fall). ⚠️ `contact_timeout` → Debounce > 5. |
-| **S4-5** ⚪ ([Plan](stage_4e_plausibility_plan.md)) | **Plausibilität + Sensor-Fault-Fail-Safe** | `SensorHealthMonitor` (ROS-frei): stuck-on (Kontakt im Swing-Apex, geometrisch unmöglich) / dead (kein Touchdown über N Cycles) → Sensor flaggen → **ignorieren** (Bein auf Open-Loop in S4-2 + aus S4-4-Zählung) + warnen. **Plan zum Review.** HW-gerichtet/defensiv. |
+| **S4-5** 🟢 ([Plan](stage_4e_plausibility_plan.md)) | **Plausibilität + Sensor-Fault-Fail-Safe** | `SensorHealthMonitor` (ROS-frei): stuck-on = **N lückenlose Apex-Pässe in Folge** (gz-Apex-Artefakt liefert gesund lückenhaften Kontakt → Pass-Logik) / dead = überhaupt kein Kontakt über N Cycles → **maskieren** (S4-2 adaptiv-aus + aus S4-4-Zählung; nie-kontaktiertes Bein sofort aus Slip-Freeze gg. den Race) + throttled WARN, **kein** Freeze. Sim-Hook `sensor_fault_inject`. **Sim-verifiziert (T1 stuck_on, T2 stuck_off).** HW-gerichtet/defensiv. |
 | **S4-6** 🟢 ([Plan](stage_4c_step_worlds_plan.md)) | **Stufen- + Graben-Welt (Demo)** | `step.*` (Stufe) **+ `trench.*` (Graben — die klare Demo)**. **Sim-verifiziert:** Stufe vom Pitch geschluckt (~3 mm), **Graben** zeigt den per-Fuß-Reach (`cmd_z` −0.105 vs −0.080 = ~2.5 cm; Roll ±1.3° vs ±2.7°). `miss 0` beide (Füße straddeln 10-cm-Graben). |
 
-**Reihenfolge: S4-1 🟢 → S4-2 🟢 → S4-6 🟢 (Graben-Demo) → S4-4 🟢 (Slip→Freeze) → S4-5 (als
-Nächstes) → (S4-3, nur falls nötig).** Jede mit eigenem §4-Review. **Als Nächstes: S4-5**
-(Plausibilität/Sensor-Fault-Fail-Safe) = der letzte geplante Stufe-4-Baustein; danach ist der
-Stufe-4-Kern komplett (S4-3 free-gait nur falls fixed-timing nicht reicht).
+**Reihenfolge: S4-1 🟢 → S4-2 🟢 → S4-6 🟢 (Graben-Demo) → S4-4 🟢 (Slip→Freeze) → S4-5 🟢
+(sim-verifiziert) → (S4-3, nur falls nötig).** Jede mit eigenem §4-Review. **✅ Stufe-4-Kern komplett**
+(S4-1/2/4/5/6); offen bleibt nur das optionale S4-3 (free-gait), nur falls fixed-timing nicht reicht.
 
 ## 2. Logik-Skizze der Gesamt-Stufe (grob — Detail je Teil-Stufe)
 

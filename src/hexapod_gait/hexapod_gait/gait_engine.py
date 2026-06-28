@@ -358,6 +358,11 @@ class GaitEngine:
         self._foot_contacts: dict[int, bool] = {
             leg_id: False for leg_id in range(1, 7)
         }
+        # Block A5 S4-5 — Beine, deren Kontaktsensor als defekt geflaggt ist
+        # (vom SensorHealthMonitor im Node). Ein maskiertes Bein nimmt NICHT am
+        # adaptiven Touchdown teil (nominaler Bogen = Open-Loop), weil sein
+        # Kontaktsignal nicht vertrauenswürdig ist. Leer = Normalfall.
+        self._adaptive_masked_legs: set[int] = set()
 
     @property
     def state(self) -> str:
@@ -679,6 +684,18 @@ class GaitEngine:
         for leg_id in range(1, 7):
             self._foot_contacts[leg_id] = bool(contacts.get(leg_id, False))
 
+    def set_adaptive_masked_legs(self, legs) -> None:
+        """
+        Block A5 S4-5 — Beine mit defekt-geflaggtem Kontaktsensor maskieren.
+
+        Ein maskiertes Bein nimmt **nicht** am adaptiven Touchdown teil
+        (nominaler swing_traj/stance_traj = Open-Loop), weil sein Kontaktsignal
+        nicht vertrauenswürdig ist (stuck-on/dead). Der gait_node
+        (``SensorHealthMonitor``) ist die einzige Quelle. Leere Menge = kein
+        Bein maskiert (Normalfall).
+        """
+        self._adaptive_masked_legs = set(legs)
+
     def _reset_touchdown_state(self, t: float) -> None:
         """
         S4-2 — per-Bein adaptiven Touchdown-State beim WALKING-Eintritt setzen.
@@ -792,7 +809,12 @@ class GaitEngine:
             # S4-2 — adaptiver Touchdown: NUR die z-Komponente kontakt-adaptiv
             # (x,y unverändert = nominaler Vortrieb). Bei aus: exakt nominal,
             # keine State-Mutation → bit-identisches Fallback-Verhalten.
-            if self.adaptive_touchdown_enable:
+            # S4-5 — Bein mit defekt-geflaggtem Sensor maskiert → nominaler
+            # Bogen (Open-Loop), der unzuverlässige Kontakt steuert kein z.
+            if (
+                self.adaptive_touchdown_enable
+                and leg_id not in self._adaptive_masked_legs
+            ):
                 z = self._adaptive_touchdown_z(leg_id, cycle_phase, pt[2])
                 pt = (pt[0], pt[1], z)
             targets[leg.name] = pt

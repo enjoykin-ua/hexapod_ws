@@ -167,7 +167,10 @@
   vom Apex bis Floor, Freeze an Kontakthöhe) war **closed-loop-instabil** (Körper-Anker verloren +
   ~13-Tick-Lag → Drift); daher Option A. **S4-6 🟢 Sim-verifiziert** (Graben-Welt zeigt den per-Fuß-
   Reach: `cmd_z` −0.105 vs −0.080, Roll halbiert). **S4-4 🟢 Sim-verifiziert** (Slip/Kante → Freeze,
-  `SupportMonitor` Leaky-Zähler). **Nächstes: S4-5** (Plausibilität/Sensor-Fault) = letzter Stufe-4-Baustein.
+  `SupportMonitor` Leaky-Zähler). **S4-5 🟢 sim-verifiziert** (Sensor-Fault-Fail-Safe: `SensorHealthMonitor`
+  flaggt stuck-on = lückenlose Apex-Pässe / dead → Bein maskieren = adaptiv-aus + aus Slip-Zählung + WARN,
+  kein Freeze; T1 stuck_on ✅ / T2 stuck_off ✅; FP-Kaskade + Slip-Race + Geister-Flags gefunden+behoben).
+  **✅ STUFE-4-KERN KOMPLETT** (S4-1/2/4/5/6); offen nur das optionale S4-3 (free-gait).
 - **Pipeline (Sim, existiert):** gz-contact pro `foot_link` ([`hexapod.foot_contact.xacro`](../src/hexapod_description/urdf/hexapod.foot_contact.xacro))
   → [`bridge_foot_contact.yaml`](../src/hexapod_bringup/config/bridge_foot_contact.yaml)
   → [`foot_contact_publisher.py`](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)
@@ -186,12 +189,27 @@
   - **Slip/Kante → Freeze (ROS-frei, S4-4):** `support_monitor.py` (`SupportMonitor`, wie `TipMonitor`)
     — Stance-Bein ohne Kontakt nach Grace (entprellt) → Freeze; `gait_node._update_support` (WALKING-
     Gating, `_trigger_safety_freeze` = Stufe 1) + `engine.cliff_probe_depth` (Probe-Floor = `cliff_depth`).
+  - **Sensor-Plausibilität → maskieren (ROS-frei, S4-5):** `sensor_health_monitor.py`
+    (`SensorHealthMonitor`, wie `TipMonitor`) — **stuck-on** = **3 lückenlose Apex-Pässe in Folge**
+    (Band 0.3–0.7; robust gg. das gz-Apex-Artefakt, das gesund lückenhaften Apex-Kontakt liefert) /
+    **dead** = überhaupt kein Kontakt über `dead_cycles` Cycles (stuck-on erscheint nie als dead) →
+    Bein latched flaggen. `gait_node._update_sensor_health`
+    (WALKING-Gating, `_apply_sensor_fault_inject` VOR allen Consumern, **reset bei aktivem Freeze** →
+    keine Geister-Flags auf eingefrorenen Kontakten) → **Maskierung:** `engine.set_adaptive_masked_legs`
+    (S4-2 adaptiv-aus, Open-Loop) + Ausschluss aus `_update_support` (faulty → is_stance=False → nicht
+    gezählt) + throttled WARN. **Kein** Freeze (Degradation). **Race-Fix (T2):** ein Bein, das die
+    Episode **nie** Kontakt hatte (`_ever_contacted`, toter Sensor von Start), wird **sofort** aus dem
+    Slip-Freeze ausgeschlossen (sonst freezt S4-4 in ~1 s, bevor die dead-Erkennung über 2 Cycles
+    maskiert) — nur bei aktivem S4-5; ein Bein, das Kontakt **hatte** und verliert, freezt weiter.
 - **Verhalten tunen:** alles über **Params** (live): `adaptive_touchdown_enable` (Default false,
   Opt-in), `touchdown_probe_start_stance_phase` (0.35, Stance-Gate für die Abwärts-Suche),
   `touchdown_search_end_stance_phase` (0.6, Such-Ende → danach Floor), `touchdown_max_extra_depth`
   (0.02 m, Floor unter `body_height`). **S4-4:** `slip_detection_enable` (false), `cliff_depth`
   (0.03, Grenze folgbar↔Abgrund), `slip_debounce_ticks` (8, > contact_timeout 5), `slip_min_lost_legs`
-  (1), `slip_grace_stance_phase` (0.6, cycle_time-abhängig wie probe_start).
+  (1), `slip_grace_stance_phase` (0.6, cycle_time-abhängig wie probe_start). **S4-5:**
+  `sensor_plausibility_enable` (false), `sensor_apex_band_low/high` (0.3/0.7, low>contact_timeout-Nachhall),
+  `sensor_apex_fault_cycles` (3, lückenlose Apex-Pässe in Folge), `sensor_dead_cycles` (2, **Cycles** →
+  Ticks via cycle_time·tick_rate, Rebuild), `sensor_fault_inject` (`''`, Debug-Hook `'<leg>:stuck_on|stuck_off'`).
 - **Fallen:** (1) **Körper-Anker NICHT aufgeben** — der Erst-Entwurf (Freeze an Kontakthöhe, auch
   über `body_height`) war closed-loop-instabil (Drift). Option A hält den Anker bei `body_height`
   und senkt **nur nach unten**. (2) **`probe_start` > Kontakt-Lag in Stance-Phasen** (bei
@@ -201,7 +219,12 @@
   Pipeline adaptiv aus → nominaler Fallback. (4) **Envelope:** Floor `body_height − max_extra_depth`
   mit `walking_envelope_check check --body-height <bh−depth> --scenario all` prüfen (0.02 GREEN
   mittel+hoch); IKError nur Backstop. (5) **Zwei Limit-Quellen** — Envelope/IK gegen **URDF**-Limits.
-  (6) Sim **isoliert** testen (`leveling_enable:=false`).
+  (6) Sim **isoliert** testen (`leveling_enable:=false`). (7) **S4-5 gz-Apex-Artefakt** — der gz-Kontakt
+  meldet auch gesund **lückenhaften** Apex-Kontakt (contact_timeout + Fußkugel-Clearance); naive „Apex-
+  Kontakt = Fault"-Logik flaggt reihenweise gesunde Beine (Sim-Befund T1). Daher stuck-on = **lückenlose
+  Apex-Pässe in Folge** + Band ab 0.3 (past Nachhall). (8) **Sensor-Fault = Optimierung verlieren, nicht
+  stoppen** — ein geflaggtes Bein degradiert auf Open-Loop, löst aber **keinen** Freeze aus (Backstop:
+  Tip + gesunde Beine).
 - **Welten (S4-6):** **Graben** `hexapod_gazebo/worlds/trench.sdf.xacro` (2 Plattformen z=0 +
   ground_plane tiefer = Lücke; via `trench.launch.py`/`trench_walk.launch.py`) = die **klare Demo**
   des per-Fuß-Reach (Körper bleibt eben, `cmd_z`~−0.10). **Stufe** `step.sdf.xacro` (signiert
@@ -210,10 +233,12 @@
   Sanfter Hang = `ramp.sdf.xacro`. Alle `*_walk.launch.py` = Ein-Befehl, `leveling_enable` Default false.
 - **Validieren:** `colcon test hexapod_kinematics hexapod_gait` (`test_adaptive_touchdown`,
   `test_adaptive_touchdown_node`, `test_support_monitor`, `test_slip_detection_node`,
+  `test_sensor_health_monitor`, `test_sensor_plausibility_node`,
   `test_leg_gait_states`, `test_contact_diagnostic`, `test_foot_contact_node`) + Lint · **Offline**
   `walking_envelope_check` (Floor-Tiefe) · **Sim**
   ([`stage_4b_…`](../project_finalization/imu_balance/stage_4b_adaptive_touchdown_test_commands.md) +
-  [`stage_4c_step_worlds_test_commands.md`](../project_finalization/imu_balance/stage_4c_step_worlds_test_commands.md)).
+  [`stage_4c_step_worlds_test_commands.md`](../project_finalization/imu_balance/stage_4c_step_worlds_test_commands.md) +
+  [`stage_4e_plausibility_test_commands.md`](../project_finalization/imu_balance/stage_4e_plausibility_test_commands.md)).
 
 ### Neuer Knoten / Topic
 - **Wo:** Bringup-Launch (`hexapod_bringup`), ggf. eigenes Paket. Topic-Konventionen aus

@@ -17,6 +17,8 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 | [balance_controller.py](hexapod_gait/balance_controller.py) | Pure-Python Body-Stabilisierungs-Regler (Totband-PI + Gyro-D + Slew + Anti-Windup), Block A5 Stufe 2 / TF-2 |
 | [slope_estimator.py](hexapod_gait/slope_estimator.py) | Pure-Python Hang-Schätzung (langsamer Tiefpass + Residual), Block A5 TF-1 |
 | [contact_diagnostic.py](hexapod_gait/contact_diagnostic.py) | Pure-Python Fußkontakt-Diagnose (Latenz/Plausibilität/Quote), Block A5 Stufe 4 / S4-1 |
+| [support_monitor.py](hexapod_gait/support_monitor.py) | Pure-Python Stütz-Verlust-Erkennung (Slip/Kante → Freeze, Leaky-Entprellung + Latch), Block A5 Stufe 4 / S4-4 |
+| [sensor_health_monitor.py](hexapod_gait/sensor_health_monitor.py) | Pure-Python Fußkontakt-Sensor-Plausibilität (stuck-on/dead → flaggen, Latch), Block A5 Stufe 4 / S4-5 |
 
 ## Kipp-/Sturz-Erkennung (Block A5 Stufe 1)
 
@@ -235,6 +237,69 @@ zum Stufe-1-Tip-CRIT (`/hexapod_safety_freeze` + lokaler Stopp, gelatcht, einmal
 - **Abgrenzung:** „Bein zurückziehen / Schritt nicht committen" = später (S4-4b); Sensor-Fault-
   Plausibilität = S4-5. v1 = nur Freeze.
 
+## Sensor-Plausibilität / Fault-Fail-Safe (Block A5 Stufe 4 / S4-5)
+
+Ein **defekter Fußkontakt-Sensor** darf das Verhalten nicht verschlechtern. Leitprinzip: **Taster =
+Optimierung, nie load-bearing** — ein Sensor-Fault **degradiert** (das Bein fällt auf Open-Loop
+zurück), er **stoppt nicht**. HW-gerichtet/defensiv (echte Microswitches prellen/klemmen/sterben,
+Phase E2); in der zuverlässigen Sim (`miss 0`) nur via Test-Hook provozierbar.
+
+- **Plausibilitäts-Anker = die Gait-Phase** (geometrische Grundwahrheit). Zwei Fehlerbilder:
+  - **stuck-on** (klemmt „Kontakt"): ein gesunder Fuß ist im **Schwung-Apex** in der Luft → Kontakt
+    dort ist unmöglich. **⚠️ Sim-Realität (Befund T1):** der gz-Kontakt + `contact_timeout` +
+    Fußkugel-Clearance meldet auch bei **gesunden** Beinen **lückenhaften** Kontakt im Apex (das
+    S4-1/S4-2-„Apex-Artefakt") → eine naive „irgendein Apex-Kontakt = Fault"-Logik flaggt reihenweise
+    gesunde Beine. **Robuster Diskriminator:** ein **Schwung-Pass durch das Apex-Band
+    (`sensor_apex_band_low/high` 0.3/0.7) mit Kontakt an JEDEM Tick (lückenlos)**, über
+    `sensor_apex_fault_cycles` (3) **aufeinanderfolgende** Pässe. Ein klemmender Sensor (immer True)
+    liefert lückenlose Pässe; ein gesundes Bein hat pro Pass eine Lücke → Reset → trippt nie (auch der
+    Walk-Start-Transient = ein einzelner Pass wird gefiltert). stuck-on korrumpiert beide Vorstufen:
+    er friert den adaptiven Touchdown (S4-2) per Phantom-Kontakt zu früh ein UND täuscht S4-4 „immer
+    gestützt" vor (→ kein Freeze über einer Kante, gefährlich). Das Band beginnt bei **0.3**, damit der
+    `contact_timeout`-Nachhall (~5 Ticks am Schwung-Anfang, Phase < 0.3) keinen Pass öffnet.
+  - **dead/stuck-off** (klemmt „kein Kontakt" / tot): **überhaupt kein Kontakt** über
+    `sensor_dead_cycles` (2) Cycles → Fault. Resettet bei **jedem** Kontakt → ein stuck-on-Sensor
+    (immer True) erscheint **nie** als dead (sonst überschriebe das den `stuck_on`-Grund). Weniger
+    gefährlich (Bein bekommt nur keine Optimierung → Open-Loop), löst aber in S4-4 sonst einen
+    Dauer-**Fehl-Freeze** auf gutem Boden aus.
+- **`SensorHealthMonitor`** ([sensor_health_monitor.py](hexapod_gait/sensor_health_monitor.py),
+  ROS-frei, wie `TipMonitor`/`SupportMonitor`): Pass-Logik (lückenlose Apex-Pässe) + **Latch** (faulty
+  bleibt bis `reset()`). `sensor_apex_fault_cycles` zählt **Schwung-Pässe** (= Cycles), `sensor_dead_cycles`
+  ist in **Cycles**; der Node rechnet `dead_ticks = dead_cycles · cycle_time · tick_rate` (Rebuild bei
+  cycle_time/tick_rate-Änderung) — analog zu `slip_grace_stance_phase` als Phasen-Bruch.
+- **Reaktion = ignorieren + warnen (kein Freeze):** ein geflaggtes Bein wird latched **maskiert**:
+  - **S4-2 adaptiv-aus** für das Bein (Engine `set_adaptive_masked_legs` → nominaler Bogen, Open-Loop;
+    der unzuverlässige Kontakt steuert das Fuß-z nicht).
+  - **S4-4 aus der Stütz-Zählung ausgeschlossen** (als „nicht Stance" durchgereicht → der
+    `SupportMonitor`-Verlust-Zähler bleibt 0): ein totes Bein löst keinen Fehl-Freeze aus, ein
+    stuck-on-Bein täuscht keine Stütze vor. Backstop bleibt der Stufe-1-Tip + die gesunden Beine.
+  - **⚠️ Race-Fix (Befund T2): „nie kontaktiert" → sofort aus dem Slip-Freeze.** Die volle dead-
+    Erkennung braucht 2 Cycles (~4 s), der Slip-Freeze würde aber schon nach Grace+Debounce (~1 s)
+    feuern → ohne Zusatz **gewinnt der Freeze das Rennen** und stoppt den Roboter. Daher: ein Bein,
+    das diese WALKING-Episode **nie** Kontakt hatte (toter/stuck-off-Sensor von Anfang an), gab nie
+    Stütze → kann sie nicht „verlieren" → wird **sofort** aus der Slip-Zählung ausgeschlossen
+    (`_ever_contacted`, nur bei aktivem S4-5 — pures S4-4 behält sein striktes Freeze-Verhalten). Ein
+    **echter** Slip/Kante (Bein **hatte** Kontakt, verliert ihn) friert weiter sofort. **Bewusste
+    Grenze (Plan §0):** ein Sensor, der **mitten im Lauf** stirbt, ist vom echten Slip nicht
+    unterscheidbar → bleibt ein sicherer Freeze.
+  - **Bei aktivem Safety-Freeze** (Slip/Tip) wird die Sensor-Health **nicht** ausgewertet (reset): der
+    Roboter ist eingefroren, aber `t` läuft weiter → die berechnete Phase cyclet über eingefrorene
+    Kontakte → sonst Geister-Flags (Befund T2).
+  - **WARN-Log** (steigende Flanke, englisch in diesem Stage) `Sensor fault leg N (stuck_on|dead) —
+    ignoring contact …` + throttled Reminder (5 s) `Foot-contact sensor(s) masked: […]`.
+- **Sim-Test-Hook `sensor_fault_inject`** (Default aus, Debug): `'<leg>:stuck_on'` / `'<leg>:stuck_off'`
+  zwingt den gecachten Kontakt EINES Beins auf einen Klemm-Wert (jeden Tick neu, vor allen Consumern)
+  → erlaubt, die Erkennung in der fault-freien Sim zu provozieren. `''` / `'none'` = aus.
+- **Gating:** nur in WALKING ausgewertet (sonst Reset → Latch fällt beim Anhalten). Default
+  `sensor_plausibility_enable` **false** (Opt-in).
+- **Parameter (live):** `sensor_plausibility_enable` (false), `sensor_apex_band_low/high` (0.3/0.7),
+  `sensor_apex_fault_cycles` (3), `sensor_dead_cycles` (2), `sensor_fault_inject` (''). Monitor-Params
+  live mit Rebuild.
+- **Abgrenzung / bewusst NICHT (v1):** Auto-Recovery/Un-Flag bei wieder-gesundem Sensor (latched bis
+  State-Wechsel; die WARN-Logs bleiben trackbar → erst beobachten, dann ggf. S4-5b); der mehrdeutige
+  mid-Stance-Gap bleibt der **sichere S4-4-Freeze** (echter Halt-Verlust > Sensor-Annahme); echte
+  HW-Taster-Faults (E2); Redundanz/Voting mehrerer Sensoren.
+
 ## Launch-Quickstart
 
 ### Stand-Pose anfahren
@@ -434,6 +499,12 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `slip_debounce_ticks` | `8` | S4-4: Ticks ohne Halt bis Freeze (muss > contact_timeout ≈5) |
 | `slip_min_lost_legs` | `1` | S4-4: gleichzeitig haltlose Stütz-Beine bis Freeze (∈[1,6]) |
 | `slip_grace_stance_phase` | `0.6` | S4-4: Stance-Phase-Grace (darunter no-contact nicht gewertet) |
+| `sensor_plausibility_enable` | `false` | S4-5: Sensor-Fault-Plausibilität an/aus (Opt-in; flaggt+maskiert, kein Freeze) |
+| `sensor_apex_band_low` | `0.3` | S4-5: untere Schwung-Apex-Band-Grenze (< = past contact_timeout-Nachhall) |
+| `sensor_apex_band_high` | `0.7` | S4-5: obere Schwung-Apex-Band-Grenze (low < high) |
+| `sensor_apex_fault_cycles` | `3` | S4-5: aufeinanderfolgende Schwung-Pässe mit lückenlosem Apex-Kontakt bis stuck-on-Flag (≥1) |
+| `sensor_dead_cycles` | `2` | S4-5: Cycles ohne Touchdown bis dead-Flag (cycle_time-unabhängig, ≥1) |
+| `sensor_fault_inject` | `''` | S4-5 Test-Hook (Debug): `'<leg>:stuck_on'`/`'<leg>:stuck_off'` klemmt 1 Kontakt; `''`/`'none'`=aus |
 
 ## State-Machine
 
