@@ -159,6 +159,48 @@
   (TF-1 [`stage_3a_passive_tf_test_commands.md`](../project_finalization/imu_balance/stage_3a_passive_tf_test_commands.md) ·
   TF-2 [`stage_3b_active_tf_test_commands.md`](../project_finalization/imu_balance/stage_3b_active_tf_test_commands.md)).
 
+### Fußkontakt / adaptiver Touchdown (Terrain, A5 Stufe 4) ändern
+- **Voll-Doku:** [`../project_finalization/imu_balance/stage_4_terrain_adaptive_plan.md`](../project_finalization/imu_balance/stage_4_terrain_adaptive_plan.md)
+  (Umbrella, Methoden-Wahl fixed-timing) + S4-1 (Consumer/Verifikation) + S4-2 (adaptiver Touchdown).
+- **Stand:** S4-1 🟢 (Kontakt-Consumer + Diagnose). **S4-2 🟢 Sim-verifiziert** (adaptiver Touchdown
+  **Option A** — downward-only, an `body_height` verankert, lag-tolerant; stabil + selektives
+  Nachreichen ~6 mm am 8°-Scheitel). ⚠️ Erst-Entwurf (Senkung vom Apex bis Floor, Freeze an
+  Kontakthöhe) war **closed-loop-instabil** (Körper-Anker verloren + ~13-Tick-Lag → Drift); daher
+  Option A. **Nächstes: S4-6** (Stufen-/Knick-Welt, damit der Nachreich-Nutzen sichtbar wird).
+- **Pipeline (Sim, existiert):** gz-contact pro `foot_link` ([`hexapod.foot_contact.xacro`](../src/hexapod_description/urdf/hexapod.foot_contact.xacro))
+  → [`bridge_foot_contact.yaml`](../src/hexapod_bringup/config/bridge_foot_contact.yaml)
+  → [`foot_contact_publisher.py`](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)
+  (Event→Dauer-`Bool`, **50 Hz dauernd** true/false) → `/leg_<n>/foot_contact`. Default an
+  (`enable_foot_contact:=true`). **Wir bauen den Consumer, nicht die Sensorik.**
+- **Wo (3 Schichten):**
+  - **Engine (ROS-frei):** `gait_engine.py` — `_compute_walking_targets` ruft pro Bein
+    `_adaptive_touchdown_z(leg_id, cycle_phase, z_nom)` (NUR z adaptiv, x,y nominal; **Option A**:
+    nominaler Schwung+Stance bleiben, Probe **nur unter `body_height`** ab Stance-Gate); per-Bein
+    `_touchdown_z` + `_td_searched`; `set_foot_contacts()` (Cache vom Node); `adaptive_touchdown_enable`
+    (vom Node pro Tick). WALKING-Eintritt: Stance-Beine auf `body_height` vorverankert.
+  - **Node-Glue:** `gait_node.py` — 6 Subs `/leg_<n>/foot_contact` (`_make_foot_contact_cb`, stempelt
+    Frische), `_update_foot_contacts` (Diagnose + Kontakte an Engine + **Contact-Live-Guard** →
+    `engine.adaptive_touchdown_enable = param AND pipeline_live`), `_debug_leg1_contact` (Mess-Werkzeug).
+  - **Diagnose (ROS-frei):** `contact_diagnostic.py` (`ContactDiagnostic` — Latenz/Apex/Gap/Quote).
+- **Verhalten tunen:** alles über **Params** (live): `adaptive_touchdown_enable` (Default false,
+  Opt-in), `touchdown_probe_start_stance_phase` (0.35, Stance-Gate für die Abwärts-Suche),
+  `touchdown_search_end_stance_phase` (0.6, Such-Ende → danach Floor), `touchdown_max_extra_depth`
+  (0.02 m, Floor unter `body_height`).
+- **Fallen:** (1) **Körper-Anker NICHT aufgeben** — der Erst-Entwurf (Freeze an Kontakthöhe, auch
+  über `body_height`) war closed-loop-instabil (Drift). Option A hält den Anker bei `body_height`
+  und senkt **nur nach unten**. (2) **`probe_start` > Kontakt-Lag in Stance-Phasen** (bei
+  `cycle_time=2.0` ≈ 0.27; 0.35 hat Marge) — sonst sucht der Fuß auf flachem Boden **bevor** der
+  laggy Kontakt registriert → Absacken. Bei schnellerem Cycle `probe_start` hochsetzen. (3) **Kontakt
+  = Optimierung, nie load-bearing** — Contact-Live-Guard (Topic-Frische < 0.5 s) schaltet bei toter
+  Pipeline adaptiv aus → nominaler Fallback. (4) **Envelope:** Floor `body_height − max_extra_depth`
+  mit `walking_envelope_check check --body-height <bh−depth> --scenario all` prüfen (0.02 GREEN
+  mittel+hoch); IKError nur Backstop. (5) **Zwei Limit-Quellen** — Envelope/IK gegen **URDF**-Limits.
+  (6) Sim **isoliert** testen (`leveling_enable:=false`).
+- **Validieren:** `colcon test hexapod_kinematics hexapod_gait` (`test_adaptive_touchdown`,
+  `test_adaptive_touchdown_node`, `test_leg_gait_states`, `test_contact_diagnostic`,
+  `test_foot_contact_node`) + Lint · **Offline** `walking_envelope_check` (Floor-Tiefe) · **Sim**
+  ([`stage_4b_adaptive_touchdown_test_commands.md`](../project_finalization/imu_balance/stage_4b_adaptive_touchdown_test_commands.md)).
+
 ### Neuer Knoten / Topic
 - **Wo:** Bringup-Launch (`hexapod_bringup`), ggf. eigenes Paket. Topic-Konventionen aus
   `architecture.md` §4 einhalten.

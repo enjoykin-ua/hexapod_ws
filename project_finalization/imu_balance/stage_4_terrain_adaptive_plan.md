@@ -9,9 +9,14 @@
 >
 > **Status: 🟡 aktiv.** Methode **fixed-timing gewählt** (s.u.). **S4-1 🟢 fertig** (Kontakt-Signal
 > verifiziert: Sensor korrekt, der ~13-Tick-Offset = reiner Ausführungs-Lag des schnellen
-> Aufsetzers). **➡️ Als Nächstes S4-2** (adaptiver Touchdown mit **kontrollierter Senk-Rate**) —
-> Detailplan: [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md) (enthält
-> alle S4-1-Befunde + Code-Anker als Handoff). S4-1-Detail: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md).
+> Aufsetzers). **S4-2 🟢 Sim-verifiziert (Option A)** — Erst-Entwurf war closed-loop-instabil
+> (Körper-Anker verloren + ~13-Tick-Lag → Drift); **Option A** (downward-only, an `body_height`
+> verankert, lag-Gate) ist Sim-bestätigt stabil + reicht selektiv am konvexen Knick nach (~6 mm auf
+> 8°-Hang); sichtbarer Payoff → **S4-6** (Stufe/Knick). 694 Tests grün. **➡️ Als Nächstes S4-6**
+> (Mini-Stufen-Welt vorgezogen, um den S4-2-Nutzen zu zeigen). —
+> Detailplan: [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md),
+> Test-Doku: [`stage_4b_adaptive_touchdown_test_commands.md`](stage_4b_adaptive_touchdown_test_commands.md).
+> S4-1-Detail: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md).
 > **Abhängigkeit:** Fußkontakt-Pipeline (gz-contact in Sim **existiert vollständig**; HW-Taster =
 > Block E2, später). TF-1/TF-2 (IMU) 🟢 — in Stage 4 zunächst **isoliert** (Leveling aus).
 
@@ -76,13 +81,15 @@ nur, wenn fixed-timing nachweislich nicht reicht — dann als großer eigener Bl
 | Stufe | Inhalt | Kern-Deliverable |
 |---|---|---|
 | **S4-1** 🟢 ([Plan](stage_4a_contact_verify_plan.md)) | **Kontakt-Consumer + Verifikation** | ✅ Signal verifiziert: Sensor zuverlässig+korrekt; ~13-Tick-Offset = reiner Ausführungs-Lag (schneller Aufsetzer). De-risk vor S4-2 erledigt. |
-| **S4-2** ([Plan](stage_4b_adaptive_touchdown_plan.md)) | **Adaptiver Touchdown (fixed-timing)** | Schwung-z mit **kontrollierter Senk-Rate** bis Kontakt/Envelope (statt schneller Halbsinus → S4-1-Befund). **Der sichtbare Payoff (Knick).** Penetration NICHT nötig. |
+| **S4-2** 🟢 ([Plan](stage_4b_adaptive_touchdown_plan.md)) | **Adaptiver Touchdown (Option A)** | downward-only ab Stance-Gate, an `body_height` verankert (Erst-Entwurf war closed-loop-instabil). **Sim-verifiziert stabil + selektives Nachreichen** (~6 mm am 8°-Scheitel). Sichtbarer Payoff (großer Höhensprung) → **S4-6**. |
 | **S4-3** *(später, evtl.)* | **Kontakt-getriggertes Timing (free-gait)** | nur falls fixed-timing nicht reicht — großer eigener Block. |
 | **S4-4** | **Slip / Kontaktverlust-Reaktion** | Stance-Fuß verliert Kontakt (gerutscht/über Kante) → reagieren. ⚠️ `contact_timeout` (0.1 s) verzögert die fallende Flanke → hier relevant. |
 | **S4-5** | **Plausibilität + Sensor-Fault-Fail-Safe** | Kontakt im Swing-Apex / fehlend bei belastetem Stance = implausibel → Sensor flaggen, Bein auf Open-Loop-Zeitplan, warnen. |
-| **S4-6** | **Irreguläre Welten** | Stufen-/Buckel-SDFs (selbst, maßstabsgerecht); Heightmap/Fuel **später**. |
+| **S4-6** 🟡 **als Nächstes** | **Irreguläre Welten** | Stufen-/Buckel-SDFs (selbst, maßstabsgerecht); Heightmap/Fuel **später**. **Vorgezogen**, um den S4-2-Nutzen sichtbar zu machen (Höhensprung ≫ 6 mm — auf dem sanften 8°-Hang verlangt das Terrain nur ~6 mm). |
 
-**Reihenfolge: S4-1 → S4-2 → (S4-4/S4-5) → (S4-3) → S4-6.** Jede mit eigenem §4-Review.
+**Reihenfolge: S4-1 🟢 → S4-2 🟢 → S4-6 (vorgezogen, Demo des S4-2-Nutzens) → (S4-4/S4-5) → (S4-3).**
+Jede mit eigenem §4-Review. **S4-6 vorgezogen** (User-Entscheid): erst eine echte Stufen-/Knick-Welt
+bauen, damit das selektive Nachreichen aus S4-2 sichtbar wird; Slip/Plausibilität (S4-4/S4-5) danach.
 
 ## 2. Logik-Skizze der Gesamt-Stufe (grob — Detail je Teil-Stufe)
 

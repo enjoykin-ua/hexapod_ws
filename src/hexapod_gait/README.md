@@ -159,6 +159,50 @@ vorhandenen Fußkontakt-`Bool` und **verifiziert** ihn quantitativ — **kein Ve
   `cycle_time`/`step_height`.
 - **Parameter (live):** `foot_contact_debug_enable` (Default **true**; throttled-Log an/aus).
 
+## Adaptiver Touchdown (Block A5 Stufe 4 / S4-2)
+
+Zweite Teil-Stufe: ein Fuß reicht auf **tieferes** Terrain nach (Knick-Übergang, Loch, abfallender
+Boden) statt an fester Höhe in der Luft zu „landen". Methode = **fixed-timing** (Gait-Uhr
+unverändert), **nur die Fuß-z-Komponente** wird kontakt-adaptiv (x,y = nominaler Vortrieb).
+
+**Design = Option A (downward-only, an `body_height` verankert, lag-tolerant).** Ein erster Entwurf
+(Senkung vom Schwung-Apex bis Floor, Freeze an der Kontakthöhe) erzeugte in der Sim eine
+**closed-loop-Körper-Höhen-Instabilität**: er ersetzte die feste Stance-Höhe (= den Open-Loop-Körper-
+Anker) durch „Fuß = Kontakthöhe", und der ~13-Tick-Kontakt-Lag (NICHT geschwindigkeitsabhängig)
+ließ den Fuß auf flachem Boden über den echten Boden hinausreichen → Körper driftete → Ducken/
+Rückwärtslaufen. Option A behebt das:
+
+- **Anker bleibt:** nominaler Schwung-Bogen **und** nominale Stance (`z = body_height`) bleiben
+  unverändert → flacher Boden = exakt das bisherige Verhalten (stabil).
+- **Nur nach unten, erst nach einem Gate:** das Adaptive senkt den Fuß **nur unter `body_height`**
+  und **erst ab `touchdown_probe_start_stance_phase`** (Default 0.35 der Stance), wenn bis dahin
+  **kein Kontakt** kam. Das Gate wartet den Kontakt-Lag auf Nominalhöhe ab.
+  - **Kontakt vor dem Gate** (flacher/höherer Boden) → bei `body_height` verankern, **kein**
+    Tieferreichen → keine Körper-Drift.
+  - **Kein Kontakt bis zum Gate** (Boden liegt tiefer) → langsam (linear in der Stance-Phase =
+    konstante Senk-Geschwindigkeit) von `body_height` bis `body_height − touchdown_max_extra_depth`
+    (Floor) nachreichen; bei Kontakt das aktuelle (tiefere) z als `touchdown_z` einfrieren =
+    echte Terrain-Höhe für den Rest der Stance.
+  - **Kein Kontakt bis Fenster-Ende** (`touchdown_search_end_stance_phase`, Default 0.6) → Floor
+    halten **nur wenn das Bein wirklich gesucht hat** (`_td_searched`); sonst (Walk-Start mitten
+    in der Stance) `body_height`.
+- **Walk-Start sauber:** beim WALKING-Eintritt werden Beine, die bereits in der Stance sind, auf
+  `body_height` **vorverankert** (kein 1-Cycle-Probe). Schwung-Beine starten frisch.
+- **Bewusst aufgegeben (waren die Instabilitätsquelle):** „Buckel → höher einfrieren" und
+  „flat-Latenz senken". Buckel/höherer Boden werden vom Open-Loop genommen (Fuß bei `body_height`).
+- **Fallback = nominal, nie load-bearing:** `adaptive_touchdown_enable` Default **false** (Opt-in).
+  Der Node verUNDet den Param pro Tick mit einem **Contact-Live-Guard** (Pipeline frisch =
+  „je empfangen UND letzte `Bool`-Message < 0.5 s her"; der Publisher publisht 50 Hz dauernd,
+  Stille = toter Publisher) → tote/abwesende Pipeline schaltet adaptiv **aus**. Engine ROS-frei
+  (`set_foot_contacts()` + `adaptive_touchdown_enable` vom Node, **vor** `compute_joint_angles`).
+- **Envelope:** der Probe-z ist auf den Floor `body_height − max_extra_depth` geklemmt; dieser ist
+  offline envelope-verifiziert (`walking_envelope_check check --scenario all`, GREEN mittel+hoch
+  bei `max_extra_depth` 0.02). IKError-Fallback bleibt nur Backstop.
+- **Parameter (live):** `adaptive_touchdown_enable` (false), `touchdown_probe_start_stance_phase`
+  (0.35, ∈[0,1)), `touchdown_search_end_stance_phase` (0.6, ∈(0,1], > probe_start),
+  `touchdown_max_extra_depth` (0.02 m, ≥0).
+- **Isoliert testen:** `leveling_enable:=false` (IMU/TF getrennt von der per-Fuß-Adaption).
+
 ## Launch-Quickstart
 
 ### Stand-Pose anfahren
@@ -349,6 +393,10 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `slope_estimate_tau_s` | `0.5` | TF-1: Tiefpass-τ der Hang-Schätzung (s) |
 | `slope_clamp_deg` | `40.0` | TF-1: Betrags-Grenze der Hang-Schätzung |
 | `foot_contact_debug_enable` | `true` | S4-1: throttled-Log der Fußkontakt-Diagnose an/aus |
+| `adaptive_touchdown_enable` | `false` | S4-2: adaptiver Touchdown an/aus (Opt-in; mit Contact-Live-Guard verUNDet) |
+| `touchdown_probe_start_stance_phase` | `0.35` | S4-2: Stance-Phase-Gate, ab der ohne Kontakt nach unten gesucht wird (∈[0,1)) |
+| `touchdown_search_end_stance_phase` | `0.6` | S4-2: Stance-Phase, bis zu der gesucht wird, dann Floor (∈(0,1], > probe_start) |
+| `touchdown_max_extra_depth` | `0.02` | S4-2: max. Tiefe unter `body_height` (m, Floor; envelope-verifiziert) |
 
 ## State-Machine
 

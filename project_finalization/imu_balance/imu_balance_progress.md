@@ -14,12 +14,18 @@
 > **🧭 NEUER CHAT, KURZ: Wir sind in Block A5 → Stufe 4 (Terrain-adaptiv, Fußkontakte).**
 > **TF (Stufe 3, IMU-Hang-Laufen) ist 🟢 Sim-fertig + ⏸️ pausiert** (Wiedereinstieg
 > [stage_3 §7](stage_3_terrain_following_plan.md)). **Aktiv: Stufe 4.** **S4-1 (Kontakt-Consumer +
-> Verifikation) 🟢 fertig** — Signal verifiziert (Sensor korrekt; ~13-Tick-Offset = Ausführungs-Lag
-> des schnellen Aufsetzers, kein Defekt). **➡️ NÄCHSTER SCHRITT: S4-2 (adaptiver Touchdown mit
-> kontrollierter Senk-Rate) implementieren** — **Plan ist geschrieben + handoff-vollständig:**
-> [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md) (S4-1-Befunde +
-> Code-Anker + §4-Vorschläge drin). §4-Workflow: **erst User-Freigabe** zum Plan, dann Code → Test
-> → Self-Review. Tests aktuell **272 grün** (gait). **User committet selbst.**
+> Verifikation) 🟢 fertig** (Signal verifiziert). **S4-2 (adaptiver Touchdown, Option A) 🟢
+> Sim-verifiziert.** ⚠️ Der Erst-Entwurf war closed-loop-instabil (Körper-Anker verloren + ~13-Tick-
+> Lag → Ducken/Rückwärts); **Option A** (nominaler Anker bei `body_height`, downward-only, Stance-Gate
+> 0.35) ist **Sim-bestätigt stabil**: `cmd_z` Stance −0.0800, am konvexen Scheitel geführt bis
+> −0.0862 (~6 mm Nachreichen), `dz` 8–14 mm, kein Absacken. Wackeln = Tripod-CoG (kein Touchdown-
+> Effekt). **➡️ NÄCHSTER SCHRITT: S4-6** — Mini-Stufen-/Knick-Welt (Höhensprung ≫ 6 mm), damit der
+> Touchdown-Nutzen sichtbar wird (auf dem sanften 8°-Hang verlangt das Terrain nur ~6 mm).
+> Tests **694 grün** (gait 325 / kinematics 43; +25 S4-2). **User committet selbst.**
+> **⏸️ Zurückgestellt (eigene Aufgabe, NICHT S4-2):** `ramp_walk` steht **joint-space statt
+> kartesisch** auf (alle 6 Füße schleifen gleichzeitig nach innen, HW-Risiko) — Verdacht:
+> Auto-Standup-Trigger nimmt `start_ramp()` statt `start_cartesian_standup()` trotz
+> `standup_mode=cartesian`. Memory [[project_ramp_walk_standup_joint_space_regression]].
 
 - **Fertig (Sim verifiziert):** Stufe 0 (IMU-Plumbing/Viz) 🟢 · Stufe 1 (Kipp-
   Erkennung → Safe-State) 🟢. Branch `imu_balance` (**User committet selbst**).
@@ -355,14 +361,13 @@ TF-2:
 
 Umbrella: [`stage_4_terrain_adaptive_plan.md`](stage_4_terrain_adaptive_plan.md) (Methode **fixed-timing**
 gewählt; free-gait als dokumentierte Alternative). Teil-Stufen: **S4-1 🟢** (Consumer+Verifikation) →
-**S4-2 ⚪ (Plan fertig, Code offen)** (adaptiver Touchdown) → (S4-4/S4-5) → (S4-3) → S4-6.
+**S4-2 🟢 Sim-verifiziert** (adaptiver Touchdown, Option A) → **S4-6 (vorgezogen, als Nächstes)** → (S4-4/S4-5) → (S4-3).
 
-> **➡️ NÄCHSTER SCHRITT (für neuen Chat): S4-2 implementieren.** Plan (Handoff-vollständig, inkl.
-> S4-1-Befunde + Code-Anker + §4): [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md).
-> **Kern:** adaptiver Touchdown via **kontrollierter Senk-Rate** bis Kontakt (statt schneller
-> Halbsinus). Engine-z-adaptiv (x,y unverändert), per-Bein `touchdown_z`, Fallback nominal,
-> Contact-Live-Guard. §4-Workflow: Plan ist geschrieben → **User-Freigabe einholen** → Code → Test
-> → Self-Review. §4-Vorschläge im Plan §4 (Senk-Fenster 0.6/0.3, max_depth 0.02, Default false).
+> **➡️ NÄCHSTER SCHRITT: S4-6 (vorgezogen) — Mini-Stufen-/Knick-Welt.** S4-2 ist Sim-verifiziert
+> stabil + selektiv (Befund im S4-2-Block unten); der sichtbare Payoff braucht einen Höhensprung
+> ≫ 6 mm (auf dem sanften 8°-Hang verlangt das Terrain nur ~6 mm). Daher zuerst eine echte Stufen-/
+> Knick-SDF bauen (eigene maßstabsgerechte Welt, z.B. 2–3 cm Kante), dann S4-2 dort demonstrieren.
+> Slip/Plausibilität (S4-4/S4-5) danach. **User committet selbst.**
 
 ### S4-1 — Fußkontakt-Consumer + Verifikation
 
@@ -409,6 +414,79 @@ S4-1:
 | Apex/Stance-Fenster (0.2–0.8) hardcoded | 🟢 ausreichend; bei Bedarf später Param |
 | **Sim-Verify (User) + Mess-Zusatz (a): Signal verifiziert** | ✅ **Befund:** Sensor **zuverlässig + korrekt** (`miss 0`; feuert exakt bei Fußkugel-Bodenberührung — `act_z` bei RISE = `bh + Kugelradius 8mm`). Die ~13-Tick-„Latenz" = **reiner Ausführungs-Lag** (kommandiert vs. tatsächlich, Sim): der schnelle Halbsinus-Aufsetzer wird vom JTC ~8.8mm hinterhergetrackt. **Kein Sensor-/Pipeline-Defekt.** |
 | **Konsequenz für S4-2 (datenbelegt)** | adaptiver Touchdown mit **kontrollierter, langsamer Senk-Rate** in der späten Schwungphase → tatsächlicher Fuß trackt eng → Kontakt feuert prompt. Mess-Zusatz `_debug_leg1_contact` (act_z vs cmd_z via FK aus /joint_states) bleibt als Debug |
+
+### S4-2 — Adaptiver Touchdown (Option A: downward-only, lag-Gate)  🟢 Sim-verifiziert (stabil + selektives Nachreichen)
+
+Plan: [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md) (§4-Freigabe erteilt) ·
+Test-Doku: [`stage_4b_adaptive_touchdown_test_commands.md`](stage_4b_adaptive_touchdown_test_commands.md)
+
+> **⚠️ REDESIGN nach Sim (Option A).** Der erste Entwurf (Senkung vom Schwung-Apex bis Floor, Freeze
+> an der Kontakthöhe) war in der Sim **closed-loop-instabil** (User-Befund T1.B): er ersetzte die
+> feste Stance-Höhe (= Körper-Anker) durch „Fuß = Kontakthöhe"; der ~13-Tick-Kontakt-Lag (NICHT
+> geschwindigkeitsabhängig — `lat 14–16`, `dz 22–33 mm`, `cmd_z` bis Floor −0.10 auf flachem Boden)
+> ließ den Fuß über den echten Boden hinausreichen → Körper-Drift → **Ducken + Rückwärtslaufen**
+> (phasenlagen-abhängig). **Option A (umgesetzt):** nominaler Schwung+Stance bleiben (Anker bei
+> `body_height`), das Adaptive senkt **nur unter `body_height`** und **erst ab einem Stance-Gate**
+> (`touchdown_probe_start_stance_phase` 0.35), wenn bis dahin kein Kontakt kam (Gate wartet den Lag
+> ab). Flacher Boden = nominal = stabil; nur tieferer Boden (Knick/Loch) löst Nachreichen aus.
+> Aufgegeben (waren die Instabilitätsquelle): „Buckel→höher" + „flat-Latenz senken".
+>
+> **§4 (Option A):** `touchdown_probe_start_stance_phase` **0.35** / `touchdown_search_end_stance_phase`
+> **0.6** / `touchdown_max_extra_depth` **0.02** (Floor envelope-GREEN mittel −0.100 / hoch −0.120) ·
+> Default `adaptive_touchdown_enable` **false** · **Contact-Live-Guard = Topic-Frische** (< 0.5 s) ·
+> Walk-Start: Stance-Beine auf `body_height` vorverankert. **User committet selbst.**
+
+```
+S4-2:
+- [x] S4-2.1 Engine: set_foot_contacts() + per-Bein touchdown_z/_td_searched + adaptive-Params; z-adaptiv NUR in _compute_walking_targets (x,y unverändert)
+- [x] S4-2.2 Senk-Logik (Option A, ROS-frei): downward-only ab Stance-Gate, nominaler Anker bei body_height, Reset im Schwung, Walk-Start-Vorverankerung  [Redesign nach Sim, s. oben]
+- [x] S4-2.3 gait_node: Kontakt-States an Engine durchreichen + adaptive_touchdown_enable (Default false, live) + Contact-Live-Guard (Pipeline tot/stale → adaptiv aus)
+- [x] S4-2.4 Params: adaptive_touchdown_enable, touchdown_probe_start_stance_phase, touchdown_search_end_stance_phase, touchdown_max_extra_depth (alle live, validiert inkl. probe<search, dokumentiert)
+- [x] S4-2.5 Unit-Tests (Senk-Logik, **Anti-Drift flach**, x,y unverändert, Fallback=nominal, Envelope-Floor, Walk-Start-Vorverankerung) + Node-Tests  [+25: 11 Engine + 14 Node]
+- [x] S4-2.6 colcon test + Lint grün  [694 colcon-Aggregat, 0 Fehler; gait 325 / kinematics 43 pytest; flake8/pep257 grün]
+- [x] S4-2.7 README/Konzept (adaptiver Touchdown, Senk-Fenster, per-Fuß-Höhe, Fallback+Guard, Params)
+- [x] S4-2.8 Test-Doku stage_4b_adaptive_touchdown_test_commands.md (flach: **Stabilität** A/B; ramp-Knick: reicht nach + kommt drüber)  [**Sim-Verify ✅ — Befund unten**]
+- [x] S4-2.9 kritische Self-Review-Tabelle (OK/🔴/🟡/🟢)  [unten]
+```
+
+> **Sim-Verify-Befund (User, ramp 8° + T3-Tuning, `_debug_leg1` + foot_contact-Diagnose):**
+> 1. **Instabilität behoben (Kern-Ergebnis).** `cmd_z` in der Stance bleibt kontrolliert: flach/sanfter
+>    Hang exakt **−0.0800**, nur am **konvexen Plateau-Scheitel** geführt bis **−0.0862** (~6 mm
+>    Nachreichen) und zurück. `dz` durchweg gesund **8–14 mm**. **Kein** Floor-Durchsacken, **kein**
+>    Wegsacken/Rückwärtslaufen mehr (vs. Erst-Entwurf). Option A trägt.
+> 2. **Selektives Nachreichen bestätigt.** Obere Kante (konvex, pitch −8°→0°) → `cmd_z` reicht
+>    nach unten; untere/konkave Ecke (pitch 0°→−8°) **und** flacher Boden → `cmd_z` bleibt −0.0800
+>    (korrekt nichts). Ohne `adaptive_touchdown_enable` bleibt `cmd_z` auch am Scheitel −0.0800.
+> 3. **„Mit/ohne sieht ähnlich aus" — erklärt:** der Nachreich-Hub ist auf dem sanften 8°-Scheitel
+>    nur ~6 mm (Terrain verlangt nicht mehr); das sichtbare Bild dominiert das **Roll-Wackeln ±1–2°**,
+>    = prinzipbedingtes **Tripod-CoG-Wackeln** ([[project_nontripod_gait_wobble]]), **kein** Touchdown-
+>    Effekt (mit/ohne identisch). **Sichtbarer Payoff braucht eine Stufe/scharfen Knick → S4-6.**
+> 4. **Diagnose-Hinweis:** hohe `apex`-Zähler auf dem Hang = kumulatives **Artefakt** (`contact_timeout`
+>    0.1 s hält das Bool ~5 Ticks in den Schwung → zählt als Apex-Kontakt); **`miss 0`** überall →
+>    kein echter verpasster Touchdown, kein Regelproblem.
+>
+> **➡️ Nächster Schritt für sichtbaren Nutzen: S4-6** (Mini-Stufen-/Knick-Welt, Höhensprung ≫ 6 mm).
+
+### S4-2-Post-Review (Option A)
+
+| Punkt | Status |
+|---|---|
+| **Closed-loop-Körper-Drift (Erst-Entwurf) — Sim-Befund** | ✅ **Bug gefunden + behoben (Redesign Option A).** Erst-Entwurf verlor den Körper-Anker (Fuß=Kontakthöhe) → mit ~13-Tick-Lag Über-Reichen → Ducken/Rückwärts. Option A: Anker bei `body_height`, downward-only, Stance-Gate |
+| **Sim-Verify Option A (ramp 8°)** | ✅ **stabil + selektives Nachreichen** (Befund-Block oben): `cmd_z` Stance −0.0800, am konvexen Scheitel bis −0.0862 (~6 mm), `dz` 8–14 mm, `miss 0`. Payoff-Sichtbarkeit braucht Stufe/Knick → S4-6 |
+| **Anti-Drift flach** (Stance-Fuß nie unter `body_height` bei Kontakt) | OK (`test_flat_ground_no_body_drift`, 200 Ticks × 6 Beine — die Regression, die der Erst-Entwurf gerissen hätte) |
+| Pre-Gate Kontakt → bei `body_height` verankern (kein Tieferreichen) | OK (`test_stance_pregate_contact_anchors_body_height`) |
+| Probe nur **unter** `body_height`, linear (konstante Senk-Geschw.) | OK (`test_probe_descends_linearly_below_body_height`, `z < body_height`) |
+| Kontakt im Probe → tiefer einfrieren (echte Terrain-Höhe, Knick/Loch) | OK (`test_contact_during_probe_freezes_below_body_height`) |
+| x,y bit-identisch zu nominal (nur z adaptiv) | OK (`test_xy_unchanged…`, 200 Ticks × 6 Beine) |
+| Fallback adaptiv-aus = exakt nominal (keine State-Mutation) | OK (`test_fallback_disabled_is_exact…`) |
+| Tiefster Touchdown (Floor) in-limit, kein IKError-Freeze | OK (offline GREEN bh−0.02 alle 4 Szenarien + voller-Cycle-Test) |
+| Contact-Live-Guard (tot/stale/param-aus → adaptiv aus) | OK (4 Node-Tests; Topic-Frische statt letztes-True) |
+| Walk-Start: Stance-Beine auf `body_height` vorverankert (kein 1-Cycle-Probe) | OK (`test_walking_entry_preanchors_stance_legs`) |
+| Probe-Gate muss > Kontakt-Lag in Stance-Phasen sein (sonst flat-Drift) | 🟡 cycle_time-abhängig: 0.35 hat Marge bei `cycle_time=2.0` (Lag ≈ 0.27); bei schnellerem Cycle `probe_start` hochsetzen (Test-Doku-Hinweis) |
+| „Buckel→höher" + „flat-Latenz senken" aufgegeben | 🟢 bewusst (waren die Instabilitätsquelle); Buckel = Open-Loop (Fuß bei `body_height`) |
+| STOPPING droppt Terrain-Höhen (settle zu `body_height`) | 🟢 kurzer Übergang, eigener Pfad — bewusst (adaptiv nur WALKING) |
+| Kombination mit Leveling (rotiert adaptive-z downstream) | 🟢 später: geometrisch sauber; Stage 4 zunächst isoliert (`leveling_enable:=false`) |
+| Param-Validierung (Stance-Phasen + `probe_start < search_end`, Tiefe ≥0) atomic | OK (`test_invalid_params_rejected` + `test_probe_must_be_below_search_end_rejected`) |
 
 ---
 

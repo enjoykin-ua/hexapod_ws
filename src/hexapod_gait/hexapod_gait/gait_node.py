@@ -566,6 +566,11 @@ _SIT_SAFE_MIN_BH = -0.115
 # broadcaster nicht gestartet / gecrasht).
 _JOINT_STATES_TIMEOUT_S = 10.0
 
+# Block A5 S4-2 — Contact-Live-Guard: maximale Staleness der Fußkontakt-Pipeline.
+# Der foot_contact_publisher publisht 50 Hz; > 0.5 s ohne Message (= 25 verpasste
+# Ticks) gilt als toter/abwesender Publisher → adaptiver Touchdown wird ausgesetzt.
+_FOOT_CONTACT_STALE_S = 0.5
+
 
 # Abgeleitet aus _GAIT_PARAMS — keine Doppel-Pflege.
 _STANDING_ONLY_PARAMS = frozenset(
@@ -982,6 +987,33 @@ class GaitNode(Node):
         )
         self._dbg_prev_contact1 = False
 
+        # Block A5 Stufe 4 / S4-2 — adaptiver Touchdown (kontrollierte Senk-Rate).
+        # Opt-in (Default false, wie leveling_enable). Params live tunbar; werden
+        # auf die Engine gespiegelt. adaptive_touchdown_enable wird pro Tick mit
+        # dem Contact-Live-Guard verUNDet (toter Publisher → adaptiv aus →
+        # nominaler swing_traj-Fallback, kein Durchsacken).
+        self.declare_parameter('adaptive_touchdown_enable', False)
+        self.declare_parameter('touchdown_probe_start_stance_phase', 0.35)
+        self.declare_parameter('touchdown_search_end_stance_phase', 0.6)
+        self.declare_parameter('touchdown_max_extra_depth', 0.02)
+        self._adaptive_touchdown_enable = bool(
+            self.get_parameter('adaptive_touchdown_enable').value
+        )
+        self._engine.touchdown_probe_start_stance_phase = float(
+            self.get_parameter('touchdown_probe_start_stance_phase').value
+        )
+        self._engine.touchdown_search_end_stance_phase = float(
+            self.get_parameter('touchdown_search_end_stance_phase').value
+        )
+        self._engine.touchdown_max_extra_depth = float(
+            self.get_parameter('touchdown_max_extra_depth').value
+        )
+        # Contact-Live-Guard: der foot_contact_publisher publisht 50 Hz dauernd
+        # (true/false). Frische = "je empfangen UND letzte Msg < N s her".
+        # Stille (toter/abwesender Publisher) → Pipeline tot → adaptiv aus.
+        self._foot_contact_received = False
+        self._last_foot_contact_msg_t = 0.0
+
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
         self._t_start = time.monotonic()
@@ -1141,9 +1173,17 @@ class GaitNode(Node):
         self._imu_gyro_pitch = msg.angular_velocity.y
 
     def _make_foot_contact_cb(self, leg_id: int):
-        """Closure pro Bein (S4-1): cacht den Bool-Kontakt-State."""
+        """
+        Closure pro Bein (S4-1): cacht den Bool-Kontakt-State.
+
+        S4-2: stempelt zusätzlich den Empfangs-Zeitpunkt (egal welcher Wert) für
+        den Contact-Live-Guard — der Publisher publisht 50 Hz dauernd, Stille =
+        toter Publisher.
+        """
         def _cb(msg: Bool) -> None:
             self._foot_contact[leg_id] = bool(msg.data)
+            self._foot_contact_received = True
+            self._last_foot_contact_msg_t = time.monotonic()
         return _cb
 
     def _on_cmd_show(self, msg: Float64MultiArray) -> None:
@@ -1612,6 +1652,21 @@ class GaitNode(Node):
                 leg_id, self._foot_contact[leg_id], is_swing, local_phase,
                 is_walking,
             )
+
+        # S4-2 — Kontakte an die Engine durchreichen + adaptiven Touchdown nur
+        # scharf schalten, wenn (a) der Param es will UND (b) die Pipeline lebt
+        # (Contact-Live-Guard). Pipeline tot/abwesend → adaptiv aus → die Engine
+        # fällt auf den nominalen swing_traj zurück (kein Durchsacken). VOR
+        # compute_joint_angles (dieser Tick nutzt frische Kontakte/Phase).
+        pipeline_live = (
+            self._foot_contact_received
+            and (time.monotonic() - self._last_foot_contact_msg_t)
+            < _FOOT_CONTACT_STALE_S
+        )
+        self._engine.set_foot_contacts(self._foot_contact)
+        self._engine.adaptive_touchdown_enable = (
+            self._adaptive_touchdown_enable and pipeline_live
+        )
 
         msg = Float64MultiArray()
         msg.data = [1.0 if self._foot_contact[i] else 0.0 for i in range(1, 7)]
@@ -2259,6 +2314,46 @@ class GaitNode(Node):
                     ),
                 )
 
+        # 1j. S4-2 adaptiver Touchdown: Stance-Probe-Fenster + Tiefe plausibel.
+        td_probe = self._engine.touchdown_probe_start_stance_phase
+        td_search = self._engine.touchdown_search_end_stance_phase
+        for p in params:
+            if p.name == 'touchdown_probe_start_stance_phase':
+                if not 0.0 <= p.value < 1.0:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            'touchdown_probe_start_stance_phase must be in '
+                            f'[0,1), got {p.value}'
+                        ),
+                    )
+                td_probe = p.value
+            if p.name == 'touchdown_search_end_stance_phase':
+                if not 0.0 < p.value <= 1.0:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            'touchdown_search_end_stance_phase must be in '
+                            f'(0,1], got {p.value}'
+                        ),
+                    )
+                td_search = p.value
+            if p.name == 'touchdown_max_extra_depth' and p.value < 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'touchdown_max_extra_depth must be >= 0, got {p.value}'
+                    ),
+                )
+        if td_probe >= td_search:
+            return SetParametersResult(
+                successful=False,
+                reason=(
+                    f'touchdown_probe_start_stance_phase ({td_probe}) must be '
+                    f'< touchdown_search_end_stance_phase ({td_search})'
+                ),
+            )
+
         # === 2. APPLY (kein Fail mehr möglich) ===
         for p in params:
             self._apply_param(p.name, p.value)
@@ -2427,6 +2522,16 @@ class GaitNode(Node):
             if new_dbg and not self._foot_contact_debug_enable:
                 self._contact_diag.reset()
             self._foot_contact_debug_enable = new_dbg
+        # Block A5 S4-2 — adaptiver Touchdown live. enable wirkt erst im Tick
+        # (mit Live-Guard verUNDet); Fenster/Tiefe direkt auf die Engine.
+        elif name == 'adaptive_touchdown_enable':
+            self._adaptive_touchdown_enable = bool(value)
+        elif name == 'touchdown_probe_start_stance_phase':
+            self._engine.touchdown_probe_start_stance_phase = float(value)
+        elif name == 'touchdown_search_end_stance_phase':
+            self._engine.touchdown_search_end_stance_phase = float(value)
+        elif name == 'touchdown_max_extra_depth':
+            self._engine.touchdown_max_extra_depth = float(value)
 
     def _restart_timer(self) -> None:
         """

@@ -323,6 +323,36 @@ class GaitEngine:
         self._show_return_rate: float = 0.0   # m/s, Nachführ-/Rückkehr-Rate
         self._show_active_last_t: float = 0.0  # für dt im Rate-Limit
 
+        # Block A5 Stufe 4 / S4-2 — adaptiver Touchdown (Option A: downward-only,
+        # an body_height verankert, lag-tolerant). NUR die Fuß-z-Komponente wird
+        # im WALKING kontakt-adaptiv (x,y bleiben nominal). **Nominaler Schwung +
+        # Stance bleiben unverändert** (Fuß → body_height) → der Open-Loop-Körper-
+        # Höhen-Anker bleibt erhalten → flacher Boden = exakt bisheriges Verhalten,
+        # stabil. Das Adaptive senkt den Fuß **nur UNTER body_height** und **erst
+        # nach einem Stance-Gate** (probe_start), wenn bis dahin KEIN Kontakt kam —
+        # das Gate wartet den ~13-Tick-Kontakt-Lag auf Nominalhöhe ab (sonst
+        # Über-Reichen → Körper-Drift, Sim-Befund S4-2). Defaults = AUS. Der Node
+        # setzt `adaptive_touchdown_enable` pro Tick auf (Param AND Pipeline-live)
+        # und reicht die 6 Kontakte via set_foot_contacts() durch.
+        self.adaptive_touchdown_enable: bool = False
+        # Stance-Phase, ab der ohne Kontakt nach unten gesucht wird (lag-Gate).
+        self.touchdown_probe_start_stance_phase: float = 0.35
+        # Stance-Phase, bis zu der gesucht wird (danach Floor halten).
+        self.touchdown_search_end_stance_phase: float = 0.6
+        self.touchdown_max_extra_depth: float = 0.02   # m unter body_height (Floor)
+        # Per-Bein-State (keyed by leg_id 1..6): eingefrorene Lande-z (None = noch
+        # nicht gelandet) + ob das Bein das Senk-Fenster diese Episode durchlief.
+        self._touchdown_z: dict[int, float | None] = {
+            leg_id: None for leg_id in range(1, 7)
+        }
+        self._td_searched: dict[int, bool] = {
+            leg_id: False for leg_id in range(1, 7)
+        }
+        # Letzte vom Node durchgereichte Kontakt-States (leg_id → bool).
+        self._foot_contacts: dict[int, bool] = {
+            leg_id: False for leg_id in range(1, 7)
+        }
+
     @property
     def state(self) -> str:
         return self._state
@@ -539,6 +569,10 @@ class GaitEngine:
             self._v_body = (v_body_x, v_body_y)
             self._omega = omega_z
             if self._state != self.STATE_WALKING:
+                # S4-2: beim (Wieder-)Eintritt in WALKING den per-Bein adaptiven
+                # Touchdown-State frisch starten (Stance-Beine auf body_height
+                # vorverankert) — verhindert stale touchdown_z + Walk-Start-Probe.
+                self._reset_touchdown_state(t)
                 self._state = self.STATE_WALKING
 
         return clamped
@@ -625,6 +659,44 @@ class GaitEngine:
         self._level_roll = corr_roll
         self._level_pitch = corr_pitch
 
+    def set_foot_contacts(self, contacts: dict[int, bool]) -> None:
+        """
+        Block A5 S4-2 — die 6 Fußkontakt-States vom Node cachen (leg_id → bool).
+
+        Wird vom gait_node pro Tick **vor** ``compute_joint_angles`` gesetzt. Die
+        adaptive Senk-Logik in ``_compute_walking_targets`` liest daraus, ob ein
+        Schwungbein im Senk-Fenster Bodenkontakt hat (→ ``touchdown_z`` einfrieren).
+        Engine bleibt ROS-frei; der Node ist die einzige Quelle der Kontakte und
+        garantiert (via Contact-Live-Guard), dass ``adaptive_touchdown_enable`` nur
+        True ist, wenn hier frische Kontakte anliegen.
+        """
+        for leg_id in range(1, 7):
+            self._foot_contacts[leg_id] = bool(contacts.get(leg_id, False))
+
+    def _reset_touchdown_state(self, t: float) -> None:
+        """
+        S4-2 — per-Bein adaptiven Touchdown-State beim WALKING-Eintritt setzen.
+
+        Beine, die bei ``t`` bereits in der **Stance** sind (Walk-Start aus dem
+        Stand → Füße am Boden auf ``body_height``), werden auf ``body_height``
+        **vorverankert** — so probt kein Bein im allerersten Zyklus mitten in der
+        Stance nach unten (kein 1-Cycle-Eck-Heben). Schwung-Beine starten frisch
+        (``None``) und durchlaufen den normalen Bogen + späteren Probe. Das
+        ``_td_searched``-Flag wird für alle gelöscht.
+        """
+        for leg in HEXAPOD.legs:
+            leg_id = int(leg.name.split('_')[1])
+            self._td_searched[leg_id] = False
+            offset = self.pattern.phase_offset_per_leg.get(leg_id)
+            if offset is None:
+                self._touchdown_z[leg_id] = None
+                continue
+            cycle_phase = ((t / self.cycle_time) + offset) % 1.0
+            if cycle_phase >= self.pattern.swing_duty:
+                self._touchdown_z[leg_id] = self.body_height
+            else:
+                self._touchdown_z[leg_id] = None
+
     def compute_foot_targets(self, t: float) -> dict:
         """
         Berechne Foot-Position pro Bein im Bein-Frame zur Zeit t.
@@ -692,7 +764,7 @@ class GaitEngine:
 
             if cycle_phase < self.pattern.swing_duty:
                 swing_phase = cycle_phase / self.pattern.swing_duty
-                targets[leg.name] = swing_traj(
+                pt = swing_traj(
                     phase=swing_phase,
                     radial_neutral=self.radial_distance,
                     body_height=self.body_height,
@@ -704,13 +776,86 @@ class GaitEngine:
                     (cycle_phase - self.pattern.swing_duty)
                     / (1.0 - self.pattern.swing_duty)
                 )
-                targets[leg.name] = stance_traj(
+                pt = stance_traj(
                     phase=stance_phase,
                     radial_neutral=self.radial_distance,
                     body_height=self.body_height,
                     step_vec=step_vec_leg,
                 )
+
+            # S4-2 — adaptiver Touchdown: NUR die z-Komponente kontakt-adaptiv
+            # (x,y unverändert = nominaler Vortrieb). Bei aus: exakt nominal,
+            # keine State-Mutation → bit-identisches Fallback-Verhalten.
+            if self.adaptive_touchdown_enable:
+                z = self._adaptive_touchdown_z(leg_id, cycle_phase, pt[2])
+                pt = (pt[0], pt[1], z)
+            targets[leg.name] = pt
         return targets
+
+    def _adaptive_touchdown_z(
+        self, leg_id: int, cycle_phase: float, z_nom: float,
+    ) -> float:
+        """
+        Block A5 S4-2 — kontakt-adaptives Fuß-z (Option A: downward-only, lag-Gate).
+
+        **Der Körper-Höhen-Anker bleibt erhalten:** der nominale Schwung-Bogen und
+        die nominale Stance (``z = body_height``) werden NICHT ersetzt; das Adaptive
+        senkt den Fuß **nur unter ``body_height``** und **erst nach einem Stance-
+        Gate**. Damit ist flacher Boden = exakt nominal (stabil), und nur wenn der
+        Boden tiefer liegt (Knick/Loch) reicht der Fuß nach.
+
+        Ablauf pro Bein:
+        - **Schwung** (``cycle_phase < swing_duty``): Reset-Zone — State löschen,
+          nominaler Bogen (``z_nom``). Kein Adaptive im Schwung.
+        - **Stance, schon eingefroren** (``_touchdown_z`` gesetzt): halten.
+        - **Stance vor dem Gate** (``stance_phase < probe_start``): ``body_height``
+          halten und auf Kontakt auf Nominalhöhe **warten** (deckt den ~13-Tick-
+          Kontakt-Lag ab). Kontakt hier → flacher/höherer Boden → bei ``body_height``
+          verankern (= nominal). **Kein** Tieferreichen → keine Körper-Drift.
+        - **Stance im Probe-Fenster** (``probe_start ≤ stance_phase ≤ search_end``)
+          ohne Kontakt: langsam von ``body_height`` bis ``z_floor``
+          (``body_height − max_extra_depth``, envelope-verifiziert) **nach unten**
+          suchen; bei Kontakt das aktuelle (tiefere) z einfrieren (echte
+          Terrain-Höhe). Linear in der Stance-Phase = konstante Senk-Geschwindigkeit.
+        - **Stance nach dem Fenster** ohne Kontakt: ``z_floor`` halten **nur wenn
+          gesucht** (``_td_searched``) — sonst ``body_height`` (z.B. Walk-Start
+          mitten in der Stance; kein Durchsacken).
+        """
+        swing_duty = self.pattern.swing_duty
+        if cycle_phase < swing_duty:
+            # Schwung: nominaler Bogen, State zurücksetzen (Reset-Zone).
+            self._touchdown_z[leg_id] = None
+            self._td_searched[leg_id] = False
+            return z_nom
+
+        frozen = self._touchdown_z[leg_id]
+        if frozen is not None:
+            return frozen
+
+        body_height = self.body_height
+        z_floor = body_height - self.touchdown_max_extra_depth
+        probe_start = self.touchdown_probe_start_stance_phase
+        search_end = self.touchdown_search_end_stance_phase
+        stance_phase = (cycle_phase - swing_duty) / (1.0 - swing_duty)
+        contact = self._foot_contacts.get(leg_id, False)
+
+        if stance_phase < probe_start:
+            # Lag-Gate: auf Nominalhöhe auf Kontakt warten, NICHT tiefer reichen.
+            if contact:
+                self._touchdown_z[leg_id] = body_height
+            return body_height
+        if stance_phase <= search_end:
+            # kein Kontakt bis zum Gate → Boden liegt tiefer → langsam nachreichen.
+            self._td_searched[leg_id] = True
+            span = search_end - probe_start
+            wp = 0.0 if span <= 0.0 else (stance_phase - probe_start) / span
+            wp = max(0.0, min(1.0, wp))
+            z_probe = body_height + (z_floor - body_height) * wp
+            if contact:
+                self._touchdown_z[leg_id] = z_probe
+            return z_probe
+        # Fenster vorbei ohne Kontakt: Floor nur wenn wirklich gesucht.
+        return z_floor if self._td_searched[leg_id] else body_height
 
     def _compute_stopping_targets(self, t: float) -> dict:
         """
