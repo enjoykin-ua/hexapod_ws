@@ -19,9 +19,13 @@
 > Lag → Ducken/Rückwärts); **Option A** (nominaler Anker bei `body_height`, downward-only, Stance-Gate
 > 0.35) ist **Sim-bestätigt stabil**: `cmd_z` Stance −0.0800, am konvexen Scheitel geführt bis
 > −0.0862 (~6 mm Nachreichen), `dz` 8–14 mm, kein Absacken. Wackeln = Tripod-CoG (kein Touchdown-
-> Effekt). **➡️ NÄCHSTER SCHRITT: S4-6** — Mini-Stufen-/Knick-Welt (Höhensprung ≫ 6 mm), damit der
-> Touchdown-Nutzen sichtbar wird (auf dem sanften 8°-Hang verlangt das Terrain nur ~6 mm).
-> Tests **694 grün** (gait 325 / kinematics 43; +25 S4-2). **User committet selbst.**
+> Effekt). **S4-6 (Stufen- + Graben-Welt) 🟢 Sim-verifiziert** (`step.*` + `trench.*`; kein
+> Engine-Code). **Befund:** Vollbreit-Stufe wird vom Körper-Pitch geschluckt (~3 mm, schwache Demo)
+> → **Graben** ergänzt: dort `cmd_z` bis **−0.105** über dem Graben (~2.5 cm per-Fuß-Reach) vs −0.080
+> ohne, Roll **±1.3° (AN) vs ±2.7° (AUS)** → per-Fuß-Reach klar belegt. **➡️ NÄCHSTER SCHRITT:
+> S4-4/S4-5** (Slip/Kontaktverlust + Plausibilität/Sensor-Fault). Tests **694 grün** (gait 325 /
+> kinematics 43; +25 S4-2). **User committet selbst.** ⏸️ Zurückgestellt: ramp_walk-Standup-Regression
+> [[project_ramp_walk_standup_joint_space_regression]].
 > **⏸️ Zurückgestellt (eigene Aufgabe, NICHT S4-2):** `ramp_walk` steht **joint-space statt
 > kartesisch** auf (alle 6 Füße schleifen gleichzeitig nach innen, HW-Risiko) — Verdacht:
 > Auto-Standup-Trigger nimmt `start_ramp()` statt `start_cartesian_standup()` trotz
@@ -487,6 +491,57 @@ S4-2:
 | STOPPING droppt Terrain-Höhen (settle zu `body_height`) | 🟢 kurzer Übergang, eigener Pfad — bewusst (adaptiv nur WALKING) |
 | Kombination mit Leveling (rotiert adaptive-z downstream) | 🟢 später: geometrisch sauber; Stage 4 zunächst isoliert (`leveling_enable:=false`) |
 | Param-Validierung (Stance-Phasen + `probe_start < search_end`, Tiefe ≥0) atomic | OK (`test_invalid_params_rejected` + `test_probe_must_be_below_search_end_rejected`) |
+
+### S4-6 — Stufen- + Graben-Welt (Demo des adaptiven Touchdowns)  🟢 Sim-verifiziert (Graben zeigt den per-Fuß-Reach)
+
+Plan: [`stage_4c_step_worlds_plan.md`](stage_4c_step_worlds_plan.md) (§4-Freigabe erteilt) ·
+Test-Doku: [`stage_4c_step_worlds_test_commands.md`](stage_4c_step_worlds_test_commands.md)
+
+> **§4-Entscheide (User):** scharfe **Stufe ab** zuerst · Höhen **2 cm** (Payoff, Demo-Marge
+> `max_extra_depth:=0.025`) **+ 4 cm** (fixed-timing-Grenze) · **Stufe-auf-Gegenprobe** via negativem
+> `step_drop` · Geometrie obere Box + `ground_plane` · `step.sdf.xacro`/`step.launch.py`/
+> `step_walk.launch.py` (analog ramp) · eine Stufe (Treppe später). **Kein Engine-/Node-Code.**
+> **User committet selbst.**
+
+```
+S4-6:
+- [x] S4-6.1 step.sdf.xacro (obere Box @ +step_drop + ground_plane, scharfe Kante; signiert +=ab/−=auf) + trench.sdf.xacro (2 Plattformen + tieferer ground_plane = Graben)
+- [x] S4-6.2 step.launch.py + step_walk.launch.py + trench.launch.py + trench_walk.launch.py (Ein-Befehl, leveling_enable Default false)
+- [x] S4-6.3 gz sdf --check Valid (step 0.02/0.04/−0.02; trench 0.02) + alle Launches konstruieren  [Geometrie verifiziert]
+- [x] S4-6.4 install (Directory-Glob worlds/+launch/) + colcon build grün
+- [x] S4-6.5 Test-Doku stage_4c_step_worlds_test_commands.md (T1–T3 Stufe + **T4 Graben = die klare Demo**, exakte „was-du-siehst"-Beschreibung)  [**Sim-Verify ✅ Stufe + Graben (Befund unten)**]
+- [x] S4-6.6 Doku-Querverweise (Umbrella S4-6, ai_navigation Welten-Eintrag, Memory)
+- [x] S4-6.7 kritische Self-Review-Tabelle  [unten]
+```
+
+> **Sim-Verify-Befund Stufe (User, 2 cm ab, A/B):** funktional ✅ — Option A stabil (`cmd_z`
+> verankert, `miss 0`, `dz` 8–12 mm), reicht am Kanten-Schritt nach (`cmd_z −0.0833`). **ABER als
+> Demo schwach:** eine **vollbreite Stufe ab** wird fast komplett vom Körper-**Pitch** geschluckt
+> (Körper kippt ~5° = atan(0.02/0.2) über die Kante → Vorderbeine erreichen den unteren Boden von
+> selbst, Touchdown-Anteil nur ~3 mm). **Konsequenz: Graben-Welt `trench.sdf.xacro` ergänzt** —
+> schmaler Graben quer zur Laufrichtung, 4 Beine auf den Plattformen halten den Körper eben → nur
+> das einzelne Bein reicht runter → per-Fuß-Reach isoliert sichtbar (`cmd_z` ~−0.10). **Graben-Sim-
+> Verify durch User offen** ([Test-Doku T4](stage_4c_step_worlds_test_commands.md)).
+
+### S4-6-Post-Review
+
+| Punkt | Status |
+|---|---|
+| `gz sdf --check` Valid (3 Stufenwerte) | OK (Valid für 0.02/0.04/−0.02) |
+| Geometrie: Box-Oberkante = `|step_drop|`, ab=Start-Seite / auf=Ziel-Seite | OK (Pose verifiziert: ab x∈[−2,0] top 0.02/0.04; auf x∈[0,2] top 0.02) |
+| IMU welt-referenziert → flach spawnen | OK (sim.launch Default flach; [[project_gz_imu_spawn_referenced]]) |
+| Spawn-Höhe richtet sich nach Start-Fläche (ab=Box-Top, auf=ground) | OK (`spawn_z = start_z + clearance` im Launch) |
+| Box überlappt `ground_plane` (beide static) | 🟢 unkritisch (keine Dynamik; höhere Fläche trägt) |
+| Kein Engine-/Node-Code (reine Welt) | OK (nur SDF/Launch; S4-2-Logik unverändert) |
+| **2-cm-Demo-Marge knapp** (2 cm Stufe vs. 2 cm Reach) | 🟡 Test-Doku setzt `max_extra_depth:=0.025` für die Demo (envelope-GREEN bis −0.12); Default-Param bleibt 0.02 |
+| 4-cm-Stufe = fixed-timing-Grenze (Fuß am Floor, kein Boden) | 🟢 gewollt + dokumentiert (motiviert S4-3) |
+| Launches installiert (symlink) + konstruieren | OK (`--show-args` grün, share-Symlinks vorhanden) |
+| **Vollbreit-Stufe = schwache Demo (Pitch schluckt sie)** | ✅ **Sim-Befund + behoben:** Stufe ab → Körper pitcht ~5° → Touchdown-Anteil nur ~3 mm. **Graben-Welt ergänzt** (Pitch-frei, per-Fuß-Reach ~2 cm) |
+| `trench.sdf.xacro` Geometrie (2 Plattformen z=0 + ground_plane z=−depth, Lücke=Graben) | OK (gz valid; near x∈[−2.05,−0.05] / far x∈[0.05,2.05] / Graben 0.10 breit / Boden −0.02) |
+| Graben schmal genug → Stütz-Beine halten Körper eben (kein Pitch-Cheat) | 🟡 `trench_width` 0.10 Default — bei zu breit kippt der Körper (wie Stufe), bei zu schmal trifft kein Bein; live tunbar |
+| **Sim-Verify Graben (T4) ✅** | **per-Fuß-Reach klar belegt:** AN `cmd_z` bis **−0.105** über dem Graben (`act_z`−0.088, ~2.5 cm) vs AUS `−0.080` durchgehend; Roll **±1.3° (AN) vs ±2.7° (AUS)** (Körper ~2× ruhiger); `miss 0` |
+| **`miss`-Vorhersage korrigiert** | 🟡 `miss` bleibt in **beiden** 0 (10-cm-Graben → Füße straddeln teils) — Signatur = **Reach + halbierter Roll**, NICHT ein `miss`-Sprung (Test-Doku korrigiert) |
+| Stufe (T1) als Demo | 🟢 funktional-ok aber subtil (~3 mm, Pitch schluckt sie) — bleibt als funktionaler Beleg + Grenze (4 cm) + Gegenprobe (auf); der **Graben ist die Demo** |
 
 ---
 

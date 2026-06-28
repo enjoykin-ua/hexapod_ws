@@ -12,8 +12,9 @@
 > Aufsetzers). **S4-2 🟢 Sim-verifiziert (Option A)** — Erst-Entwurf war closed-loop-instabil
 > (Körper-Anker verloren + ~13-Tick-Lag → Drift); **Option A** (downward-only, an `body_height`
 > verankert, lag-Gate) ist Sim-bestätigt stabil + reicht selektiv am konvexen Knick nach (~6 mm auf
-> 8°-Hang); sichtbarer Payoff → **S4-6** (Stufe/Knick). 694 Tests grün. **➡️ Als Nächstes S4-6**
-> (Mini-Stufen-Welt vorgezogen, um den S4-2-Nutzen zu zeigen). —
+> 8°-Hang); sichtbarer Payoff → **S4-6** (Stufe/Graben). 694 Tests grün. **S4-6 🟢 Sim-verifiziert**
+> — Graben zeigt den per-Fuß-Reach (`cmd_z` −0.105 vs −0.080, Roll ±1.3° vs ±2.7°; Stufe vom Pitch
+> geschluckt). **➡️ Als Nächstes S4-4/S4-5** (Slip/Plausibilität). —
 > Detailplan: [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md),
 > Test-Doku: [`stage_4b_adaptive_touchdown_test_commands.md`](stage_4b_adaptive_touchdown_test_commands.md).
 > S4-1-Detail: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md).
@@ -85,11 +86,12 @@ nur, wenn fixed-timing nachweislich nicht reicht — dann als großer eigener Bl
 | **S4-3** *(später, evtl.)* | **Kontakt-getriggertes Timing (free-gait)** | nur falls fixed-timing nicht reicht — großer eigener Block. |
 | **S4-4** | **Slip / Kontaktverlust-Reaktion** | Stance-Fuß verliert Kontakt (gerutscht/über Kante) → reagieren. ⚠️ `contact_timeout` (0.1 s) verzögert die fallende Flanke → hier relevant. |
 | **S4-5** | **Plausibilität + Sensor-Fault-Fail-Safe** | Kontakt im Swing-Apex / fehlend bei belastetem Stance = implausibel → Sensor flaggen, Bein auf Open-Loop-Zeitplan, warnen. |
-| **S4-6** 🟡 **als Nächstes** | **Irreguläre Welten** | Stufen-/Buckel-SDFs (selbst, maßstabsgerecht); Heightmap/Fuel **später**. **Vorgezogen**, um den S4-2-Nutzen sichtbar zu machen (Höhensprung ≫ 6 mm — auf dem sanften 8°-Hang verlangt das Terrain nur ~6 mm). |
+| **S4-6** 🟢 ([Plan](stage_4c_step_worlds_plan.md)) | **Stufen- + Graben-Welt (Demo)** | `step.*` (Stufe) **+ `trench.*` (Graben — die klare Demo)**. **Sim-verifiziert:** Stufe vom Pitch geschluckt (~3 mm), **Graben** zeigt den per-Fuß-Reach (`cmd_z` −0.105 vs −0.080 = ~2.5 cm; Roll ±1.3° vs ±2.7°). `miss 0` beide (Füße straddeln 10-cm-Graben). |
 
-**Reihenfolge: S4-1 🟢 → S4-2 🟢 → S4-6 (vorgezogen, Demo des S4-2-Nutzens) → (S4-4/S4-5) → (S4-3).**
-Jede mit eigenem §4-Review. **S4-6 vorgezogen** (User-Entscheid): erst eine echte Stufen-/Knick-Welt
-bauen, damit das selektive Nachreichen aus S4-2 sichtbar wird; Slip/Plausibilität (S4-4/S4-5) danach.
+**Reihenfolge: S4-1 🟢 → S4-2 🟢 → S4-6 🟢 (Graben-Demo) → S4-4/S4-5 (als Nächstes) → (S4-3).**
+Jede mit eigenem §4-Review. S4-6 (vorgezogen) hat den S4-2-Nutzen sichtbar gemacht (Graben:
+per-Fuß-Reach ~2.5 cm, `cmd_z` −0.105). **Als Nächstes S4-4/S4-5** (Slip/Kontaktverlust +
+Plausibilität/Sensor-Fault-Fail-Safe).
 
 ## 2. Logik-Skizze der Gesamt-Stufe (grob — Detail je Teil-Stufe)
 

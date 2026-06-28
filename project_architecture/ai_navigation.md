@@ -163,10 +163,10 @@
 - **Voll-Doku:** [`../project_finalization/imu_balance/stage_4_terrain_adaptive_plan.md`](../project_finalization/imu_balance/stage_4_terrain_adaptive_plan.md)
   (Umbrella, Methoden-Wahl fixed-timing) + S4-1 (Consumer/Verifikation) + S4-2 (adaptiver Touchdown).
 - **Stand:** S4-1 🟢 (Kontakt-Consumer + Diagnose). **S4-2 🟢 Sim-verifiziert** (adaptiver Touchdown
-  **Option A** — downward-only, an `body_height` verankert, lag-tolerant; stabil + selektives
-  Nachreichen ~6 mm am 8°-Scheitel). ⚠️ Erst-Entwurf (Senkung vom Apex bis Floor, Freeze an
-  Kontakthöhe) war **closed-loop-instabil** (Körper-Anker verloren + ~13-Tick-Lag → Drift); daher
-  Option A. **Nächstes: S4-6** (Stufen-/Knick-Welt, damit der Nachreich-Nutzen sichtbar wird).
+  **Option A** — downward-only, an `body_height` verankert, lag-tolerant). ⚠️ Erst-Entwurf (Senkung
+  vom Apex bis Floor, Freeze an Kontakthöhe) war **closed-loop-instabil** (Körper-Anker verloren +
+  ~13-Tick-Lag → Drift); daher Option A. **S4-6 🟢 Sim-verifiziert** (Graben-Welt zeigt den per-Fuß-
+  Reach: `cmd_z` −0.105 vs −0.080, Roll halbiert). **Nächstes: S4-4/S4-5** (Slip/Plausibilität).
 - **Pipeline (Sim, existiert):** gz-contact pro `foot_link` ([`hexapod.foot_contact.xacro`](../src/hexapod_description/urdf/hexapod.foot_contact.xacro))
   → [`bridge_foot_contact.yaml`](../src/hexapod_bringup/config/bridge_foot_contact.yaml)
   → [`foot_contact_publisher.py`](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)
@@ -196,10 +196,17 @@
   mit `walking_envelope_check check --body-height <bh−depth> --scenario all` prüfen (0.02 GREEN
   mittel+hoch); IKError nur Backstop. (5) **Zwei Limit-Quellen** — Envelope/IK gegen **URDF**-Limits.
   (6) Sim **isoliert** testen (`leveling_enable:=false`).
+- **Welten (S4-6):** **Graben** `hexapod_gazebo/worlds/trench.sdf.xacro` (2 Plattformen z=0 +
+  ground_plane tiefer = Lücke; via `trench.launch.py`/`trench_walk.launch.py`) = die **klare Demo**
+  des per-Fuß-Reach (Körper bleibt eben, `cmd_z`~−0.10). **Stufe** `step.sdf.xacro` (signiert
+  `step_drop` +=ab/−=auf) = funktionaler Beleg, aber **vom Körper-Pitch geschluckt** (~3 mm, schwache
+  Demo — daher der Graben). Reach-Budget: `|drop| ≲ max_extra_depth` (Demo `max_extra_depth:=0.025`).
+  Sanfter Hang = `ramp.sdf.xacro`. Alle `*_walk.launch.py` = Ein-Befehl, `leveling_enable` Default false.
 - **Validieren:** `colcon test hexapod_kinematics hexapod_gait` (`test_adaptive_touchdown`,
   `test_adaptive_touchdown_node`, `test_leg_gait_states`, `test_contact_diagnostic`,
   `test_foot_contact_node`) + Lint · **Offline** `walking_envelope_check` (Floor-Tiefe) · **Sim**
-  ([`stage_4b_adaptive_touchdown_test_commands.md`](../project_finalization/imu_balance/stage_4b_adaptive_touchdown_test_commands.md)).
+  ([`stage_4b_…`](../project_finalization/imu_balance/stage_4b_adaptive_touchdown_test_commands.md) +
+  [`stage_4c_step_worlds_test_commands.md`](../project_finalization/imu_balance/stage_4c_step_worlds_test_commands.md)).
 
 ### Neuer Knoten / Topic
 - **Wo:** Bringup-Launch (`hexapod_bringup`), ggf. eigenes Paket. Topic-Konventionen aus
