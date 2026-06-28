@@ -166,7 +166,8 @@
   **Option A** — downward-only, an `body_height` verankert, lag-tolerant). ⚠️ Erst-Entwurf (Senkung
   vom Apex bis Floor, Freeze an Kontakthöhe) war **closed-loop-instabil** (Körper-Anker verloren +
   ~13-Tick-Lag → Drift); daher Option A. **S4-6 🟢 Sim-verifiziert** (Graben-Welt zeigt den per-Fuß-
-  Reach: `cmd_z` −0.105 vs −0.080, Roll halbiert). **Nächstes: S4-4/S4-5** (Slip/Plausibilität).
+  Reach: `cmd_z` −0.105 vs −0.080, Roll halbiert). **S4-4 🟢 Sim-verifiziert** (Slip/Kante → Freeze,
+  `SupportMonitor` Leaky-Zähler). **Nächstes: S4-5** (Plausibilität/Sensor-Fault) = letzter Stufe-4-Baustein.
 - **Pipeline (Sim, existiert):** gz-contact pro `foot_link` ([`hexapod.foot_contact.xacro`](../src/hexapod_description/urdf/hexapod.foot_contact.xacro))
   → [`bridge_foot_contact.yaml`](../src/hexapod_bringup/config/bridge_foot_contact.yaml)
   → [`foot_contact_publisher.py`](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)
@@ -182,10 +183,15 @@
     Frische), `_update_foot_contacts` (Diagnose + Kontakte an Engine + **Contact-Live-Guard** →
     `engine.adaptive_touchdown_enable = param AND pipeline_live`), `_debug_leg1_contact` (Mess-Werkzeug).
   - **Diagnose (ROS-frei):** `contact_diagnostic.py` (`ContactDiagnostic` — Latenz/Apex/Gap/Quote).
+  - **Slip/Kante → Freeze (ROS-frei, S4-4):** `support_monitor.py` (`SupportMonitor`, wie `TipMonitor`)
+    — Stance-Bein ohne Kontakt nach Grace (entprellt) → Freeze; `gait_node._update_support` (WALKING-
+    Gating, `_trigger_safety_freeze` = Stufe 1) + `engine.cliff_probe_depth` (Probe-Floor = `cliff_depth`).
 - **Verhalten tunen:** alles über **Params** (live): `adaptive_touchdown_enable` (Default false,
   Opt-in), `touchdown_probe_start_stance_phase` (0.35, Stance-Gate für die Abwärts-Suche),
   `touchdown_search_end_stance_phase` (0.6, Such-Ende → danach Floor), `touchdown_max_extra_depth`
-  (0.02 m, Floor unter `body_height`).
+  (0.02 m, Floor unter `body_height`). **S4-4:** `slip_detection_enable` (false), `cliff_depth`
+  (0.03, Grenze folgbar↔Abgrund), `slip_debounce_ticks` (8, > contact_timeout 5), `slip_min_lost_legs`
+  (1), `slip_grace_stance_phase` (0.6, cycle_time-abhängig wie probe_start).
 - **Fallen:** (1) **Körper-Anker NICHT aufgeben** — der Erst-Entwurf (Freeze an Kontakthöhe, auch
   über `body_height`) war closed-loop-instabil (Drift). Option A hält den Anker bei `body_height`
   und senkt **nur nach unten**. (2) **`probe_start` > Kontakt-Lag in Stance-Phasen** (bei
@@ -203,8 +209,9 @@
   Demo — daher der Graben). Reach-Budget: `|drop| ≲ max_extra_depth` (Demo `max_extra_depth:=0.025`).
   Sanfter Hang = `ramp.sdf.xacro`. Alle `*_walk.launch.py` = Ein-Befehl, `leveling_enable` Default false.
 - **Validieren:** `colcon test hexapod_kinematics hexapod_gait` (`test_adaptive_touchdown`,
-  `test_adaptive_touchdown_node`, `test_leg_gait_states`, `test_contact_diagnostic`,
-  `test_foot_contact_node`) + Lint · **Offline** `walking_envelope_check` (Floor-Tiefe) · **Sim**
+  `test_adaptive_touchdown_node`, `test_support_monitor`, `test_slip_detection_node`,
+  `test_leg_gait_states`, `test_contact_diagnostic`, `test_foot_contact_node`) + Lint · **Offline**
+  `walking_envelope_check` (Floor-Tiefe) · **Sim**
   ([`stage_4b_…`](../project_finalization/imu_balance/stage_4b_adaptive_touchdown_test_commands.md) +
   [`stage_4c_step_worlds_test_commands.md`](../project_finalization/imu_balance/stage_4c_step_worlds_test_commands.md)).
 

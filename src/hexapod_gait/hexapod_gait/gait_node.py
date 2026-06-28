@@ -35,6 +35,7 @@ from hexapod_gait.contact_diagnostic import ContactDiagnostic
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
 from hexapod_gait.slope_estimator import SlopeEstimator
+from hexapod_gait.support_monitor import SupportMonitor
 from hexapod_gait.tip_monitor import (
     quat_to_roll_pitch,
     TIP_CRIT,
@@ -1014,6 +1015,40 @@ class GaitNode(Node):
         self._foot_contact_received = False
         self._last_foot_contact_msg_t = 0.0
 
+        # Block A5 Stufe 4 / S4-4 — Slip/Kontaktverlust → Freeze (Safe-State).
+        # Opt-in (Default false). Ein Stance-Fuß ohne Kontakt nach der Grace
+        # (Kante/Abgrund: Boden tiefer als cliff_depth; oder Slip) → SupportMonitor
+        # → Freeze (wie Stufe-1-Tip-CRIT). cliff_depth = Grenze folgbares Terrain
+        # ↔ Abgrund: wird (wenn armiert) als adaptiver Probe-Floor auf die Engine
+        # gespiegelt. Nur in WALKING ausgewertet.
+        self.declare_parameter('slip_detection_enable', False)
+        self.declare_parameter('cliff_depth', 0.03)
+        self.declare_parameter('slip_debounce_ticks', 8)
+        self.declare_parameter('slip_min_lost_legs', 1)
+        self.declare_parameter('slip_grace_stance_phase', 0.6)
+        self._slip_detection_enable = bool(
+            self.get_parameter('slip_detection_enable').value
+        )
+        self._cliff_depth = float(self.get_parameter('cliff_depth').value)
+        self._slip_debounce_ticks = int(
+            self.get_parameter('slip_debounce_ticks').value
+        )
+        self._slip_min_lost_legs = int(
+            self.get_parameter('slip_min_lost_legs').value
+        )
+        self._slip_grace_stance_phase = float(
+            self.get_parameter('slip_grace_stance_phase').value
+        )
+        self._support_monitor = SupportMonitor(
+            debounce_ticks=self._slip_debounce_ticks,
+            min_lost_legs=self._slip_min_lost_legs,
+            grace_stance_phase=self._slip_grace_stance_phase,
+        )
+        self._slip_freeze_fired = False
+        self._engine.cliff_probe_depth = (
+            self._cliff_depth if self._slip_detection_enable else 0.0
+        )
+
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
         self._t_start = time.monotonic()
@@ -1462,6 +1497,10 @@ class GaitNode(Node):
         # Block A5 S4-1 — Fußkontakt cachen + Diagnose (kein Verhaltens-Change).
         self._update_foot_contacts(t)
 
+        # Block A5 S4-4 — Slip/Kontaktverlust (Kante/Abgrund) → Freeze (nur WALKING).
+        if self._update_support(t):
+            return  # Stütz-Verlust → Safety-Freeze, diesen Tick nicht publishen
+
         try:
             angles_per_leg = self._engine.compute_joint_angles(t)
         except IKError as exc:
@@ -1678,6 +1717,49 @@ class GaitNode(Node):
             if now - self._last_contact_log_t >= 1.0:
                 self._last_contact_log_t = now
                 self._log_contact_diag()
+
+    def _update_support(self, t: float) -> bool:
+        """
+        Block A5 S4-4 — Stütz-Verlust (Slip/Kante) erkennen → Freeze.
+
+        Returns ``True`` wenn gefreezt wird (Caller publisht diesen Tick nicht).
+        Nur in WALKING ausgewertet (Vortrieb über Kanten); sonst Monitor-Reset.
+        Freeze ist gelatcht + einmalig (steigende Flanke), wie Tip-CRIT. Recovery
+        über State-Wechsel (cmd_vel=0 → STOPPING → reset).
+        """
+        if not self._slip_detection_enable:
+            return False
+        if self._engine.state != GaitEngine.STATE_WALKING:
+            self._support_monitor.reset()
+            self._slip_freeze_fired = False
+            return False
+        states = self._engine.leg_gait_states(t)
+        legs = {}
+        for leg_id in range(1, 7):
+            is_swing, local_phase = states.get(leg_id, (False, 0.0))
+            legs[leg_id] = (
+                not is_swing, local_phase, self._foot_contact[leg_id],
+            )
+        n_lost, freeze = self._support_monitor.update(legs)
+        if freeze:
+            if not self._slip_freeze_fired:
+                self.get_logger().error(
+                    f'Stütz-Verlust erkannt ({n_lost} Bein(e) ohne Halt — '
+                    'Kante/Abgrund oder Slip) — Safety-Freeze'
+                )
+                self._trigger_safety_freeze()
+                self._slip_freeze_fired = True
+            return True
+        return False
+
+    def _rebuild_support_monitor(self) -> None:
+        """Baue den SupportMonitor mit aktuellen Params neu (S4-4, live-Tuning)."""
+        self._support_monitor = SupportMonitor(
+            debounce_ticks=self._slip_debounce_ticks,
+            min_lost_legs=self._slip_min_lost_legs,
+            grace_stance_phase=self._slip_grace_stance_phase,
+        )
+        self._slip_freeze_fired = False
 
     def _debug_leg1_contact(self, t: float) -> None:
         """
@@ -2354,6 +2436,34 @@ class GaitNode(Node):
                 ),
             )
 
+        # 1k. S4-4 Slip/Kante: cliff_depth ≥ 0, debounce ≥ 1, min_legs ∈ [1,6],
+        # grace ∈ [0,1).
+        for p in params:
+            if p.name == 'cliff_depth' and p.value < 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'cliff_depth must be >= 0, got {p.value}',
+                )
+            if p.name == 'slip_debounce_ticks' and p.value < 1:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'slip_debounce_ticks must be >= 1, got {p.value}',
+                )
+            if p.name == 'slip_min_lost_legs' and not 1 <= p.value <= 6:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'slip_min_lost_legs must be in [1,6], got {p.value}'
+                    ),
+                )
+            if p.name == 'slip_grace_stance_phase' and not 0.0 <= p.value < 1.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'slip_grace_stance_phase must be in [0,1), got {p.value}'
+                    ),
+                )
+
         # === 2. APPLY (kein Fail mehr möglich) ===
         for p in params:
             self._apply_param(p.name, p.value)
@@ -2532,6 +2642,30 @@ class GaitNode(Node):
             self._engine.touchdown_search_end_stance_phase = float(value)
         elif name == 'touchdown_max_extra_depth':
             self._engine.touchdown_max_extra_depth = float(value)
+        # Block A5 S4-4 — Slip/Kante live. enable + cliff_depth spiegeln auf den
+        # Engine-Probe-Floor; Monitor-Params → Rebuild.
+        elif name == 'slip_detection_enable':
+            self._slip_detection_enable = bool(value)
+            self._engine.cliff_probe_depth = (
+                self._cliff_depth if self._slip_detection_enable else 0.0
+            )
+            if not self._slip_detection_enable:
+                self._support_monitor.reset()
+                self._slip_freeze_fired = False
+        elif name == 'cliff_depth':
+            self._cliff_depth = float(value)
+            self._engine.cliff_probe_depth = (
+                self._cliff_depth if self._slip_detection_enable else 0.0
+            )
+        elif name == 'slip_debounce_ticks':
+            self._slip_debounce_ticks = int(value)
+            self._rebuild_support_monitor()
+        elif name == 'slip_min_lost_legs':
+            self._slip_min_lost_legs = int(value)
+            self._rebuild_support_monitor()
+        elif name == 'slip_grace_stance_phase':
+            self._slip_grace_stance_phase = float(value)
+            self._rebuild_support_monitor()
 
     def _restart_timer(self) -> None:
         """

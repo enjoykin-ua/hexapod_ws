@@ -209,6 +209,23 @@ def test_deepest_touchdown_stays_in_limits_no_ikerror():
         eng.compute_joint_angles(i * 0.02)
 
 
+def test_cliff_probe_depth_overrides_floor():
+    # S4-4: cliff_probe_depth > max_extra_depth → tieferer Probe-Floor.
+    # Floor via past-window-Pfad prüfen (erst Fenster durchlaufen → _td_searched).
+    eng = _engine()
+    eng._foot_contacts[1] = False
+    eng._adaptive_touchdown_z(1, _cp_stance(eng, 0.5), _BODY_H)   # im Fenster suchen
+    z_no_cliff = eng._adaptive_touchdown_z(1, _cp_stance(eng, 0.9), _BODY_H)
+    assert z_no_cliff == pytest.approx(_FLOOR)                    # body_height − 0.02
+
+    eng2 = _engine()
+    eng2._foot_contacts[2] = False
+    eng2.cliff_probe_depth = 0.03                                 # > max_extra_depth 0.02
+    eng2._adaptive_touchdown_z(2, _cp_stance(eng2, 0.5), _BODY_H)
+    z_cliff = eng2._adaptive_touchdown_z(2, _cp_stance(eng2, 0.9), _BODY_H)
+    assert z_cliff == pytest.approx(_BODY_H - 0.03)              # tieferer Floor
+
+
 def test_walking_entry_preanchors_stance_legs():
     # Beim WALKING-Eintritt: Stance-Beine auf body_height vorverankert (kein
     # Walk-Start-Probe), Schwung-Beine frisch (None).

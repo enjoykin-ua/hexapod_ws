@@ -12,9 +12,10 @@
 > Aufsetzers). **S4-2 🟢 Sim-verifiziert (Option A)** — Erst-Entwurf war closed-loop-instabil
 > (Körper-Anker verloren + ~13-Tick-Lag → Drift); **Option A** (downward-only, an `body_height`
 > verankert, lag-Gate) ist Sim-bestätigt stabil + reicht selektiv am konvexen Knick nach (~6 mm auf
-> 8°-Hang); sichtbarer Payoff → **S4-6** (Stufe/Graben). 694 Tests grün. **S4-6 🟢 Sim-verifiziert**
-> — Graben zeigt den per-Fuß-Reach (`cmd_z` −0.105 vs −0.080, Roll ±1.3° vs ±2.7°; Stufe vom Pitch
-> geschluckt). **➡️ Als Nächstes S4-4/S4-5** (Slip/Plausibilität). —
+> 8°-Hang); sichtbarer Payoff → **S4-6** (Stufe/Graben). **S4-6 🟢 Sim-verifiziert** (Graben:
+> `cmd_z` −0.105 vs −0.080, Roll ±1.3° vs ±2.7°). **S4-4 🟢 Sim-verifiziert** (Slip/Kontaktverlust →
+> Freeze; `SupportMonitor` mit Leaky-Zähler — auch der kippende Fall freezt). **➡️ Als Nächstes:
+> S4-5** (Plausibilität/Sensor-Fault = letzter Stufe-4-Baustein). —
 > Detailplan: [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md),
 > Test-Doku: [`stage_4b_adaptive_touchdown_test_commands.md`](stage_4b_adaptive_touchdown_test_commands.md).
 > S4-1-Detail: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md).
@@ -84,14 +85,14 @@ nur, wenn fixed-timing nachweislich nicht reicht — dann als großer eigener Bl
 | **S4-1** 🟢 ([Plan](stage_4a_contact_verify_plan.md)) | **Kontakt-Consumer + Verifikation** | ✅ Signal verifiziert: Sensor zuverlässig+korrekt; ~13-Tick-Offset = reiner Ausführungs-Lag (schneller Aufsetzer). De-risk vor S4-2 erledigt. |
 | **S4-2** 🟢 ([Plan](stage_4b_adaptive_touchdown_plan.md)) | **Adaptiver Touchdown (Option A)** | downward-only ab Stance-Gate, an `body_height` verankert (Erst-Entwurf war closed-loop-instabil). **Sim-verifiziert stabil + selektives Nachreichen** (~6 mm am 8°-Scheitel). Sichtbarer Payoff (großer Höhensprung) → **S4-6**. |
 | **S4-3** *(später, evtl.)* | **Kontakt-getriggertes Timing (free-gait)** | nur falls fixed-timing nicht reicht — großer eigener Block. |
-| **S4-4** | **Slip / Kontaktverlust-Reaktion** | Stance-Fuß verliert Kontakt (gerutscht/über Kante) → reagieren. ⚠️ `contact_timeout` (0.1 s) verzögert die fallende Flanke → hier relevant. |
-| **S4-5** | **Plausibilität + Sensor-Fault-Fail-Safe** | Kontakt im Swing-Apex / fehlend bei belastetem Stance = implausibel → Sensor flaggen, Bein auf Open-Loop-Zeitplan, warnen. |
+| **S4-4** 🟢 ([Plan](stage_4d_slip_detection_plan.md)) | **Slip / Kontaktverlust → Freeze** | `SupportMonitor` (ROS-frei, **Leaky-Zähler**): Stance-Bein ohne Kontakt nach Grace → Freeze (= Stufe 1). `cliff_depth` 0.03 = Grenze folgbar↔Abgrund. **Sim-verifiziert** (Kante `step_drop:=0.06`: freezt statt drüber, auch im kippenden Fall). ⚠️ `contact_timeout` → Debounce > 5. |
+| **S4-5** ⚪ ([Plan](stage_4e_plausibility_plan.md)) | **Plausibilität + Sensor-Fault-Fail-Safe** | `SensorHealthMonitor` (ROS-frei): stuck-on (Kontakt im Swing-Apex, geometrisch unmöglich) / dead (kein Touchdown über N Cycles) → Sensor flaggen → **ignorieren** (Bein auf Open-Loop in S4-2 + aus S4-4-Zählung) + warnen. **Plan zum Review.** HW-gerichtet/defensiv. |
 | **S4-6** 🟢 ([Plan](stage_4c_step_worlds_plan.md)) | **Stufen- + Graben-Welt (Demo)** | `step.*` (Stufe) **+ `trench.*` (Graben — die klare Demo)**. **Sim-verifiziert:** Stufe vom Pitch geschluckt (~3 mm), **Graben** zeigt den per-Fuß-Reach (`cmd_z` −0.105 vs −0.080 = ~2.5 cm; Roll ±1.3° vs ±2.7°). `miss 0` beide (Füße straddeln 10-cm-Graben). |
 
-**Reihenfolge: S4-1 🟢 → S4-2 🟢 → S4-6 🟢 (Graben-Demo) → S4-4/S4-5 (als Nächstes) → (S4-3).**
-Jede mit eigenem §4-Review. S4-6 (vorgezogen) hat den S4-2-Nutzen sichtbar gemacht (Graben:
-per-Fuß-Reach ~2.5 cm, `cmd_z` −0.105). **Als Nächstes S4-4/S4-5** (Slip/Kontaktverlust +
-Plausibilität/Sensor-Fault-Fail-Safe).
+**Reihenfolge: S4-1 🟢 → S4-2 🟢 → S4-6 🟢 (Graben-Demo) → S4-4 🟢 (Slip→Freeze) → S4-5 (als
+Nächstes) → (S4-3, nur falls nötig).** Jede mit eigenem §4-Review. **Als Nächstes: S4-5**
+(Plausibilität/Sensor-Fault-Fail-Safe) = der letzte geplante Stufe-4-Baustein; danach ist der
+Stufe-4-Kern komplett (S4-3 free-gait nur falls fixed-timing nicht reicht).
 
 ## 2. Logik-Skizze der Gesamt-Stufe (grob — Detail je Teil-Stufe)
 

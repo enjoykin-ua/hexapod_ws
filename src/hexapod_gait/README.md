@@ -203,6 +203,38 @@ Rückwärtslaufen. Option A behebt das:
   `touchdown_max_extra_depth` (0.02 m, ≥0).
 - **Isoliert testen:** `leveling_enable:=false` (IMU/TF getrennt von der per-Fuß-Adaption).
 
+## Slip / Kontaktverlust → Freeze (Block A5 Stufe 4 / S4-4)
+
+Ein **belasteter Fuß ohne Halt** — über eine Kante/einen Abgrund (der adaptive Touchdown findet bis
+`cliff_depth` keinen Boden) oder weil ein Stance-Fuß den Kontakt **verliert** (Slip) — löst einen
+**Freeze** (Safe-State) aus, bevor der Roboter kippt oder von einer Kante läuft. Reaktion = identisch
+zum Stufe-1-Tip-CRIT (`/hexapod_safety_freeze` + lokaler Stopp, gelatcht, einmalig).
+
+- **`SupportMonitor`** ([support_monitor.py](hexapod_gait/support_monitor.py), ROS-frei, wie
+  `TipMonitor`): **Kern-Regel — ein Stance-Bein, das nach der Stance-Phase-Grace
+  (`slip_grace_stance_phase`, 0.6) keinen Kontakt hat, gilt als „Halt verloren".** Die Grace lässt
+  dem Touchdown/Probe Zeit (deckt den ~13-Tick-JTC-Lag); danach = echter Stütz-Verlust.
+  **Leaky-Zähler** (Sim-Befund): bei Kontakt wird der Verlust-Zähler nur um 1 **dekrementiert** (nicht
+  voll zurückgesetzt) — robust gegen **intermittierenden Kontakt beim Kippen über die Kante** (Beine
+  brühren beim Neigen den Boden, was einen reset-auf-0-Zähler ausbremsen würde); legitimes Prellen
+  (~50 % Kontakt) bleibt netto gedeckelt → kein Fehlalarm. Entprellung (`slip_debounce_ticks`, 8)
+  muss den `contact_timeout` (0.1 s ≈ 5 Ticks, der die **fallende** Slip-Flanke verzögert)
+  überschreiten. Erreichen `slip_min_lost_legs` (1) Beine den Verlust → **Freeze gelatcht**.
+- **`cliff_depth` (0.03) = die Grenze zwischen folgbarem Terrain und „Abgrund":** ein Abfall
+  **≤ cliff_depth** wird vom adaptiven Touchdown (S4-2) noch **gefunden** (Fuß setzt auf → gestützt,
+  kein Freeze); ein Abfall **> cliff_depth** → kein Kontakt → (entprellt) **Freeze**. Bei armierter
+  Erkennung wird `cliff_depth` als adaptiver **Probe-Floor** auf die Engine gespiegelt
+  (`engine.cliff_probe_depth`), sodass der Fuß über einer Kante aktiv bis `cliff_depth` nach Boden
+  sucht. Envelope: 0.03 → Floor −0.11 (GREEN bis −0.12 geprüft).
+- **Gating:** nur in WALKING ausgewertet (Vortrieb über Kanten); sonst Monitor-Reset. **Recovery**
+  über State-Wechsel (cmd_vel=0 → STOPPING → reset), wie Stufe 1. Default `slip_detection_enable`
+  **false** (Opt-in).
+- **Parameter (live):** `slip_detection_enable` (false), `cliff_depth` (0.03 m),
+  `slip_debounce_ticks` (8), `slip_min_lost_legs` (1, ∈[1,6]), `slip_grace_stance_phase` (0.6).
+  Monitor-Params live mit Rebuild.
+- **Abgrenzung:** „Bein zurückziehen / Schritt nicht committen" = später (S4-4b); Sensor-Fault-
+  Plausibilität = S4-5. v1 = nur Freeze.
+
 ## Launch-Quickstart
 
 ### Stand-Pose anfahren
@@ -397,6 +429,11 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `touchdown_probe_start_stance_phase` | `0.35` | S4-2: Stance-Phase-Gate, ab der ohne Kontakt nach unten gesucht wird (∈[0,1)) |
 | `touchdown_search_end_stance_phase` | `0.6` | S4-2: Stance-Phase, bis zu der gesucht wird, dann Floor (∈(0,1], > probe_start) |
 | `touchdown_max_extra_depth` | `0.02` | S4-2: max. Tiefe unter `body_height` (m, Floor; envelope-verifiziert) |
+| `slip_detection_enable` | `false` | S4-4: Slip/Kontaktverlust → Freeze an/aus (Opt-in) |
+| `cliff_depth` | `0.03` | S4-4: Grenze folgbares Terrain ↔ Abgrund (m unter `body_height`; > = Freeze) |
+| `slip_debounce_ticks` | `8` | S4-4: Ticks ohne Halt bis Freeze (muss > contact_timeout ≈5) |
+| `slip_min_lost_legs` | `1` | S4-4: gleichzeitig haltlose Stütz-Beine bis Freeze (∈[1,6]) |
+| `slip_grace_stance_phase` | `0.6` | S4-4: Stance-Phase-Grace (darunter no-contact nicht gewertet) |
 
 ## State-Machine
 

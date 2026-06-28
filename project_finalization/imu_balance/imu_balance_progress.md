@@ -19,13 +19,17 @@
 > Lag → Ducken/Rückwärts); **Option A** (nominaler Anker bei `body_height`, downward-only, Stance-Gate
 > 0.35) ist **Sim-bestätigt stabil**: `cmd_z` Stance −0.0800, am konvexen Scheitel geführt bis
 > −0.0862 (~6 mm Nachreichen), `dz` 8–14 mm, kein Absacken. Wackeln = Tripod-CoG (kein Touchdown-
-> Effekt). **S4-6 (Stufen- + Graben-Welt) 🟢 Sim-verifiziert** (`step.*` + `trench.*`; kein
-> Engine-Code). **Befund:** Vollbreit-Stufe wird vom Körper-Pitch geschluckt (~3 mm, schwache Demo)
-> → **Graben** ergänzt: dort `cmd_z` bis **−0.105** über dem Graben (~2.5 cm per-Fuß-Reach) vs −0.080
-> ohne, Roll **±1.3° (AN) vs ±2.7° (AUS)** → per-Fuß-Reach klar belegt. **➡️ NÄCHSTER SCHRITT:
-> S4-4/S4-5** (Slip/Kontaktverlust + Plausibilität/Sensor-Fault). Tests **694 grün** (gait 325 /
-> kinematics 43; +25 S4-2). **User committet selbst.** ⏸️ Zurückgestellt: ramp_walk-Standup-Regression
-> [[project_ramp_walk_standup_joint_space_regression]].
+> Effekt). **S4-6 (Stufen- + Graben-Welt) 🟢 Sim-verifiziert** (Graben: `cmd_z` −0.105 vs −0.080,
+> Roll ±1.3° vs ±2.7°). **S4-4 (Slip/Kontaktverlust → Freeze) 🟡 Code+Tests+Doku fertig, Sim-Verify
+> offen:** `SupportMonitor` (ROS-frei, wie TipMonitor) — Stance-Bein ohne Kontakt nach Grace →
+> Freeze (= Stufe 1); `cliff_depth` 0.03 = Grenze folgbares Terrain ↔ Abgrund (→ `engine.cliff_probe_depth`);
+> Default `slip_detection_enable` false. **🟢 Sim-verifiziert (nach Leaky-Fix):** Fall 1 (sauber über
+> Kante) **und** Fall 2 (Roboter kippt, intermittierender Kontakt) freezen jetzt beide; flach kein
+> Fehlalarm. **➡️ NÄCHSTER SCHRITT: S4-5** (Plausibilität/Sensor-Fault-Fail-Safe = letzter Stufe-4-
+> Baustein) — **Plan geschrieben + §4-freigegeben** ([stage_4e](stage_4e_plausibility_plan.md):
+> stuck-on+dead, ignorieren+warnen, latched, Inject-Hook), Implementierung steht aus. Tests **715
+> grün** (+21 S4-4). **User committet selbst.** ⏸️
+> Zurückgestellt: ramp_walk-Standup-Regression [[project_ramp_walk_standup_joint_space_regression]].
 > **⏸️ Zurückgestellt (eigene Aufgabe, NICHT S4-2):** `ramp_walk` steht **joint-space statt
 > kartesisch** auf (alle 6 Füße schleifen gleichzeitig nach innen, HW-Risiko) — Verdacht:
 > Auto-Standup-Trigger nimmt `start_ramp()` statt `start_cartesian_standup()` trotz
@@ -542,6 +546,48 @@ S4-6:
 | **Sim-Verify Graben (T4) ✅** | **per-Fuß-Reach klar belegt:** AN `cmd_z` bis **−0.105** über dem Graben (`act_z`−0.088, ~2.5 cm) vs AUS `−0.080` durchgehend; Roll **±1.3° (AN) vs ±2.7° (AUS)** (Körper ~2× ruhiger); `miss 0` |
 | **`miss`-Vorhersage korrigiert** | 🟡 `miss` bleibt in **beiden** 0 (10-cm-Graben → Füße straddeln teils) — Signatur = **Reach + halbierter Roll**, NICHT ein `miss`-Sprung (Test-Doku korrigiert) |
 | Stufe (T1) als Demo | 🟢 funktional-ok aber subtil (~3 mm, Pitch schluckt sie) — bleibt als funktionaler Beleg + Grenze (4 cm) + Gegenprobe (auf); der **Graben ist die Demo** |
+
+### S4-4 — Slip / Kontaktverlust → Freeze  🟢 Sim-verifiziert (nach Leaky-Fix)
+
+Plan: [`stage_4d_slip_detection_plan.md`](stage_4d_slip_detection_plan.md) (§4-Freigabe erteilt) ·
+Test-Doku: [`stage_4d_slip_detection_test_commands.md`](stage_4d_slip_detection_test_commands.md)
+
+> **§4-Entscheide (User):** `cliff_depth` **0.03 (mittel)**, live tunbar (später ggf. erhöhen) ·
+> Reaktion = **nur Freeze** (v1, wie Stufe 1; Bein-Zurückziehen = S4-4b später) · `min_lost_legs`
+> **1** (an gerader Kante 1 Bein/Tripod → früh stoppen) · grace 0.6 / debounce 8 (> contact_timeout).
+> **User committet selbst.**
+
+```
+S4-4:
+- [x] S4-4.1 SupportMonitor (ROS-frei): per-Bein Entprellung + Latch + reset; Halt-Verlust = Stance+kein-Kontakt nach Grace
+- [x] S4-4.2 Engine: cliff_probe_depth-Attribut → Floor = body_height − max(max_extra_depth, cliff_probe_depth)
+- [x] S4-4.3 gait_node: SupportMonitor-Wiring (WALKING-Gating, reset sonst) + Freeze (steigende Flanke, _trigger_safety_freeze, kein Publish) + cliff_probe_depth setzen
+- [x] S4-4.4 Params: slip_detection_enable (false), cliff_depth (0.03), slip_debounce_ticks (8), slip_min_lost_legs (1), slip_grace_stance_phase (0.6) — live, validiert, Monitor-Rebuild
+- [x] S4-4.5 Unit-Tests (Halt-Verlust, Grace, Schwung-Reset, min_legs+Latch, Entprellung, **Leaky**) + Engine + Node-Smoke  [+21: 9 SupportMonitor + 11 Node + 1 Engine]
+- [x] S4-4.6 colcon test + Lint grün  [715 colcon-Aggregat, 0 Fehler; flake8/pep257 grün]
+- [x] S4-4.7 README/Konzept (Slip/Kante → Freeze, cliff_depth-Grenze, Entprellung vs contact_timeout, Params)
+- [x] S4-4.8 Test-Doku stage_4d_slip_detection_test_commands.md (Kante step_drop:=0.06 A/B + flach kein Fehlalarm)  [**Sim-Verify durch User offen**]
+- [x] S4-4.9 kritische Self-Review-Tabelle  [unten]
+```
+
+### S4-4-Post-Review
+
+| Punkt | Status |
+|---|---|
+| SupportMonitor (Entprellung/Latch/Grace/min_legs) | OK (8 Unit-Tests) |
+| Grace deckt JTC-Lag → kein Fehlalarm flach | OK (`test_grace…` + `test_no_freeze_when_supported`; Grace 0.6 > Lag-Phase 0.27) |
+| Debounce > contact_timeout (5 Ticks) | OK (`test_debounce_exceeds_contact_timeout`; 8 > 5) |
+| Freeze gelatcht + einmalig + Recovery via State-Wechsel | OK (`test_latch…`; `_update_support` reset bei nicht-WALKING) |
+| `cliff_depth` → `engine.cliff_probe_depth` (tieferer Floor) | OK (Engine `test_cliff_probe_depth_overrides_floor` + Node) |
+| Gating WALKING-only | OK (`test_resets_when_not_walking`) |
+| Reaktion = `_trigger_safety_freeze` (= Stufe 1) | OK (wiederverwendet, kein neuer Pfad) |
+| `min_legs=1` Fehl-Trigger auf Terrain/Graben? | 🟢 nein — Abfall ≤ cliff_depth findet Kontakt → gestützt; nur > cliff_depth freezt |
+| **`slip_grace_stance_phase` cycle_time-abhängig** | 🟡 vormerken (wie S4-2 `probe_start`); bei schnellerem Cycle hochsetzen (live, Doku-Hinweis) |
+| **Freeze-Latenz ≈ grace+debounce (~0.76 s → ~3 cm Weg über Kante)** | 🟡 minor: bei cycle 2.0 + v 0.04; `debounce`/`grace` runter für schnelleren Stopp; v1 ok |
+| Slip adaptiv-unabhängig (Kern = no-contact-past-grace) | OK (cliff_probe nur Zusatz-Reach) |
+| Bein-Zurückziehen / Sensor-Fault | 🟢 später: S4-4b (Zurückziehen) / S4-5 (Plausibilität) — v1 = nur Freeze |
+| **Sim-Verify (User): Leaky-Fix bestätigt ✅** | 1. Runde inkonsistent (Fall 1 froze, Fall 2 kippte ohne Freeze — intermittierender Kontakt setzte den consecutive-Zähler zurück). **Leaky-Zähler** (Kontakt = −1) **re-verifiziert: auch der kippende Fall freezt jetzt.** Fall 1 + Fall 2 beide → Freeze; flach kein Fehlalarm |
+| **Residual: sehr schnelles Kippen kann Debounce überholen** | 🟡 Leaky braucht ~Debounce Ticks Akkumulation; bei extrem schnellem Tip Stufe-1-Tip als Backstop / Kombination mit Tip-Winkel = spätere Robustheit (S4-5-nah) |
 
 ---
 

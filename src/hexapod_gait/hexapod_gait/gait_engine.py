@@ -340,6 +340,12 @@ class GaitEngine:
         # Stance-Phase, bis zu der gesucht wird (danach Floor halten).
         self.touchdown_search_end_stance_phase: float = 0.6
         self.touchdown_max_extra_depth: float = 0.02   # m unter body_height (Floor)
+        # Block A5 S4-4 — wenn die Slip-/Kanten-Erkennung armiert ist, setzt der
+        # Node hier `cliff_depth` (sonst 0): der adaptive Probe reicht dann bis
+        # `body_height − max(max_extra_depth, cliff_probe_depth)`, damit der Fuß
+        # über einer Kante aktiv bis cliff_depth nach Boden sucht (Terrain ≤
+        # cliff_depth → gefunden/gestützt; tiefer → kein Kontakt → Freeze via Node).
+        self.cliff_probe_depth: float = 0.0
         # Per-Bein-State (keyed by leg_id 1..6): eingefrorene Lande-z (None = noch
         # nicht gelandet) + ob das Bein das Senk-Fenster diese Episode durchlief.
         self._touchdown_z: dict[int, float | None] = {
@@ -833,7 +839,9 @@ class GaitEngine:
             return frozen
 
         body_height = self.body_height
-        z_floor = body_height - self.touchdown_max_extra_depth
+        # S4-4: bei armierter Slip-Erkennung reicht der Probe bis cliff_depth.
+        floor_depth = max(self.touchdown_max_extra_depth, self.cliff_probe_depth)
+        z_floor = body_height - floor_depth
         probe_start = self.touchdown_probe_start_stance_phase
         search_end = self.touchdown_search_end_stance_phase
         stance_phase = (cycle_phase - swing_duty) / (1.0 - swing_duty)
