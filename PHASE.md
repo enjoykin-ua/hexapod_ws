@@ -65,7 +65,7 @@ deferiert: D DDS/RViz, G.2 rsync.)_
 
 | Block | Inhalt | Status |
 |---|---|---|
-| **A** Analyse & Optimierung | Torque-/Hitze-Tool (A1 ✅); A2–A4 pausiert; **A5 IMU-Balance: Stufe 0/1/2/3a + Terrain-Following TF-1/TF-2 🟢 Sim** (IMU, Kipp-Erkennung, Leveling, Hang-folgen + Gyro-Dämpfung; Branch `imu_balance`) — **⏸️ pausiert nach TF-2**, Rückkehr nach Stufe 4 + HW (Wiedereinstieg: [`stage_3_terrain_following_plan.md` §7](project_finalization/imu_balance/stage_3_terrain_following_plan.md)) | 🟢 A1 / ⏸️ A5 (Sim done) / ⏸️ Rest |
+| **A** Analyse & Optimierung | Torque-/Hitze-Tool (A1 ✅); A2–A4 pausiert; **A5 IMU-Balance** (Branch `imu_balance`): Stufe 0/1/2/3a + **Terrain-Following TF-1/TF-2 🟢 Sim** (⏸️ pausiert, [§7](project_finalization/imu_balance/stage_3_terrain_following_plan.md)) · **Stufe 4 Terrain-adaptiv (Fußkontakte) 🟡 AKTIV: S4-1 🟢, S4-2 (adaptiver Touchdown) Plan fertig → Code** ([Plan](project_finalization/imu_balance/stage_4b_adaptive_touchdown_plan.md)) | 🟢 A1 / 🟡 **A5/Stufe 4 aktiv** / ⏸️ Rest |
 | **B** Lokomotion-Kern | Hinsetzen/Shutdown (B1), Gangarten Wave/Tetra/Ripple (B3), **Show-Pose + Tibia-Reach** (B4/B4.11); B2 verworfen, B5 deferiert | 🟢 Sim (HW aufgebockt offen) |
 | **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim (HW offen) |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |

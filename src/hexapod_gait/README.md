@@ -16,6 +16,7 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 | [tip_monitor.py](hexapod_gait/tip_monitor.py) | Pure-Python Kipp-/Sturz-Erkennung (Schwellen + Entprellung + Latch), Block A5 Stufe 1 |
 | [balance_controller.py](hexapod_gait/balance_controller.py) | Pure-Python Body-Stabilisierungs-Regler (Totband-PI + Gyro-D + Slew + Anti-Windup), Block A5 Stufe 2 / TF-2 |
 | [slope_estimator.py](hexapod_gait/slope_estimator.py) | Pure-Python Hang-Schätzung (langsamer Tiefpass + Residual), Block A5 TF-1 |
+| [contact_diagnostic.py](hexapod_gait/contact_diagnostic.py) | Pure-Python Fußkontakt-Diagnose (Latenz/Plausibilität/Quote), Block A5 Stufe 4 / S4-1 |
 
 ## Kipp-/Sturz-Erkennung (Block A5 Stufe 1)
 
@@ -133,6 +134,30 @@ Schichten (analog Stufe 1):
   (statische Box, Stufe 2) · `ros2 launch hexapod_bringup ramp.launch.py slope_deg:=8.0`
   (flach→Hang→Plateau zum Hineinlaufen, Stufe 3a). Beide spawnen **flach** (gz-IMU
   spawn-referenziert → sonst maskiert ein gepitchter Spawn die Neigung).
+
+## Fußkontakt-Consumer + Diagnose (Block A5 Stufe 4 / S4-1)
+
+Erste Teil-Stufe der terrain-adaptiven Lokomotion: der `gait_node` **konsumiert** den
+vorhandenen Fußkontakt-`Bool` und **verifiziert** ihn quantitativ — **kein Verhaltens-Change**
+(der adaptive Touchdown selbst ist S4-2). De-risked das Signal, bevor Verhalten darauf baut.
+
+- **Pipeline (existiert):** gz-Contact-Sensor pro `foot_link` → ros_gz_bridge →
+  [foot_contact_publisher](../hexapod_sensors/hexapod_sensors/foot_contact_publisher.py) (Event→
+  Dauer-`Bool`, 50 Hz) → `/leg_<n>/foot_contact`. Läuft per Default (`enable_foot_contact:=true`).
+- **Consumer:** `gait_node` abonniert die 6 Topics (QoS 10) → `self._foot_contact[leg_id]`
+  (graceful ohne Pipeline → alle `False`). Publisht `/foot_contacts` (`Float64MultiArray`, 6× 0/1).
+- **Engine read-only:** `GaitEngine.leg_gait_states(t)` → pro Bein `(is_swing, local_phase)` (nur im
+  WALKING echte Phase; sonst alle `(False, 0.0)`). Single Source of Truth — reuse für S4-2/S4-5.
+- **Diagnose:** ROS-frei in [contact_diagnostic.py](hexapod_gait/contact_diagnostic.py)
+  (`ContactDiagnostic`): misst pro Bein **Touchdown-Latenz** (Ticks zwischen Stance-Start und
+  Kontakt-Anstieg; bei 50 Hz = 20 ms/Tick), **Apex-Fehlkontakt** (Kontakt im Schwung), **Stance-
+  Aussetzer** (kein Kontakt im belasteten Stance), **Quote**. **Misst nur, reagiert nicht** (die
+  Reaktion ist S4-5). Throttled-Log (1 Hz) + `/foot_contacts`.
+- **Warum nötig:** dokumentierte Schwäche (JTC-Lag → Fuß schwebt knapp; „schneller Cycle weniger
+  zuverlässig"). Vor dem adaptiven Touchdown muss feststehen, dass der Kontakt **rechtzeitig**
+  (steigende Flanke ≤ ~2 Ticks) **und plausibel** feuert — flach **und** am Hang, über
+  `cycle_time`/`step_height`.
+- **Parameter (live):** `foot_contact_debug_enable` (Default **true**; throttled-Log an/aus).
 
 ## Launch-Quickstart
 
@@ -323,6 +348,7 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `slope_aware_tip_enable` | `true` | TF-1: Tip gegen Residual (IMU − Hang) statt absolut |
 | `slope_estimate_tau_s` | `0.5` | TF-1: Tiefpass-τ der Hang-Schätzung (s) |
 | `slope_clamp_deg` | `40.0` | TF-1: Betrags-Grenze der Hang-Schätzung |
+| `foot_contact_debug_enable` | `true` | S4-1: throttled-Log der Fußkontakt-Diagnose an/aus |
 
 ## State-Machine
 

@@ -641,6 +641,39 @@ class GaitEngine:
         neutral = stand_pose(self.radial_distance, self.body_height)
         return {leg.name: neutral for leg in HEXAPOD.legs}
 
+    def leg_gait_states(self, t: float) -> dict:
+        """
+        Read-only: pro Bein ``(is_swing, local_phase)`` zur Zeit t (Block A5 S4-1).
+
+        Nur im WALKING die echte Swing/Stance-Phase (identisch zur Berechnung in
+        ``_compute_walking_targets``: ``cycle_phase < swing_duty`` → swing). In
+        STANDING und allen Transition-States: alle Beine ``(False, 0.0)`` (am
+        Boden / kein definierter Schwung). **Kein Verhaltens-Change** — dient der
+        Fußkontakt-Diagnose (S4-1) und später dem adaptiven Touchdown (S4-2).
+        """
+        if self._state != self.STATE_WALKING:
+            return {
+                int(leg.name.split('_')[1]): (False, 0.0)
+                for leg in HEXAPOD.legs
+            }
+        out = {}
+        for leg in HEXAPOD.legs:
+            leg_id = int(leg.name.split('_')[1])
+            offset = self.pattern.phase_offset_per_leg.get(leg_id)
+            if offset is None:
+                out[leg_id] = (False, 0.0)
+                continue
+            cycle_phase = ((t / self.cycle_time) + offset) % 1.0
+            if cycle_phase < self.pattern.swing_duty:
+                out[leg_id] = (True, cycle_phase / self.pattern.swing_duty)
+            else:
+                out[leg_id] = (
+                    False,
+                    (cycle_phase - self.pattern.swing_duty)
+                    / (1.0 - self.pattern.swing_duty),
+                )
+        return out
+
     def _compute_walking_targets(self, t: float) -> dict:
         targets = {}
         for leg in HEXAPOD.legs:

@@ -31,6 +31,7 @@ import xml.etree.ElementTree as ET
 from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import Twist
 from hexapod_gait.balance_controller import BalanceController
+from hexapod_gait.contact_diagnostic import ContactDiagnostic
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
 from hexapod_gait.slope_estimator import SlopeEstimator
@@ -41,7 +42,7 @@ from hexapod_gait.tip_monitor import (
     TIP_WARN,
     TipMonitor,
 )
-from hexapod_kinematics import HEXAPOD, IKError, JointLimits
+from hexapod_kinematics import HEXAPOD, IKError, JointLimits, leg_fk
 from rcl_interfaces.msg import (
     FloatingPointRange,
     ParameterDescriptor,
@@ -950,6 +951,37 @@ class GaitNode(Node):
             Float64MultiArray, '/imu/slope', 10,
         )
 
+        # Block A5 Stufe 4 / S4-1 — Fußkontakt-Consumer + Verifikation.
+        # 6 Subscriber auf /leg_<n>/foot_contact (Bool, vom foot_contact_publisher,
+        # läuft per Default in der Sim). KEIN Verhaltens-Change — nur cachen +
+        # quantitativ messen (ContactDiagnostic), de-risk vor S4-2 (adaptiver
+        # Touchdown). Graceful ohne Pipeline (kein Topic → alle False).
+        self.declare_parameter('foot_contact_debug_enable', True)
+        self._foot_contact_debug_enable = bool(
+            self.get_parameter('foot_contact_debug_enable').value
+        )
+        self._foot_contact = {leg_id: False for leg_id in range(1, 7)}
+        self._contact_diag = ContactDiagnostic(tuple(range(1, 7)))
+        self._foot_contact_subs = {
+            leg_id: self.create_subscription(
+                Bool, f'/leg_{leg_id}/foot_contact',
+                self._make_foot_contact_cb(leg_id), 10,
+            )
+            for leg_id in range(1, 7)
+        }
+        self._foot_contacts_pub = self.create_publisher(
+            Float64MultiArray, '/foot_contacts', 10,
+        )
+        self._last_contact_log_t = time.monotonic()
+        # S4-1 Mess-Zusatz (a): tatsächliche Sim-Gelenkstellung → FK-Fuß-z von
+        # Bein 1, um bei jeder Kontakt-Flanke kommandiert vs. tatsächlich zu
+        # vergleichen (klärt den ~13-Tick-Offset). Nutzt das bestehende
+        # `_latest_joints` (vom vorhandenen /joint_states-Sub gepflegt).
+        self._leg1 = next(
+            leg for leg in HEXAPOD.legs if leg.name == 'leg_1'
+        )
+        self._dbg_prev_contact1 = False
+
         # Wall-clock-Start (time.monotonic) statt Sim-Zeit, damit der
         # Loop nicht an /clock-DDS-Discovery-Race scheitert.
         self._t_start = time.monotonic()
@@ -1107,6 +1139,12 @@ class GaitNode(Node):
         # TF-2: signierte Achsen-Drehraten für den Gyro-D-Term (rad/s).
         self._imu_gyro_roll = msg.angular_velocity.x
         self._imu_gyro_pitch = msg.angular_velocity.y
+
+    def _make_foot_contact_cb(self, leg_id: int):
+        """Closure pro Bein (S4-1): cacht den Bool-Kontakt-State."""
+        def _cb(msg: Bool) -> None:
+            self._foot_contact[leg_id] = bool(msg.data)
+        return _cb
 
     def _on_cmd_show(self, msg: Float64MultiArray) -> None:
         """
@@ -1381,6 +1419,9 @@ class GaitNode(Node):
         # Block A5 Stufe 2 — Body-Leveling-Korrektur setzen (nur STANDING).
         self._update_leveling()
 
+        # Block A5 S4-1 — Fußkontakt cachen + Diagnose (kein Verhaltens-Change).
+        self._update_foot_contacts(t)
+
         try:
             angles_per_leg = self._engine.compute_joint_angles(t)
         except IKError as exc:
@@ -1552,6 +1593,83 @@ class GaitNode(Node):
             math.degrees(self._slope_est.slope_pitch),
         ]
         self._slope_pub.publish(msg)
+
+    def _update_foot_contacts(self, t: float) -> None:
+        """
+        Block A5 S4-1 — Fußkontakt cachen → Diagnose → publishen/loggen.
+
+        **KEIN Verhaltens-Change.** Speist die ``ContactDiagnostic`` mit
+        ``(contact, is_swing, local_phase, is_walking)`` pro Bein (Phase read-only
+        aus ``engine.leg_gait_states``). Publisht ``/foot_contacts`` (6× 0/1) und
+        loggt throttled (1 Hz) die Diagnose-Zusammenfassung. Die quantitative
+        Verifikation für den adaptiven Touchdown (S4-2).
+        """
+        states = self._engine.leg_gait_states(t)
+        is_walking = self._engine.state == GaitEngine.STATE_WALKING
+        for leg_id in range(1, 7):
+            is_swing, local_phase = states.get(leg_id, (False, 0.0))
+            self._contact_diag.update(
+                leg_id, self._foot_contact[leg_id], is_swing, local_phase,
+                is_walking,
+            )
+
+        msg = Float64MultiArray()
+        msg.data = [1.0 if self._foot_contact[i] else 0.0 for i in range(1, 7)]
+        self._foot_contacts_pub.publish(msg)
+
+        if self._foot_contact_debug_enable:
+            self._debug_leg1_contact(t)
+            now = time.monotonic()
+            if now - self._last_contact_log_t >= 1.0:
+                self._last_contact_log_t = now
+                self._log_contact_diag()
+
+    def _debug_leg1_contact(self, t: float) -> None:
+        """
+        S4-1 Mess-Zusatz (a): kommandiert vs. tatsächlich bei Bein-1-Flanke.
+
+        Loggt bei jeder Kontakt-Flanke von Bein 1 das **kommandierte** Fuß-z
+        (Engine-Target) gegen das **tatsächliche** Fuß-z (FK aus /joint_states) —
+        klärt, ob der Kontakt feuert, wenn der echte Sim-Fuß den Boden erreicht,
+        und wie groß der Ausführungs-Lag ist.
+        """
+        c = self._foot_contact[1]
+        if c == self._dbg_prev_contact1:
+            return
+        self._dbg_prev_contact1 = c
+
+        cmd = self._engine.compute_foot_targets(t).get('leg_1')
+        cmd_z = cmd[2] if cmd else float('nan')
+        actual = self._latest_joints.get('leg_1')
+        act_z = leg_fk(*actual, self._leg1)[2] if actual else float('nan')
+        is_swing, ph = self._engine.leg_gait_states(t).get(1, (False, 0.0))
+        phase_s = f'{"swing" if is_swing else "stance"}{ph:.2f}'
+        self.get_logger().info(
+            f'L1 contact {"RISE" if c else "FALL"} | '
+            f'cmd_z={cmd_z:.4f} act_z={act_z:.4f} '
+            f'dz={(act_z - cmd_z) * 1000:.1f}mm bh={self._engine.body_height:.4f} '
+            f'phase={phase_s}'
+        )
+
+    def _log_contact_diag(self) -> None:
+        """Throttled-Log der Kontakt-Diagnose-Zusammenfassung (S4-1)."""
+        summ = self._contact_diag.summary()
+        bits = ''.join(
+            '1' if self._foot_contact[i] else '0' for i in range(1, 7)
+        )
+        parts = []
+        for leg_id in range(1, 7):
+            s = summ[leg_id]
+            lat = s['latency_avg']
+            lat_s = f'{lat:.1f}' if lat is not None else '-'
+            parts.append(
+                f'L{leg_id} td{s["touchdowns"]} lat{lat_s}/{s["latency_max"]} '
+                f'miss{s["missed_touchdown"]} apex{s["apex_false"]} '
+                f'gap{s["stance_gap"]}'
+            )
+        self.get_logger().info(
+            f'foot_contact [{bits}] | ' + ' | '.join(parts)
+        )
 
     def _update_tip(self) -> str:
         """
@@ -2302,6 +2420,13 @@ class GaitNode(Node):
         elif name == 'slope_clamp_deg':
             self._slope_clamp_deg = float(value)
             self._slope_est.clamp = math.radians(float(value))
+        # Block A5 S4-1 — Fußkontakt-Debug live. false→true setzt die Diagnose-
+        # Zähler zurück (frisches Mess-Fenster pro Konfig in der Verifikation).
+        elif name == 'foot_contact_debug_enable':
+            new_dbg = bool(value)
+            if new_dbg and not self._foot_contact_debug_enable:
+                self._contact_diag.reset()
+            self._foot_contact_debug_enable = new_dbg
 
     def _restart_timer(self) -> None:
         """

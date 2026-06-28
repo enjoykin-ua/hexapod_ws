@@ -7,11 +7,13 @@
 > **Branch:** `imu_balance`. **Arbeitsweise:** CLAUDE.md §4 — pro Teil-Stufe Plan → Freigabe →
 > Code → Test → kritischer Self-Review. Done-Vertrag: [`imu_balance_progress.md`](imu_balance_progress.md).
 >
-> **Status: 🟡 aktiv.** Methode **fixed-timing gewählt** (s.u.). Erste Teil-Stufe **S4-1**
-> (Kontakt-Consumer + Verifikation) — Detailplan: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md).
+> **Status: 🟡 aktiv.** Methode **fixed-timing gewählt** (s.u.). **S4-1 🟢 fertig** (Kontakt-Signal
+> verifiziert: Sensor korrekt, der ~13-Tick-Offset = reiner Ausführungs-Lag des schnellen
+> Aufsetzers). **➡️ Als Nächstes S4-2** (adaptiver Touchdown mit **kontrollierter Senk-Rate**) —
+> Detailplan: [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md) (enthält
+> alle S4-1-Befunde + Code-Anker als Handoff). S4-1-Detail: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md).
 > **Abhängigkeit:** Fußkontakt-Pipeline (gz-contact in Sim **existiert vollständig**; HW-Taster =
-> Block E2, später). TF-1/TF-2 (IMU) 🟢 — wird in Stage 4 zunächst **isoliert** (Leveling aus),
-> dann kombiniert.
+> Block E2, später). TF-1/TF-2 (IMU) 🟢 — in Stage 4 zunächst **isoliert** (Leveling aus).
 
 ---
 
@@ -73,8 +75,8 @@ nur, wenn fixed-timing nachweislich nicht reicht — dann als großer eigener Bl
 
 | Stufe | Inhalt | Kern-Deliverable |
 |---|---|---|
-| **S4-1** ([Plan](stage_4a_contact_verify_plan.md)) | **Kontakt-Consumer + Verifikation** | gait_node abonniert `/leg_<n>/foot_contact` (cache + Debug-Viz), **kein** Verhaltens-Change. Verifizieren: feuert sauber/rechtzeitig (Latenz), flach **und** Hang, über `cycle_time`/`step_height`. De-risked das Signal **vor** S4-2. |
-| **S4-2** | **Adaptiver Touchdown (fixed-timing)** | Schwung-z bis Kontakt/Envelope senken statt feste Höhe. **Der sichtbare Payoff (Knick).** Penetrations-Offset (Hebel 3) bei Bedarf. |
+| **S4-1** 🟢 ([Plan](stage_4a_contact_verify_plan.md)) | **Kontakt-Consumer + Verifikation** | ✅ Signal verifiziert: Sensor zuverlässig+korrekt; ~13-Tick-Offset = reiner Ausführungs-Lag (schneller Aufsetzer). De-risk vor S4-2 erledigt. |
+| **S4-2** ([Plan](stage_4b_adaptive_touchdown_plan.md)) | **Adaptiver Touchdown (fixed-timing)** | Schwung-z mit **kontrollierter Senk-Rate** bis Kontakt/Envelope (statt schneller Halbsinus → S4-1-Befund). **Der sichtbare Payoff (Knick).** Penetration NICHT nötig. |
 | **S4-3** *(später, evtl.)* | **Kontakt-getriggertes Timing (free-gait)** | nur falls fixed-timing nicht reicht — großer eigener Block. |
 | **S4-4** | **Slip / Kontaktverlust-Reaktion** | Stance-Fuß verliert Kontakt (gerutscht/über Kante) → reagieren. ⚠️ `contact_timeout` (0.1 s) verzögert die fallende Flanke → hier relevant. |
 | **S4-5** | **Plausibilität + Sensor-Fault-Fail-Safe** | Kontakt im Swing-Apex / fehlend bei belastetem Stance = implausibel → Sensor flaggen, Bein auf Open-Loop-Zeitplan, warnen. |

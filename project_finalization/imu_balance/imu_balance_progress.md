@@ -11,6 +11,16 @@
 
 ## Stand & nächster Schritt (Übergabe)
 
+> **🧭 NEUER CHAT, KURZ: Wir sind in Block A5 → Stufe 4 (Terrain-adaptiv, Fußkontakte).**
+> **TF (Stufe 3, IMU-Hang-Laufen) ist 🟢 Sim-fertig + ⏸️ pausiert** (Wiedereinstieg
+> [stage_3 §7](stage_3_terrain_following_plan.md)). **Aktiv: Stufe 4.** **S4-1 (Kontakt-Consumer +
+> Verifikation) 🟢 fertig** — Signal verifiziert (Sensor korrekt; ~13-Tick-Offset = Ausführungs-Lag
+> des schnellen Aufsetzers, kein Defekt). **➡️ NÄCHSTER SCHRITT: S4-2 (adaptiver Touchdown mit
+> kontrollierter Senk-Rate) implementieren** — **Plan ist geschrieben + handoff-vollständig:**
+> [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md) (S4-1-Befunde +
+> Code-Anker + §4-Vorschläge drin). §4-Workflow: **erst User-Freigabe** zum Plan, dann Code → Test
+> → Self-Review. Tests aktuell **272 grün** (gait). **User committet selbst.**
+
 - **Fertig (Sim verifiziert):** Stufe 0 (IMU-Plumbing/Viz) 🟢 · Stufe 1 (Kipp-
   Erkennung → Safe-State) 🟢. Branch `imu_balance` (**User committet selbst**).
 - **Stufe 2 (statisches Leveling): 🟢 fertig (Sim verifiziert).** 2.1–2.10 ✅
@@ -338,6 +348,67 @@ TF-2:
 | Kante/Stufe (Plateau-Scheitel, 35°-Bordstein) | 🟢 Stufe 4 (Fußtaster), kein Balance-Problem |
 | Nicht-Tripod „tripod-ruhig" unerreichbar (reaktiv) | 🟢 später — bräuchte aktive Gang-/Schwerpunkt-Stabilisierung (TF-3-nah); out-of-scope |
 | **Sim-Verify (User): flacher Boden, alle Gangarten** | ✅ tripod wackelfrei (erwartet), wave ok, tetrapod/ripple ±1–2° gangsynchron; Dämpfung wirkt (begrenzt durch Totband); kein Freeze. „Tests reichen aktuell" → TF-2 abgeschlossen |
+
+---
+
+## Stufe 4 — Terrain-adaptiv (Fußkontakte)  🟡 in Arbeit
+
+Umbrella: [`stage_4_terrain_adaptive_plan.md`](stage_4_terrain_adaptive_plan.md) (Methode **fixed-timing**
+gewählt; free-gait als dokumentierte Alternative). Teil-Stufen: **S4-1 🟢** (Consumer+Verifikation) →
+**S4-2 ⚪ (Plan fertig, Code offen)** (adaptiver Touchdown) → (S4-4/S4-5) → (S4-3) → S4-6.
+
+> **➡️ NÄCHSTER SCHRITT (für neuen Chat): S4-2 implementieren.** Plan (Handoff-vollständig, inkl.
+> S4-1-Befunde + Code-Anker + §4): [`stage_4b_adaptive_touchdown_plan.md`](stage_4b_adaptive_touchdown_plan.md).
+> **Kern:** adaptiver Touchdown via **kontrollierter Senk-Rate** bis Kontakt (statt schneller
+> Halbsinus). Engine-z-adaptiv (x,y unverändert), per-Bein `touchdown_z`, Fallback nominal,
+> Contact-Live-Guard. §4-Workflow: Plan ist geschrieben → **User-Freigabe einholen** → Code → Test
+> → Self-Review. §4-Vorschläge im Plan §4 (Senk-Fenster 0.6/0.3, max_depth 0.02, Default false).
+
+### S4-1 — Fußkontakt-Consumer + Verifikation
+
+Plan: [`stage_4a_contact_verify_plan.md`](stage_4a_contact_verify_plan.md) (§4-Freigabe erteilt).
+**Kein Verhaltens-Change** — nur Consumer + quantitative Messung (de-risk vor S4-2).
+
+```
+S4-1:
+- [x] S4-1.1 gait_node: 6 Subscriber /leg_<n>/foot_contact (Bool) + State-Cache (graceful ohne Pipeline)  [_make_foot_contact_cb, QoS 10]
+- [x] S4-1.2 Engine read-only leg_gait_states() (per-Bein is_swing + local_phase), kein Verhaltens-Change  [WALKING echte Phase, sonst alle (False,0)]
+- [x] S4-1.3 ContactDiagnostic (ROS-frei): Flanken/Latenz/Apex-Fehlkontakt/Stance-Aussetzer/Quote  [contact_diagnostic.py]
+- [x] S4-1.4 Debug-Log (throttled 1 Hz) + /foot_contacts-Topic (Float64MultiArray 0/1); Param foot_contact_debug_enable (live)
+- [x] S4-1.5 Unit-Tests (ContactDiagnostic 9, leg_gait_states 3) + Node-Smoke 5  [+17]
+- [x] S4-1.6 colcon test + Lint grün  [669 Tests, 0 Fehler; gait 272 / kinematics 42; flake8/pep257 grün]
+- [x] S4-1.7 README/Konzept (hexapod_gait: Kontakt-Consumer + Diagnose; Pipeline-Verweis)
+- [x] S4-1.8 Test-Doku stage_4a_contact_verify_test_commands.md + **Sim-Verify durch User** (inkl. Mess-Zusatz a: act_z vs cmd_z)  [Befund unten — Signal verifiziert]
+- [x] S4-1.9 kritische Self-Review-Tabelle  [unten]
+```
+
+> **§4-Entscheide (User):** Debug = Log **+** `/foot_contacts`-Topic · Latenz-Schwelle steigende
+> Flanke ≤ 2 Ticks + keine Apex-Fehlkontakte · Matrix flach+Hang × cycle {2.0,1.0} × step {0.04,0.06}
+> · Hebel 2/3 erlaubt, Hebel 4 nur Notfall (Umbrella §3). **User committet selbst.**
+>
+> **S4-1 🟢 fertig (Sim-verifiziert).** Mess-Zusatz (a) hat den ~13-Tick-Offset als reinen
+> Ausführungs-Lag (kommandiert vs. tatsächlich) entlarvt — Sensor korrekt. **S4-2 freigegeben**
+> (adaptiver Touchdown mit kontrollierter Senk-Rate). **User committet selbst.**
+
+### S4-1-Post-Review
+
+| Punkt | Status |
+|---|---|
+| ContactDiagnostic (Latenz/Apex/Gap/Missed/Quote) | OK (9 Unit-Tests; Latenz 0 + 1 + missed + apex + gap gepinnt) |
+| leg_gait_states WALKING vs STANDING/Transition | OK (3 Tests: Formel-Konsistenz + Querprobe gegen Target-z) |
+| Node-Wiring (6 Subs, Cache, Diag-Feed, Publish, Param) | OK (6 Node-Smoke-Tests inkl. WALKING-Feed + Reset) |
+| **Kein Verhaltens-Change** | OK (`_update_foot_contacts` liest/cacht/publisht/loggt — modifiziert Engine/Targets nicht) |
+| Tick-Reihenfolge (gleicher `t` wie compute) | OK (nach `_update_leveling`, vor `compute_joint_angles(t)`) |
+| Graceful ohne Pipeline | OK (keine Topics → Cache False; Diag meldet korrekt gap/missed, kein Crash) |
+| QoS Match (Sub 10 reliable = Publisher 10) | OK |
+| Reset bei `debug_enable` false→true | OK (frisches Mess-Fenster pro Konfig; Test); intendiert, dokumentiert |
+| leg_gait_states-Formel dupliziert `_compute_walking_targets` | 🟡 minor: read-only, klar dokumentiert; bewusst nicht den Hot-Path refactort |
+| Latenz vs. gap-Fenster überlappen in früher Stance | 🟡 minor: bei hoher Latenz zählt der frühe-Stance-Bereich (0.2–0.3) evtl. als gap — verwandte Metriken, akzeptiert |
+| `/foot_contacts` publisht jeden Tick (auch ohne Consumer) | 🟢 harmlos (kleine Msg); fürs UI/echo nützlich |
+| Diag nur in WALKING (STOPPING/STANDING ignoriert) | 🟢 gewollt — nur stetiger Lauf wird gemessen |
+| Apex/Stance-Fenster (0.2–0.8) hardcoded | 🟢 ausreichend; bei Bedarf später Param |
+| **Sim-Verify (User) + Mess-Zusatz (a): Signal verifiziert** | ✅ **Befund:** Sensor **zuverlässig + korrekt** (`miss 0`; feuert exakt bei Fußkugel-Bodenberührung — `act_z` bei RISE = `bh + Kugelradius 8mm`). Die ~13-Tick-„Latenz" = **reiner Ausführungs-Lag** (kommandiert vs. tatsächlich, Sim): der schnelle Halbsinus-Aufsetzer wird vom JTC ~8.8mm hinterhergetrackt. **Kein Sensor-/Pipeline-Defekt.** |
+| **Konsequenz für S4-2 (datenbelegt)** | adaptiver Touchdown mit **kontrollierter, langsamer Senk-Rate** in der späten Schwungphase → tatsächlicher Fuß trackt eng → Kontakt feuert prompt. Mess-Zusatz `_debug_leg1_contact` (act_z vs cmd_z via FK aus /joint_states) bleibt als Debug |
 
 ---
 
