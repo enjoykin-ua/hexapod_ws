@@ -65,7 +65,7 @@ deferiert: D DDS/RViz, G.2 rsync.)_
 
 | Block | Inhalt | Status |
 |---|---|---|
-| **A** Analyse & Optimierung | Torque-/Hitze-Tool (A1 ✅); A2–A4 pausiert; **A5 IMU-Balance: Stufe 0/1/2 🟢 Sim** (IMU, Kipp-Erkennung, statisches Leveling; Branch `imu_balance`), Stufe 3 (Hang-Laufen) offen — echter Fix für Nicht-Tripod-Wackeln + Terrain | 🟢 A1 / 🟡 A5 / ⏸️ Rest |
+| **A** Analyse & Optimierung | Torque-/Hitze-Tool (A1 ✅); A2–A4 pausiert; **A5 IMU-Balance: Stufe 0/1/2/3a + Terrain-Following TF-1/TF-2 🟢 Sim** (IMU, Kipp-Erkennung, Leveling, Hang-folgen + Gyro-Dämpfung; Branch `imu_balance`) — **⏸️ pausiert nach TF-2**, Rückkehr nach Stufe 4 + HW (Wiedereinstieg: [`stage_3_terrain_following_plan.md` §7](project_finalization/imu_balance/stage_3_terrain_following_plan.md)) | 🟢 A1 / ⏸️ A5 (Sim done) / ⏸️ Rest |
 | **B** Lokomotion-Kern | Hinsetzen/Shutdown (B1), Gangarten Wave/Tetra/Ripple (B3), **Show-Pose + Tibia-Reach** (B4/B4.11); B2 verworfen, B5 deferiert | 🟢 Sim (HW aufgebockt offen) |
 | **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim (HW offen) |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |
@@ -102,8 +102,12 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
    Einschalten → aufgebockt booten oder Relay-Gate) · Verkabelung untethered + Cal-Drift-Re-Check.
 5. **Block E — Robustheit:** Safe-State bei Overcurrent/Watchdog/Comms-Loss im Lauf.
 6. **Phase 13 — Voll-Bringup (Ziel):** der komplette Stack auf dem fahrbaren, untethered Roboter.
-7. **Optional/mittelfristig:** A5 IMU-Balance — Stufe 0/1/2 🟢 Sim (IMU, Kipp-Erkennung,
-   statisches Leveling); als Nächstes Stufe 3 (ruhiges Nicht-Tripod-Laufen + Hang-Params/Terrain).
+7. **Optional/mittelfristig:** A5 IMU-Balance — Stufe 0/1/2/3a + Terrain-Following TF-1/TF-2
+   🟢 Sim (IMU, Kipp-Erkennung, Leveling, Hang-folgen + Gyro-Dämpfung). **⏸️ Pausiert nach TF-2**
+   (sichtbarer Mehrwert erst auf HW; Knick/unebener Weg = Stufe 4). **Rückkehr** nach Stufe 4 +
+   HW-Tests — Wiedereinstiegs-Punkte (P0 HW-Validierung · TF-3 Schwerpunkt/Schlupf · TF-Quer ·
+   Gang-Stabilisierung · Auto-Tuning) grob vorgeplant in
+   [`stage_3_terrain_following_plan.md` §7](project_finalization/imu_balance/stage_3_terrain_following_plan.md).
 
 ---
 

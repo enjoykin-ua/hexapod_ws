@@ -864,6 +864,8 @@ class GaitNode(Node):
         self._imu_roll: float | None = None
         self._imu_pitch = 0.0
         self._imu_tilt_rate = 0.0
+        self._imu_gyro_roll = 0.0  # TF-2: signierte Achsen-Drehraten (rad/s)
+        self._imu_gyro_pitch = 0.0
         self._tip_crit_fired = False
         self._imu_sub = self.create_subscription(
             Imu, '/imu/data', self._on_imu, qos_profile_sensor_data,
@@ -877,8 +879,10 @@ class GaitNode(Node):
         # auf flachem Boden ohnehin No-Op, da Korrektur → 0). Alle Params live
         # tunbar (§4-Entscheidung) — siehe _apply_param.
         self.declare_parameter('leveling_enable', False)
+        self.declare_parameter('leveling_mode', 'terrain')
         self.declare_parameter('leveling_kp', 0.4)
         self.declare_parameter('leveling_ki', 0.1)
+        self.declare_parameter('leveling_kd', 0.03)
         self.declare_parameter('leveling_deadband_deg', 1.5)
         self.declare_parameter('leveling_slew_max_dps', 8.0)
         self.declare_parameter('leveling_max_angle_deg', 10.0)
@@ -887,6 +891,9 @@ class GaitNode(Node):
         self._leveling_enable = bool(
             self.get_parameter('leveling_enable').value
         )
+        # TF-2: Modus 'terrain' (roll→0, pitch folgt Hang via Residual + Gyro-D)
+        # vs. 'horizontal' (Stufe 2/3a Voll-Leveln auf 0/0).
+        self._leveling_mode = str(self.get_parameter('leveling_mode').value)
         self._leveling_startup_grace = bool(
             self.get_parameter('leveling_startup_grace').value
         )
@@ -899,6 +906,7 @@ class GaitNode(Node):
         self._balance = BalanceController(
             kp=float(self.get_parameter('leveling_kp').value),
             ki=float(self.get_parameter('leveling_ki').value),
+            kd=float(self.get_parameter('leveling_kd').value),
             deadband=math.radians(
                 float(self.get_parameter('leveling_deadband_deg').value)
             ),
@@ -1087,14 +1095,18 @@ class GaitNode(Node):
         self._last_cmd_omega_z = float(msg.angular.z)
 
     def _on_imu(self, msg: Imu) -> None:
-        """IMU-Empfang (Block A5 Stufe 1): roll/pitch + Kipprate cachen."""
+        """IMU-Empfang: roll/pitch + Kipprate (Stufe 1) + Gyro-Achsen (TF-2)."""
         q = msg.orientation
         self._imu_roll, self._imu_pitch = quat_to_roll_pitch(
             q.x, q.y, q.z, q.w
         )
+        # Stufe 1: Kipprate (Betrag) für den TipMonitor.
         self._imu_tilt_rate = math.hypot(
             msg.angular_velocity.x, msg.angular_velocity.y
         )
+        # TF-2: signierte Achsen-Drehraten für den Gyro-D-Term (rad/s).
+        self._imu_gyro_roll = msg.angular_velocity.x
+        self._imu_gyro_pitch = msg.angular_velocity.y
 
     def _on_cmd_show(self, msg: Float64MultiArray) -> None:
         """
@@ -1439,13 +1451,19 @@ class GaitNode(Node):
 
     def _update_leveling(self) -> None:
         """
-        Block A5 Stufe 2/3a — Body-Leveling-Korrektur pro Tick setzen.
+        Block A5 Stufe 2/3a/TF-2 — Body-Stabilisierungs-Korrektur pro Tick setzen.
 
         In STANDING (Stufe 2) **und** WALKING/STOPPING (Stufe 3a) + Leveling aktiv +
         IMU vorhanden: ``BalanceController.update`` → ``engine.set_body_orientation_offset``.
         Sonst (Aufstehen/Show/Stance-Switch/SAT): Controller-``reset`` + Offset 0/0
         (dort kippt der Körper gewollt). ``dt`` aus ``time.monotonic`` (erster Tick
         dt=0 → Controller hält 0, Slew-Step 0).
+
+        **TF-2 Modus-abhängige Reglereingänge** (Sollwert intern 0):
+        - ``terrain``: roll = roh (→ roll auf 0), pitch = **Residual** (IMU − Hang-
+          Schätzung → pitch folgt dem Hang, nur Wackeln wird korrigiert).
+        - ``horizontal`` (Stufe 2/3a): roll = roh, pitch = roh (Voll-Leveln auf 0/0).
+        Beide Modi bekommen den **Gyro-D-Term** (signierte Achsen-Drehraten).
         """
         if (
             not self._leveling_enable
@@ -1473,7 +1491,18 @@ class GaitNode(Node):
             else self._engine.max_level_angle_walking
         )
         self._balance.set_gains(max_level_angle=state_max)
-        corr = self._balance.update(self._imu_roll, self._imu_pitch, dt)
+        # TF-2: pitch im terrain-Modus gegen die Hang-Schätzung (Residual), roll
+        # roh (→0). Der SlopeEstimator (TF-1) wurde diesen Tick bereits in
+        # _update_slope_estimate aktualisiert (läuft vor _update_leveling).
+        roll_in = self._imu_roll
+        if self._leveling_mode == 'terrain':
+            pitch_in = self._imu_pitch - self._slope_est.slope_pitch
+        else:  # 'horizontal'
+            pitch_in = self._imu_pitch
+        corr = self._balance.update(
+            roll_in, pitch_in, dt,
+            self._imu_gyro_roll, self._imu_gyro_pitch,
+        )
         self._engine.set_body_orientation_offset(*corr)
 
     def _rebuild_tip_monitor(self) -> None:
@@ -1490,11 +1519,13 @@ class GaitNode(Node):
         """
         Block A5 TF-1 — Hang-Schätzung (langsamer Tiefpass auf die IMU-Neigung).
 
-        Aktiv nur in STANDING/WALKING (deckungsgleich mit der Tip-Auswertung) —
-        in Transition-States (Aufstehen/Hinsetzen/Reposition/Show/Stance-Switch)
-        kippt der Körper *gewollt*, das ist nicht der Untergrund → Schätzung
-        reset (Snap-Init beim Wiedereintritt verhindert einen künstlichen
-        Residual-Sprung). Ohne IMU → reset, nicht publizieren.
+        Aktiv in STANDING/WALKING/STOPPING (deckungsgleich mit dem Stell-Pfad
+        ``_LEVELING_NODE_STATES``, damit die TF-2-pitch-Regelung auch im STOPPING
+        das Residual gegen den echten Hang bildet) — in Transition-States
+        (Aufstehen/Hinsetzen/Reposition/Show/Stance-Switch) kippt der Körper
+        *gewollt*, das ist nicht der Untergrund → Schätzung reset (Snap-Init beim
+        Wiedereintritt verhindert einen künstlichen Residual-Sprung). Ohne IMU →
+        reset, nicht publizieren.
 
         Publiziert die Schätzung in Grad auf ``/imu/slope`` (Sim-Verifikation:
         „trackt die Schätzung den echten Hang?", Grundlage für TF-2).
@@ -1503,9 +1534,7 @@ class GaitNode(Node):
             self._slope_est.reset()
             self._last_slope_t = None
             return
-        if self._engine.state not in (
-            GaitEngine.STATE_STANDING, GaitEngine.STATE_WALKING,
-        ):
+        if self._engine.state not in _LEVELING_NODE_STATES:
             self._slope_est.reset()
             self._last_slope_t = None
         else:
@@ -2099,6 +2128,19 @@ class GaitNode(Node):
                     reason=f'slope_clamp_deg must be > 0, got {p.value}',
                 )
 
+        # 1i. TF-2 leveling_mode ∈ {horizontal, terrain}.
+        for p in params:
+            if p.name == 'leveling_mode' and p.value not in (
+                'horizontal', 'terrain',
+            ):
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'unknown leveling_mode {p.value!r}, '
+                        f'valid: horizontal | terrain'
+                    ),
+                )
+
         # === 2. APPLY (kein Fail mehr möglich) ===
         for p in params:
             self._apply_param(p.name, p.value)
@@ -2215,12 +2257,16 @@ class GaitNode(Node):
                 self._balance.reset()
                 self._engine.set_body_orientation_offset(0.0, 0.0)
                 self._last_leveling_t = None
+        elif name == 'leveling_mode':
+            self._leveling_mode = str(value)  # 'terrain' | 'horizontal' (TF-2)
         elif name == 'leveling_startup_grace':
             self._leveling_startup_grace = bool(value)
         elif name == 'leveling_kp':
             self._balance.set_gains(kp=value)
         elif name == 'leveling_ki':
             self._balance.set_gains(ki=value)
+        elif name == 'leveling_kd':
+            self._balance.set_gains(kd=value)  # Gyro-D (TF-2)
         elif name == 'leveling_deadband_deg':
             self._balance.set_gains(deadband=math.radians(value))
         elif name == 'leveling_slew_max_dps':

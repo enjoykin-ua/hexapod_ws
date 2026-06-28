@@ -224,3 +224,68 @@ def test_slope_params_reject_invalid(node):
         Parameter('slope_clamp_deg', Parameter.Type.DOUBLE, 0.0),
     ])
     assert not res2[0].successful
+
+
+# ----- TF-2: aktive Stabilisierung (terrain/horizontal + Gyro-D) -------
+
+
+def test_tf2_params_declared(node):
+    assert node.has_parameter('leveling_mode')
+    assert node.has_parameter('leveling_kd')
+    assert node.get_parameter('leveling_mode').value == 'terrain'
+    assert node.get_parameter('leveling_kd').value == pytest.approx(0.03)
+    # Kd in den ROS-freien Controller durchgereicht.
+    assert node._balance._kd == pytest.approx(0.03)
+
+
+def test_terrain_mode_pitch_follows_slope_roll_to_zero(node):
+    # Hang 8°, Körper exakt auf dem Hang → residual_pitch = 0 (kein pitch-Stell),
+    # roll 8° aber → roll wird auf 0 geregelt. Beweist die per-Achse-Eingänge.
+    node._leveling_enable = True
+    node._leveling_mode = 'terrain'
+    node._imu_roll, node._imu_pitch = math.radians(8.0), math.radians(8.0)
+    node._slope_est.update(0.0, math.radians(8.0), 0.0)  # Snap → slope=(0,8°)
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert node._engine._level_roll < 0.0           # roll → 0
+    assert abs(node._engine._level_pitch) < 1e-6    # pitch folgt Hang (kein Stell)
+
+
+def test_horizontal_mode_levels_pitch(node):
+    # Gegenprobe: horizontal-Modus levelt pitch voll auf 0 (Stufe-2-Verhalten).
+    node._leveling_enable = True
+    node._leveling_mode = 'horizontal'
+    node._imu_roll, node._imu_pitch = 0.0, math.radians(8.0)
+    node._slope_est.update(0.0, math.radians(8.0), 0.0)  # Hang-Schätzung ignoriert
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert node._engine._level_pitch < 0.0          # kontert die 8° (Voll-Leveln)
+
+
+def test_gyro_d_reaches_controller(node):
+    # Bei Lage 0/0 (P/I im Totband) + Kd>0 + Drehrate → Korrektur nur aus D.
+    node._leveling_enable = True
+    node._leveling_mode = 'terrain'
+    node._balance.set_gains(kd=0.1)
+    node._imu_roll, node._imu_pitch = 0.0, 0.0
+    node._imu_gyro_roll = math.radians(50.0)
+    node._slope_est.update(0.0, 0.0, 0.0)
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert node._engine._level_roll != 0.0          # Gyro-D durchgereicht
+
+
+def test_leveling_mode_live_and_validation(node):
+    res = node.set_parameters([
+        Parameter('leveling_mode', Parameter.Type.STRING, 'horizontal'),
+        Parameter('leveling_kd', Parameter.Type.DOUBLE, 0.05),
+    ])
+    assert res[0].successful
+    assert node._leveling_mode == 'horizontal'
+    assert node._balance._kd == pytest.approx(0.05)
+    # Unbekannter Modus → Reject, Node läuft weiter.
+    bad = node.set_parameters([
+        Parameter('leveling_mode', Parameter.Type.STRING, 'bogus'),
+    ])
+    assert not bad[0].successful
+    assert node._leveling_mode == 'horizontal'

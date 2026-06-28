@@ -32,14 +32,18 @@
   pitch → folgen**.
   - **Neuer Plan:** [`terrain_following_plan.md`](stage_3_terrain_following_plan.md) (TF-1/2/3).
   - **Warum + Nachweis (Bein-Streckung = Leveling-Artefakt):** [`terrain_following_pivot_retro.md`](terrain_following_pivot_retro.md).
-  - **TF-1 (passiv TF + slope-bewusster Tip): 🟡 Code + Tests fertig — Sim-Verify (User) offen.**
-    `SlopeEstimator` (ROS-frei, langsamer Tiefpass + Snap-Init + Clamp ±40°) + slope-bewusster
-    Tip (residual beide Achsen an unveränderte `TipMonitor`, Kipprate roh) + `/imu/slope`-Topic.
-    §4-Entscheide: τ=0.5 s, Charakterisierung 8/12/16/20/25/35°. 21 neue Tests (gait 243 grün).
-    Self-Review unten. **User committet selbst.**
-  - **➡️ NÄCHSTER SCHRITT:** **Sim-Verify TF-1** durch den User — Test-Doku
-    [`stage_3a_passive_tf_test_commands.md`](stage_3a_passive_tf_test_commands.md) (Rampen-Ladder
-    8–35°): kommt er passiv hoch, bis wie steil (Kippen/Traktion)? Befund = Input für **TF-2**.
+  - **TF-1 (passiv TF + slope-bewusster Tip): 🟢 fertig (Sim-verifiziert).** `SlopeEstimator`
+    + slope-bewusster Tip (residual beide Achsen) + `/imu/slope`. Sim-Befund: Schätzung trackt
+    den Hang, **Grenze = Knick/Kante** (nicht Hang-Laufen) [[project_tf1_climb_limit_is_edge]].
+  - **TF-2 (aktive Stab.: roll→0, pitch→folgen + Gyro-D): 🟢 fertig (Sim-verifiziert, flach).**
+    `leveling_mode {terrain,horizontal}`, Gyro-D, alles live tunbar. Sim-Befund: Nicht-Tripod
+    wackelt prinzipbedingt (Open-Loop), Dämpfung wirkt begrenzt; Totband-Hebel notiert. **651 Tests.**
+  - **⏸️ PAUSIERT nach TF-2 (2026-06-28, User-Entscheid).** Grund: sichtbarer IMU-Mehrwert in Sim
+    klein (Gazebo ohne Servo-Nachgiebigkeit/Rauschen → Wert zeigt sich erst auf HW, Prinzip D6);
+    größeres offenes Problem (Knick/unebener Weg) = **Stufe 4 (Fußkontakte)**, kein Balance-Thema.
+    **Rückkehr** nach Stufe 4 + HW-Tests. **Wiedereinstieg grob vorgeplant:**
+    [`stage_3_terrain_following_plan.md` §7](stage_3_terrain_following_plan.md) (P0 HW-Validierung ·
+    P1 TF-3 Schwerpunkt/Schlupf · P2 TF-Quer · P3 Gang-Stabilisierung · P4 Auto-Tuning).
 - **Verworfen + markiert (Referenz):** `stage_3c_slope_params_plan.md`, `stage_3c_1_param_table_plan.md`,
   `stage_3c_1_test_commands.md`. Stufe 0/1/2 + `BalanceController`/Welten **bleiben** Fundament.
 - **Arbeitsweise:** CLAUDE.md §4 (Plan → Freigabe → Code → Test → Self-Review),
@@ -223,7 +227,7 @@ Plan: [`stage_3a_leveling_walking_plan.md`](discarded/stage_3a_leveling_walking_
 
 Umbrella: [`stage_3_terrain_following_plan.md`](stage_3_terrain_following_plan.md). Stufen:
 - **TF-1** (passiv terrain-following + slope-bewusster Tip) — Plan: [`stage_3a_passive_tf_plan.md`](stage_3a_passive_tf_plan.md) 🟡 **Code+Tests fertig, Sim-Verify (User) offen**
-- **TF-2** (aktive Körper-Stabilisierung: roll→0, pitch→folgen + Gyro-Wackel-Dämpfung) — Plan: [`stage_3b_active_tf_plan.md`](stage_3b_active_tf_plan.md) 🟢 **§4-Freigabe erteilt (User) — Code nach Commit.** Entscheide: `leveling_mode {horizontal,terrain}` Default terrain · Gyro-D **vor** Slew · `Kd≈0.03` beide Achsen live · **roll→0 roh** · Gating wie 3a · Startup-Grace bleibt. Checkliste `TF2.1…` im Plan §3.
+- **TF-2** (aktive Körper-Stabilisierung: roll→0, pitch→folgen + Gyro-Wackel-Dämpfung) — Plan: [`stage_3b_active_tf_plan.md`](stage_3b_active_tf_plan.md) **🟢 fertig (Sim-verifiziert, flacher Boden).** `leveling_mode {horizontal,terrain}` Default terrain · Gyro-D · `Kd≈0.03`/Totband 1.5 (konservativ, HW-tauglich; Tuning live). Sim-Befund: tetrapod/ripple wackeln prinzipbedingt (Open-Loop), Dämpfung wirkt begrenzt (Totband-Hebel). **User committet selbst.**
 - **TF-Quer** (Quer-/Diagonal-Traversieren: roll-Residual + cmd_vel-Richtungslogik) — nach TF-2, [TF-2-Plan §6](stage_3b_active_tf_plan.md). ⚪ vorgemerkt (User-Wunsch, in ai_navigation nach TF-2-Abschluss).
 - **TF-3** (optional: Schwerpunkt-Hilfe + Schlupf) — Plan folgt
 
@@ -280,6 +284,60 @@ TF-1:
 | use_sim_time / dt aus monotonic | 🟢 später (konsistent mit bestehendem wall-clock-Tick, wie Stufe 2/3a) |
 | **Passiver Kletter-Limit (Sim)** | ✅ **User-Sim-Verify (8/16/35°):** Grenze = **Knick/Kante** (konvexer Plateau-Scheitel, Stufe bei 35°), nicht Hang-Laufen. Schätzung trackt korrekt, kein Fehlalarm. Scope: Wackeln→TF-2, Bodenkontakt-an-Kante→Stufe 4 |
 | **Hang-Schätzung trackt echten Hang (Live)** | ✅ `/imu/slope` ≈ echter Hangwinkel (8°: −7.98°), pendelt ein; Körper hangparallel |
+
+### TF-2 — Aktive Körper-Stabilisierung (roll→0, pitch→folgen) + Gyro-Dämpfung
+
+Plan: [`stage_3b_active_tf_plan.md`](stage_3b_active_tf_plan.md) (§4-Freigabe erteilt).
+
+```
+TF-2:
+- [x] TF2.1 gait_node _on_imu: signierte Gyro-Achsenraten cachen (_imu_gyro_roll/pitch)
+- [x] TF2.2 BalanceController: Gyro-D-Term (update(...,gyro_roll=0,gyro_pitch=0), d=−Kd·rate, D vor Slew, im Totband aktiv) + Kd in set_gains, rückwärtskompatibel
+- [x] TF2.3 gait_node: leveling_mode (horizontal|terrain, Default terrain) → terrain füttert pitch=residual/roll=roh, horizontal=beide roh; Gyro durchreichen  [Slope-Schätzung jetzt auf _LEVELING_NODE_STATES (inkl. STOPPING) ausgerichtet]
+- [x] TF2.4 Params leveling_mode + leveling_kd deklariert + live (_on_param_change, mode-String-Validierung)
+- [x] TF2.5 Unit-Tests (Gyro-D Vorzeichen/Totband/Clamp+Slew, pitch-Residual-Regelung, Closed-Loop-Dämpfung) + Node-Wiring-Tests  [+7 BalanceController +5 Node]
+- [x] TF2.6 colcon test + Lint grün  [651 Tests, 0 Fehler; gait 254 / kinematics 42; flake8/pep257 grün]
+- [x] TF2.7 README/Konzept-Update (terrain-Modus, per-Achse-Sollwert, Gyro-D, Modus-Schalter, Params)
+- [x] TF2.8 Test-Doku stage_3b_active_tf_test_commands.md (komfortabel: strikte Reihenfolge, Kd/slew-Tuning Schritt für Schritt, terrain-vs-horizontal) + **Sim-Verify durch User (flacher Boden)**  [Befund unten]
+- [x] TF2.9 kritische Self-Review-Tabelle  [unten]
+```
+
+> **TF-2 🟢 Sim-verifiziert (flacher Boden, alle Gangarten).** Befund: tripod wackelfrei
+> (erwartet, nichts zu dämpfen), wave grenzwertig ok, **tetrapod/ripple wackeln gangsynchron
+> ±1–2°** (prinzipbedingtes Open-Loop-CoG-Wandern, [[project_nontripod_gait_wobble]]). **Schlüssel-
+> Erkenntnis:** das `leveling_deadband_deg` (1.5°) ist **größer** als die Wackel-Amplitude →
+> die P/I-Regelung ist beim kleinen Wackeln **inaktiv** (nur Gyro-D wirkt). Stärkere Sichtbarkeit
+> braucht **Totband ↓** (z.B. 0.3°) + Kp/Kd ↑ — in Sim gratis, auf HW Vorsicht (Rausch/Zittern).
+> Defaults (Kd 0.03 / Totband 1.5) bewusst **konservativ belassen** (HW-tauglich); Tuning live.
+> **Grenze:** „tripod-ruhig" für Nicht-Tripod ist mit *reaktivem* Leveling nicht erreichbar →
+> bräuchte aktive Gang-/Schwerpunkt-Stabilisierung (TF-3-nah, out-of-scope hier).
+> User-Entscheid: „Tests reichen aktuell" → TF-2 abgeschlossen. **User committet selbst.**
+> Idee geparkt: **Auto-Tuning-Tool** (Script findet Gains pro Gangart/Höhe selbst; Konzept
+> durchgesprochen, §4-Plan bei Bedarf — nicht jetzt).
+
+### TF-2-Post-Review
+
+| Punkt | Status |
+|---|---|
+| Gyro-D (Vorzeichen kontert Rate / im Totband aktiv / im Clamp / Kd=0 Back-Compat) | OK (5 Unit-Tests) |
+| Closed-Loop-Dämpfung (Schwingung klingt mit Kd ab) | OK (`test_gyro_d_damps_oscillation`, symplektischer Plant) |
+| terrain: pitch = Residual (folgt Hang) / roll = roh (→0), per-Achse | OK (`test_terrain_mode_pitch_follows_slope_roll_to_zero`: roll stellt, pitch nicht) |
+| horizontal-Modus erhalten (Voll-Leveln pitch→0) | OK (`test_horizontal_mode_levels_pitch`) |
+| Gyro-Achsenraten erreichen den Controller | OK (`test_gyro_d_reaches_controller`) |
+| Modus-String-Validierung + Live-Tuning (mode/kd) | OK (`test_leveling_mode_live_and_validation`) |
+| **Slope-Schätzung auf `_LEVELING_NODE_STATES` (inkl. STOPPING) ausgerichtet** | ✅ **Self-Review-Fix:** TF-1 gatete nur STANDING/WALKING → im STOPPING wäre slope=0 → terrain-pitch fälschlich auf 0 gelevelt (Ruck beim Anhalten am Hang). Jetzt deckungsgleich mit dem Stellpfad. Strikt besser auch für TF-1 (Tip im STOPPING eh aus) |
+| Snap-Init verhindert Stell-Sprung bei State-Wiedereintritt | OK (Slope snappt auf Messung → Residual 0 erster Tick → keine pitch-Korrektur) |
+| Tick-Reihenfolge (Slope-Schätzung VOR _update_leveling) | OK (Residual nutzt die aktuelle Schätzung) |
+| Stellpfad/Envelope unverändert (Korrekturen klein) | OK (keine θ-Tabelle/Tool; Clamp 10/4° + IKError-Fallback = Backstop) |
+| **horizontal-Modus bekommt jetzt auch Gyro-D** (Kd-Default 0.03) | 🟡 minor: zusätzliche Dämpfung (harmlos/eher gut); für **exakte** Stufe-2-Reproduktion `leveling_kd:=0` |
+| **Kd-Vorzeichen nicht validiert** (negativ = Anti-Dämpfung/instabil) | 🟡 konsistent mit kp/ki (Gains werden dem Tuner vertraut, keine Sign-Checks); Doku warnt |
+| D differenziert → rausch-verstärkend | 🟡 Sim rauschfrei zeigt's nicht → auf HW `Kd` konservativ (D6: Sim=Logik, HW=Gains) |
+| D vs. Slew (Dämpfungs-Bandbreite) | 🟡 `slew_max` als Stellknopf; Fallback „D am Slew vorbei" dokumentiert |
+| **Totband > Wackel-Amplitude → P/I beim kleinen Wackeln inaktiv** | 🟡 **Sim-Befund (User):** Wackeln ±1–2° < Totband 1.5° → nur Gyro-D wirkt. Hebel = Totband ↓ + Kp/Kd ↑ (live); Defaults konservativ (HW). In Tuning-Doku aufnehmen |
+| Quer-/Diagonal-Hang (roll→0 statt folgen) | 🟢 später — eigener Block **TF-Quer** (roll-Residual + cmd_vel-Richtung), dokumentiert (Plan §6) |
+| Kante/Stufe (Plateau-Scheitel, 35°-Bordstein) | 🟢 Stufe 4 (Fußtaster), kein Balance-Problem |
+| Nicht-Tripod „tripod-ruhig" unerreichbar (reaktiv) | 🟢 später — bräuchte aktive Gang-/Schwerpunkt-Stabilisierung (TF-3-nah); out-of-scope |
+| **Sim-Verify (User): flacher Boden, alle Gangarten** | ✅ tripod wackelfrei (erwartet), wave ok, tetrapod/ripple ±1–2° gangsynchron; Dämpfung wirkt (begrenzt durch Totband); kein Freeze. „Tests reichen aktuell" → TF-2 abgeschlossen |
 
 ---
 

@@ -11,6 +11,24 @@
 
 ---
 
+## ⏸️ STATUS: PAUSIERT nach TF-2 (2026-06-28) — Wiedereinstieg s.u.
+
+**Erledigt (Sim-verifiziert):** **TF-1** (passiv folgen + slope-bewusster Tip) 🟢 · **TF-2**
+(aktive Stabilisierung roll→0/pitch→folgen + Gyro-Dämpfung) 🟢. Fundament Stufe 0/1/2/3a 🟢.
+651 Tests grün. **User committet selbst.**
+
+**Warum pausiert (User-Entscheid):** Der **sichtbare** Mehrwert der IMU-Stabilisierung ist in
+der Sim klein — Gazebo hat keine Servo-Nachgiebigkeit / kein Durchhängen / kein Rauschen, also
+fehlen genau die Störungen, die der IMU ausgleicht (Projekt-Prinzip D6: *Sim = Logik/Geometrie,
+HW = echter Nutzen/Gains*). Der spürbare Effekt zeigt sich erst auf **echter Hardware**. Zudem
+ist das größere offene Problem (**Knick-Übergang / unebener Weg**) ein **Fußkontakt-Thema =
+Stufe 4**, kein Balance-Problem.
+
+**Rückkehr geplant:** nach **Stufe 4** (Terrain/Fußkontakte) und **echten HW-Tests**. Die
+Wiedereinstiegs-Punkte sind unten (§7) grob vorgeplant.
+
+---
+
 ## 0. Grundprinzip & Kern-Erkenntnis
 
 **Ein Ziel, kein Modus-Umschalten:** „Halte den Körper parallel zum Boden, auf dem du gerade
@@ -100,3 +118,62 @@ Test → Self-Review.
 Dieser Plan ist **nicht** mit der θ-Geometrie-Tabelle / dem Voll-Leveling vermischt. Was von
 A5 bleibt: Stufe 0/1/2 + die Regler-/Welt-Infrastruktur. Was ersetzt wird: das „Klettern via
 Waagerecht-Leveln" (3a-Verhalten im Lauf + 3c). Details/Begründung: [Retro](terrain_following_pivot_retro.md).
+
+## 7. Status & Wiedereinstieg (Resume — bei Rückkehr hier ansetzen)
+
+> **Pausiert nach TF-2** (s. Status-Banner oben). Die folgenden Punkte sind **grob vorgeplant**,
+> damit man nach Stufe 4 / HW-Tests nahtlos andocken kann. Jeder bekommt bei Rückkehr einen
+> vollen §4-Plan (Logik/Tests/Design/offene Punkte) vor dem Code. **Reihenfolge offen** — nach
+> Interesse / HW-Erkenntnissen wählen.
+
+### Wo der Code steht (Anker)
+- Regler ROS-frei: [`balance_controller.py`](../../src/hexapod_gait/hexapod_gait/balance_controller.py)
+  (Totband-PI + **Gyro-D**), [`slope_estimator.py`](../../src/hexapod_gait/hexapod_gait/slope_estimator.py)
+  (Hang-Tiefpass), [`tip_monitor.py`](../../src/hexapod_gait/hexapod_gait/tip_monitor.py).
+- Stellpfad: `gait_engine.set_body_orientation_offset` + `_compute_leveled_ik`.
+- Node-Glue: `gait_node._update_slope_estimate` / `_update_tip` / `_update_leveling`
+  (Modus `terrain`/`horizontal`, alle Params live).
+- Welten: `slope.launch.py` (statische Schräge), `ramp.launch.py` (Knick), `ramp_walk.launch.py`
+  (Ein-Befehl-Bringup). Tuning-Doku: [`stage_3b_active_tf_test_commands.md`](stage_3b_active_tf_test_commands.md).
+
+### Offene Punkte (grob vorgeplant)
+
+**P0 — HW-Validierung von TF-1/TF-2 (der eigentliche „echte Nutzen"-Test).** Auf HW
+(aufgebockt → Boden, CLAUDE.md §9): zeigt der IMU den erwarteten Mehrwert (Servo-Durchhängen
+ausgleichen, Kipp-Schutz real)? **Gains nachziehen** — die Sim-Defaults (`Kd 0.03`, Totband 1.5°)
+sind nur Startpunkte; HW hat Rauschen + Servo-Dynamik (Kd ggf. runter, Totband vorsichtig). Kipp-
+Schwellen real kalibrieren. **Voraussetzung:** IMU am Pi (BNO-055), Pi-Node publisht `/imu/data`.
+
+**P1 — TF-3: Schwerpunkt-Hilfe + Schlupf** (steilere Hänge, Kipp-Grenze anheben).
+- *Idee:* Körper-Schwerpunkt **hang-abhängig in den Hang verlagern** (kippt nicht nach hinten),
+  basierend auf der TF-1-Hang-Schätzung. **Reuse:** das B4-Show-Pose-`body_shift`-Muster
+  (Base-Frame-Translation) — als Funktion von θ statt vom Joystick.
+- *Schlupf:* erwartete vs. tatsächliche Vorwärtsbewegung (IMU-Integration / später Fußkontakt-
+  Timing) → Schlupf-Indikator → reagieren (langsamer / Schritt anpassen).
+- *Offen vor Code:* Shift-pro-Grad-Kurve + CoG-Envelope (Show-Pose-CoG-Tool reuse); Schlupf-
+  Metrik-Quelle (IMU-only reicht? oder erst mit Fußkontakten belastbar).
+
+**P2 — TF-Quer: Quer-/Diagonal-Traversieren** (seitlich am Hang).
+- *Idee:* roll-Eingang von **roh → Residual** (folgt dem Seithang) **+ `cmd_vel`-Richtungslogik**
+  (eine roll-Neigung ist je nach Fahrtrichtung gewollter Seithang [folgen] *oder* Schieflage
+  [ausgleichen]). Voll-Skizze: [TF-2-Plan §6](stage_3b_active_tf_plan.md).
+- *Offen vor Code:* die Disambiguierungs-Logik (Fahrtrichtung → roll-Sollwert mischen).
+
+**P3 — Gang-Stabilisierung gegen Nicht-Tripod-Wackeln** (das „tripod-ruhig"-Ziel).
+- *Befund:* reaktives Leveling dämpft nur begrenzt (Wackeln ±1–2° < Totband; gangsynchrones
+  Open-Loop-CoG-Wandern, [[project_nontripod_gait_wobble]]). *Echter Fix:* Schwerpunkt **aktiv im
+  Gang-Takt** mitführen (präventiv statt reaktiv) — verwandt mit P1/TF-3, evtl. zusammenlegen.
+- *Quick-Win vorab:* den **Totband-Hebel** in die Tuning-Doku aufnehmen (Totband ↓ + Kp/Kd ↑
+  macht die Dämpfung in Sim sichtbar; auf HW Vorsicht).
+
+**P4 — Auto-Tuning-Tool** (Gains pro Gangart/Höhe selbst finden).
+- *Idee:* rclpy-Tool (`tools/balance_autotune.py`) gegen die laufende Sim: Param-Client +
+  IMU-Metrik (RMS-Neigung/Residual + Gyro-Varianz, Sanity-Gates gegen Degenerate-Lösungen) +
+  Koordinaten-Abstieg → Output = Preset-YAML pro Gangart. Welt = statische `slope` (konstanter
+  Hang) + eben. Höhe als zweite Dimension (erst eine Höhe, dann Robustheit prüfen).
+- *Offen vor Code:* genaue Metrik, Suchraum/Wertebereiche + Zeitbudget, Settle-/Mess-Fenster.
+- *Caveat:* findet **Sim-optimale** Gains (rauschfrei) → auf HW nur Startpunkt.
+
+### Doku-Hygiene bei Rückkehr
+- `PHASE.md` + [`../00_backlog.md`](../00_backlog.md): A5-Status von ⏸️ zurück auf 🟡 aktiv.
+- `ai_navigation.md` (Eintrag „IMU-Balance/Leveling/Kipp"): bei TF-3/TF-Quer/HW ergänzen.

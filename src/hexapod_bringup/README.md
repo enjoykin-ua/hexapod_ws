@@ -7,9 +7,19 @@ Top-Level-Launch-Orchestrierung für den Hexapod. **Resource-only-Paket**
 
 ```
 launch/
-├── sim.launch.py     # Standard-Sim-Bringup mit ros2_control (ab Phase 4)
-└── real.launch.py    # HW-Bringup mit hexapod_hardware-Plugin (ab Phase 9 Stage G)
+├── sim.launch.py        # Standard-Sim-Bringup mit ros2_control (ab Phase 4)
+├── real.launch.py       # HW-Bringup mit hexapod_hardware-Plugin (ab Phase 9 Stage G)
+├── slope.launch.py      # A5: statische Schräg-Welt (Leveling Stufe 2)
+├── ramp.launch.py       # A5: Ramp-Welt flach→Hang→Plateau (nur Sim+Spawn)
+└── ramp_walk.launch.py  # A5: EIN-Befehl-Bringup = ramp + gait_node (Auto-Standup)
 ```
+
+> **A5-Komfort:** `ramp_walk.launch.py` startet Sim **und** gait_node in einem Aufruf →
+> der Roboter spawnt + steht automatisch auf (Stabilisierung `terrain` an). Danach nur
+> noch `/cmd_vel`. Beispiel:
+> `ros2 launch hexapod_bringup ramp_walk.launch.py slope_deg:=16.0 gait_pattern:=ripple`.
+> Args: `slope_deg`, `gait_pattern` (tripod|wave|tetrapod|ripple), `leveling_enable`,
+> `gait_delay` (Wartezeit bis gait_node-Start, bei langsamem Kaltstart erhöhen).
 
 ## Zweck
 

@@ -14,7 +14,7 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 | [gait_patterns.py](hexapod_gait/gait_patterns.py) | `GaitPattern`-Dataclass + Presets `TRIPOD`, `SINGLE_LEG_1..6`, erweiterbar für Wave/Ripple |
 | [trajectory_gen.py](hexapod_gait/trajectory_gen.py) | Pure-Python `swing_traj` (Halbsinus) + `stance_traj` (linear) im Bein-Frame |
 | [tip_monitor.py](hexapod_gait/tip_monitor.py) | Pure-Python Kipp-/Sturz-Erkennung (Schwellen + Entprellung + Latch), Block A5 Stufe 1 |
-| [balance_controller.py](hexapod_gait/balance_controller.py) | Pure-Python Body-Leveling-Regler (Totband-PI + Slew + Anti-Windup), Block A5 Stufe 2 |
+| [balance_controller.py](hexapod_gait/balance_controller.py) | Pure-Python Body-Stabilisierungs-Regler (Totband-PI + Gyro-D + Slew + Anti-Windup), Block A5 Stufe 2 / TF-2 |
 | [slope_estimator.py](hexapod_gait/slope_estimator.py) | Pure-Python Hang-Schätzung (langsamer Tiefpass + Residual), Block A5 TF-1 |
 
 ## Kipp-/Sturz-Erkennung (Block A5 Stufe 1)
@@ -69,20 +69,31 @@ Kippen feuert.
   keinen Sturz), `slope_clamp_deg` (Default **40°**).
 - **Ohne IMU:** Schätzung reset, `TipMonitor` inaktiv (graceful, wie Stufe 1).
 
-## Körper-Leveling (Block A5 Stufe 2 + 3a)
+## Körper-Stabilisierung / Leveling (Block A5 Stufe 2 + 3a + TF-2)
 
-Auf einer Schräge hält der `gait_node` den Körper **horizontal** (roll/pitch → 0),
-indem die Fuß-Targets um eine Körper-Rotation gedreht werden. **Stufe 2:** im `STANDING`.
-**Stufe 3a:** zusätzlich im `WALKING`/`STOPPING` (Leveling im Lauf). Drei Schichten
-(analog Stufe 1):
+Der `gait_node` stabilisiert die Körperlage, indem die Fuß-Targets um eine Körper-Rotation
+gedreht werden. **Zwei Modi** (`leveling_mode`):
+
+- **`terrain` (TF-2, Default):** Körper bleibt **parallel zum Boden** — **roll → 0**,
+  **pitch folgt dem Hang** (flach → waagerecht, Hang → hangparallel) + **Wackel-Dämpfung**.
+  Der Trick: per-Achse-Reglereingänge (Soll intern 0) — roll = roh (→0), pitch = **Residual**
+  (IMU − Hang-Schätzung aus TF-1 → der langsame Hang fällt heraus, nur Wackeln wird korrigiert).
+- **`horizontal` (Stufe 2/3a):** Körper **waagerecht** (roll **und** pitch → 0), egal wie der
+  Boden liegt — fürs statische Horizontal-Stehen (z.B. Sensor-/Kamera-Plattform).
+
+**Stufe 2:** im `STANDING`. **Stufe 3a/TF-2:** zusätzlich im `WALKING`/`STOPPING`. Drei
+Schichten (analog Stufe 1):
 
 - **Regler:** ROS-frei in [balance_controller.py](hexapod_gait/balance_controller.py)
-  (`BalanceController`). Pro Achse **Totband-PI + Slew-Rate-Limit + Anti-Windup**:
+  (`BalanceController`). Pro Achse **Totband-PI + Gyro-D + Slew-Rate-Limit + Anti-Windup**:
   `error = 0 − measured`; im Totband P=0 + Integrator eingefroren (kein Servo-Jagen um
-  die Soll — der Integrator *hält* die Lage); außerhalb PI; Ausgang/Integrator auf
-  `max_level_angle` geclampt; Slew begrenzt `|Δcorr/dt|` (schützt vor Fuß-Scrub-Spikes).
-  Schnittstelle `update(roll, pitch, dt) → (corr_roll, corr_pitch)` — **austauschbar**
-  (Dual-Tiefpass-Schema als 2. Impl möglich).
+  die Soll — der Integrator *hält* die Lage); außerhalb PI; **Gyro-D** `d = −Kd·Drehrate`
+  dämpft das Wackeln und wirkt **immer** (auch im Winkel-Totband — Wackeln = kleiner Winkel +
+  hohe Rate), `d` geht **vor** den Slew; Ausgang/Integrator auf `max_level_angle` geclampt;
+  Slew begrenzt `|Δcorr/dt|` (schützt vor Fuß-Scrub-Spikes). Schnittstelle
+  `update(roll, pitch, dt, gyro_roll=0, gyro_pitch=0) → (corr_roll, corr_pitch)` — `Kd=0` →
+  Stufe-2-Verhalten. ⚠️ D differenziert → rausch-verstärkend (gz-IMU rauschfrei; auf HW ggf.
+  `Kd` senken).
 - **Stellpfad:** in der `GaitEngine` (`set_body_orientation_offset` →
   `compute_joint_angles`, in STANDING/WALKING/STOPPING). Pro Bein der B4-Round-Trip als
   **Rotation**: `leg_to_base_frame` → `rotate_xy(corr_roll, corr_pitch)` um den
@@ -100,14 +111,20 @@ indem die Fuß-Targets um eine Körper-Rotation gedreht werden. **Stufe 2:** im 
   ist die Grundpose out-of-envelope → echter `IKError`. Limits = **URDF-geparst** (nicht
   config.py — „zwei Limit-Quellen").
 - **ROS-Glue:** im Tick (STANDING/WALKING/STOPPING) `BalanceController.update` →
-  `engine.set_body_orientation_offset`; sonst Reset + Offset 0/0. Bei aktivem Leveling +
-  `leveling_startup_grace` wird die Stufe-1-Kipp-Erkennung während der Konvergenz
-  (Controller noch nicht im Totband) unterdrückt — die Anfangs-Schräglage auf der Rampe
-  feuert sonst WARN.
-- **Parameter (live):** `leveling_enable` (Default **false**, Opt-in; auf flachem Boden
-  ohnehin No-Op), `leveling_kp`, `leveling_ki`, `leveling_deadband_deg`,
+  `engine.set_body_orientation_offset`; sonst Reset + Offset 0/0. **TF-2:** im `terrain`-Modus
+  speist der Node pitch = Residual (gegen die TF-1-Hang-Schätzung, die diesen Tick **vorher**
+  in `_update_slope_estimate` aktualisiert wurde) + die signierten Gyro-Achsenraten für den
+  D-Term. Bei aktivem Leveling + `leveling_startup_grace` wird die Stufe-1-Kipp-Erkennung
+  während der Konvergenz unterdrückt (greift im terrain-Modus praktisch nie — Korrektur klein).
+- **Parameter (live):** `leveling_enable` (Default **false**, Opt-in; flach No-Op),
+  `leveling_mode` (`terrain`|`horizontal`, Default **terrain**), `leveling_kp`, `leveling_ki`,
+  `leveling_kd` (Gyro-Dämpfung, Default **0.03**), `leveling_deadband_deg`,
   `leveling_slew_max_dps`, `leveling_max_angle_deg` (STANDING-Clamp, **10°**),
   `leveling_max_angle_walking_deg` (WALKING-Clamp, **4°**), `leveling_startup_grace`.
+- **Quer-/Diagonal-Traversieren** (Hang seitlich) ist **noch nicht** abgedeckt: `terrain`
+  regelt roll→0 (Geradeaus-Klettern). Sauberes Quer-Laufen braucht roll-Residual **+**
+  `cmd_vel`-Richtungslogik → eigener Nachfolge-Block (`TF-Quer`). Kanten/Stufen (kein
+  Bodenkontakt) = Stufe 4 (Fußtaster), kein Balance-Problem.
 - **Envelope-Beweis:** [`tools/leveling_envelope_check.py`](../../tools/leveling_envelope_check.py)
   prüft offline (echte URDF-Limits + CoG via `compute_load`), dass die gelevelte Stand-Pose
   bei θ in-limit + CoG-stabil ist. Bestätigt `max_level_angle=10°` für alle Stance-Modi
@@ -294,8 +311,10 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `radial_distance` | `0.27` | Stand-Pose Foot-X (m, Bein-Frame) |
 | `tick_rate` | `50.0` | Engine-Loop-Rate (Hz) |
 | `time_from_start_factor` | `2.0` | JTC-Lookahead = factor / tick_rate |
-| `leveling_enable` | `false` | Body-Leveling aktivieren (Stufe 2, Opt-in; flach No-Op) |
-| `leveling_kp` / `leveling_ki` | `0.4` / `0.1` | Leveling-PI-Gains (live tunbar) |
+| `leveling_enable` | `false` | Body-Stabilisierung aktivieren (Opt-in; flach No-Op) |
+| `leveling_mode` | `terrain` | TF-2: `terrain` (roll→0, pitch folgt Hang) vs. `horizontal` (Voll-Leveln) |
+| `leveling_kp` / `leveling_ki` | `0.4` / `0.1` | PI-Gains (live tunbar) |
+| `leveling_kd` | `0.03` | TF-2: Gyro-Dämpfungs-Gain (Wackeln); `0` = Stufe-2-Verhalten |
 | `leveling_deadband_deg` | `1.5` | Totband — kein Servo-Jagen um die Soll |
 | `leveling_slew_max_dps` | `8.0` | Slew-Rate-Limit der Korrektur (°/s) |
 | `leveling_max_angle_deg` | `10.0` | STANDING-Clamp vor IK (offline-bewiesen, Risiko 1) |
