@@ -1,0 +1,81 @@
+<?xml version="1.0" ?>
+<!--
+  rubicon.sdf — Wrapper-Welt für die Fuel-Welt "Rubicon" (OpenRobotics).
+
+  = die Outdoor-Terrain-Szene `OpenRobotics/Rubicon` (Heightmap 37.5×37.5 m,
+    Höhe 0–5 m, + Felsen/Stümpfe/Ranger-Station) PLUS die gz-System-Plugins,
+    die unsere Pipeline braucht (physics, user-commands, scene-broadcaster,
+    contact, imu) — die rohe Fuel-Welt bringt KEINE dieser Plugins mit, dann
+    wären IMU (/imu/data) und Fußkontakte tot.
+
+  Welt-Name bleibt "empty" (wie empty_imu.sdf): die Pipeline hängt zwar an
+  EXPLIZITEN gz-Topic-Namen (/imu/sim, /foot_contact_leg_N — welt-namen-
+  unabhängig), aber "empty" hält auch etwaige /world/empty/...-Konsumenten
+  (Ground-Truth-Pose) unverändert. Null Risiko.
+
+  Geländekunde (aus Heightmap.png gemessen): der Origin liegt auf ~2.9 m, die
+  Seiten steigen auf 3.5–3.9 m. Eine flache "Tal"-Strecke läuft bei x≈3..7, y=0
+  auf ~1.25–1.35 m → dort spawnen + in +x geradeaus laufen (siehe rubicon.launch.py).
+
+  Die Fuel-Modell-Geometrie wird per <include>-URI aus dem lokalen Fuel-Cache
+  (~/.gz/fuel) aufgelöst; einmaliger Download via:
+    gz fuel download -u "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Rubicon"
+-->
+<sdf version="1.6">
+  <world name="empty">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-contact-system"
+      name="gz::sim::systems::Contact">
+    </plugin>
+    <!-- nötig, damit <sensor type="imu"> Daten publisht (wie empty_imu.sdf). -->
+    <plugin
+      filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+
+    <scene>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.7 0.7 0.8 1</background>
+      <sky></sky>
+    </scene>
+
+    <!-- Eigene Sonne (die Fuel-Welt hatte keine Welt-Licht; das Modell trägt
+         zwar eine link-Sonne, eine Welt-Sonne stellt die Beleuchtung sicher). -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Die Fuel-Terrain-Szene (Heightmap + Felsen + Ranger-Station). -->
+    <include>
+      <name>Rubicon</name>
+      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Rubicon</uri>
+    </include>
+
+  </world>
+</sdf>

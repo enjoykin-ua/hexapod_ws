@@ -56,6 +56,15 @@
 - **Dateien:** `hexapod_teleop/config/ps4_usb.yaml` (Indizes/Skalen) · `joy_to_twist.py` (Logik).
 - **Falle:** `joy_to_twist` publisht beim Start **einmalig** `/cmd_body_height = body_height_init`
   → muss == Gait-`body_height` sein, sonst sackt der Stand ab. Bei Höhen-Änderung nachziehen.
+- **Live-Tuning der Tempo-Scales (TLS):** `linear_x_scale`/`linear_y_scale`/`angular_z_scale`/
+  `slow_factor`/`deadzone` sind **live** per `ros2 param set /joy_to_twist …` verstellbar
+  (`_on_param_change`, validate-then-apply: Scales ≥ 0, slow_factor ∈ [0,1], deadzone ∈ [0,1)).
+  Die **strukturellen** Params (`axis_*`/`*_button`/`sign_*`) bleiben **Start-only** (im Hot-Path gilt
+  der Startwert). Wer eine neue *live*-Tuning-Größe ergänzt, muss sie in `_on_param_change` (validate +
+  apply) eintragen — sonst wirkt der `param set` nicht (das war der ursprüngliche Bug: alle Scales nur
+  beim Start gelesen). **Plan/Tests:** `project_finalization/imu_balance/teleop_live_scales_plan.md`.
+- **Validieren:** `colcon test hexapod_teleop` (`test_live_scales` — live-Update je Param, negativ/Range
+  abgelehnt, struktureller Param kein Crash, atomarer Reject).
 
 ### Standup / Reposition / Zwei-Phasen-Logik
 - **Wo:** `gait_engine.py` (States `CARTESIAN_STANDUP`/`REPOSITION`, `start_*`, `_compute_*`).

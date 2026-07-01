@@ -11,7 +11,7 @@
 | `hexapod_control` | yaml | Controller-Configs: `controllers.yaml` (Sim), `controllers.real.yaml` (HW). |
 | `hexapod_kinematics` | Python | IK/FK (`leg_ik`, `leg_fk`), Geometrie (`geometry.py`: `rotate_z`, `rotate_xy`, base↔leg-Frame) + Limits (`config.py`), `JointLimits`, `HEXAPOD`. |
 | `hexapod_gait` | Python | `gait_node` (Knoten), `gait_engine` (State-Machine + Body-Leveling-Stellpfad), `gait_patterns`, `trajectory_gen`, `tip_monitor` (A5 Stufe 1), `balance_controller` (A5 Stufe 2), `reachability_viz`; `gait.launch.py`, `stand.launch.py`; `config/presets/`. |
-| `hexapod_teleop` | Python | `joy_to_twist` (Joy→cmd_vel/cmd_body_height), `config/ps4_usb.yaml`, `joy_teleop.launch.py`. |
+| `hexapod_teleop` | Python | `joy_to_twist` (Joy→cmd_vel/cmd_body_height; Tempo-Scales `linear_x/y_scale`/`angular_z_scale`/`slow_factor`/`deadzone` **live-tunbar** via `param set`), `config/ps4_usb.yaml`, `joy_teleop.launch.py`. |
 | `hexapod_hardware` | C++ | `ros2_control`-SystemInterface-Plugin ↔ Servo2040; `calibration.cpp` (rad↔pulse); `config/servo_mapping.yaml` (Puls-Cal je Pin). |
 | `hexapod_sensors` | Python/URDF | **IMU real** (A5 Stufe 0): `imu_monitor` (`/imu/data`→roll/pitch, `/imu/monitor`, world→base_link-tf); Foot-Contact-Publisher. IMU-xacro in `hexapod_description` (`hexapod.imu.xacro`). |
 | `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `worlds/empty_imu.sdf` (+ `slope.sdf.xacro`, A5 Stufe 2), `sim.launch.py` (Gazebo-Seite). |

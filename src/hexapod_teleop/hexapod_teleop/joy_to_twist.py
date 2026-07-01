@@ -26,6 +26,7 @@ BT/PS5 nur anderes YAML, gleicher Code.
 import time
 
 from geometry_msgs.msg import Twist
+from rcl_interfaces.msg import SetParametersResult
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
@@ -216,6 +217,58 @@ class JoyToTwist(Node):
             f'[{self._body_height_min:.3f},{self._body_height_max:.3f}], '
             f'longpress={self._longpress_sec:.2f}s'
         )
+
+        # TLS — Tempo-Params live-tunbar (sonst nur beim Start gelesen). Wie der
+        # gait_node: validate-then-apply. Nur die Tuning-Werte, nicht die Struktur.
+        self.add_on_set_parameters_callback(self._on_param_change)
+
+    def _on_param_change(self, params):
+        """
+        Live-Tuning der Tempo-Parameter (TLS): validate-then-apply.
+
+        Übernimmt im Lauf nur die **Tuning-Werte** (``linear_x_scale``,
+        ``linear_y_scale``, ``angular_z_scale``, ``slow_factor``, ``deadzone``).
+        Strukturelle Params (Achsen-/Button-/Sign-Indizes) bleiben Start-only —
+        sie werden hier nicht behandelt → im Hot-Path gilt weiter der Startwert
+        (kein Regress). Erst alles prüfen (kein Teil-Apply bei Fehler), dann setzen.
+        """
+        # 1. VALIDATE — bei Ungültigem sofort raus, nichts angewandt.
+        for p in params:
+            if (
+                p.name in (
+                    'linear_x_scale', 'linear_y_scale', 'angular_z_scale',
+                )
+                and p.value < 0.0
+            ):
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{p.name} must be >= 0, got {p.value}',
+                )
+            if p.name == 'slow_factor' and not 0.0 <= p.value <= 1.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'slow_factor must be in [0,1], got {p.value}',
+                )
+            if p.name == 'deadzone' and not 0.0 <= p.value < 1.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'deadzone must be in [0,1), got {p.value}',
+                )
+
+        # 2. APPLY — kein Fail mehr möglich.
+        for p in params:
+            if p.name == 'linear_x_scale':
+                self._linear_x_scale = float(p.value)
+            elif p.name == 'linear_y_scale':
+                self._linear_y_scale = float(p.value)
+            elif p.name == 'angular_z_scale':
+                self._angular_z_scale = float(p.value)
+            elif p.name == 'slow_factor':
+                self._slow_factor = float(p.value)
+            elif p.name == 'deadzone':
+                self._deadzone = float(p.value)
+
+        return SetParametersResult(successful=True)
 
     # ---------- Helfer (rein, testbar) ----------
 
