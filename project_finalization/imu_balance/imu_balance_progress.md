@@ -668,6 +668,49 @@ S4-5:
 
 ---
 
+### S4-7 — Terrain-anpassendes Stehen (Adaptive Stand)  🟡 Code+Tests+Envelope+Doku fertig, Sim-Verify offen
+
+> Statischer Zwilling von S4-2: im STANDING senkt jedes Bein einzeln downward-only von `body_height`
+> ab bis Kontakt → einfrieren; kein Kontakt bis Floor (`body_height − max_depth`) → am Floor halten.
+> x,y nominal, nur z adaptiv. AUS (Default) = STANDING bit-identisch zur starren Pose. Plan:
+> [`stage_4f_adaptive_stand_plan.md`](stage_4f_adaptive_stand_plan.md). Test-Doku:
+> [`stage_4f_adaptive_stand_test_commands.md`](stage_4f_adaptive_stand_test_commands.md).
+
+```
+S4-7:
+- [x] S4-7.1 Engine _adaptive_stand_z (static downward-only, Freeze bei Kontakt, Floor) + _stand_conform_z/_t_stand_entry + reset_stand_conform bei STANDING-Eintritt; x,y unverändert; AUS bit-identisch
+- [x] S4-7.2 gait_node: adaptive_stand_enable-Wiring (Contact-Live-Guard) + Re-Konform-Trigger (STANDING-Eintritt via Engine + body_height-Änderung [Engine self-detect])
+- [x] S4-7.3 Params: adaptive_stand_enable (false), stand_conform_max_depth (0.04 — Rubicon-Sim-Feedback, war 0.02), stand_conform_rate (0.02) — live, validiert
+- [x] S4-7.4 Envelope-Check pro Stance-Höhe (radial × body_height bis Floor, URDF-Limits) GREEN  [tools/stand_conform_envelope_check.py: tief/mittel/hoch GREEN bei 0.04 (Floor hoch −0.140); Envelope-Max über alle Modi = 0.05, 0.06→hoch RED]
+- [x] S4-7.5 Unit-Tests (absenken/Dip/schon-Kontakt/x,y/AUS/Reset/Re-Konform) + Node-Smoke  [test_adaptive_stand.py 10 + test_adaptive_stand_node.py 12]
+- [x] S4-7.6 colcon test + Lint grün  [782 Tests, 0 Fehler]
+- [x] S4-7.7 README/Konzept (terrain-anpassendes Stehen; Mechanik; Params; Grenzen)
+- [x] S4-7.8 Test-Doku stage_4f_adaptive_stand_test_commands.md (Rubicon)  [geschrieben — **Sim-Verify durch User offen**]
+- [x] S4-7.9 kritische Self-Review-Tabelle  [unten]
+```
+
+### S4-7-Post-Review
+
+| Punkt | Status |
+|---|---|
+| `_adaptive_stand_z`: Freeze bei dem z, wo Kontakt feuert (nicht am Top-`if contact`) | OK — bewusst simpler/korrekter als Plan-§1.1-Pseudocode (dessen 2. `if contact` war tot); früher Kontakt (Descent≈0) verankert ~body_height, späterer tiefer. `test_immediate_contact_anchors_body_height` + `test_contact_during_descent_freezes_at_current_z` |
+| Descent zeitgesteuert (`t − t_stand_entry`), nicht call-count | OK — deterministisch bei Mehrfach-Aufruf/Tick (z.B. `_debug_leg1_contact` ruft `compute_foot_targets` erneut). Freeze idempotent (2. Aufruf sieht `frozen`) |
+| AUS = bit-identisch + KEINE State-Mutation | OK — `t is None or not adaptive_stand_enable` → exakt altes `{leg: neutral}`, keine `_stand_conform_z`-Mutation (`test_disabled_is_bit_identical_stand_pose`) |
+| `_compute_standing_targets` Doppel-Rolle (live vs. Ramp-Ziel) | OK — `t=None`-Default hält `_compute_stand_pose_joints` (Ramp/Reposition/Show-Exit-Ziel) **nominal** (`test_stand_pose_joints_helper_is_nominal`); bestehende Leveling-Tests (`_compute_standing_targets()`) unverändert grün |
+| STANDING-(Wieder-)Eintritt-Reset via `_prev_state`-Snapshot | OK — Snapshot VOR Dispatch → Mid-Tick-Übergänge (STOPPING→STANDING) 1 Tick später erkannt; unkritisch, da erster Stand-Tick nominal (Descent 0). `test_standing_entry_resets_conform` |
+| Re-Konform bei body_height-Änderung (envelope-sicher statt Offset-ride) | OK — Engine self-detect (`body_height != _stand_conform_bh`) deckt `/cmd_body_height` UND Param ab (beide setzen `engine.body_height`); Stance-Switch zusätzlich via STANDING-Eintritt (`test_body_height_change_reconforms`) |
+| Live-Enable mitten im Stand → frischer Anker | OK — Node `_apply_param` false→True in STANDING → `reset_stand_conform(t)` (sonst Descent gegen altes `_t_stand_entry` → sofort Floor). `test_live_enable_in_standing_resets_conform` |
+| Contact-Live-Guard (toter/stale Publisher → adaptiv aus) | OK — verUNDet mit `pipeline_live` (identisch S4-2); Node-Smoke 4× (never/fresh/stale/param-off) |
+| Envelope zwei-Limit-Quellen (URDF, nicht config.py) | OK — Tool nutzt xacro-URDF-Limits via `load_joint_limits`; alle 3 Stance-Modi bis Floor GREEN |
+| S4-5-Maskierung im STANDING | 🟢 später (§6) — im Stand gegenstandslos: Node leert `_sensor_faulty` außerhalb WALKING → immer leer, keine Sonderbehandlung nötig |
+| Tiefe Dips (> max_depth) + Buckel (Boden über body_height) | 🟢 später (§6) — v1: tiefe Dips hängen am Floor (dokumentiert), Buckel = Kontakt bei body_height (Open-Loop-Anker); Körperhöhen-/Neigungs-Adaption = großer Nachfolger |
+| Leveling-Komposition (Bein-Frame-z, v1-Näherung) | 🟢 später (§5/§6) — adaptives z komponiert unter die Leveling-Rotation (`_compute_leveled_ik`); welt-vertikale Präzision zurückgestellt |
+| kontinuierliches Re-Konform (Rutschen im Stand) | 🟢 später (§6) — v1: einmal auf STANDING-Eintritt konformen + halten |
+| **Sim-Verify (User) — Rubicon 1. Runde** | 🟡 **Mechanik bestätigt, Tiefe zu flach → Fix.** Enable in STANDING → Beine bewegten sich (Absenken korrekt); aber Beine 2/3/5 (`[100101]`) blieben 1–3 cm über Boden. **Ursache = kein Bug:** `stand_conform_max_depth` 0.02 zu flach für Rubicon-Dips (~3–5 cm) → Fuß hing am Floor. **Fix: Default 0.02 → 0.04** (envelope-Max über alle Stance-Modi = 0.05, offline verifiziert; 0.06 → "hoch" RED). Re-Verify + Stance-Wechsel-Test (jetzt via PS4 L2/R2) offen. |
+| **Sim-Verify (User) — 2. Runde: Sequenz-Revert-Bug (nicht S4-7)** | 🔴→✅ **gefunden + behoben.** Sit/Stand/Stance-Wechsel via Service/PS4 kippten in den Stand zurück (Konform-Code selbst OK: direktes `body_height` klappte). **Wurzel:** `compute_foot_targets` (Query) mutierte via Stopping-Fallthrough (`all_settled→STANDING`) den State — getriggert von der **S4-1-Debug-Messung** `_debug_leg1_contact` (Default an) auf jeder Kontakt-Flanke → jede Sequenz gekillt (auch der Auto-Standup → Schürfen). **Fix (`gait_engine.py`):** `compute_foot_targets` bedient Sequenz-Zustände read-only + `all_settled→STANDING` an `state==STOPPING` gebunden. 374 Tests grün. Volle Erklärung: [stage_4f-Plan §9](stage_4f_adaptive_stand_plan.md). **→ S4-7-Sim-Verify jetzt entblockt** (Re-Verify Rubicon offen). |
+
+---
+
 ## Stufen 3b–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +

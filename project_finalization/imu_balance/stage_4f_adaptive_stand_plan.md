@@ -5,9 +5,18 @@
 > Boden absenken** statt in der Luft zu hängen (auf unebenem Gelände wie Rubicon). Ist das Feature
 > **aus**, bleibt STANDING **exakt** wie heute (starre Flachboden-Pose, keine Regression).
 >
-> **Status: 🟡 §4 besprochen + freigegeben → Implementierung steht aus.** Alle Design-Entscheidungen in
-> §4/§5 sind mit dem User geklärt. Voraussetzung: S4-1/S4-2 (Kontakt-Consumer + adaptiver Touchdown)
-> 🟢. Dies ist der **statische** Zwilling von S4-2 (adaptiver Touchdown), im STANDING statt im Schwung.
+> **Status: 🟡 Code + Tests + Envelope + Doku fertig — Sim-Verify (Rubicon) durch User offen.**
+> ⚠️ **Blocker beim Verify entdeckt + behoben (nicht S4-7):** Hinsetzen/Aufstehen/Stance-Wechsel über
+> Service/PS4 kippten in den Stand zurück — Ursache war ein **vorbestehender Seiteneffekt in
+> `compute_foot_targets`**, ausgelöst von der S4-1-Debug-Messung, **nicht** der S4-7-Konform-Code.
+> Behoben (§9). S4-7-Sim-Verify damit **entblockt**.
+> Engine (`_adaptive_stand_z` / `reset_stand_conform` / `_compute_standing_targets(t)`) + Node-Wiring
+> (`adaptive_stand_enable` + Contact-Live-Guard + Re-Konform) + 3 Params + `tools/stand_conform_envelope_check.py`
+> (tief/mittel/hoch GREEN; Default `max_depth` 0.04 = Rubicon-Sim-Feedback, Envelope-Max 0.05) implementiert;
+> 782 Tests grün (22 neu). Alle
+> Design-Entscheidungen in §4/§5 mit dem User geklärt. Voraussetzung S4-1/S4-2 🟢. Dies ist der
+> **statische** Zwilling von S4-2 (adaptiver Touchdown), im STANDING statt im Schwung. Test-Doku:
+> [`stage_4f_adaptive_stand_test_commands.md`](stage_4f_adaptive_stand_test_commands.md).
 
 ---
 
@@ -185,3 +194,57 @@ S4-7:
 `imu_balance_progress.md` (S4-7-Checkliste + Post-Review; Umbrella S4-7 → 🟢), `hexapod_gait/README.md`,
 `ai_navigation.md` (Fußkontakt-Eintrag um „Adaptive Stand" ergänzen), Memory
 `project_a5_stage4_adaptive_touchdown` (S4-7 nachtragen), Test-Doku.
+
+---
+
+## 9. Nachtrag — der Sequenz-Revert-Bug (gefunden bei S4-7-Verify, aber NICHT S4-7)
+
+> Beim Sim-Verify von S4-7 kippten **Hinsetzen, Aufstehen und Stance-Wechsel** über Service/PS4 immer
+> wieder in den Stand zurück. Das Wesentliche der Diagnose:
+
+### Symptom
+- Sequenz startet (Roboter bewegt sich kurz), **kippt dann in den Ursprungszustand (STANDING) zurück**.
+- Nur der **Sequenz-Pfad** (Service/PS4 → REPOSITION / CARTESIAN_STANDUP / SITDOWN / STANCE_SWITCH).
+  **Sofort-Param** (`body_height` direkt setzen) und **zyklisches Laufen** waren unauffällig.
+- Der Rücksprung fiel **exakt auf eine Fußkontakt-Flanke** (Standup beim ersten Bodenkontakt,
+  Sit beim ersten Bein-Abheben). Auf **flacher Welt wie auf Rubicon**, RTF ≈ 1.0.
+
+### Wurzel — ein Query mit State-Seiteneffekt
+`gait_engine.compute_foot_targets(t)` ist eine **Query** (liefert Fuß-Targets), hatte aber einen
+**Fallthrough**: alles, was nicht STANDING/WALKING war, fiel in `_compute_stopping_targets(t)` — und
+das enthält die (legitime) STOPPING-Auto-Transition **`if all_settled: self._state = STANDING`**.
+→ Wird `compute_foot_targets` in einem **Sequenz-Zustand** aufgerufen und sind die Füße „settled",
+**erzwingt es STANDING und bricht die laufende Sequenz ab** — komplett an den Finish-Methoden
+(`_finish_reposition` etc.) vorbei.
+
+### Auslöser
+Die **S4-1-Debug-Messung** `_debug_leg1_contact` (`foot_contact_debug_enable`, **Default an**) ruft bei
+**jeder Kontakt-Flanke von Bein 1** `compute_foot_targets(t)` auf, nur um das kommandierte `cmd_z`
+zu loggen. Jede Sequenz erzeugt solche Kontakt-Flanken (Beine heben/aufsetzen) → Debug feuert →
+`compute_foot_targets` → STANDING erzwungen → Abbruch. Weil die Debug-Messung per Default an ist,
+war der Bug **immer** aktiv (deshalb schürfte auch der Auto-Standup: seine Reposition wurde gekillt).
+
+### Warum schwer zu finden
+- Der **State-Chaining-Code war korrekt** (`start_sitdown` setzt `after=SITDOWN_LOWER`, `_finish_reposition`
+  ehrt das). Instrumentierung der Finish-Methoden zeigte **nichts** — weil sie **nie erreicht** wurden.
+- Der entscheidende Hinweis: die Übergänge liefen **außerhalb** der Sequenz-Logik und **synchron zu
+  Kontakt-Flanken**. Gegenprobe `foot_contact_debug_enable:=false` → alles läuft sauber = Beweis.
+- Irrwege unterwegs (ausgeschlossen): Zeitbasis/RTF (RTF war 1.0), stale `.pyc`/Build (Bytecode war
+  aktuell; ein `35557f86`-Hash war ein `py_compile`-Docstring-Artefakt), Zweit-Workspace `~/install`
+  (existiert, wird aber von `.bashrc` **nicht** gesourct).
+- Ironie: die S4-7-Post-Review notierte bereits, dass `_debug_leg1_contact` `compute_foot_targets`
+  „erneut" ruft — prüfte aber nur die **S4-7-Idempotenz**, nicht den **Stopping-Seiteneffekt** für
+  Nicht-STANDING-Zustände.
+
+### Fix (`gait_engine.py`)
+1. **`compute_foot_targets`**: nur noch STOPPING → `_compute_stopping_targets`; **Sequenz-Zustände
+   werden read-only bedient** (statische Stand-Pose via `_standing_targets`, **keine** Mutation).
+2. **`_compute_stopping_targets`**: der `all_settled → STANDING`-Seiteneffekt ist an
+   `self._state == STOPPING` gebunden (Defense-in-depth → read-safe für jeden Aufrufer).
+→ 374 Tests grün, Lint sauber. Verifiziert: Auto-Standup schürffrei, Sit/Stand/Stance sauber, **mit**
+Debug-Messung an, flach + Rubicon.
+
+### Lektion
+**Command-Query-Separation.** Eine „compute/get"-Methode darf **keinen** State mutieren. Die
+Debug-Messung ging (berechtigt) von Read-Only aus — der versteckte Seiteneffekt in einem
+über-breiten Fallthrough machte daraus eine scharfe Waffe gegen jede Nicht-STANDING/WALKING-Sequenz.

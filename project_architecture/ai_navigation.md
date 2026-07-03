@@ -168,9 +168,11 @@
   (TF-1 [`stage_3a_passive_tf_test_commands.md`](../project_finalization/imu_balance/stage_3a_passive_tf_test_commands.md) ·
   TF-2 [`stage_3b_active_tf_test_commands.md`](../project_finalization/imu_balance/stage_3b_active_tf_test_commands.md)).
 
-### Fußkontakt / adaptiver Touchdown (Terrain, A5 Stufe 4) ändern
+### Fußkontakt / adaptiver Touchdown + Adaptive Stand (Terrain, A5 Stufe 4) ändern
 - **Voll-Doku:** [`../project_finalization/imu_balance/stage_4_terrain_adaptive_plan.md`](../project_finalization/imu_balance/stage_4_terrain_adaptive_plan.md)
-  (Umbrella, Methoden-Wahl fixed-timing) + S4-1 (Consumer/Verifikation) + S4-2 (adaptiver Touchdown).
+  (Umbrella, Methoden-Wahl fixed-timing) + S4-1 (Consumer/Verifikation) + S4-2 (adaptiver Touchdown im
+  WALKING) + **S4-7 (Adaptive Stand — der statische Zwilling im STANDING**,
+  [`stage_4f_adaptive_stand_plan.md`](../project_finalization/imu_balance/stage_4f_adaptive_stand_plan.md)).
 - **Stand:** S4-1 🟢 (Kontakt-Consumer + Diagnose). **S4-2 🟢 Sim-verifiziert** (adaptiver Touchdown
   **Option A** — downward-only, an `body_height` verankert, lag-tolerant). ⚠️ Erst-Entwurf (Senkung
   vom Apex bis Floor, Freeze an Kontakthöhe) war **closed-loop-instabil** (Körper-Anker verloren +
@@ -180,6 +182,8 @@
   flaggt stuck-on = lückenlose Apex-Pässe / dead → Bein maskieren = adaptiv-aus + aus Slip-Zählung + WARN,
   kein Freeze; T1 stuck_on ✅ / T2 stuck_off ✅; FP-Kaskade + Slip-Race + Geister-Flags gefunden+behoben).
   **✅ STUFE-4-KERN KOMPLETT** (S4-1/2/4/5/6); offen nur das optionale S4-3 (free-gait).
+  **S4-7 (Adaptive Stand) 🟡 Code+Tests+Envelope+Doku fertig, Sim-Verify (Rubicon) offen** — im
+  STANDING senkt jedes Bein downward-only bis Kontakt (auf unebenem Grund aufsetzen statt hängen).
 - **Pipeline (Sim, existiert):** gz-contact pro `foot_link` ([`hexapod.foot_contact.xacro`](../src/hexapod_description/urdf/hexapod.foot_contact.xacro))
   → [`bridge_foot_contact.yaml`](../src/hexapod_bringup/config/bridge_foot_contact.yaml)
   → [`foot_contact_publisher.py`](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)
@@ -191,6 +195,14 @@
     nominaler Schwung+Stance bleiben, Probe **nur unter `body_height`** ab Stance-Gate); per-Bein
     `_touchdown_z` + `_td_searched`; `set_foot_contacts()` (Cache vom Node); `adaptive_touchdown_enable`
     (vom Node pro Tick). WALKING-Eintritt: Stance-Beine auf `body_height` vorverankert.
+  - **Engine — Adaptive Stand (S4-7):** `_compute_standing_targets(t)` ruft pro Bein
+    `_adaptive_stand_z(leg_id, t)` (statischer Zwilling: downward-only ab `body_height` mit
+    `stand_conform_rate·(t−t_stand_entry)`, Freeze bei Kontakt, Floor `body_height−stand_conform_max_depth`);
+    per-Bein `_stand_conform_z` + `_t_stand_entry` + `_stand_conform_bh`; `reset_stand_conform(t)` bei
+    STANDING-Eintritt (via `_prev_state`-Snapshot in `compute_joint_angles`) UND body_height-Änderung
+    (self-detect). `t=None`-Pfad (aus `_compute_stand_pose_joints`) + `adaptive_stand_enable=false` =
+    **bit-identisch** zur starren Pose. Node: `adaptive_stand_enable = param AND pipeline_live`
+    (gleicher Contact-Live-Guard wie S4-2), Live-Enable in STANDING → `reset_stand_conform`.
   - **Node-Glue:** `gait_node.py` — 6 Subs `/leg_<n>/foot_contact` (`_make_foot_contact_cb`, stempelt
     Frische), `_update_foot_contacts` (Diagnose + Kontakte an Engine + **Contact-Live-Guard** →
     `engine.adaptive_touchdown_enable = param AND pipeline_live`), `_debug_leg1_contact` (Mess-Werkzeug).
@@ -219,6 +231,10 @@
   `sensor_plausibility_enable` (false), `sensor_apex_band_low/high` (0.3/0.7, low>contact_timeout-Nachhall),
   `sensor_apex_fault_cycles` (3, lückenlose Apex-Pässe in Folge), `sensor_dead_cycles` (2, **Cycles** →
   Ticks via cycle_time·tick_rate, Rebuild), `sensor_fault_inject` (`''`, Debug-Hook `'<leg>:stuck_on|stuck_off'`).
+  **S4-7 (Adaptive Stand):** `adaptive_stand_enable` (false, Opt-in), `stand_conform_max_depth` (0.04 m,
+  Floor unter `body_height`, ≥0; Rubicon-Dips ~3–5 cm, 0.02 war zu flach; Envelope-Max über alle Modi
+  = 0.05), `stand_conform_rate` (0.02 m/s, >0). Envelope je Stance-Höhe:
+  `python3 tools/stand_conform_envelope_check.py` (tief/mittel/hoch GREEN, Floor hoch −0.140).
 - **Fallen:** (1) **Körper-Anker NICHT aufgeben** — der Erst-Entwurf (Freeze an Kontakthöhe, auch
   über `body_height`) war closed-loop-instabil (Drift). Option A hält den Anker bei `body_height`
   und senkt **nur nach unten**. (2) **`probe_start` > Kontakt-Lag in Stance-Phasen** (bei

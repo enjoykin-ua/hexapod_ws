@@ -228,6 +228,10 @@ class GaitEngine:
         self.max_level_angle_walking = math.radians(4.0)
 
         self._state = self.STATE_STANDING
+        # Block A5 S4-7 — State beim vorigen Tick (Snapshot in compute_joint_angles),
+        # um den (Wieder-)Eintritt in STANDING zu erkennen → Reset des adaptiven
+        # Stand-Konform-Vorgangs. Init = STANDING (Engine startet im Stand).
+        self._prev_state = self.STATE_STANDING
         self._v_body: Vec2 = (0.0, 0.0)
         self._omega: float = 0.0
         self._v_body_at_stop: Vec2 = (0.0, 0.0)
@@ -363,6 +367,37 @@ class GaitEngine:
         # adaptiven Touchdown teil (nominaler Bogen = Open-Loop), weil sein
         # Kontaktsignal nicht vertrauenswürdig ist. Leer = Normalfall.
         self._adaptive_masked_legs: set[int] = set()
+
+        # Block A5 Stufe 4 / S4-7 — terrain-anpassendes Stehen (Adaptive Stand).
+        # Der statische Zwilling von S4-2: im STANDING senkt jedes Bein einzeln
+        # von body_height **downward-only** ab, bis der Taster Kontakt meldet →
+        # dort einfrieren; erreicht es den Floor (body_height − max_depth) ohne
+        # Kontakt (Dip zu tief) → am Floor halten (kein Hängen tiefer als der
+        # envelope-verifizierte Boden). x,y bleiben nominal (nur z adaptiv).
+        # Defaults = AUS → STANDING bit-identisch zur starren Flachboden-Pose
+        # (keine Regression). Der Node setzt `adaptive_stand_enable` pro Tick auf
+        # (Param AND Contact-Live-Guard) und reicht die Kontakte via
+        # set_foot_contacts() durch (dieselbe Pipeline wie S4-2).
+        self.adaptive_stand_enable: bool = False
+        # Max. Absenk-Tiefe unter body_height (Floor). Eigener Param (envelope
+        # je Stance-Höhe verifiziert), unabhängig vom Lauf-Touchdown. Default
+        # 0.04 m deckt die Rubicon-Unebenheit (Dips ~3–5 cm; 0.02 war zu flach →
+        # Beine hingen über Senken). Envelope-Grenze über ALLE Stance-Modi = 0.05
+        # (bei 0.06 wird "hoch" out-of-reach); 0.04 = 1 Schritt Marge.
+        self.stand_conform_max_depth: float = 0.04   # m
+        # Absenk-Rate (m/s). Descent = rate · (t − t_stand_entry) (zeitgesteuert,
+        # nicht call-count → deterministisch bei Mehrfach-Aufruf pro Tick).
+        self.stand_conform_rate: float = 0.02        # m/s
+        # Per-Bein eingefrorene Konform-z (None = noch nicht gelandet, senkt ab).
+        self._stand_conform_z: dict[int, float | None] = {
+            leg_id: None for leg_id in range(1, 7)
+        }
+        # Zeit des letzten Konform-Resets (STANDING-Eintritt / Höhenänderung /
+        # Live-Enable) — Anker für die zeitgesteuerte Absenkung.
+        self._t_stand_entry: float = 0.0
+        # body_height beim letzten Reset — Änderung triggert Re-Konform
+        # (envelope-sicher neu absenken statt Offset-mit-reiten).
+        self._stand_conform_bh: float = body_height
 
     @property
     def state(self) -> str:
@@ -724,17 +759,102 @@ class GaitEngine:
         """
         Berechne Foot-Position pro Bein im Bein-Frame zur Zeit t.
 
-        Auto-transitioniert STOPPING → STANDING wenn alle Beine settled.
+        Auto-transitioniert STOPPING → STANDING wenn alle Beine settled (nur im
+        echten STOPPING-Pfad). Sequenz-Zustände (Aufstehen/Reposition/Hinsetzen/
+        Stance-Switch/Show/SAT) haben ihre eigenen compute-Pfade in
+        ``compute_joint_angles`` und werden hier **read-only** bedient: ein
+        direkter Query (z.B. die S4-1-Debug-Messung) liefert eine statische
+        Stand-Pose und mutiert **keinen** State.
         """
         if self._state == self.STATE_STANDING:
-            return self._compute_standing_targets()
+            return self._compute_standing_targets(t)
         if self._state == self.STATE_WALKING:
             return self._compute_walking_targets(t)
-        return self._compute_stopping_targets(t)
+        if self._state == self.STATE_STOPPING:
+            return self._compute_stopping_targets(t)
+        # Sequenz-Zustände: READ-ONLY. Früher fiel hier ALLES in
+        # _compute_stopping_targets, dessen ``all_settled → STANDING``-Seiteneffekt
+        # eine laufende Sequenz abbrach, sobald ein Query (S4-1-Debug bei
+        # Kontakt-Flanke) sie traf. Statische Stand-Pose, keine Mutation.
+        return self._standing_targets(self.radial_distance)
 
-    def _compute_standing_targets(self) -> dict:
+    def reset_stand_conform(self, t: float) -> None:
+        """
+        Block A5 S4-7 — den adaptiven Stand-Konform-Vorgang frisch starten.
+
+        Setzt alle per-Bein-Konform-z auf ``None`` (senken ab body_height neu),
+        merkt sich ``t`` als Absenk-Anker (``_t_stand_entry``) und die aktuelle
+        ``body_height`` (Referenz für die Höhenänderungs-Erkennung). Gerufen bei
+        (a) STANDING-(Wieder-)Eintritt (``compute_joint_angles``), (b)
+        ``body_height``-Änderung (``_compute_standing_targets``) und (c)
+        Live-Enable mitten im Stand (gait_node ``_apply_param``). Analog zu
+        ``_reset_touchdown_state`` beim WALKING-Eintritt, aber ohne Stance-
+        Vorverankerung (im Stand ist jedes Bein von Anfang an "Stance").
+        """
+        for leg_id in range(1, 7):
+            self._stand_conform_z[leg_id] = None
+        self._t_stand_entry = t
+        self._stand_conform_bh = self.body_height
+
+    def _compute_standing_targets(self, t: float | None = None) -> dict:
         neutral = stand_pose(self.radial_distance, self.body_height)
-        return {leg.name: neutral for leg in HEXAPOD.legs}
+        # AUS-Pfad (oder Aufruf ohne Zeit, z.B. _compute_stand_pose_joints als
+        # Ramp-/Reposition-Ziel): exakt die starre Flachboden-Pose, KEINE
+        # State-Mutation → bit-identisches Verhalten wie vor S4-7.
+        if t is None or not self.adaptive_stand_enable:
+            return {leg.name: neutral for leg in HEXAPOD.legs}
+        # Re-Konform bei body_height-Änderung im Stand (envelope-sicher neu
+        # absenken statt den Offset mitzureiten). Deckt /cmd_body_height UND
+        # Param-body_height ab (beide setzen engine.body_height direkt).
+        if self.body_height != self._stand_conform_bh:
+            self.reset_stand_conform(t)
+        x, y, _ = neutral
+        targets = {}
+        for leg in HEXAPOD.legs:
+            leg_id = int(leg.name.split('_')[1])
+            targets[leg.name] = (x, y, self._adaptive_stand_z(leg_id, t))
+        return targets
+
+    def _adaptive_stand_z(self, leg_id: int, t: float) -> float:
+        """
+        Block A5 S4-7 — kontakt-adaptives Fuß-z im STANDING (downward-only).
+
+        Statischer Zwilling von ``_adaptive_touchdown_z`` (S4-2). Ablauf pro Bein:
+        - **Schon gelandet** (``_stand_conform_z`` gesetzt): halten (per-Fuß-
+          Terrain-Höhe für den Rest des Stands).
+        - **Noch nicht gelandet**: von ``body_height`` mit ``stand_conform_rate``
+          über die seit ``_t_stand_entry`` verstrichene Zeit **nach unten** senken,
+          geklemmt auf den Floor ``body_height − stand_conform_max_depth``
+          (envelope-verifiziert). Beim ersten Tick (Descent≈0) ist z≈body_height.
+          - **Kontakt** bei der aktuellen Höhe → **hier einfrieren** (echte
+            Terrain-Höhe). Früher Kontakt (Erhöhung/flach) → verankert ~body_height;
+            späterer Kontakt (Senke) → verankert tiefer. Genau das S4-2-Muster
+            "friere bei dem z ein, bei dem der Kontakt feuert".
+          - **kein Kontakt bis zum Floor** (Dip zu tief) → am Floor einfrieren
+            (so tief wie envelope-erlaubt hängen, kein Durchsacken).
+        x,y bleiben nominal; nur z ist adaptiv. Maskierung (S4-5) ist im STANDING
+        gegenstandslos (der Node leert ``_sensor_faulty`` außerhalb von WALKING) —
+        terrain-bewusste Maskierung im Stand ist bewusst zurückgestellt (§6).
+        """
+        frozen = self._stand_conform_z[leg_id]
+        if frozen is not None:
+            return frozen
+
+        body_height = self.body_height
+        z_floor = body_height - self.stand_conform_max_depth
+        descent = self.stand_conform_rate * max(0.0, t - self._t_stand_entry)
+        z = body_height - descent
+        if z < z_floor:
+            z = z_floor
+
+        if self._foot_contacts.get(leg_id, False):
+            # Kontakt bei aktueller Höhe → einfrieren (Terrain-Höhe dieses Beins).
+            self._stand_conform_z[leg_id] = z
+            return z
+        if z <= z_floor:
+            # Floor ohne Kontakt (Dip zu tief) → am Floor halten.
+            self._stand_conform_z[leg_id] = z_floor
+        return z
 
     def leg_gait_states(self, t: float) -> dict:
         """
@@ -958,7 +1078,12 @@ class GaitEngine:
                 if progress < 1.0:
                     all_settled = False
 
-        if all_settled:
+        # Defense-in-depth: die STOPPING→STANDING-Auto-Transition nur feuern, wenn
+        # wir wirklich in STOPPING sind — so bleibt diese Methode read-safe, falls
+        # sie (als Query) aus einem anderen State gerufen wird. compute_foot_targets
+        # routet Nicht-STOPPING-States ohnehin nicht mehr hierher; dies ist der
+        # zweite Riegel gegen ein versehentliches Sequenz-Abbrechen.
+        if all_settled and self._state == self.STATE_STOPPING:
             self._state = self.STATE_STANDING
 
         return targets
@@ -983,6 +1108,21 @@ class GaitEngine:
         automatisch zu STANDING, Lerp-Endpunkt = Stand-Pose-IK wird
         returned.
         """
+        # Block A5 S4-7 — STANDING-(Wieder-)Eintritt erkennen → adaptiven Stand-
+        # Konform-Vorgang frisch starten (nur wenn Adaptive aktiv). _prev_state ist
+        # der Snapshot des States VOR dem Dispatch (der ihn mutieren kann, z.B.
+        # STOPPING→STANDING) → Mid-Tick-Übergänge werden im nächsten Tick erkannt;
+        # unkritisch, da der erste STANDING-Tick ohnehin nominal startet
+        # (Descent = rate·(t − t_entry) = 0). Der Snapshot wird JEDEN Tick
+        # aktualisiert, damit die Flanken-Erkennung intakt bleibt.
+        if (
+            self.adaptive_stand_enable
+            and self._state == self.STATE_STANDING
+            and self._prev_state != self.STATE_STANDING
+        ):
+            self.reset_stand_conform(t)
+        self._prev_state = self._state
+
         # Phase 13 Stage A — STARTUP_RAMP: Joint-Space-Lerp ohne IK
         if self._state == self.STATE_STARTUP_RAMP:
             return self._compute_startup_ramp_angles(t)

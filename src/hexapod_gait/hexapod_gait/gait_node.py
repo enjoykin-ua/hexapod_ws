@@ -1016,6 +1016,25 @@ class GaitNode(Node):
         self._foot_contact_received = False
         self._last_foot_contact_msg_t = 0.0
 
+        # Block A5 Stufe 4 / S4-7 — terrain-anpassendes Stehen (Adaptive Stand).
+        # Statischer Zwilling von S4-2: im STANDING senkt jedes Bein bis Kontakt
+        # ab (auf unebenem Grund aufsetzen statt in der Luft hängen). Opt-in
+        # (Default false); nutzt dieselbe Fußkontakt-Pipeline + denselben
+        # Contact-Live-Guard wie S4-2. Params live tunbar; Tiefe/Rate direkt auf
+        # die Engine gespiegelt, enable pro Tick mit dem Live-Guard verUNDet.
+        self.declare_parameter('adaptive_stand_enable', False)
+        self.declare_parameter('stand_conform_max_depth', 0.04)
+        self.declare_parameter('stand_conform_rate', 0.02)
+        self._adaptive_stand_enable = bool(
+            self.get_parameter('adaptive_stand_enable').value
+        )
+        self._engine.stand_conform_max_depth = float(
+            self.get_parameter('stand_conform_max_depth').value
+        )
+        self._engine.stand_conform_rate = float(
+            self.get_parameter('stand_conform_rate').value
+        )
+
         # Block A5 Stufe 4 / S4-4 — Slip/Kontaktverlust → Freeze (Safe-State).
         # Opt-in (Default false). Ein Stance-Fuß ohne Kontakt nach der Grace
         # (Kante/Abgrund: Boden tiefer als cliff_depth; oder Slip) → SupportMonitor
@@ -1764,6 +1783,11 @@ class GaitNode(Node):
         self._engine.set_foot_contacts(self._foot_contact)
         self._engine.adaptive_touchdown_enable = (
             self._adaptive_touchdown_enable and pipeline_live
+        )
+        # S4-7 — adaptives Stehen mit demselben Live-Guard: Param AND Pipeline
+        # lebt. Toter/stale Publisher → aus → starre Stand-Pose (kein Absacken).
+        self._engine.adaptive_stand_enable = (
+            self._adaptive_stand_enable and pipeline_live
         )
         # S4-5 — geflaggte Beine vom adaptiven Touchdown ausnehmen (Open-Loop;
         # ihr Kontakt ist nicht vertrauenswürdig). Leeres Set = Normalfall.
@@ -2716,6 +2740,21 @@ class GaitNode(Node):
                 ),
             )
 
+        # 1m. S4-7 Adaptive Stand: Floor-Tiefe ≥ 0, Absenk-Rate > 0.
+        for p in params:
+            if p.name == 'stand_conform_max_depth' and p.value < 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'stand_conform_max_depth must be >= 0, got {p.value}'
+                    ),
+                )
+            if p.name == 'stand_conform_rate' and p.value <= 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'stand_conform_rate must be > 0, got {p.value}',
+                )
+
         # === 2. APPLY (kein Fail mehr möglich) ===
         for p in params:
             self._apply_param(p.name, p.value)
@@ -2898,6 +2937,24 @@ class GaitNode(Node):
             self._engine.touchdown_search_end_stance_phase = float(value)
         elif name == 'touchdown_max_extra_depth':
             self._engine.touchdown_max_extra_depth = float(value)
+        # Block A5 S4-7 — Adaptive Stand live. enable wirkt erst im Tick (mit
+        # Live-Guard verUNDet); Tiefe/Rate direkt auf die Engine. Ein Live-Enable
+        # mitten im Stand braucht einen frischen Konform-Anker (sonst rechnet die
+        # Descent gegen ein altes _t_stand_entry → sofort Floor).
+        elif name == 'adaptive_stand_enable':
+            was_enabled = self._adaptive_stand_enable
+            self._adaptive_stand_enable = bool(value)
+            if (
+                self._adaptive_stand_enable
+                and not was_enabled
+                and self._engine.state == GaitEngine.STATE_STANDING
+            ):
+                t = time.monotonic() - self._t_start
+                self._engine.reset_stand_conform(t)
+        elif name == 'stand_conform_max_depth':
+            self._engine.stand_conform_max_depth = float(value)
+        elif name == 'stand_conform_rate':
+            self._engine.stand_conform_rate = float(value)
         # Block A5 S4-4 — Slip/Kante live. enable + cliff_depth spiegeln auf den
         # Engine-Probe-Floor; Monitor-Params → Rebuild.
         elif name == 'slip_detection_enable':

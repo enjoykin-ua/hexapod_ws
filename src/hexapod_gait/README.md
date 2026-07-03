@@ -205,6 +205,35 @@ Rückwärtslaufen. Option A behebt das:
   `touchdown_max_extra_depth` (0.02 m, ≥0).
 - **Isoliert testen:** `leveling_enable:=false` (IMU/TF getrennt von der per-Fuß-Adaption).
 
+## Terrain-anpassendes Stehen / Adaptive Stand (Block A5 Stufe 4 / S4-7)
+
+Der **statische Zwilling** des adaptiven Touchdowns: auf unebenem Grund soll der Roboter im
+**STANDING** die Beine einzeln **bis zum Boden absenken** (aufsetzen) statt in der Luft zu hängen
+(User-Befund Rubicon: `[001101]` = 3 Beine ohne Kontakt). Dieselbe Mechanik wie S4-2, nur statisch:
+
+- **Downward-only ab `body_height`:** pro Bein senkt `_adaptive_stand_z` (in `_compute_standing_targets`)
+  über die seit dem STANDING-Eintritt verstrichene Zeit (`stand_conform_rate · (t − t_stand_entry)`,
+  zeitgesteuert = deterministisch) nach unten, bis der Taster **Kontakt** meldet → dort **einfrieren**
+  (echte Terrain-Höhe des Beins). Früher Kontakt (Erhöhung/flach) → verankert ~`body_height`; späterer
+  (Senke) → verankert tiefer. Erreicht es den **Floor** (`body_height − stand_conform_max_depth`) ohne
+  Kontakt (Dip zu tief) → dort halten (so tief wie envelope-erlaubt, kein Durchsacken). **x,y nominal**
+  (nur z adaptiv).
+- **AUS = bit-identisch:** `adaptive_stand_enable` Default **false** → `_compute_standing_targets`
+  liefert exakt die starre Flachboden-Pose, **keine** State-Mutation (keine Regression). Derselbe
+  **Contact-Live-Guard** wie S4-2 (toter/stale Publisher > 0.5 s → adaptiv aus → starre Pose).
+- **Re-Konform (envelope-sicher):** bei **STANDING-(Wieder-)Eintritt** (Terrain kann sich geändert
+  haben) und bei **`body_height`-Änderung** im Stand (`/cmd_body_height` oder Param) senkt die Engine
+  **neu** ab (statt einen Offset mitzureiten → keine Überstreckung des Bein-Kegels). Ein Live-Enable
+  mitten im Stand setzt ebenfalls einen frischen Konform-Anker.
+- **Grenzen (v1, → später §6 des Plans):** tiefe Dips (> `max_depth`) hängen am Floor; Buckel (Boden
+  über `body_height`) → Open-Loop bei `body_height`. Beides braucht **Körperhöhen-/Neigungs-Adaption**
+  (der große Nachfolger, dort kommt die IMU ins Spiel). Konform-Richtung = Bein-Frame-z (v1-Näherung).
+- **Offline-Envelope:** `tools/stand_conform_envelope_check.py` prüft die Stand-Pose bis zum Floor je
+  Stance-Höhe gegen die **URDF**-Limits (zwei-Limit-Quellen) — tief/mittel/hoch GREEN bei Default 0.04
+  (Floor hoch −0.140); **Envelope-Grenze über alle Modi = 0.05** (0.06 → "hoch" out-of-reach).
+- **Parameter (live):** `adaptive_stand_enable` (false), `stand_conform_max_depth` (0.04 m, ≥0;
+  Rubicon-Unebenheit ~3–5 cm; 0.02 war zu flach), `stand_conform_rate` (0.02 m/s, >0).
+
 ## Slip / Kontaktverlust → Freeze (Block A5 Stufe 4 / S4-4)
 
 Ein **belasteter Fuß ohne Halt** — über eine Kante/einen Abgrund (der adaptive Touchdown findet bis
@@ -494,6 +523,9 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `touchdown_probe_start_stance_phase` | `0.35` | S4-2: Stance-Phase-Gate, ab der ohne Kontakt nach unten gesucht wird (∈[0,1)) |
 | `touchdown_search_end_stance_phase` | `0.6` | S4-2: Stance-Phase, bis zu der gesucht wird, dann Floor (∈(0,1], > probe_start) |
 | `touchdown_max_extra_depth` | `0.02` | S4-2: max. Tiefe unter `body_height` (m, Floor; envelope-verifiziert) |
+| `adaptive_stand_enable` | `false` | S4-7: terrain-anpassendes Stehen an/aus (Opt-in; mit Contact-Live-Guard verUNDet) |
+| `stand_conform_max_depth` | `0.04` | S4-7: max. Absenk-Tiefe unter `body_height` im Stand (m, Floor; ≥0; envelope-Max 0.05 über alle Stance-Modi) |
+| `stand_conform_rate` | `0.02` | S4-7: Absenk-Rate im Stand (m/s, >0) |
 | `slip_detection_enable` | `false` | S4-4: Slip/Kontaktverlust → Freeze an/aus (Opt-in) |
 | `cliff_depth` | `0.03` | S4-4: Grenze folgbares Terrain ↔ Abgrund (m unter `body_height`; > = Freeze) |
 | `slip_debounce_ticks` | `8` | S4-4: Ticks ohne Halt bis Freeze (muss > contact_timeout ≈5) |
