@@ -193,6 +193,20 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr shutdown_request_pub_{};
   bool last_shutdown_request_{false};
 
+  // ─── Block A5 Stufe 5 — HW foot-contact publishers ─────────────────────
+  // Six std_msgs/Bool publishers on /leg_<n>/foot_contact, mirroring the sim's
+  // foot_contact_publisher so gait_node's S4 pipeline is source-agnostic. Fed
+  // from the firmware's debounced GET_INPUTS bitmask (reader_.latest_inputs()).
+  // read() publishes only while the snapshot is fresh; a silent firmware lets
+  // gait_node's 0.5 s contact live-guard trip (adaptive features → nominal).
+  std::array<rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr, NUM_LEGS>
+  foot_contact_pubs_{};
+  bool publish_foot_contacts_{true};
+  // Per-leg source bit in the GET_INPUTS bitmask: index = leg-1, value = bit
+  // (0..5). Default identity (SENSOR_n = leg_n); overridable via the
+  // "sensor_leg_map" hardware_parameter (CSV of 6 sensor channels 1..6).
+  std::array<int, NUM_LEGS> sensor_bit_for_leg_{};
+
   // Block F2 — the plugin otherwise never requests state (joint feedback is
   // echo-based; trips arrive as unsolicited ERROR_REPORT), so the firmware would
   // never send a STATE_RESPONSE and latest_state() (carrying status_flags bit 7)

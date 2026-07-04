@@ -1488,8 +1488,13 @@ TEST(HexapodSystemWriteRead, PtyWriteSendsSetTargetsFrameWithNeutralPulses)
 
   const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(50));
   const auto frames = split_and_decode_frames(bytes);
-  ASSERT_EQ(frames.size(), 1u);
+  // HW5 — write() now also piggybacks one GET_INPUTS per tick (publish_foot_
+  // contacts default on), so a tick emits SET_TARGETS then GET_INPUTS. The
+  // GET_STATE poll is throttled (every 10th tick) and does not fire here.
+  ASSERT_EQ(frames.size(), 2u);
   EXPECT_EQ(frames[0].cmd, hexapod_hardware::opcode::SET_TARGETS);
+  EXPECT_EQ(frames[1].cmd, hexapod_hardware::opcode::GET_INPUTS);
+  EXPECT_TRUE(frames[1].payload.empty());
   ASSERT_EQ(frames[0].payload.size(), 2u * hexapod_hardware::NUM_SERVOS);
   for (std::size_t pin = 0; pin < NUM_SERVOS; ++pin) {
     const uint8_t lo = frames[0].payload[2 * pin];
@@ -1498,6 +1503,45 @@ TEST(HexapodSystemWriteRead, PtyWriteSendsSetTargetsFrameWithNeutralPulses)
       static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8));
     EXPECT_EQ(pulse, kExpectedPulseZero[pin]) << "pin " << pin;
   }
+
+  EXPECT_EQ(
+    plugin.on_cleanup(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ::close(master_fd);
+}
+
+// HW5 — with publish_foot_contacts=false the plugin must NOT piggyback a
+// GET_INPUTS frame, so a write() tick emits exactly one SET_TARGETS.
+TEST(HexapodSystemWriteRead, PtyWriteSkipsGetInputsWhenFootContactsDisabled)
+{
+  int master_fd;
+  std::string slave_name;
+  open_pty_for_serial_port(&master_fd, &slave_name);
+
+  HexapodSystemHardware plugin;
+  auto info = make_valid_info();
+  info.hardware_parameters["loopback_mode"] = "false";
+  info.hardware_parameters["serial_port"] = slave_name;
+  info.hardware_parameters["publish_foot_contacts"] = "false";
+  ASSERT_EQ(
+    plugin.on_init(make_params(info)),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(
+    plugin.on_configure(rclcpp_lifecycle::State{}),
+    hardware_interface::CallbackReturn::SUCCESS);
+
+  auto cmd_ifs = plugin.export_command_interfaces();
+  for (std::size_t i = 0; i < NUM_SERVOS; ++i) {
+    write_handle(cmd_ifs[i], 0.0);
+  }
+  ASSERT_EQ(
+    plugin.write(rclcpp::Time{}, rclcpp::Duration{0, 0}),
+    hardware_interface::return_type::OK);
+
+  const auto bytes = drain_master_until_idle(master_fd, std::chrono::milliseconds(50));
+  const auto frames = split_and_decode_frames(bytes);
+  ASSERT_EQ(frames.size(), 1u);
+  EXPECT_EQ(frames[0].cmd, hexapod_hardware::opcode::SET_TARGETS);
 
   EXPECT_EQ(
     plugin.on_cleanup(rclcpp_lifecycle::State{}),

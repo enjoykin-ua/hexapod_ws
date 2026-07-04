@@ -113,6 +113,18 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    declare_publish_foot_contacts = DeclareLaunchArgument(
+        'publish_foot_contacts',
+        default_value='true',
+        description=(
+            'Block A5 Stufe 5: HW-Fußkontakt-Publishing. true (default): das '
+            'hexapod_hardware-Plugin publisht die 6 /leg_<n>/foot_contact-Bool-'
+            'Topics aus dem Servo2040 GET_INPUTS (gleiche Naht wie die Sim, '
+            'gait_node unveraendert). false: Plugin fragt GET_INPUTS nicht ab '
+            'und legt die Topics nicht an (z.B. Boards ohne Fuß-Taster).'
+        ),
+    )
+
     # robot_description: xacro wird zur Launch-Zeit evaluiert. use_sim
     # ist fest auf false (= HW-Pfad), die anderen Args reichen die
     # LaunchConfiguration unveraendert an xacro weiter, sodass das
@@ -126,6 +138,7 @@ def generate_launch_description() -> LaunchDescription:
                 ' loopback_mode:=', LaunchConfiguration('loopback_mode'),
                 ' serial_port:=', LaunchConfiguration('serial_port'),
                 ' initial_pose:=', LaunchConfiguration('initial_pose'),
+                ' publish_foot_contacts:=', LaunchConfiguration('publish_foot_contacts'),
             ]),
             value_type=str,
         ),
@@ -209,6 +222,7 @@ def generate_launch_description() -> LaunchDescription:
         declare_loopback_mode,
         declare_serial_port,
         declare_initial_pose,
+        declare_publish_foot_contacts,
         declare_with_supervisor,
         rsp,
         controller_manager,

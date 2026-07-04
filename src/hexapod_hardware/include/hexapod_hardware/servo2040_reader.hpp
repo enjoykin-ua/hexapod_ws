@@ -4,6 +4,7 @@
 #define HEXAPOD_HARDWARE__SERVO2040_READER_HPP_
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -14,6 +15,17 @@
 
 namespace hexapod_hardware
 {
+
+// HW5 — one debounced foot-contact/USER_SW snapshot as received from the
+// firmware, plus the steady-clock instant it arrived. The plugin uses `stamp`
+// to gate publishing on freshness: if the firmware stops answering GET_INPUTS
+// (frozen cache) the plugin stops publishing, so the gait_node's contact
+// live-guard trips and adaptive features fall back to nominal.
+struct InputsSnapshot
+{
+  uint8_t bits{0};
+  std::chrono::steady_clock::time_point stamp{};
+};
 
 // Forward decl to avoid the include cycle: serial_port.hpp doesn't need
 // to know about the reader, only the .cpp does.
@@ -87,6 +99,12 @@ public:
   // the time (kept for Phase 10's monitoring needs).
   std::optional<StatePayload> latest_state() const;
 
+  // HW5 — peek at the latest INPUTS_RESPONSE (foot-contact + USER_SW bitmask),
+  // if any has arrived since start(). Returns nullopt until the firmware first
+  // answers a GET_INPUTS. The snapshot carries the receipt timestamp so the
+  // plugin can gate publishing on freshness (see InputsSnapshot).
+  std::optional<InputsSnapshot> latest_inputs() const;
+
   // Drain all queued ERROR_REPORTs. Each call returns everything that
   // arrived since the previous call. Called once per read() tick by
   // the plugin to log them.
@@ -118,6 +136,10 @@ private:
 
   mutable std::mutex state_mtx_;
   std::optional<StatePayload> latest_state_;
+
+  // HW5 — latest foot-contact/USER_SW snapshot (overwrite, peek-not-consume).
+  mutable std::mutex inputs_mtx_;
+  std::optional<InputsSnapshot> latest_inputs_;
 
   std::mutex error_mtx_;
   std::vector<ErrorReport> error_queue_;

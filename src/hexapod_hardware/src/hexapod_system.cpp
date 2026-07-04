@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <exception>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -73,6 +74,50 @@ std::string param_or(
   auto it = params.find(key);
   return it != params.end() ? it->second : fallback;
 }
+
+// HW5 — parse the optional "sensor_leg_map" hardware_parameter: a CSV of
+// exactly NUM_LEGS sensor channels (1..NUM_LEGS), one per leg in order leg
+// 1..6. On success writes the 0-based bit indices into `out` and returns true.
+// On any malformation (wrong count, non-numeric, out-of-range, duplicate) it
+// leaves `out` untouched and returns false so the caller keeps the identity
+// default. An empty string is "not provided" → returns false (keep identity).
+bool parse_sensor_leg_map(const std::string & csv, std::array<int, NUM_LEGS> & out)
+{
+  if (csv.empty()) {return false;}
+  std::array<int, NUM_LEGS> parsed{};
+  std::array<bool, NUM_LEGS> seen{};
+  std::size_t count = 0;
+  std::string tok;
+  std::stringstream ss(csv);
+  while (std::getline(ss, tok, ',')) {
+    if (count >= NUM_LEGS) {return false;}  // too many entries
+    int ch = 0;
+    try {
+      std::size_t pos = 0;
+      ch = std::stoi(tok, &pos);
+      // Reject trailing junk ("3x") — stoi stops at non-digits silently.
+      while (pos < tok.size() && std::isspace(static_cast<unsigned char>(tok[pos]))) {++pos;}
+      if (pos != tok.size()) {return false;}
+    } catch (const std::exception &) {
+      return false;
+    }
+    if (ch < 1 || ch > static_cast<int>(NUM_LEGS)) {return false;}
+    if (seen[ch - 1]) {return false;}  // duplicate channel
+    seen[ch - 1] = true;
+    parsed[count++] = ch - 1;  // store 0-based bit index
+  }
+  if (count != NUM_LEGS) {return false;}  // too few entries
+  out = parsed;
+  return true;
+}
+
+// HW5 — publish foot contacts only while the firmware's last GET_INPUTS reply is
+// younger than this. GET_INPUTS is sent every write() tick (~50 Hz / 20 ms), so a
+// healthy link refreshes well inside this window; once the firmware goes silent
+// the plugin stops publishing after ~this long, and gait_node's 0.5 s contact
+// live-guard then trips (adaptive features fall back to nominal). 100 ms = 5
+// missed replies — tolerant of the odd dropped frame, well under the 0.5 s guard.
+constexpr std::chrono::milliseconds FOOT_CONTACT_FRESH{100};
 
 }  // namespace
 
@@ -138,6 +183,28 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_init(
       info_.hardware_parameters, "initial_pose", POWER_ON_MID_PRESET);
     initial_poses_file_ = param_or(
       info_.hardware_parameters, "initial_poses_file", "");
+
+    // Block A5 Stufe 5 — HW foot-contact publishing. Default on; a silent
+    // firmware is handled by the freshness gate in read() (no false contacts).
+    const std::string pfc =
+      param_or(info_.hardware_parameters, "publish_foot_contacts", "true");
+    publish_foot_contacts_ = parse_bool(pfc, "publish_foot_contacts");
+
+    // sensor→leg map: identity by default (SENSOR_n = leg_n). An optional
+    // "sensor_leg_map" CSV (6 channels 1..6) overrides it; malformed input
+    // logs a warning and keeps identity so a typo can't silently mis-route.
+    for (std::size_t leg = 0; leg < NUM_LEGS; ++leg) {
+      sensor_bit_for_leg_[leg] = static_cast<int>(leg);
+    }
+    const std::string slm = param_or(info_.hardware_parameters, "sensor_leg_map", "");
+    if (!slm.empty() && !parse_sensor_leg_map(slm, sensor_bit_for_leg_)) {
+      RCLCPP_WARN(
+        plugin_logger(),
+        "hardware_parameter 'sensor_leg_map' = '%s' is malformed (need %zu "
+        "distinct channels 1..%zu, e.g. \"1,2,3,4,5,6\") — keeping identity "
+        "SENSOR_n = leg_n",
+        slm.c_str(), NUM_LEGS, NUM_LEGS);
+    }
   } catch (const std::exception & e) {
     RCLCPP_FATAL(plugin_logger(), "Failed to parse hardware parameters: %s", e.what());
     return hardware_interface::CallbackReturn::ERROR;
@@ -439,6 +506,29 @@ hardware_interface::CallbackReturn HexapodSystemHardware::on_configure(
     RCLCPP_INFO(
       plugin_logger(),
       "Block F2: /hexapod/shutdown_request publisher ready (latched, init false)");
+
+    // ─── Block A5 Stufe 5 — foot-contact publishers ────────────────────────
+    // Six /leg_<n>/foot_contact (std_msgs/Bool) — same topics/type the sim's
+    // foot_contact_publisher uses, so gait_node stays source-agnostic. Depth 10,
+    // best-effort (matches the sim publisher + gait_node's default sub QoS).
+    // Created before the loopback early-return so CI/tests see the topics; in
+    // loopback nothing drives them (read() only publishes on a fresh snapshot).
+    if (publish_foot_contacts_) {
+      for (std::size_t leg = 0; leg < NUM_LEGS; ++leg) {
+        const std::string topic = "/leg_" + std::to_string(leg + 1) + "/foot_contact";
+        foot_contact_pubs_[leg] =
+          node->create_publisher<std_msgs::msg::Bool>(topic, 10);
+      }
+      RCLCPP_INFO(
+        plugin_logger(),
+        "Block A5 Stufe 5: %zu /leg_<n>/foot_contact publishers ready "
+        "(fed from GET_INPUTS, freshness-gated)", NUM_LEGS);
+    } else {
+      RCLCPP_INFO(
+        plugin_logger(),
+        "Block A5 Stufe 5: foot-contact publishing disabled "
+        "(publish_foot_contacts=false)");
+    }
   } else {
     RCLCPP_WARN(
       plugin_logger(),
@@ -950,6 +1040,27 @@ hardware_interface::return_type HexapodSystemHardware::read(
         last_shutdown_request_ = req;
       }
     }
+
+    // ─── Block A5 Stufe 5 — mirror GET_INPUTS to /leg_<n>/foot_contact ────
+    // One Bool per leg, sourced from the firmware's debounced bitmask via the
+    // sensor→leg map. Only while the snapshot is fresh (see FOOT_CONTACT_FRESH):
+    // a stale snapshot means the firmware went silent, so we STOP publishing and
+    // let gait_node's 0.5 s contact live-guard trip (adaptive touchdown → nominal
+    // fallback) rather than freeze a possibly-wrong contact at the consumer.
+    if (publish_foot_contacts_) {
+      if (auto snap = reader_.latest_inputs()) {
+        const auto age = std::chrono::steady_clock::now() - snap->stamp;
+        if (age < FOOT_CONTACT_FRESH) {
+          for (std::size_t leg = 0; leg < NUM_LEGS; ++leg) {
+            if (!foot_contact_pubs_[leg]) {continue;}
+            const int bit = sensor_bit_for_leg_[leg];
+            std_msgs::msg::Bool m;
+            m.data = ((snap->bits >> bit) & 0x1) != 0;
+            foot_contact_pubs_[leg]->publish(m);
+          }
+        }
+      }
+    }
   }
   return hardware_interface::return_type::OK;
 }
@@ -1075,6 +1186,24 @@ hardware_interface::return_type HexapodSystemHardware::write(
       "write(): SerialPort write_all failed: %s. Controller will be "
       "deactivated; reconnect logic comes in D.7.", e.what());
     return hardware_interface::return_type::ERROR;
+  }
+
+  // ─── Block A5 Stufe 5 — GET_INPUTS piggyback (every tick) ────────────
+  // Foot-contact timing feeds the adaptive touchdown, so poll every write()
+  // cycle (~50 Hz) rather than throttled like GET_STATE. The reply lands in
+  // reader_.latest_inputs(); read() mirrors it to the 6 Bool topics. Best-effort:
+  // a failed poll only warns — the freshness gate in read() suppresses stale
+  // contacts, so a dropped poll can't inject a false contact.
+  if (publish_foot_contacts_) {
+    auto gi = encode_get_inputs(seq_.fetch_add(1));
+    try {
+      std::lock_guard<std::mutex> lk(serial_write_mutex_);
+      serial_port_.write_all(gi.data(), gi.size());
+    } catch (const std::exception & e) {
+      RCLCPP_WARN(plugin_logger(),
+        "write(): GET_INPUTS poll failed: %s (foot-contact telemetry only)",
+        e.what());
+    }
   }
 
   // ─── Block F2 — periodic GET_STATE poll ──────────────────────────────

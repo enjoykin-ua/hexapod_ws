@@ -20,9 +20,11 @@ using hexapod_hardware::cobs_encode;
 using hexapod_hardware::crc16_ccitt_false;
 using hexapod_hardware::decode_error_report;
 using hexapod_hardware::decode_frame;
+using hexapod_hardware::decode_inputs;
 using hexapod_hardware::decode_state;
 using hexapod_hardware::encode_enable_servo;
 using hexapod_hardware::encode_frame;
+using hexapod_hardware::encode_get_inputs;
 using hexapod_hardware::encode_get_state;
 using hexapod_hardware::encode_relay_control;
 using hexapod_hardware::encode_reset;
@@ -31,7 +33,9 @@ using hexapod_hardware::ErrorReport;
 using hexapod_hardware::MAX_PAYLOAD_LEN;
 using hexapod_hardware::NUM_SERVOS;
 using hexapod_hardware::opcode::ENABLE_SERVO;
+using hexapod_hardware::opcode::GET_INPUTS;
 using hexapod_hardware::opcode::GET_STATE;
+using hexapod_hardware::opcode::INPUTS_RESPONSE;
 using hexapod_hardware::opcode::RELAY_CONTROL;
 using hexapod_hardware::opcode::RESET;
 using hexapod_hardware::opcode::SET_TARGETS;
@@ -200,6 +204,18 @@ TEST(Frame, RoundtripReset)
   ASSERT_TRUE(decoded.has_value());
   EXPECT_EQ(decoded->seq, 128);
   EXPECT_EQ(decoded->cmd, RESET);
+  EXPECT_TRUE(decoded->payload.empty());
+}
+
+// HW5 — GET_INPUTS is a zero-payload request; the firmware replies INPUTS (0xC0).
+TEST(Frame, RoundtripGetInputs)
+{
+  const uint8_t seq = 6;
+  auto wire = encode_get_inputs(seq);
+  auto decoded = decode_frame(wire);
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_EQ(decoded->seq, seq);
+  EXPECT_EQ(decoded->cmd, GET_INPUTS);
   EXPECT_TRUE(decoded->payload.empty());
 }
 
@@ -502,6 +518,49 @@ TEST(PayloadDecoders, DecodeErrorReportRejectsWrongLength)
   EXPECT_FALSE(decode_error_report({}).has_value());
   EXPECT_FALSE(decode_error_report({0x10, 0x05, 0x00}).has_value());     // 3
   EXPECT_FALSE(decode_error_report({0x10, 0x05, 0x00, 0x00, 0}).has_value());  // 5
+}
+
+// HW5 — INPUTS payload is a single bitmask byte (PROTOCOL.md §3.2).
+TEST(PayloadDecoders, DecodeInputsValid)
+{
+  // Example from PROTOCOL.md §4.7: sensors 1+3 + USER_SW → 0b01000101 = 0x45.
+  auto decoded = decode_inputs({0x45});
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_EQ(*decoded, 0x45);
+  EXPECT_NE(*decoded & (1u << 0), 0);   // leg 1 contact
+  EXPECT_EQ(*decoded & (1u << 1), 0);   // leg 2 no contact
+  EXPECT_NE(*decoded & (1u << 2), 0);   // leg 3 contact
+  EXPECT_NE(*decoded & (1u << 6), 0);   // USER_SW
+}
+
+TEST(PayloadDecoders, DecodeInputsAllClearAndAllSet)
+{
+  auto zero = decode_inputs({0x00});
+  ASSERT_TRUE(zero.has_value());
+  EXPECT_EQ(*zero, 0x00);
+  auto all = decode_inputs({0x7F});   // 6 sensors + USER_SW, bit7 reserved
+  ASSERT_TRUE(all.has_value());
+  EXPECT_EQ(*all, 0x7F);
+}
+
+TEST(PayloadDecoders, DecodeInputsRejectsWrongLength)
+{
+  EXPECT_FALSE(decode_inputs({}).has_value());              // 0
+  EXPECT_FALSE(decode_inputs({0x01, 0x02}).has_value());    // 2
+}
+
+// HW5 — full wire round-trip of an INPUTS_RESPONSE frame (encode → decode →
+// payload decode), mirroring the firmware's handle_get_inputs reply.
+TEST(EndToEnd, EncodeInputsFrameDecodeBothLayers)
+{
+  auto wire = encode_frame(/*seq=*/6, INPUTS_RESPONSE, {0x2A});
+  auto frame = decode_frame(wire);
+  ASSERT_TRUE(frame.has_value());
+  EXPECT_EQ(frame->seq, 6);
+  EXPECT_EQ(frame->cmd, INPUTS_RESPONSE);
+  auto bits = decode_inputs(frame->payload);
+  ASSERT_TRUE(bits.has_value());
+  EXPECT_EQ(*bits, 0x2A);
 }
 
 // ============================================================================

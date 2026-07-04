@@ -184,11 +184,21 @@
   **✅ STUFE-4-KERN KOMPLETT** (S4-1/2/4/5/6); offen nur das optionale S4-3 (free-gait).
   **S4-7 (Adaptive Stand) 🟡 Code+Tests+Envelope+Doku fertig, Sim-Verify (Rubicon) offen** — im
   STANDING senkt jedes Bein downward-only bis Kontakt (auf unebenem Grund aufsetzen statt hängen).
-- **Pipeline (Sim, existiert):** gz-contact pro `foot_link` ([`hexapod.foot_contact.xacro`](../src/hexapod_description/urdf/hexapod.foot_contact.xacro))
-  → [`bridge_foot_contact.yaml`](../src/hexapod_bringup/config/bridge_foot_contact.yaml)
-  → [`foot_contact_publisher.py`](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)
-  (Event→Dauer-`Bool`, **50 Hz dauernd** true/false) → `/leg_<n>/foot_contact`. Default an
-  (`enable_foot_contact:=true`). **Wir bauen den Consumer, nicht die Sensorik.**
+- **Kontakt-Quelle — zwei Backends, EINE Naht:** der Consumer (`gait_node`) abonniert **immer** die
+  6 `/leg_<n>/foot_contact` (`std_msgs/Bool`). Wer sie speist, hängt an Sim vs. HW — **beim Ändern der
+  Kontakt-Topics beide Quellen + den gait_node-Sub anfassen.**
+  - **Sim:** gz-contact pro `foot_link` ([`hexapod.foot_contact.xacro`](../src/hexapod_description/urdf/hexapod.foot_contact.xacro))
+    → [`bridge_foot_contact.yaml`](../src/hexapod_bringup/config/bridge_foot_contact.yaml)
+    → [`foot_contact_publisher.py`](../src/hexapod_sensors/hexapod_sensors/foot_contact_publisher.py)
+    (Event→Dauer-`Bool`, **50 Hz dauernd**) → `/leg_<n>/foot_contact`. Default an (`enable_foot_contact:=true`).
+  - **HW (A5 Stufe 5):** 6 Fuß-Taster am Servo2040 (SENSOR_1..6, interner Pull-Up gegen GND). Firmware
+    `GET_INPUTS` (0x40)→`INPUTS` (0xC0), entprellter 1-Byte-Bitmaske ([`hexapod_servo_driver`](../../hexapod_servo_driver/src/main.cpp) `poll_inputs`/`handle_get_inputs`, PROTOCOL.md §3.2 v1.1).
+    Das Host-Plugin ([`hexapod_system.cpp`](../src/hexapod_hardware/src/hexapod_system.cpp)) sendet
+    GET_INPUTS pro write()-Zyklus, cached `InputsSnapshot(bits,stamp)` im Reader und **publisht dieselben
+    6 Bool-Topics** — freshness-gated (100 ms; FW-Stille → kein Publish → gait-Live-Guard trippt).
+    Schalter: `publish_foot_contacts` (`real.launch.py`, default an), Remap `sensor_leg_map`. **gait_node
+    + S4-Pipeline unverändert.** Bench: `hexapod_servo_driver/tools/probe_inputs.py`.
+  - **Wir bauen den Consumer, nicht die Sensorik.**
 - **Wo (3 Schichten):**
   - **Engine (ROS-frei):** `gait_engine.py` — `_compute_walking_targets` ruft pro Bein
     `_adaptive_touchdown_z(leg_id, cycle_phase, z_nom)` (NUR z adaptiv, x,y nominal; **Option A**:

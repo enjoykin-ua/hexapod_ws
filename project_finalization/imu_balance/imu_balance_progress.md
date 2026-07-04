@@ -711,6 +711,50 @@ S4-7:
 
 ---
 
+## Stufe 5 — HW-Fußkontakte (Taster am Servo2040)  🟡 Code+Tests+Doku fertig, HW-Bench offen
+
+> Bringt die Sim-verifizierte Fußkontakt-/S4-Pipeline auf echte HW: 6 Fuß-Taster am Servo2040, per
+> Firmware GET_INPUTS gelesen, vom `hexapod_hardware`-Plugin als **dieselben** 6 `/leg_<n>/foot_contact`
+> (`std_msgs/Bool`) publisht wie die Sim → `gait_node` + S4-Pipeline **unverändert**. Plan:
+> [`stage_5_hw_foot_contacts_plan.md`](stage_5_hw_foot_contacts_plan.md). Test-Doku:
+> [`stage_5_hw_foot_contacts_test_commands.md`](stage_5_hw_foot_contacts_test_commands.md).
+> Firmware-Repo `~/hexapod_servo_driver` (eigenes git, User committet dort separat).
+
+```
+HW5:
+- [x] HW5.0 Bench-Vorabtest (temporärer LED-Test): leg-1 an SENSOR_1 → LED 6 folgt → Pull-Up/Mux/Schwelle auf HW verifiziert (2026-07-04)
+- [x] HW5.1 FW: alle 6 SENSOR-Kanäle interner Pull-Up (main.cpp), digitale Schwelle 1,65 V
+- [x] HW5.2 FW: entprellter 7-Bit Input-Snapshot poll_inputs() im on_tick (6 Sensoren + USER_SW), Muster poll_switch; Temp-LED-Code entfernt
+- [x] HW5.3 FW: handle_get_inputs (0x40 → 0xC0, LEN-Check), aus der NACK-Gruppe herausgenommen
+- [x] HW5.4 FW: PROTOCOL.md §3.2 (Pull-Up/gegen-GND/Schwelle/Entprellung) + Version 1.1 + Änderungshistorie; probe_inputs.py + CMD_GET_INPUTS/CMD_INPUTS_RESP in test_servo2040.py
+- [x] HW5.5 Host: encode_get_inputs + decode_inputs (protocol) + Reader INPUTS_RESPONSE → InputsSnapshot(bits, stamp) + latest_inputs(); Unit-Tests (protocol 5 + reader 2)
+- [x] HW5.6 Host: 6× /leg_<n>/foot_contact (Bool) Publisher (Muster shutdown_request) + publish_foot_contacts + sensor_leg_map (CSV, identity-default) hardware_parameter
+- [x] HW5.7 Host: GET_INPUTS pro write()-Zyklus (~50 Hz), read() publisht freshness-gated (100 ms → gait-Live-Guard bleibt wirksam); Unit-Tests (write piggyback an/aus)
+- [ ] HW5.8 Verdrahtung leg 1 (SENSOR_1 IN+GND, NO) + FW-Bench: probe_inputs.py Bit0 toggelt  ← **HW, User (nach Flash)**
+- [ ] HW5.9 Host-Bench: /leg_1/foot_contact toggelt, gait_node-Naht (/foot_contacts) folgt → dann alle 6  ← **HW, User**
+- [x] HW5.10 real.launch.py: publish_foot_contacts Launch-Arg (default true) + xacro-Arg + <param> im HW-Zweig; Naht gait_node unverändert
+- [x] HW5.11 FW-Build (make -j sauber) + host colcon build/test grün (hexapod_hardware 252, hexapod_gait 402, bringup real-launch 3) + uncrustify/lint grün
+- [x] HW5.12 kritische Self-Review-Tabelle (unten)
+```
+
+### Stufe-5-Post-Review
+
+| Punkt | Status |
+|---|---|
+| Staleness-Gate: Plan-Prosa sagte „kein Extra-Code", aber Live-Guard stempelt auf **Message-Ankunft** ([gait_node.py:1290](../../src/hexapod_gait/hexapod_gait/gait_node.py#L1290)) | OK — bedingungslos-publish hätte den Guard nie triggern lassen. Plan-**Pseudocode** §2.2 sah `inputs_stamp = now` vor; ich habe den Stamp in eine 100-ms-Freshness-Bedingung verdrahtet → FW-Stille → Plugin stoppt Publishing → Guard trippt (~0,6 s) → adaptiv aus. `InputsSnapshot{bits, stamp}` + Reader-Test |
+| Mux-Sharing poll_inputs vs. Strom/Spannungs-Sense | OK — jeder Read macht `mux.select()` davor (poll_inputs pro Kanal, Sense-Block je Messung); Reihenfolge egal. poll_inputs vor dem Sense-Block, USER_SW ist reiner GPIO-Read (kein Mux) |
+| FW-Entprellung pro Bit (2 Ticks/20 ms), Commit idempotent | OK — geänderter Roh-Pegel resettet den Zähler; Commit genau bei Schwelle, dann `< TICKS`-Guard stoppt Re-Increment; schnelles Prellen erreicht die Schwelle nie → Bit hält |
+| loopback: keine GET_INPUTS-Sends, keine Bool-Pubs | OK — write()-GET_INPUTS liegt hinter dem loopback-early-return; read()-Publish im `!loopback_mode_`-Block; reader nie gestartet → latest_inputs() nullopt. Test `PtyWriteSkipsGetInputsWhenFootContactsDisabled` + write-Frame-Order-Test |
+| Erst-Tick / noch kein Snapshot | OK — latest_inputs() nullopt → kein Publish → gait_node `_foot_contact` bleibt False (Default), Guard noch nicht armiert (`_foot_contact_received=False`) — identisch zum Sim-„keine-Pipeline"-Fall |
+| sensor_leg_map-Parser (CSV) | OK — lehnt falsche Anzahl, Dubletten, out-of-range, Trailing-Junk ab → WARN + Identität (kein stilles Fehl-Routing). Empty → Identität |
+| USER_SW (Bit 6) Pin/Polarität (GPIO 23, active-low) | 🟢 später — Pin gegen Pimoroni-Header verifiziert; internes Pull-Up + Switch-gegen-GND idiomatisch. Host ignoriert Bit 6 → selbst falsche Polarität funktional harmlos; auf HW nicht separat geprüft (kein Consumer) |
+| FOOT_CONTACT_FRESH 100 ms fest kodiert | 🟢 später — gewählt < gait-Guard 0,5 s; als Konstante ausreichend, könnte bei Bedarf Param werden |
+| Frame-Last: +1 GET_INPUTS-Frame/Tick (~50 Hz) | OK — ~0,3 kB/s zusätzlich auf USB-CDC (~125 kB/s Budget), unkritisch; seq_ atomic, uint8-Wrap harmlos (FW echoed) |
+| **HW-Bench (User)** — HW5.8/5.9 leg 1 → alle 6 | 🟡 **offen** — Firmware baut (`Hexapod_servo_driver.uf2`), User flasht + verdrahtet. probe_inputs.py (FW-Bitmaske) + `ros2 topic echo /leg_1/foot_contact` (Host-Naht) in der Test-Doku |
+| Pre-existing Lint (nicht HW5): `hexapod_bringup/launch/rubicon.launch.py` fehlt Copyright-Header | 🟡 vormerken — von HW5 **nicht** berührt; separater ament_copyright-Fail, unabhängig vom Stage-5-Code |
+
+---
+
 ## Stufen 3b–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +

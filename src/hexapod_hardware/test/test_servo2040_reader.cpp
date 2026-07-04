@@ -31,6 +31,7 @@ using hexapod_hardware::ErrorReport;
 using hexapod_hardware::NUM_SERVOS;
 using hexapod_hardware::opcode::ACK;
 using hexapod_hardware::opcode::ERROR_REPORT;
+using hexapod_hardware::opcode::INPUTS_RESPONSE;
 using hexapod_hardware::opcode::NACK;
 using hexapod_hardware::opcode::STATE_RESPONSE;
 using hexapod_hardware::SerialPort;
@@ -246,6 +247,31 @@ TEST_F(ReaderPty, StateFrameLandsInCache)
   ASSERT_TRUE(s.has_value());
   EXPECT_EQ(s->voltage_mv, 6000);
   EXPECT_EQ(s->status_flags, 0x10);
+}
+
+// HW5 — INPUTS_RESPONSE lands in latest_inputs() with a fresh stamp.
+TEST_F(ReaderPty, InputsFrameLandsInCache)
+{
+  const auto t0 = std::chrono::steady_clock::now();
+  // sensors 1+3 + USER_SW → 0b01000101 = 0x45 (PROTOCOL.md §4.7).
+  auto wire = encode_frame(/*seq=*/6, INPUTS_RESPONSE, {0x45});
+  firmware_send(wire);
+
+  ASSERT_TRUE(wait_for([&]() {return reader_.latest_inputs().has_value();}));
+  auto snap = reader_.latest_inputs();
+  ASSERT_TRUE(snap.has_value());
+  EXPECT_EQ(snap->bits, 0x45);
+  // Stamp is set at receipt, so it is >= the pre-send instant.
+  EXPECT_GE(snap->stamp, t0);
+}
+
+TEST_F(ReaderPty, MalformedInputsFrameIgnored)
+{
+  // 2-byte payload is not a valid INPUTS reply (must be exactly 1 byte).
+  auto wire = encode_frame(/*seq=*/6, INPUTS_RESPONSE, {0x01, 0x02});
+  firmware_send(wire);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_FALSE(reader_.latest_inputs().has_value());
 }
 
 TEST_F(ReaderPty, ErrorReportLandsInQueue)

@@ -32,6 +32,14 @@
   <xacro:arg name="serial_port" default="/dev/ttyACM0"/>
   <xacro:arg name="loopback_mode" default="false"/>
 
+  <!-- Block A5 Stufe 5: HW-Fußkontakt-Publishing. Nur im HW-Pfad relevant
+       (das hexapod_hardware-Plugin publisht die 6 /leg_<n>/foot_contact-Bool-
+       Topics aus dem Servo2040 GET_INPUTS). Default true — dieselbe Naht wie
+       die Sim (foot_contact_publisher), gait_node bleibt quellen-agnostisch.
+       Analog zu `enable_foot_contact` (Sim), aber getrennt: dieser Toggle
+       betrifft die echte HW-Taster-Quelle, nicht die Gazebo-Contact-Sensoren. -->
+  <xacro:arg name="publish_foot_contacts" default="true"/>
+
   <!-- Phase 13 Stage 0.3: Initial-Pose-Preset, das das hexapod_hardware-
        Plugin beim on_activate sendet. Default "power_on_mid" = built-in
        Modus, alle 18 Pins auf Servo-Mitte 1500us (zero-jerk, race-immun nach

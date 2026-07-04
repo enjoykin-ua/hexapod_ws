@@ -210,6 +210,11 @@ std::vector<uint8_t> encode_get_state(uint8_t seq)
   return encode_frame(seq, opcode::GET_STATE, {});
 }
 
+std::vector<uint8_t> encode_get_inputs(uint8_t seq)
+{
+  return encode_frame(seq, opcode::GET_INPUTS, {});
+}
+
 std::vector<uint8_t> encode_enable_servo(uint8_t seq, uint8_t servo_idx, bool enable)
 {
   std::vector<uint8_t> payload{servo_idx, static_cast<uint8_t>(enable ? 1 : 0)};
@@ -282,6 +287,15 @@ std::optional<ErrorReport> decode_error_report(const std::vector<uint8_t> & payl
     static_cast<uint16_t>(payload[2]) |
     static_cast<uint16_t>(payload[3]) << 8);
   return out;
+}
+
+std::optional<uint8_t> decode_inputs(const std::vector<uint8_t> & payload)
+{
+  // PROTOCOL.md §3.2: single-byte debounced input bitmask.
+  if (payload.size() != 1) {
+    return std::nullopt;
+  }
+  return payload[0];
 }
 
 }  // namespace hexapod_hardware

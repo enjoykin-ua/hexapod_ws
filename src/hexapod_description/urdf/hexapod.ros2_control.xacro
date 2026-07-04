@@ -45,6 +45,8 @@
         <!-- Phase 13 Stage 0.3: Initial-Pose-Preset (default "power_on_mid") -->
         <param name="initial_pose">$(arg initial_pose)</param>
         <param name="initial_poses_file">$(find hexapod_hardware)/config/initial_poses.yaml</param>
+        <!-- Block A5 Stufe 5: HW-Fußkontakt-Publishing (6 /leg_<n>/foot_contact) -->
+        <param name="publish_foot_contacts">$(arg publish_foot_contacts)</param>
       </xacro:unless>
     </hardware>
 

@@ -59,6 +59,9 @@ constexpr uint8_t SHUTDOWN_REQUEST = 1u << 7;  // Block F1/F2: shutdown switch h
 
 constexpr std::size_t NUM_SERVOS = 18;
 
+// HW5 — six legs, each with one foot-contact switch (SENSOR_1..6 → leg 1..6).
+constexpr std::size_t NUM_LEGS = 6;
+
 // LEN field is a single byte in the wire frame (PROTOCOL.md §2.3). Payloads
 // must be ≤ 253 bytes; 254 + 255 are reserved for future protocol use and
 // passing more is undefined behaviour on the firmware side.
@@ -94,6 +97,9 @@ std::vector<uint8_t> encode_set_targets(
   uint8_t seq,
   const std::array<int16_t, NUM_SERVOS> & pulse_us);
 std::vector<uint8_t> encode_get_state(uint8_t seq);
+// HW5 — request the debounced foot-contact + USER_SW input bitmask (PROTOCOL.md
+// §3.2). Zero-payload frame; the firmware replies with INPUTS_RESPONSE (0xC0).
+std::vector<uint8_t> encode_get_inputs(uint8_t seq);
 std::vector<uint8_t> encode_enable_servo(uint8_t seq, uint8_t servo_idx, bool enable);
 std::vector<uint8_t> encode_reset(uint8_t seq);
 // Stage 0.1 — gate the servo V+ rail via the Servo2040 relay (GP26).
@@ -120,6 +126,10 @@ std::optional<DecodedFrame> decode_frame(const std::vector<uint8_t> & cobs_bytes
 // DecodedFrame and verified the opcode.
 std::optional<StatePayload> decode_state(const std::vector<uint8_t> & payload);
 std::optional<ErrorReport> decode_error_report(const std::vector<uint8_t> & payload);
+// HW5 — INPUTS_RESPONSE payload is a single byte (PROTOCOL.md §3.2): bit i (0..5)
+// = leg (i+1) foot contact, bit 6 = USER_SW, bit 7 reserved. Returns nullopt if
+// the payload is not exactly 1 byte.
+std::optional<uint8_t> decode_inputs(const std::vector<uint8_t> & payload);
 
 // Lower-level primitives. Public for testing and reuse.
 uint16_t crc16_ccitt_false(const uint8_t * data, std::size_t len);

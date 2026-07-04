@@ -82,6 +82,12 @@ std::optional<StatePayload> Servo2040Reader::latest_state() const
   return latest_state_;
 }
 
+std::optional<InputsSnapshot> Servo2040Reader::latest_inputs() const
+{
+  std::lock_guard<std::mutex> lk(inputs_mtx_);
+  return latest_inputs_;
+}
+
 std::vector<ErrorReport> Servo2040Reader::drain_error_queue()
 {
   std::lock_guard<std::mutex> lk(error_mtx_);
@@ -280,6 +286,20 @@ void Servo2040Reader::dispatch(const DecodedFrame & frame)
         }
         std::lock_guard<std::mutex> lk(state_mtx_);
         latest_state_ = std::move(*parsed);
+        break;
+      }
+
+    case opcode::INPUTS_RESPONSE: {
+        auto parsed = decode_inputs(frame.payload);
+        if (!parsed) {
+          RCLCPP_WARN(
+            reader_logger(),
+            "Servo2040Reader: INPUTS_RESPONSE payload malformed (got %zu B, expected 1)",
+            frame.payload.size());
+          return;
+        }
+        std::lock_guard<std::mutex> lk(inputs_mtx_);
+        latest_inputs_ = InputsSnapshot{*parsed, std::chrono::steady_clock::now()};
         break;
       }
 
