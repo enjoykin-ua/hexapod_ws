@@ -4,7 +4,10 @@
 > Consumer, S4-2 adaptiver Touchdown, S4-5 Plausibilität, S4-7 Adaptive Stand) auf **echte Hardware**
 > bringen — 6 Fuß-Taster am Servo2040, gelesen per Firmware, in ROS gespiegelt.
 >
-> **Status: 🟡 Kern-Implementierung (FW + Host) fertig + alle Software-Tests grün — nur HW-Bench (HW5.8/5.9) offen.**
+> **Status: 🟢 Sensor-Kette live-verifiziert (2026-07-04).** FW + Host + RViz-Viz fertig, Tests grün;
+> Taster → Fuß-Kontakt am Bench bewiesen (FW→Plugin→Bool-Topic→RViz). Rest-Verdrahtung aller 6 Taster
+> = mechanischer User-Follow-up. Closed-loop-Nutzung am laufenden Roboter → späterer Phase-13-Schritt.
+> _(Historie: Kern-Implementierung FW + Host, alle Software-Tests grün.)_
 > Voraussetzung Stufe 4 (S4-x) 🟢 Sim-verifiziert. **Bench-Schritt 1 (LED) bestätigt** (2026-07-04): leg-1
 > an SENSOR_1 → Lese-Kette (Pull-Up gegen GND, Mux, Schwelle 1,65 V) auf HW verifiziert. **Firmware:**
 > `GET_INPUTS`/`INPUTS` implementiert (poll_inputs im on_tick, alle 6 Kanäle Pull-Up, entprellt), Temp-
@@ -148,8 +151,7 @@ HW5 (HW-Fußkontakte):
 - [x] HW5.5 Host: encode_get_inputs + decode_inputs; Reader INPUTS_RESPONSE (0xC0) → InputsSnapshot(bits, stamp) + latest_inputs()
 - [x] HW5.6 Host: 6× /leg_<n>/foot_contact (Bool) Publisher (Muster shutdown_request) + sensor_leg_map (identity-default) + publish_foot_contacts hardware_parameter
 - [x] HW5.7 Host: GET_INPUTS pro write()-Zyklus (~50 Hz); read() publisht freshness-gated (100 ms → gait-Live-Guard bleibt wirksam)
-- [ ] HW5.8 Verdrahtung leg 1 (SENSOR_1 IN+GND, NO) + Bench-Verify FW (probe_inputs.py, Bitmaske Bit0 toggelt)  ← HW, User
-- [ ] HW5.9 Bench-Verify Host (/leg_1/foot_contact toggelt, gait_node /foot_contacts folgt) → dann alle 6  ← HW, User
+- [x] HW5.8/5.9 HW-Bench (User 2026-07-04): Taster → Fuß-Kontakt live verifiziert (FW→Plugin→Bool→RViz). Rest-Taster aller 6 Beine = mechanischer Follow-up (Pfad bewiesen)
 - [x] HW5.10 real.launch.py: publish_foot_contacts Launch-Arg (default an) + xacro-Arg + <param>; Naht-Check gait_node unverändert
 - [x] HW5.11 FW-Build (make -j sauber) + host colcon build/test + Lint grün (hexapod_hardware 252 / hexapod_gait 402 / bringup real-launch 3)
 - [x] HW5.12 kritische Self-Review-Tabelle (→ imu_balance_progress.md Stufe-5-Post-Review)
@@ -269,7 +271,7 @@ class FootContactViz(Node):
     for n in 1..6:
       m = Marker()
       m.header.frame_id = f'leg_{n}_foot_link'   # (a): RViz transformiert per TF
-      m.header.stamp    = clock.now()            # wie torque_viz; Fallback stamp=0 (latest-TF) falls Extrapolations-Warnings
+      m.header.stamp    = 0 (Marker-Default)     # latest-TF: foot_link ist Blatt-Frame, now() → „extrapolation into the future"-Flackern (live gesehen HW5v.7)
       m.ns='foot_contact'; m.id=n; m.type=SPHERE; m.action=ADD
       m.pose.position = (0,0,0); m.pose.orientation.w=1
       m.scale = marker_scale (x=y=z)
@@ -291,6 +293,10 @@ class FootContactViz(Node):
   soll der Fuß **nicht** fälschlich „offen/grau" zeigen, sondern „keine Daten" — ehrlich + billig.
 - **`time.monotonic()` für Staleness:** wall-clock, robust ohne `/clock` (HW, `use_sim_time=false`);
   gleiche Wahl wie `foot_contact_publisher.py`.
+- **Marker-Stamp = 0 (nicht `now()`):** `foot_link` hängt als Blatt-Frame dem Fixed Frame `base_link`
+  ein paar ms hinterher. Mit `now()`-Stempel wirft RViz „Lookup would require extrapolation into the
+  future" und verwirft den Marker jeden Tick kurz → **Flackern** + `FootContacts`-Status-Error
+  (live in HW5v.7 gesehen). Stamp 0 = „nimm die neueste verfügbare TF" → stabil.
 
 **Kein Launch-Zwang:** Betrieb = 3 Terminals (`real.launch.py` / `ros2 run hexapod_gait foot_contact_viz`
 / `rviz2 -d view_hw.rviz`). Eine optionale Convenience-`foot_contact_viz.launch.py` (nur Node + RViz,
@@ -320,13 +326,13 @@ da `real.launch.py` TF/RViz-Model schon liefert) ist offener Punkt (§10.5).
 
 ```
 HW5v (RViz-Fußkontakt-Viz, B1):
-- [ ] HW5v.1 foot_contact_viz Node (6 Bool-Subs, MarkerArray auf /foot_contact_markers, foot_link-Frame, grün/grau/stale-dunkel, 5-Hz-Timer-Republish)
-- [ ] HW5v.2 Entry-Point in hexapod_gait/setup.py (console_scripts foot_contact_viz)
-- [ ] HW5v.3 view_hw.rviz um MarkerArray-Display (/foot_contact_markers) erweitern
-- [ ] HW5v.4 Unit-Tests (build_markers: Farben, frame_ids, stale→dunkel) + colcon test/lint grün
-- [ ] HW5v.5 Test-Doku ergänzen (stage_5_..._test_commands.md: RViz-Bench real.launch.py + node + rviz)
-- [ ] HW5v.6 kritische Self-Review-Tabelle (→ imu_balance_progress.md)
-- [ ] HW5v.7 Live-RViz-Bench (User): Taster N → Fuß N grün, loslassen → grau  ← HW, User
+- [x] HW5v.1 foot_contact_viz Node (6 Bool-Subs, MarkerArray auf /foot_contact_markers, foot_link-Frame-Overlay, grün/grau/stale-dunkel, 5-Hz-Timer-Republish)
+- [x] HW5v.2 Entry-Point in hexapod_gait/setup.py (console_scripts foot_contact_viz)
+- [x] HW5v.3 view_hw.rviz um MarkerArray-Display (/foot_contact_markers, ns foot_contact) erweitert
+- [x] HW5v.4 Unit-Tests (Farben grün/grau, frame_ids, stale→dunkel, Boundary, scale-live, Callback) + package.xml-deps + colcon test/lint grün (hexapod_gait 409, 0 Fehler)
+- [x] HW5v.5 Test-Doku ergänzt (stage_5_..._test_commands.md: RViz-Bench 3-Terminal)
+- [x] HW5v.6 kritische Self-Review-Tabelle (→ imu_balance_progress.md HW5v-Post-Review)
+- [x] HW5v.7 Live-RViz-Bench (User 2026-07-04): Fuß grün/grau mit Taster; TF-Flicker → Stamp=0-Fix → „funktioniert super"
 ```
 
 ### 10.5 Offene Punkte für User-Review — **geklärt (User, 2026-07-04)**

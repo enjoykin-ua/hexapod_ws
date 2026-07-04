@@ -30,6 +30,36 @@ auf "Pi-Recheck statt Erst-Bringup" angepasst.
 
 ---
 
+## A5 Stufe 5 — HW-Fußkontakte (🟢 Sensor-Kette live-verifiziert, 2026-07-04)
+
+6 Fuß-Taster am Servo2040, per Firmware `GET_INPUTS` gelesen und vom
+`hexapod_hardware`-Plugin als **dieselben** 6 `/leg_<n>/foot_contact`-Bool-Topics
+publisht wie die Sim → `gait_node` + gesamte S4-Pipeline **unverändert**. Firmware
+(`GET_INPUTS`/`INPUTS`, entprellter Input-Snapshot, alle 6 Kanäle Pull-Up, PROTOCOL
+v1.1), Host (encode/decode, Reader-Cache, 6 Publisher, GET_INPUTS pro write()-Zyklus,
+**freshness-gated**), Bench-Tool `probe_inputs.py`, plus RViz-Viz-Node
+`foot_contact_viz` (HW5v). Am Bench live bestätigt: Taster → Fuß wird in RViz grün.
+
+**Was gut lief:** Die „eine Naht"-Architektur (Plugin publisht Sim-identische
+Topics) hielt — kein gait_node-Eingriff nötig, der Viz-Node ist quellen-agnostisch
+(Sim + HW). Self-Review fand vor HW den entscheidenden Punkt: die Contact-Live-Guard
+im gait_node stempelt auf **Message-Ankunft**, also hätte bedingungsloses Publishen
+den Guard nie triggern lassen — Fix: `inputs_stamp` in eine 100-ms-Freshness-Bedingung
+verdrahtet (FW-Stille → Plugin stoppt Publishing → Guard trippt → adaptiv aus).
+
+**Was gehakt hat:** (1) Der benigne Undervoltage-Trip beim stromlosen Bench (Rail
+liest ~0 V) — bewusst akzeptiert, blockt das Taster-Lesen nicht. (2) Live-RViz-Flicker:
+`now()`-Marker-Stamp warf bei den `foot_link`-Blatt-Frames „extrapolation into the
+future" → Marker/Status flackerte. Fix: **Stamp=0** (latest-TF). Beides erst am
+echten Bench aufgetaucht, nicht in den Tests — Bestätigung, dass HW-Sichtprüfung
+(auch die simple RViz-Variante) echten Mehrwert über CI hat.
+
+**Was offen ist:** Rest-Taster aller 6 Beine verdrahten (mechanischer Follow-up,
+Pfad bewiesen). **Closed-loop am laufenden Roboter** (adaptiver Touchdown/Stand mit
+echten Kontakten) = späterer Phase-13-Schritt (braucht Servo-Power, aufgebockt).
+
+---
+
 ## Phase-11-Retro (Param-GUI, ✅ 2026-05-21)
 
 Alle 6 Stages A–F durchgelaufen. Live-Param-Surfaces für gait_node

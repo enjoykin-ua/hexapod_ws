@@ -711,7 +711,7 @@ S4-7:
 
 ---
 
-## Stufe 5 — HW-Fußkontakte (Taster am Servo2040)  🟡 Code+Tests+Doku fertig, HW-Bench offen
+## Stufe 5 — HW-Fußkontakte (Taster am Servo2040)  🟢 Sensor-Kette live-verifiziert (Rest-Verdrahtung = User-Follow-up)
 
 > Bringt die Sim-verifizierte Fußkontakt-/S4-Pipeline auf echte HW: 6 Fuß-Taster am Servo2040, per
 > Firmware GET_INPUTS gelesen, vom `hexapod_hardware`-Plugin als **dieselben** 6 `/leg_<n>/foot_contact`
@@ -730,8 +730,7 @@ HW5:
 - [x] HW5.5 Host: encode_get_inputs + decode_inputs (protocol) + Reader INPUTS_RESPONSE → InputsSnapshot(bits, stamp) + latest_inputs(); Unit-Tests (protocol 5 + reader 2)
 - [x] HW5.6 Host: 6× /leg_<n>/foot_contact (Bool) Publisher (Muster shutdown_request) + publish_foot_contacts + sensor_leg_map (CSV, identity-default) hardware_parameter
 - [x] HW5.7 Host: GET_INPUTS pro write()-Zyklus (~50 Hz), read() publisht freshness-gated (100 ms → gait-Live-Guard bleibt wirksam); Unit-Tests (write piggyback an/aus)
-- [ ] HW5.8 Verdrahtung leg 1 (SENSOR_1 IN+GND, NO) + FW-Bench: probe_inputs.py Bit0 toggelt  ← **HW, User (nach Flash)**
-- [ ] HW5.9 Host-Bench: /leg_1/foot_contact toggelt, gait_node-Naht (/foot_contacts) folgt → dann alle 6  ← **HW, User**
+- [x] HW5.8/5.9 HW-Bench: Taster → Fuß-Kontakt live verifiziert (User, 2026-07-04) — Drücken korrekt erkannt (Log `1/6`/`2/6 in contact`), FW→Plugin→Bool-Topic→RViz-Naht bewiesen. ⚠️ Rest-Taster (alle 6 Beine) verdrahten = mechanischer User-Follow-up (Pfad bewiesen)
 - [x] HW5.10 real.launch.py: publish_foot_contacts Launch-Arg (default true) + xacro-Arg + <param> im HW-Zweig; Naht gait_node unverändert
 - [x] HW5.11 FW-Build (make -j sauber) + host colcon build/test grün (hexapod_hardware 252, hexapod_gait 402, bringup real-launch 3) + uncrustify/lint grün
 - [x] HW5.12 kritische Self-Review-Tabelle (unten)
@@ -752,6 +751,38 @@ HW5:
 | Frame-Last: +1 GET_INPUTS-Frame/Tick (~50 Hz) | OK — ~0,3 kB/s zusätzlich auf USB-CDC (~125 kB/s Budget), unkritisch; seq_ atomic, uint8-Wrap harmlos (FW echoed) |
 | **HW-Bench (User)** — HW5.8/5.9 leg 1 → alle 6 | 🟡 **offen** — Firmware baut (`Hexapod_servo_driver.uf2`), User flasht + verdrahtet. probe_inputs.py (FW-Bitmaske) + `ros2 topic echo /leg_1/foot_contact` (Host-Naht) in der Test-Doku |
 | Pre-existing Lint (nicht HW5): `hexapod_bringup/launch/rubicon.launch.py` fehlt Copyright-Header | 🟡 vormerken — von HW5 **nicht** berührt; separater ament_copyright-Fail, unabhängig vom Stage-5-Code |
+
+### HW5v — RViz-Fußkontakt-Viz (B1)  🟡 Code+Tests+Doku fertig, Live-RViz-Bench offen
+
+> Optische Bestätigung der Taster in RViz (Fuß wird grün), ohne Gait/Servo-Power. Plan:
+> [`stage_5_hw_foot_contacts_plan.md` §10](stage_5_hw_foot_contacts_plan.md). **Null Änderung an
+> Firmware/Plugin** — nur ein quellen-agnostischer Viz-Node (Sim + HW) + RViz-Anzeige.
+
+```
+HW5v:
+- [x] HW5v.1 foot_contact_viz Node (6 Bool-Subs, MarkerArray /foot_contact_markers, foot_link-Frame-Overlay, grün/grau/stale-dunkel, 5-Hz-Timer)
+- [x] HW5v.2 Entry-Point hexapod_gait/setup.py (foot_contact_viz)
+- [x] HW5v.3 view_hw.rviz um MarkerArray-Display (/foot_contact_markers, ns foot_contact) erweitert
+- [x] HW5v.4 Unit-Tests (Farben grün/grau, frame_ids, stale→dunkel, Boundary, scale-live, Callback) + package.xml-deps + colcon test/lint grün (hexapod_gait 409, 0 Fehler)
+- [x] HW5v.5 Test-Doku ergänzt (stage_5_..._test_commands.md: RViz-Bench 3-Terminal)
+- [x] HW5v.6 kritische Self-Review-Tabelle (unten)
+- [x] HW5v.7 Live-RViz-Bench (User, 2026-07-04): Fuß wird grün/grau mit dem Taster. 1. Lauf zeigte TF-Flicker → Stamp=0-Fix → „funktioniert super" bestätigt
+```
+
+#### HW5v-Post-Review
+
+| Punkt | Status |
+|---|---|
+| Overlay statt Umfärben (RobotModel nicht per-Topic umfärbbar) | OK — Marker Ø 0,020 am `leg_<n>_foot_link`-Frame überdeckt die schwarze URDF-Fußkugel (Ø 0,016) → Fuß „wird" farbig, kein 2. Ball, kein URDF-Eingriff |
+| TF-Abhängigkeit (`foot_link`-Frames) | OK — `foot_link` ist Basis-URDF (Fixed-Joint, Gazebo-Contact-Sensorik ist sim-only) → immer im TF-Baum vom `robot_state_publisher`. Fehlt TF (Startup), zeigt RViz den Marker kurz nicht — transient, unkritisch |
+| stale→dunkel bei toter/fehlender Pipeline | OK — `_last_t=0.0` initial → alle dunkel bis 1. Msg; FW-Stille (Freshness-Gate stoppt Plugin-Publish) → nach `stale_timeout` (0,5 s) wieder dunkel statt fälschlich „grau/offen". `test_stale_is_dark` + Boundary-Test |
+| `time.monotonic` (Staleness) vs. ROS-Zeit (Marker-Stamp) | OK — Staleness = Message-Ankunft (wall, robust ohne `/clock`, wie foot_contact_publisher); Marker-Stamp = `get_clock().now()` (respektiert use_sim_time) für TF. Kein Konflikt |
+| Marker-Stamp / TF-Extrapolation | 🔴→✅ **live gefixt (HW5v.7).** `now()`-Stamp warf bei den `foot_link`-Blatt-Frames „extrapolation into the future" → Marker flackerte + `FootContacts`-Status-Error (User-Befund). Fix: **Stamp = 0** (Marker-Default) → RViz nimmt die neueste TF, stabil. `test_marker_stamp_is_zero_for_latest_tf`; live verifiziert (stamp `(0,0)`) |
+| `publish_rate` nur zur Timer-Erstellung gelesen (nicht live) | OK — bewusst; nur `marker_scale`/`stale_timeout` live-tunbar (in `_build_markers`/`_color_for` je Tick gelesen). `test_marker_scale_param_live` |
+| package.xml unter-deklariert (std_msgs/geometry_msgs/visualization_msgs) | OK — waren bisher nur transitiv (auch torque_viz/gait_node); jetzt explizit als exec_depend ergänzt |
+| Marker-Lifetime nicht gesetzt (0 = forever) | 🟢 später — bei 5-Hz-Republish unkritisch; stirbt der Node, frieren die Marker in RViz auf der letzten Farbe ein (kein Auto-Clear). Optional `lifetime≈1 s` |
+| Node in hexapod_gait (statt hexapod_sensors) | OK — Viz-Präzedenz (torque_viz/reachability_viz) + rclpy-Setup dort; hängt an nichts gait-Spezifischem |
+| **Live-RViz-Bench (User)** — HW5v.7 | 🟡 **1. Lauf: Taster-Erkennung ✅, Flicker-Bug gefunden+gefixt.** User-Lauf zeigte: Drücken wird korrekt erkannt (Log `1/6`, `2/6 in contact`), Fuß geht grau→grün. Aber Marker flackerte (TF-Extrapolation, s. o.) → **Stamp=0-Fix**. Re-Verify (stabile Kugel, kein Status-Error) nach Rebuild offen |
 
 ---
 

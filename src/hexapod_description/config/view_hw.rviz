@@ -51,6 +51,21 @@ Visualization Manager:
       Show Names: true
       Update Interval: 0
       Value: true
+    # Block A5 Stufe 5 (HW5v): Fußkontakt-Marker aus foot_contact_viz. Eine
+    # Kugel je leg_<n>_foot_link, grün=Kontakt / grau=offen / dunkel=stale.
+    # Überdeckt die schwarze URDF-Fußkugel → der Fuß selbst wird farbig.
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: FootContacts
+      Namespaces:
+        foot_contact: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /foot_contact_markers
+      Value: true
   Global Options:
     Background Color: 48; 48; 48
     # HW-Variante (Phase 13 Stage 0.7): Fixed Frame = base_link, weil auf

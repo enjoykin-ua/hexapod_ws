@@ -17,6 +17,11 @@
   <exec_depend>trajectory_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>hexapod_kinematics</exec_depend>
+  <!-- HW5v foot_contact_viz (auch von torque_viz/gait_node genutzt, bisher nur
+       transitiv verfügbar; hier explizit deklariert). -->
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

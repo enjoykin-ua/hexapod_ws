@@ -123,6 +123,45 @@ for n in 1 2 3 4 5 6; do echo "leg $n:"; ros2 topic echo /leg_${n}/foot_contact 
 
 ---
 
+## HW5v — RViz-Fußkontakt-Viz (optische Bestätigung, B1)
+
+Statt `topic echo` die Taster **in RViz** sehen: der zugehörige Fuß wird grün. Rein visuell, kein Gait,
+keine Servo-Power. 3 Terminals:
+
+```bash
+# Terminal A — HW-Bringup (aufgebockt/stromlos ok; die FW meldet ~1 s nach dem
+# Start EINMAL einen Undervoltage-Trip, weil kein Servo-Rail dranhängt — das ist
+# erwartet und blockt das Taster-Lesen NICHT):
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=false serial_port:=/dev/ttyACM0
+```
+
+```bash
+# Terminal B — Viz-Node (6 Bool → 6 Fuß-Marker):
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+ros2 run hexapod_gait foot_contact_viz
+```
+
+```bash
+# Terminal C — RViz mit dem HW-View (RobotModel + FootContacts-MarkerArray):
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+rviz2 -d ~/hexapod_ws/install/hexapod_description/share/hexapod_description/config/view_hw.rviz
+```
+
+Erwartung in RViz:
+- Beim Start sind alle 6 Füße **dunkel** (noch keine/erst startende Daten).
+- Sobald das Plugin publisht: Fuß **grau** = Taster offen, **grün** = Taster gedrückt.
+- Taster an Bein N drücken → **nur Fuß N** wird grün, loslassen → grau.
+- Zieht man den Servo2040 ab (Pipeline tot): die Füße werden nach ~0,5 s wieder **dunkel**
+  (Freshness-Gate im Plugin stoppt das Publishen → Viz zeigt „keine Daten", nicht fälschlich „offen").
+
+> Melde: wechselt Fuß N sauber grün/grau mit dem Taster? Bleiben die anderen unberührt?
+
+**Live-Tuning** (optional): `ros2 param set /foot_contact_viz marker_scale 0.03` (größere Kugel),
+`ros2 param set /foot_contact_viz stale_timeout 1.0`.
+
+---
+
 ## Was NICHT getestet wird (scope-out)
 
 - **S4-Closed-Loop auf HW** (adaptiver Touchdown/Stand mit echten Kontakten am laufenden Roboter) →
