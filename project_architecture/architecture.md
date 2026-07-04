@@ -10,9 +10,9 @@
 | `hexapod_description` | xacro/URDF | Roboter-Modell, Meshes, Joint-Limits, ros2_control-Tags, `display.launch.py`. |
 | `hexapod_control` | yaml | Controller-Configs: `controllers.yaml` (Sim), `controllers.real.yaml` (HW). |
 | `hexapod_kinematics` | Python | IK/FK (`leg_ik`, `leg_fk`), Geometrie (`geometry.py`: `rotate_z`, `rotate_xy`, base↔leg-Frame) + Limits (`config.py`), `JointLimits`, `HEXAPOD`. |
-| `hexapod_gait` | Python | `gait_node` (Knoten), `gait_engine` (State-Machine + Body-Leveling-Stellpfad), `gait_patterns`, `trajectory_gen`, `tip_monitor` (A5 Stufe 1), `balance_controller` (A5 Stufe 2), `reachability_viz`; `gait.launch.py`, `stand.launch.py`; `config/presets/`. |
+| `hexapod_gait` | Python | `gait_node` (Knoten), `gait_engine` (State-Machine + Body-Leveling-Stellpfad + S4 adaptiver Touchdown/Stand), `gait_patterns`, `trajectory_gen`, `tip_monitor` (A5 St.1), `balance_controller` (A5 St.2), `reachability_viz`, `torque_viz`, `foot_contact_viz` (A5 St.5, Fuß-Marker); `gait.launch.py`, `stand.launch.py`; `config/presets/`. |
 | `hexapod_teleop` | Python | `joy_to_twist` (Joy→cmd_vel/cmd_body_height; Tempo-Scales `linear_x/y_scale`/`angular_z_scale`/`slow_factor`/`deadzone` **live-tunbar** via `param set`), `config/ps4_usb.yaml`, `joy_teleop.launch.py`. |
-| `hexapod_hardware` | C++ | `ros2_control`-SystemInterface-Plugin ↔ Servo2040; `calibration.cpp` (rad↔pulse); `config/servo_mapping.yaml` (Puls-Cal je Pin). |
+| `hexapod_hardware` | C++ | `ros2_control`-SystemInterface-Plugin ↔ Servo2040; `calibration.cpp` (rad↔pulse); `config/servo_mapping.yaml` (Puls-Cal je Pin); publisht auf HW die 6 `/leg_<n>/foot_contact` aus GET_INPUTS (A5 St.5) + `/hexapod/shutdown_request`. |
 | `hexapod_sensors` | Python/URDF | **IMU real** (A5 Stufe 0): `imu_monitor` (`/imu/data`→roll/pitch, `/imu/monitor`, world→base_link-tf); Foot-Contact-Publisher. IMU-xacro in `hexapod_description` (`hexapod.imu.xacro`). |
 | `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `worlds/empty_imu.sdf` (+ `slope.sdf.xacro`, A5 Stufe 2), `sim.launch.py` (Gazebo-Seite). |
 | `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). |
@@ -45,7 +45,8 @@
 | `/joy` | Joy | joy_node → joy_to_twist | Achsen/Buttons |
 | `/robot_description` | String | rsp/launch | URDF-XML (Limit-Quelle fürs Plugin + gait) |
 | `/hexapod_safety_freeze` | Trigger (srv) | gait_node → hardware | Hard-Stop-Anforderung |
-| `/imu/data` | Imu | sensors/sim → gait_node | Orientierung/Gyro → Kipp-Erkennung (A5 St.1) + Body-Leveling (A5 St.2, `leveling_enable`, nur STANDING). Sensor-QoS best_effort. ⚠️ gz-IMU **spawn-referenziert** → Sim flach spawnen |
+| `/imu/data` | Imu | sensors/sim → gait_node | Orientierung/Gyro → Kipp-Erkennung (A5 St.1) + Body-Leveling (A5 St.2, `leveling_enable`, nur STANDING). Sensor-QoS best_effort. ⚠️ gz-IMU **spawn-referenziert** → Sim flach spawnen. **HW-Quelle** = eigener `bno055_imu`-Node (Stufe 6, geplant), Sim = gz-Sensor+Bridge |
+| `/leg_<n>/foot_contact` | Bool | sensors/HW-Plugin → gait_node | Fuß-Bodenkontakt/Bein → S4 (adaptiver Touchdown/Stand, Plausibilität). **Sim-Quelle** = `foot_contact_publisher` (aus gz-Contact); **HW-Quelle** (A5 Stufe 5 🟢) = `hexapod_hardware`-Plugin aus Servo2040 GET_INPUTS. gait_node cacht + Live-Guard 0.5 s |
 
 ## 5. Hardware-Kette (HW-Pfad)
 ```
@@ -56,6 +57,8 @@
 ```
 - **Servos:** Coxa = Diymore 8120MG (20 kg·cm); Femur+Tibia = Miuzei MS61 (35 kg·cm). Alle 4.8–8.4 V, 270°. (Memory `project_hexapod_servo_models`.)
 - **Relay-Gate:** trennt die Servo-Versorgung (Power-On-Zentrieren der Servos ist HW-fix → aufgebockt booten + smooth rampen).
+- **Fuß-Taster (A5 St.5 🟢):** 6× NO-Microswitch an den Servo2040-SENSOR-Kanälen (interner Pull-Up gegen GND) → FW `GET_INPUTS` → Plugin publisht `/leg_<n>/foot_contact`.
+- **IMU (A5 St.6, geplant):** BNO-055 per **Qwiic/I2C direkt am Pi** (`0x28`) → eigener `bno055_imu`-Node → `/imu/data`. **Nicht** am Servo2040.
 
 ## 6. ⭐ Limit- & Kalibrierungs-Quellen (kritisch)
 - **Joint-Limits stehen an ZWEI Stellen** (müssen synchron sein):

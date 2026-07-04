@@ -15,7 +15,8 @@
 | Tool | Zweck |
 |---|---|
 | `hexapod_gait/reachability_viz.py` (+ `reachability_viz.launch.py`) | Erreichbare Fuß-Hülle pro Bein als MarkerArray (blau=aktuelles Limit, rot=volle Tibia). Pure FK, keine HW. Doku: `docs_raspi/phase_13_stage_1_reachability_viz_test_commands.md`. |
-| `view_hw.rviz` / `view_reach.rviz` (`hexapod_description/config`) | RViz-Configs: HW-Spiegel bzw. Reachability. |
+| `hexapod_gait/foot_contact_viz.py` (A5 St.5) | Abonniert die 6 `/leg_<n>/foot_contact` → Fuß-Kugel je `leg_<n>_foot_link` grün=Kontakt/grau=offen/dunkel=stale (überdeckt die URDF-Fußkugel). Quellen-agnostisch (Sim+HW). `ros2 run hexapod_gait foot_contact_viz` + `view_hw.rviz`. |
+| `view_hw.rviz` / `view_reach.rviz` (`hexapod_description/config`) | RViz-Configs: HW-Spiegel (+ FootContacts-MarkerArray) bzw. Reachability. |
 
 ## Workflow / Komfort
 | Tool | Zweck |

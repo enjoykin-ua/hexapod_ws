@@ -1,0 +1,116 @@
+# Stufe 6 / IP1 — Bringup + Test-Befehle (HW-IMU am Pi)
+
+> **Eigenständiges Bringup-Doc für den IMU-Track** (bewusst hier im imu_balance-Abschnitt, nicht nur
+> Verweis auf [`docs_raspi/dev_workflow_desktop_to_pi.md`](../../docs_raspi/dev_workflow_desktop_to_pi.md)
+> — dort darf man Interessantes nachlesen, aber dies ist self-contained). Du führst die Schritte aus,
+> knappe Status-Meldung zurück.
+>
+> **Warum ein Pi-Deploy-Schritt:** Der BNO-055 hängt **nur am Pi** (Qwiic/I2C `0x28`) — der Dev-Rechner
+> erreicht ihn **nicht**. Also: am Dev bauen + Unit-Tests (CI), dann **Code auf den Pi**, dort mit echtem
+> Sensor testen. **Kein Logging auf die Pi-SD-Karte** — Diagnose läuft über DDS zum Dev-Rechner.
+>
+> ⚠️ Dieses Doc ist **vor** der Implementierung skizziert (Test-Contract). Node `bno055_imu` entsteht in
+> IP1; die Befehle greifen nach der Implementierung.
+
+## Voraussetzungen
+
+- IMU-Hello-World 🟢 (`../peripherals_tests/imu_bno055.md`): I2C an, `0x28` sichtbar, `CHIP_ID=0xA0`.
+- Pi erreichbar: `ssh hexapod-pi`. Dev + Pi im **selben Netz**, **gleiche `ROS_DOMAIN_ID`** (für DDS).
+- Git: **du** committest/pushst am Dev, pullst am Pi (Agent macht kein git).
+
+---
+
+## Schritt 1 — smbus2 dem ROS-Python am Pi verfügbar machen (einmalig)
+
+Der Node importiert `smbus2` im ROS-Python (nicht im Hello-World-venv). Auf dem Pi:
+
+```bash
+ssh hexapod-pi
+# Variante A (rosdep/apt, falls Paket vorhanden):
+sudo apt update && sudo apt install -y python3-smbus2 || \
+# Variante B (pip system-wide, Ubuntu 24.04):
+  pip install --break-system-packages smbus2
+python3 -c "import smbus2; print('smbus2 ok', smbus2.__name__)"
+```
+
+> Der `i2c`-Gruppen-Zugriff auf `/dev/i2c-1` ist aus der Hello-World schon eingerichtet (sonst:
+> `sudo usermod -aG i2c $USER` + Re-Login).
+
+## Schritt 2 — Code Dev → Pi bringen
+
+```bash
+# Am DEV (du): committen + pushen
+cd ~/hexapod_ws
+git add src/hexapod_sensors src/hexapod_bringup ; git commit -m "..." ; git push   # DU
+
+# Am PI: pullen + bauen (nur die betroffenen Pakete)
+ssh hexapod-pi
+cd ~/hexapod_ws && git pull                                                          # DU
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-select hexapod_sensors hexapod_bringup
+```
+
+> Alternativ ohne Git-Roundtrip: `rsync -a ~/hexapod_ws/src/ hexapod-pi:~/hexapod_ws/src/` (siehe
+> dev_workflow-Doc), dann am Pi `colcon build`.
+
+## Schritt 3 — Node am Pi starten
+
+**Terminal A (Pi) — voller HW-Bringup mit IMU:**
+```bash
+ssh hexapod-pi
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=false enable_imu:=true
+```
+
+Oder nur die IMU isoliert (ohne Servos/Controller):
+```bash
+ros2 run hexapod_sensors bno055_imu &
+ros2 run hexapod_sensors imu_monitor
+```
+
+## Schritt 4 — Verifikation (Sensor-Kette lebt)
+
+**Am Pi (oder Dev):**
+```bash
+ros2 topic hz /imu/data          # -> ~50 Hz
+ros2 topic echo /imu/monitor     # Vector3 x=roll y=pitch z=yaw (rad)
+ros2 topic echo /imu/calib       # Cal-Status sys/gyr/acc/mag (IP1.3)
+```
+
+**Kipp-Test (Achsen + Vorzeichen) — der eigentliche Nachweis:**
+- Roboter um die **roll-Achse** kippen (links/rechts) → `/imu/monitor` **roll** folgt (richtiges
+  Vorzeichen: rechts-Kippen → definiertes Vorzeichen), **pitch ≈ 0**.
+- Um die **pitch-Achse** kippen (vor/zurück) → **pitch** folgt, roll ≈ 0.
+- **Damit ist bewiesen, dass AXIS_MAP die Quaternion korrekt auf `base_link` gedreht hat** (§6-Risiko 1
+  im Plan). Stimmen Achsen/Vorzeichen nicht → an IP2 / den AXIS_MAP-Werten drehen.
+
+## Schritt 5 — Zum Dev-Rechner streamen (Logging ohne SD-Writes)
+
+Roboter läuft headless am Pi; **du loggst/visualisierst am Dev** (DDS im LAN, null Pi-Disk-Writes):
+
+```bash
+# Am DEV — gleiche ROS_DOMAIN_ID:
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+ros2 topic echo /imu/monitor                 # Live roll/pitch vom Pi
+ros2 bag record /imu/data /imu/monitor        # Bag liegt auf dem DEV, nicht auf der SD
+rviz2 -d install/hexapod_description/share/hexapod_description/config/view_hw.rviz
+#  -> das Roboter-Modell neigt sich mit der echten Lage (imu_monitor world->base_link-tf)
+```
+
+> Melde: `/imu/data` ~50 Hz? roll/pitch folgt dem Kippen mit richtiger Achse/Vorzeichen? RViz-Neigung
+> plausibel? Cal steigt gyr/acc → 3?
+
+## Was NICHT hier getestet wird (→ spätere IP)
+
+- **AXIS_MAP-Werte + Zero-Offset final bestimmen** → IP2 (`stage_6b_imu_mounting_cal_plan.md`).
+- **Leveling bewegt Beine / Gain-Retuning** → IP3 (`stage_6c...`), braucht Servo-Power (Phase 8).
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `/imu/data` fehlt | Node läuft nicht / `import smbus2` scheitert (Schritt 1) / `enable_imu:=false` |
+| `ros2 topic echo` am Dev leer, am Pi da | `ROS_DOMAIN_ID` unterschiedlich / Firewall / nicht selbes Netz |
+| roll/pitch-Achsen vertauscht | AXIS_MAP falsch → IP2 (erwartet, dafür ist der Kipp-Test da) |
+| roll/pitch bei „flach" ≠ 0 | Montage-Restschräge → Zero-Offset (IP2, „nur ein Parameter") |
+| sporadisch `/imu/data`-Aussetzer | Clock-Stretching → Baudrate in `config.txt` senken (`i2c_arm_baudrate=10000`, Reboot) |
