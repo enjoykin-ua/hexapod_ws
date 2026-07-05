@@ -786,7 +786,7 @@ HW5v:
 
 ---
 
-## Stufe 6 / IP1 — HW-IMU-Treiber (BNO-055 → `/imu/data`)  🟡 Dev fertig, Pi-Verify offen
+## Stufe 6 / IP1 — HW-IMU-Treiber (BNO-055 → `/imu/data`)  🟢 Sensor-Kette live-verifiziert (Ausrichtung → IP2)
 
 > Ein smbus2-ROS-Node am Pi liest die BNO-055 (NDOF) über I2C und publisht
 > `sensor_msgs/Imu` auf `/imu/data` — dasselbe Topic wie die gz-IMU in der Sim, damit
@@ -802,7 +802,7 @@ IP1 (HW-IMU-Treiber):
 - [x] IP1.4 Params (i2c_bus/addr, publish_rate, frame_id, axis_map_config/sign, roll/pitch_offset) + Entry-Point setup.py
 - [x] IP1.5 real.launch.py: enable_imu (default FALSE, reiner Node-Toggle, NICHT an xacro) → bno055_imu + imu_monitor; smbus2-Dep Doku-only (package.xml-Kommentar)
 - [x] IP1.6 Unit-Tests (7×: parse/build/offset=0=Identität/offset≠0) + colcon build/test/lint grün (Dev, ohne HW; 9 passed/1 skip)
-- [ ] IP1.7 Deploy Dev→Pi + Pi-Verify: /imu/data ~50 Hz, Kipp-Test (Achsen/Vorzeichen), RViz-Neigung  ← HW, User
+- [x] IP1.7 Deploy Dev→Pi + Pi-Verify (2026-07-05): /imu/data live @ 50 Hz, Kipp-Test → Sensor-Kette 🟢, Achsen +90°-Z-verdreht (Befund unten). RViz deferiert (DDS-Multicast am Hotspot; Log-Test gleichwertig)
 - [x] IP1.8 kritische Self-Review-Tabelle (unten)
 ```
 
@@ -810,7 +810,7 @@ IP1 (HW-IMU-Treiber):
 
 | Punkt | Status |
 |---|---|
-| **AXIS_MAP dreht die Quaternion mit?** (Kern-Risiko §6.1) | 🟡 **vormerken → IP1.7.** Datenblatt: Remap betrifft alle Fusions-Ausgaben inkl. Quaternion; es gibt aber FW-Berichte, dass nur Euler/Vektoren gedreht werden. Der Pi-Kipp-Test ist der Nachweis; Fallback (Node-Rotation B) designt, **nicht** implementiert |
+| **AXIS_MAP dreht die Quaternion mit?** (Kern-Risiko §6.1) | ✅ **geklärt (IP1.7).** Kipp-Test: Achsen sauber entkoppelt + stabil → Quaternion wird konsistent geliefert (mit Default-AXIS_MAP P1). Montage = **+90°-Z-Verdrehung** (rechte Seite hoch → pitch +24, Nase hoch → roll −15). Ob AXIS_MAP die Quaternion *korrigieren* kann, beweist IP2.1 (anderen Wert setzen → Quaternion muss mitdrehen); sonst greift die Node-Rotation-Contingency |
 | Zero-Offset-Komposition (Reihenfolge/Frame links vs. rechts) | 🟡 **vormerken → IP2.** `q_pub = R(-r0,-p0,0) ⊗ q_sensor` (Links-Mult, world-referenziert) — `test_zero_offset_cancels_mounting_tilt` beweist es numerisch für kleine Winkel; die exakte Frame-Semantik final erst mit echten IP2-Offsets am HW. IP1-Default 0 → Identität, `test_zero_offset_identity` bit-genau |
 | Zero-Offset nicht-kommutativ bei großer Schräge | OK — Montage ist per Definition „flach, 90°-Schritte" → Rest-Schräge klein, Small-Angle-Näherung tragfähig (Tol 5e-3 im Test) |
 | smbus2 lazy-Import (Dev-Tests ohne HW) | OK — Modul-Level nur rclpy/sensor_msgs/std_msgs; `import smbus2` erst in `_init_sensor`. Unit-Tests grün + Fatal-Pfad am Dev live bewiesen (FATAL-Log statt Traceback, exit 0) |
@@ -823,7 +823,22 @@ IP1 (HW-IMU-Treiber):
 | `publish_rate` nur beim Start gelesen (nicht live) | OK — bewusst, konsistent mit foot_contact_publisher; Timer-Periode ist strukturell |
 | Konsument unverändert (Naht gehalten) | OK — `gait_node._on_imu`/`tip_monitor`/`imu_monitor` nur gelesen, nicht angefasst; `/imu/data`-Vertrag (orientation + angular_velocity.x/y) identisch zur Sim |
 
-**Fazit:** keine 🔴. Zwei 🟡 sind **bewusst nach IP1.7/IP2 verlagert** (AXIS_MAP-Quaternion-Nachweis + Zero-Offset-Frame-Semantik brauchen echte HW) — kein Blocker für die Dev-Fertigmeldung. IP1.1–IP1.6 + IP1.8 erfüllt; **IP1.7 (Pi-Kipp-Test) ist der einzige offene Bullet** und läuft am Pi (User).
+#### IP1.7-Ergebnis (Pi-Kipp-Test, 2026-07-05)
+
+Betriebslage (Körper oben, aufgebockt, stromlos), `imu_monitor`-Log, reproduzierbar (2 Durchläufe):
+
+| Position | roll [°] | pitch [°] | reagiert |
+|---|---|---|---|
+| flach | ~2.6 | ~1.2 | (Montage-Offset) |
+| rechte Seite hoch (−Y) | ~2 (konstant) | **+24** | pitch |
+| Nase hoch (+X) | **−15** | ~0 (konstant) | roll |
+
+- **Sensor-Kette 🟢:** CHIP_ID 0xA0, NDOF, 50 Hz, `/imu/data` valide + stabil + achsen-entkoppelt. IMU **normal** montiert (flach ≈ 0, nicht kopfüber).
+- **Montage = +90°-Z-Verdrehung:** `Sensor_roll = +base_pitch`, `Sensor_pitch = −base_roll` (⇒ Sensor-X = base-Y, Sensor-Y = −base-X, Sensor-Z = base-Z; das ist R_z(+90°)).
+- **→ IP2:** AXIS_MAP setzen, der die +90°-Z-Rotation rausdreht (Kandidat `config=0x21 / sign=0x01`, in IP2 am Sensor verifizieren) + Zero-Offset für die ~2° Restschräge — [`stage_6b`](stage_6b_imu_mounting_cal_plan.md).
+- **RViz-Neigung deferiert:** DDS-Discovery über den Handy-Hotspot blockiert (Multicast, wie mDNS). Der Log-Kipp-Test ist **gleichwertig** (imu_monitor rechnet den `world→base_link`-tf aus genau diesen roll/pitch). Nachholen wenn Dev+Pi im Router-Netz (Multicast ok) oder via DDS-Unicast-Config.
+
+**Fazit:** keine 🔴. **IP1.1–IP1.8 alle erfüllt → IP1 vollständig 🟢.** IP1.7 live-verifiziert (Sensor-Kette + Quaternion-Konsistenz), Kern-Risiko §6.1 positiv geklärt (AXIS_MAP-Weg trägt, Node-Rotation nicht nötig). Offen nur die Ausrichtung (Achsen +90°-Z + Zero-Offset) → **IP2**.
 
 ---
 

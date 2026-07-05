@@ -140,6 +140,7 @@ rviz2 -d install/hexapod_description/share/hexapod_description/config/view_hw.rv
 
 | Symptom | Fix |
 |---|---|
+| `real.launch.py`: `No such file … hexapod.imu.xacro` (Option 2) | `hexapod_description` am Pi nach dem Branch-Wechsel nicht neu gebaut → neue URDF-Includes fehlen im `install/`. Fix: `colcon build --symlink-install` (ohne `--packages-select`; hexapod_gazebo bleibt per COLCON_IGNORE aus). **Option 1 (isoliert) braucht kein URDF** und umgeht das. |
 | `/imu/data` fehlt | Node läuft nicht / `import smbus2` scheitert (Schritt 1) / `enable_imu:=false` |
 | `ros2 topic echo` am Dev leer, am Pi da | `ROS_DOMAIN_ID` unterschiedlich / Firewall / nicht selbes Netz |
 | roll/pitch-Achsen vertauscht | AXIS_MAP falsch → IP2 (erwartet, dafür ist der Kipp-Test da) |
