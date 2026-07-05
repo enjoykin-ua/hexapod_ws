@@ -121,11 +121,21 @@ build_imu(quat_raw, gyro_raw, roll0, pitch0, frame, stamp) -> sensor_msgs/Imu:
 ### 2.3 Integration
 
 - Node ins Paket `hexapod_sensors`, Entry-Point in `setup.py`.
-- **`real.launch.py`:** `bno055_imu` + `imu_monitor` im HW-Pfad starten, conditional auf `enable_imu`
-  (der Arg existiert schon im URDF). `imu_monitor` gibt `/imu/monitor` + RViz-Neigung — praktisch für
-  den Kipp-Test.
-- **Dependency:** `smbus2` muss dem ROS-Python-Interpreter am Pi verfügbar sein (pip/rosdep) — Setup im
-  Bringup-Doc (`stage_6_hw_imu_test_commands.md`).
+- **`real.launch.py`:** `bno055_imu` + `imu_monitor` im HW-Pfad starten, conditional auf `enable_imu`.
+  Umgesetzt (präzisiert ggü. Erstentwurf, nach Punkt-3-Review):
+  - **`enable_imu` default `false`** (opt-in) — anders als `sim.launch.py` (dort always-on gz-IMU).
+    Grund: der `bno055_imu` öffnet `/dev/i2c-1` und macht bei fehlendem Sensor/smbus2 einen
+    CHIP_ID-**FATAL**. Default false hält bestehende (IMU-freie) Servo-Bringups unverändert; der
+    IMU-Track wird bewusst mit `enable_imu:=true` dazugeschaltet.
+  - **Reiner Node-Toggle — der Arg wird NICHT an xacro durchgereicht.** `hexapod.imu.xacro` erzeugt
+    `imu_link`/`imu_joint` immer (nur der gz-Sensor-Block ist `use_sim`-geguarded); der URDF-Default
+    `enable_imu=true` lässt den Link also ohnehin im HW-tf-Baum. Würde man den Arg mit Default false
+    durchreichen, verschwände `imu_link` aus der HW-URDF → `frame_id='imu_link'` ungültig. Deshalb
+    steuert `enable_imu` in `real.launch.py` **nur die Node-Starts**, nicht das URDF.
+  - `imu_monitor` gibt `/imu/monitor` + RViz-Neigung — praktisch für den Kipp-Test.
+- **Dependency:** `smbus2` muss dem ROS-Python-Interpreter am Pi verfügbar sein — **Doku-only**
+  (kein rosdep-`exec_depend`, nur Kommentar in `package.xml`), lazy importiert (Dev-Unit-Tests
+  laufen ohne smbus2). Setup im Bringup-Doc (`stage_6_hw_imu_test_commands.md`).
 
 ## 3. Tests-Liste (mit Begründung)
 

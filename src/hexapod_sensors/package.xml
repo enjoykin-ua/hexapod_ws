@@ -18,6 +18,13 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <!-- bno055_imu (Stufe 6/IP1) importiert zur Laufzeit am Pi 'smbus2'. Bewusst
+       KEIN rosdep-exec_depend (kein zuverlaessig aufloesbarer Key auf Ubuntu
+       24.04). Bereitstellung dokumentiert in
+       project_finalization/imu_balance/stage_6_hw_imu_test_commands.md (Schritt 1:
+       apt-Paket python3-smbus2 ODER pip mit break-system-packages). Der Import
+       ist lazy, damit Dev-Unit-Tests ohne smbus2 laufen. -->
+
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

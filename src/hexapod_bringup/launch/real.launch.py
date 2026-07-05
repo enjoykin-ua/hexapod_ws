@@ -125,6 +125,25 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Block A5 Stufe 6 / IP1: HW-IMU-Treiber. Bewusst default FALSE (opt-in) —
+    # anders als sim.launch.py (dort always-on gz-IMU). Grund: der bno055_imu
+    # oeffnet /dev/i2c-1 und macht bei fehlendem Sensor/smbus2 einen CHIP_ID-
+    # FATAL. Default false haelt bestehende (IMU-freie) Servo-Bringups
+    # unveraendert; der IMU-Track wird bewusst mit enable_imu:=true dazugeschaltet.
+    # Reiner Node-Toggle: NICHT an xacro durchgereicht, damit imu_link/imu_joint
+    # (hexapod.imu.xacro: „existieren IMMER, auch auf HW", use_sim-geguardeter
+    # gz-Sensor) im HW-tf-Baum bleiben und frame_id='imu_link' gueltig ist.
+    declare_enable_imu = DeclareLaunchArgument(
+        'enable_imu',
+        default_value='false',
+        description=(
+            'Block A5 Stufe 6: HW-IMU (BNO-055). true: bno055_imu + imu_monitor '
+            'starten (liest I2C 0x28, publisht /imu/data + /imu/calib + '
+            '/imu/monitor). false (default): keine IMU-Nodes (Servo-Bringup '
+            'unveraendert). Der imu_link im URDF bleibt in beiden Faellen.'
+        ),
+    )
+
     # robot_description: xacro wird zur Launch-Zeit evaluiert. use_sim
     # ist fest auf false (= HW-Pfad), die anderen Args reichen die
     # LaunchConfiguration unveraendert an xacro weiter, sodass das
@@ -199,6 +218,26 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # IMU-Nodes (Stufe 6/IP1), conditional auf enable_imu. use_sim_time=False
+    # (HW-Uhr, kein /clock). bno055_imu = Treiber, imu_monitor = /imu/monitor +
+    # world->base_link-tf (RViz-Neigung, praktisch fuer den Kipp-Test IP1.7).
+    bno055_imu = Node(
+        package='hexapod_sensors',
+        executable='bno055_imu',
+        name='bno055_imu',
+        output='screen',
+        parameters=[{'use_sim_time': False}],
+        condition=IfCondition(LaunchConfiguration('enable_imu')),
+    )
+    imu_monitor = Node(
+        package='hexapod_sensors',
+        executable='imu_monitor',
+        name='imu_monitor',
+        output='screen',
+        parameters=[{'use_sim_time': False}],
+        condition=IfCondition(LaunchConfiguration('enable_imu')),
+    )
+
     # Block F5 — shutdown supervisor (safety/lifecycle, real-HW only). Auto-starts
     # with the base bringup so it is always present; the host guard decides whether
     # an OS shutdown actually fires (dev is double-blocked). with_supervisor:=false
@@ -223,10 +262,13 @@ def generate_launch_description() -> LaunchDescription:
         declare_serial_port,
         declare_initial_pose,
         declare_publish_foot_contacts,
+        declare_enable_imu,
         declare_with_supervisor,
         rsp,
         controller_manager,
         spawn_jsb,
         after_jsb_start_leg_controllers,
+        bno055_imu,
+        imu_monitor,
         supervisor,
     ])

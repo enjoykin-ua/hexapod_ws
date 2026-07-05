@@ -786,6 +786,47 @@ HW5v:
 
 ---
 
+## Stufe 6 / IP1 — HW-IMU-Treiber (BNO-055 → `/imu/data`)  🟡 Dev fertig, Pi-Verify offen
+
+> Ein smbus2-ROS-Node am Pi liest die BNO-055 (NDOF) über I2C und publisht
+> `sensor_msgs/Imu` auf `/imu/data` — dasselbe Topic wie die gz-IMU in der Sim, damit
+> der komplette Balance-Konsument (gait_node/tip_monitor/balance_controller/imu_monitor)
+> **unverändert** bleibt. Plan: [`stage_6_hw_imu_plan.md`](stage_6_hw_imu_plan.md),
+> Bringup/Kipp-Test: [`stage_6_hw_imu_test_commands.md`](stage_6_hw_imu_test_commands.md).
+
+```
+IP1 (HW-IMU-Treiber):
+- [x] IP1.1 bno055_imu Node (smbus2 lazy, NDOF-Init, AXIS_MAP in CONFIG vor NDOF, 50 Hz Timer) in hexapod_sensors
+- [x] IP1.2 Reine Konvertierung (s16/parse_quat/parse_gyro/euler_to_quat/quat_mul/build_imu inkl. zero-offset) als testbare Funktionen
+- [x] IP1.3 sensor_msgs/Imu auf /imu/data (best_effort) + /imu/calib (UInt8MultiArray sys/gyr/acc/mag) + I2C-OSError→Tick-Drop (throttled), Fatal-Init sauber
+- [x] IP1.4 Params (i2c_bus/addr, publish_rate, frame_id, axis_map_config/sign, roll/pitch_offset) + Entry-Point setup.py
+- [x] IP1.5 real.launch.py: enable_imu (default FALSE, reiner Node-Toggle, NICHT an xacro) → bno055_imu + imu_monitor; smbus2-Dep Doku-only (package.xml-Kommentar)
+- [x] IP1.6 Unit-Tests (7×: parse/build/offset=0=Identität/offset≠0) + colcon build/test/lint grün (Dev, ohne HW; 9 passed/1 skip)
+- [ ] IP1.7 Deploy Dev→Pi + Pi-Verify: /imu/data ~50 Hz, Kipp-Test (Achsen/Vorzeichen), RViz-Neigung  ← HW, User
+- [x] IP1.8 kritische Self-Review-Tabelle (unten)
+```
+
+#### IP1-Post-Review
+
+| Punkt | Status |
+|---|---|
+| **AXIS_MAP dreht die Quaternion mit?** (Kern-Risiko §6.1) | 🟡 **vormerken → IP1.7.** Datenblatt: Remap betrifft alle Fusions-Ausgaben inkl. Quaternion; es gibt aber FW-Berichte, dass nur Euler/Vektoren gedreht werden. Der Pi-Kipp-Test ist der Nachweis; Fallback (Node-Rotation B) designt, **nicht** implementiert |
+| Zero-Offset-Komposition (Reihenfolge/Frame links vs. rechts) | 🟡 **vormerken → IP2.** `q_pub = R(-r0,-p0,0) ⊗ q_sensor` (Links-Mult, world-referenziert) — `test_zero_offset_cancels_mounting_tilt` beweist es numerisch für kleine Winkel; die exakte Frame-Semantik final erst mit echten IP2-Offsets am HW. IP1-Default 0 → Identität, `test_zero_offset_identity` bit-genau |
+| Zero-Offset nicht-kommutativ bei großer Schräge | OK — Montage ist per Definition „flach, 90°-Schritte" → Rest-Schräge klein, Small-Angle-Näherung tragfähig (Tol 5e-3 im Test) |
+| smbus2 lazy-Import (Dev-Tests ohne HW) | OK — Modul-Level nur rclpy/sensor_msgs/std_msgs; `import smbus2` erst in `_init_sensor`. Unit-Tests grün + Fatal-Pfad am Dev live bewiesen (FATAL-Log statt Traceback, exit 0) |
+| Fatal-Init (kein Sensor / falscher CHIP_ID / smbus2 fehlt) | OK — `RuntimeError` → `main()` fängt, kein Traceback-Spam; `destroy_node` schließt den Bus auch im Fatal-Fall (Bus vor CHIP_ID-Check geöffnet) |
+| Default `enable_imu:=false` in real.launch.py | OK — bewusst opt-in (≠ sim always-on): sonst öffnet **jeder** Servo-Bringup /dev/i2c-1 + FATAL bei fehlendem Sensor. Kritisch geprüft (Punkt-3-Review vor Umsetzung) |
+| `imu_link`-Frame-Gültigkeit auf HW | OK — enable_imu **nicht** an xacro durchgereicht → imu.xacro-Default `true` hält imu_link/imu_joint immer im HW-tf-Baum (frame_id='imu_link' gültig, keine Regression), wie vom xacro-Kommentar beabsichtigt |
+| Blocking I2C im Timer (SingleThreadedExecutor) | 🟢 später — Node hat nur den Timer (keine Subs), 3 Reads @ 50 kHz ~ wenige ms « 20 ms; echtes I2C-Hängen (ohne OSError) würde den Tick verzögern → Watchdog/Thread erst falls in Praxis nötig |
+| `/imu/calib` mit voller 50 Hz | 🟢 später — 4 Bytes/Tick, harmlos; Throttle optional wenn Bus-Last je Thema wird |
+| Kovarianz-Werte (0.01 / 0.001 Diagonale) willkürlich | 🟢 später — Konsument ignoriert sie; echte Werte erst nötig falls ein EKF/robot_localization `/imu/data` konsumiert (aktuell keiner) |
+| `publish_rate` nur beim Start gelesen (nicht live) | OK — bewusst, konsistent mit foot_contact_publisher; Timer-Periode ist strukturell |
+| Konsument unverändert (Naht gehalten) | OK — `gait_node._on_imu`/`tip_monitor`/`imu_monitor` nur gelesen, nicht angefasst; `/imu/data`-Vertrag (orientation + angular_velocity.x/y) identisch zur Sim |
+
+**Fazit:** keine 🔴. Zwei 🟡 sind **bewusst nach IP1.7/IP2 verlagert** (AXIS_MAP-Quaternion-Nachweis + Zero-Offset-Frame-Semantik brauchen echte HW) — kein Blocker für die Dev-Fertigmeldung. IP1.1–IP1.6 + IP1.8 erfüllt; **IP1.7 (Pi-Kipp-Test) ist der einzige offene Bullet** und läuft am Pi (User).
+
+---
+
 ## Stufen 3b–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +
