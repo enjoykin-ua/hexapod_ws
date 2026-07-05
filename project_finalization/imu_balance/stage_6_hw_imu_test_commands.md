@@ -9,8 +9,8 @@
 > erreicht ihn **nicht**. Also: am Dev bauen + Unit-Tests (CI), dann **Code auf den Pi**, dort mit echtem
 > Sensor testen. **Kein Logging auf die Pi-SD-Karte** — Diagnose läuft über DDS zum Dev-Rechner.
 >
-> ⚠️ Dieses Doc ist **vor** der Implementierung skizziert (Test-Contract). Node `bno055_imu` entsteht in
-> IP1; die Befehle greifen nach der Implementierung.
+> ✅ Stand: **IP1.1–IP1.6 am Dev fertig** (Node `bno055_imu` + reine Konvertierung + Unit-Tests grün,
+> CI ohne HW). Dieser Lauf = **IP1.7** (Deploy Dev→Pi + Kipp-Test am echten Sensor).
 
 ## Voraussetzungen
 
@@ -22,13 +22,16 @@
 
 ## Schritt 1 — smbus2 dem ROS-Python am Pi verfügbar machen (einmalig)
 
-Der Node importiert `smbus2` im ROS-Python (nicht im Hello-World-venv). Auf dem Pi:
+Der Node importiert `smbus2` im **System-Python** (dort wohnt ROS2/rclpy) — **nicht** im
+Hello-World-venv `~/bno055_venv`. Beide Varianten installieren **systemweit**; **Variante A ist die
+bevorzugte** (paketverwaltet, sauber, keine PEP-668-Umgehung), Variante B nur der Fallback, falls das
+apt-Paket fehlt:
 
 ```bash
 ssh hexapod-pi
-# Variante A (rosdep/apt, falls Paket vorhanden):
+# Variante A (BEVORZUGT — apt, paketverwaltet, sauber):
 sudo apt update && sudo apt install -y python3-smbus2 || \
-# Variante B (pip system-wide, Ubuntu 24.04):
+# Variante B (Fallback — pip system-wide, umgeht PEP 668 auf Ubuntu 24.04):
   pip install --break-system-packages smbus2
 python3 -c "import smbus2; print('smbus2 ok', smbus2.__name__)"
 ```
@@ -38,14 +41,29 @@ python3 -c "import smbus2; print('smbus2 ok', smbus2.__name__)"
 
 ## Schritt 2 — Code Dev → Pi bringen
 
-```bash
-# Am DEV (du): committen + pushen
-cd ~/hexapod_ws
-git add src/hexapod_sensors src/hexapod_bringup ; git commit -m "..." ; git push   # DU
+> ⚠️ **Branch-Diskrepanz:** Der Pi kann auf einem anderen Branch stehen (z. B. `leg_changes`), der
+> IP1-Code liegt auf `imu_balance`. Daher am Pi gezielt auf den Dev-Branch wechseln und **hart** auf
+> den origin-Stand setzen. `git reset --hard`/`checkout` lassen **untracked** Dateien unangetastet →
+> `src/hexapod_gazebo/COLCON_IGNORE` (schließt Gazebo vom Pi-Build aus) bleibt erhalten. **`git clean`
+> NICHT ausführen** (würde COLCON_IGNORE löschen).
 
-# Am PI: pullen + bauen (nur die betroffenen Pakete)
+```bash
+# Am DEV (du): IP1-Code + Docs committen + pushen (falls noch nicht geschehen)
+cd ~/hexapod_ws
+git add .
+git commit -m "imu balance stage 6 IP1: bno055_imu HW-IMU-Treiber"
+git push                                                                             # DU
+
+# Am PI: auf den Dev-Branch wechseln + hart auf origin setzen (überschreibt lokal)
 ssh hexapod-pi
-cd ~/hexapod_ws && git pull                                                          # DU
+cd ~/hexapod_ws
+git fetch origin
+git checkout -B imu_balance origin/imu_balance    # Branch anlegen/wechseln, auf origin-Stand
+git reset --hard origin/imu_balance               # sicherheitshalber hart überschreiben
+git status                                         # -> up to date; nur COLCON_IGNORE untracked
+
+# bauen — NUR die betroffenen Pakete; hexapod_gazebo ist per COLCON_IGNORE ausgeschlossen,
+# es wird KEIN Gazebo/RViz gebaut oder gestartet (RViz läuft später am Dev, Schritt 5).
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select hexapod_sensors hexapod_bringup
 ```
@@ -55,18 +73,31 @@ colcon build --symlink-install --packages-select hexapod_sensors hexapod_bringup
 
 ## Schritt 3 — Node am Pi starten
 
-**Terminal A (Pi) — voller HW-Bringup mit IMU:**
+> **Kein Servo-Strom nötig:** die BNO-055 hängt am Qwiic/I2C (Pi-3V3), unabhängig vom Servo-Rail.
+> Beide Varianten unten schalten das **Relay NICHT** (kein Inrush/Brownout am aktuellen Netzteil):
+> Option 1 lädt das `hexapod_hardware`-Plugin gar nicht, Option 2 läuft im `loopback_mode`
+> (`send_frame` = No-Op → RELAY_CONTROL wird nie gesendet).
+
+**Option 1 (empfohlen) — IMU isoliert**, ohne controller_manager/Servos. Zwei Pi-Terminals:
 ```bash
+# Terminal A (Pi):
 ssh hexapod-pi
 source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
-ros2 launch hexapod_bringup real.launch.py loopback_mode:=false enable_imu:=true
-```
+ros2 run hexapod_sensors bno055_imu
+# Erwartung: "BNO-055 NDOF aktiv ... Cal beim Start ..." + "bno055_imu aktiv ... @ 50 Hz"
 
-Oder nur die IMU isoliert (ohne Servos/Controller):
-```bash
-ros2 run hexapod_sensors bno055_imu &
+# Terminal B (Pi):
+ssh hexapod-pi
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
 ros2 run hexapod_sensors imu_monitor
 ```
+
+**Option 2 — voller Stack für die RViz-Neigung**, aber **`loopback_mode:=true`** (kein Relay/Servo-Power):
+```bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true enable_imu:=true
+```
+> ⚠️ **NICHT** `loopback_mode:=false` für den IMU-Test — das würde die on_activate-Relay-Sequenz
+> feuern (Servo-Power an → Inrush → Brownout mit dem aktuellen Netzteil). Der IMU-Test braucht keine Servos.
 
 ## Schritt 4 — Verifikation (Sensor-Kette lebt)
 
