@@ -63,6 +63,12 @@ Wir wollen Ausgabe = `base_link`. Aus dem Befund (`Sensor-X = base-Y`, `Sensor-Y
 > verwechselt). Deshalb: **Kandidat setzen, dann am Sensor per Kipp-Test verifizieren** — nicht blind
 > festschreiben. Bei Fehlschlag die logisch nächste Variante testen (z. B. Sign-Bits X↔Y tauschen, oder
 > Config 0x21 vs. die gespiegelte Placement-Tabellen-Alternative).
+>
+> **✅ Ergebnis (IP2.1):** genau das war nötig — der hergeleitete Sign `0x01` gab einen **180°-roll-Flip**.
+> Empirisch aus den 4 config-`0x21`-Placement-Signs (`0x01`/`0x02`/`0x04`/`0x07`) war **`0x04`** korrekt
+> (flach ~0 + REP-103-Vorzeichen; `0x01`/`0x07` → 180°-Flip, `0x02` → invertierte Vorzeichen). **Finaler
+> Wert: `config=0x21 / sign=0x04`** (BNO-Placement P0). Bestätigt: die Sign-Semantik ist nicht sicher
+> vorhersagbar → empirisch bestimmen ist der richtige Weg.
 
 ### 2.2 AXIS_MAP setzen + verifizieren (IP2.1)
 

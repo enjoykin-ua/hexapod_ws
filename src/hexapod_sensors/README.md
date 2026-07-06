@@ -26,7 +26,7 @@ Macht die IMU-Lage sichtbar/debugbar (`/imu/data` → roll/pitch).
 - **Parameter:** `parent_frame` (`world`), `child_frame` (`base_link`),
   `viz_height` (0.15 m), `log_period_sec` (0.5)
 
-### `bno055_imu` (Block A5 Stufe 6 / IP1) — **HW-Treiber**
+### `bno055_imu` (Block A5 Stufe 6 / IP1+IP2) — **HW-Treiber**
 
 Liest die **BNO-055** (Bosch 9-DOF, On-Chip-Fusion) am Pi über I2C (smbus2, NDOF)
 und erzeugt **dasselbe `/imu/data`, das in der Sim die gz-IMU liefert**. Damit bleibt
@@ -40,8 +40,12 @@ auf HW unverändert.
   - `/imu/data` (`sensor_msgs/Imu`, **best_effort**) — `orientation` + `angular_velocity`
   - `/imu/calib` (`std_msgs/UInt8MultiArray`: `[sys, gyr, acc, mag]`, je 0–3)
 - **Parameter:** `i2c_bus` (1), `i2c_addr` (0x28), `frame_id` (`imu_link`),
-  `publish_rate` (50 Hz), `axis_map_config` (0x24) / `axis_map_sign` (0x00) — BNO-
-  Achsen-Remap; `roll_offset` / `pitch_offset` (rad, Montage-Restschräge, Default 0).
+  `publish_rate` (50 Hz), `axis_map_config` / `axis_map_sign` (BNO-Achsen-Remap),
+  `roll_offset` / `pitch_offset` (rad, Montage-Restschräge). Die **kalibrierten Werte**
+  liegen in [`config/imu_calibration.yaml`](config/imu_calibration.yaml) (IP2, HW-verifiziert):
+  `axis_map_config=0x21`, `axis_map_sign=0x04`, `roll_offset=-0.0384`, `pitch_offset=0.0576`.
+  Die Node-Defaults (`0x24`/`0x00`/`0`/`0`) = „keine Kalibrierung" und greifen nur **ohne**
+  YAML — daher beim isolierten Start `--ros-args --params-file …/imu_calibration.yaml` nötig.
 - **Reine Konvertierung** (`s16`/`parse_quat`/`parse_gyro`/`build_imu`) ist ROS-/I2C-frei
   und unit-getestet (`test/test_bno055_imu.py`) — läuft in CI am Dev **ohne** Sensor.
 - **Robustheit:** I2C-`OSError` (Clock-Stretching) → Tick droppen + throttled WARN,
@@ -106,13 +110,27 @@ BNO-055 (I2C 0x28, NDOF-Fusion)
   dem Pi via `i2c_arm_baudrate=50000` entschärft. Ein trotzdem auftretender `OSError`
   darf **nicht** crashen → Tick droppen. Echte Ausfälle fängt der `/imu/data`-Live-Guard
   im gait_node (Features aus statt Garbage).
-- **BNO-AXIS_MAP:** Achsen-Remap **im Chip** (Register `0x41/0x42`, nur im CONFIG-Modus
-  schreibbar) richtet die Fusions-Ausgabe auf `base_link` (REP-103) aus — für orthogonale
-  90°-Montage. **Verifikations-Risiko (IP1.7):** ob der Remap auch die *Quaternion* dreht
-  (nicht nur Euler/Vektoren) ist per Kipp-Test zu bestätigen; Fallback = Node-Rotation.
-- **Zero-Offset:** kleine Montage-Restschräge wird **upstream** im Node herausgedreht
-  (feste Korrektur-Quaternion), weil der Konsument kein Offset/Zeroing hat. Default 0
-  (Identität); der gemessene Wert kommt in IP2.
+- **BNO-AXIS_MAP (IP2 = `0x21`/`0x04`):** Achsen-Remap **im Chip** (Register `0x41`/`0x42`,
+  nur im CONFIG-Modus schreibbar) richtet **alle** Fusions-Ausgaben (Quaternion **und** Gyro)
+  auf `base_link` aus — für die orthogonale 90°-Einbaulage.
+  - **`AXIS_MAP_CONFIG` (Permutation):** drei 2-Bit-Felder, je „welche Chip-Achse → Ausgabe-X/Y/Z"
+    (`00=X, 01=Y, 10=Z`). `0x24` = Identität; **`0x21`** = X↔Y getauscht (Z bleibt) → korrigiert
+    die 90°-Z-Einbauverdrehung dieses Sensors (im Kipp-Test: rechte Seite hoch → *roll* statt *pitch*).
+  - **`AXIS_MAP_SIGN` (Vorzeichen):** drei Bits (Z Y X), `1=negativ`. Ein reiner X↔Y-Swap spiegelt
+    das System (linkshändig) → genau **eine** Achse muss invertiert werden, damit es rechtshändig +
+    richtig orientiert ist. Empirisch die 4 config-`0x21`-Placement-Signs durchgetestet: **`0x04`**
+    (Z neg) gibt flach 0 + REP-103-Vorzeichen (rechte Seite hoch → roll neg, Nase hoch → pitch neg).
+  - **Verifiziert (IP1.7/IP2.1):** der Remap dreht die **Quaternion** mit → die Node-Rotation-
+    Contingency war **nicht** nötig; yaw-unabhängig (Chip-intern).
+- **Zero-Offset (IP2, yaw-unabhängig):** die feine Montage-Restschräge (~4°, Sensor gegen `base_link`
+  verkippt) wird im Node (`build_imu`) herausgedreht, weil der Konsument kein Zeroing hat.
+  **Body- vs. World-Frame ist hier kritisch:** die Korrektur-Quaternion wird **rechts** komponiert
+  (`q_pub = q_sensor ⊗ q_corr`), damit sie im **Roboter-Frame** wirkt und **yaw-unabhängig** ist.
+  Eine Links-/World-Komposition wäre yaw-abhängig — bei realem mag-yaw verteilt sie die Korrektur
+  falsch auf roll/pitch (IP2-Befund: pitch 3.3→6.5° bei yaw −112°). `roll_offset`/`pitch_offset` =
+  die bei ebener Basis gemessenen Flach-Winkel (rad); Regressionstest
+  `test_zero_offset_cancels_mounting_tilt_any_yaw` prüft 6 yaw. **Lehre:** Frame-/Rotations-
+  Korrekturen immer mit `yaw≠0` unit-testen — der alte `yaw=0`-only-Test fing den Bug nicht.
 - **`enable_imu` default false auf HW** (≠ Sim always-on): Der Treiber öffnet echte
   Hardware und würde bei fehlendem Sensor jeden Servo-Bringup mit FATAL stören → bewusst
   opt-in. Der `imu_link` bleibt trotzdem immer im URDF (Toggle steuert nur die Nodes).
@@ -125,8 +143,11 @@ ros2 launch hexapod_bringup sim.launch.py enable_imu:=true
 ros2 topic echo /imu/monitor
 rviz2 -d "$(ros2 pkg prefix hexapod_description)/share/hexapod_description/config/view.rviz"
 
-# HW (Pi) — Details: project_finalization/imu_balance/stage_6_hw_imu_test_commands.md
-ros2 launch hexapod_bringup real.launch.py loopback_mode:=false enable_imu:=true
+# HW (Pi) — isolierter IMU-Test, kein Servo-Strom/Relay. Details: stage_6_hw_imu_test_commands.md
+ros2 run hexapod_sensors bno055_imu --ros-args \
+  --params-file "$(ros2 pkg prefix hexapod_sensors)/share/hexapod_sensors/config/imu_calibration.yaml"
 ros2 topic hz /imu/data      # ~50 Hz
 ros2 topic echo /imu/calib   # [sys, gyr, acc, mag]
+# voller HW-Bringup mit IMU (loopback_mode:=true = ohne Servo-Power/Relay):
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=true enable_imu:=true
 ```
