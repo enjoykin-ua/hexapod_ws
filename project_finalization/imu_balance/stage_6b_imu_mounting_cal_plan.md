@@ -1,7 +1,9 @@
 # Stufe 6 / IP2 — IMU-Montage-Kalibrierung (AXIS_MAP + Zero-Offset)
 
-> **Status: 🟡 Plan finalisiert (Design-Entscheidungen §5/§6 mit User geklärt) — Umsetzungs-Freigabe offen.**
-> Voraussetzung erfüllt: **IP1 🟢** (Node liefert `/imu/data`,
+> **Status: 🟢 abgeschlossen** — IP2.1–IP2.4 HW-verifiziert (AXIS_MAP `0x21`/`0x04` + yaw-unabhängiger
+> Zero-Offset). Ergebnis, Design-Log (yaw-Bug + Fix) und Self-Review im
+> [Progress-File](imu_balance_progress.md) (Stufe 6 / IP2).
+> Voraussetzung war: **IP1 🟢** (Node liefert `/imu/data`,
 > `axis_map_config`/`axis_map_sign` + `roll_offset`/`pitch_offset` als Params vorhanden). **Power-frei** —
 > Roboter von Hand kippen / flach hinstellen, kein Servo-Strom.
 >
@@ -118,10 +120,10 @@ Gegenprobe: mit Offset flach hinstellen -> roll/pitch ~0.
 
 ```
 IP2 (IMU-Montage-Kalibrierung):
-- [ ] IP2.1 AXIS_MAP-Kandidat (config=0x21/sign=0x01) setzen + Kipp-Test: roll/pitch folgen der physischen Achse, Vorzeichen final gegen Sim-Konvention  ← HW
-- [ ] IP2.2 Zero-Offset messen (flach) → roll0/pitch0 entscheiden (< ~1° = 0 lassen), Gegenprobe roll/pitch ≈ 0  ← HW
-- [ ] IP2.3 Werte in hexapod_sensors/config/imu_calibration.yaml festschreiben + in real.launch.py laden (parameters) + setup.py data_files + Doku-Eintrag (Werte + Datum)
-- [ ] IP2.4 kritische Self-Review-Tabelle
+- [x] IP2.1 AXIS_MAP config=0x21 / sign=0x04 (BNO-Placement P0, empirisch aus 4 Signs) — Kipp-Test: rechte Seite hoch → roll neg, Nase hoch → pitch neg (REP-103 = Sim)
+- [x] IP2.2 Zero-Offset roll -2.2°/pitch 3.3° (-0.0384/0.0576 rad); ⚠️ World-frame-Erst-Ansatz war yaw-abhängig (pitch 3.3→6.5) → Fix: Body-frame-Komposition (rechts), yaw-unabhängig (Sim + yaw-Sweep-Test + HW)
+- [x] IP2.3 Werte in imu_calibration.yaml + real.launch.py (parameters) + setup.py data_files
+- [x] IP2.4 kritische Self-Review-Tabelle (im Progress-File)
 ```
 
 ## 5. Design-Entscheidungen (mit Alternativen)

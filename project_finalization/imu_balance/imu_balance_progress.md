@@ -842,6 +842,52 @@ Betriebslage (Körper oben, aufgebockt, stromlos), `imu_monitor`-Log, reproduzie
 
 ---
 
+## Stufe 6 / IP2 — IMU-Montage-Kalibrierung (AXIS_MAP + Zero-Offset)  🟢 abgeschlossen
+
+> Fixe Ausrichtung Chip → base_link, festgeschrieben in
+> [`hexapod_sensors/config/imu_calibration.yaml`](../../src/hexapod_sensors/config/imu_calibration.yaml).
+> Plan: [`stage_6b_imu_mounting_cal_plan.md`](stage_6b_imu_mounting_cal_plan.md).
+
+```
+IP2 (IMU-Montage-Kalibrierung):
+- [x] IP2.1 AXIS_MAP config=0x21 / sign=0x04 (BNO-Placement P0) — Kipp-Test: rechte Seite hoch → roll neg, Nase hoch → pitch neg (REP-103 = Sim). Verifiziert
+- [x] IP2.2 Zero-Offset roll -2.2°/pitch 3.3° (rad -0.0384/0.0576), Body-frame (yaw-unabhängig) herausgedreht; flach → ~0/0, bei yaw-Drehung stabil
+- [x] IP2.3 Werte in imu_calibration.yaml + real.launch.py (parameters) + setup.py data_files
+- [x] IP2.4 kritische Self-Review-Tabelle (unten)
+```
+
+#### IP2-Ergebnis + Design (yaw-unabhängiger Offset)
+
+- **AXIS_MAP `config=0x21 / sign=0x04`:** korrigiert die +90°-Z-Montage-Verdrehung **im Chip**
+  (yaw-unabhängig). Systematisch aus den 4 config-0x21-Placement-Signs ermittelt: 0x01/0x07 → 180°-Flip;
+  0x02 → richtige Achsen, aber invertierte Vorzeichen; **0x04 → flach ~0 + REP-103-Vorzeichen** (rechte
+  Seite hoch → roll neg, Nase hoch → pitch neg = wie die Sim).
+- **Zero-Offset — Bug + Fix (der IP1-🟡):** Erst-Ansatz World-frame (`q_corr ⊗ q_sensor`, links)
+  verschlimmerte pitch bei realem mag-yaw (3.3° → **6.5°** bei yaw −112°). Wurzel: die Montage-Schräge
+  ist **body-fix**, wurde aber **world-frame** korrigiert → yaw-abhängige Fehlverteilung auf roll/pitch.
+  **Fix: Rechts-Komposition** `q_pub = q_sensor ⊗ q_corr` (Body-Frame) → yaw-unabhängig. Vorab per
+  Sim reproduziert (LINKS bei yaw −112 = HW-Bug exakt 6.57°) + Regressionstest
+  `test_zero_offset_cancels_mounting_tilt_any_yaw` (6 yaw). **HW-verifiziert:** flach ~0/0, bei
+  Umpositionieren/Drehen stabil.
+
+#### IP2-Post-Review
+
+| Punkt | Status |
+|---|---|
+| Zero-Offset yaw-Abhängigkeit (IP1-🟡) | ✅ **aufgelöst** — Body-frame-Komposition (rechts), per Sim + yaw-Sweep-Unit-Test + HW bestätigt. Der alte yaw=0-only-Test hätte den Bug nie gefangen (Lehre: Frame-Sachen mit yaw≠0 testen) |
+| AXIS_MAP-Semantik (fehleranfällig) | OK — nicht theoretisch, sondern **empirisch** gelöst (4 Placement-Signs am Sensor durchgetestet); 0x04 eindeutig |
+| Ablage `imu_calibration.yaml` | OK — greift bei `real.launch.py` (`parameters`) **und** isoliert (`ros2 run --ros-args --params-file`); YAML in setup.py `data_files` |
+| `--ros-args` bei `ros2 run` | OK — ohne wird `--params-file` **still ignoriert** (Node nimmt Defaults 0x24); im Test-Doc als Warnhinweis dokumentiert |
+| Offset-Werte yaw-abhängig gemessen? | OK — body-fix via ZYX-yaw-Entkopplung; bei dieser Montage = direkt die Flach-Winkel. Andere Montage: Sim-Helper (scratchpad `offset_sim.py`) |
+| Konsument unverändert | OK — `/imu/data` = base_link-korrekte, yaw-stabile Neigung; gait_node/tip_monitor/balance_controller/imu_monitor unangetastet |
+| RViz-Gegenprobe (DDS über Hotspot) | 🟢 später — Log-Kipp-Test gleichwertig; RViz nachholen im Router-Netz (Multicast) oder via DDS-Unicast-Config |
+
+**Fazit:** keine 🔴. IP2.1–IP2.4 erfüllt → **IP2 vollständig 🟢**; der IP1-🟡 (Zero-Offset-Frame-Semantik) ist aufgelöst.
+
+**→ Block A5 Stufe 6 (HW-IMU) komplett 🟢:** `/imu/data` am Pi = echte, **base_link-korrekte, yaw-stabile** Neigung. Die komplette sim-verifizierte Balance-Pipeline (Kipp-Erkennung / Leveling / Terrain-Following) hat damit ihren HW-Input, Konsument unverändert. Nächster Schritt (später, braucht Servo-Power → Phase 8): **IP3** Gain-Retuning ([`stage_6c`](stage_6c_imu_hw_balance_tuning_plan.md)).
+
+---
+
 ## Stufen 3b–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +
