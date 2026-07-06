@@ -12,12 +12,14 @@
 #   config 0x21 ordnet die Achsen korrekt zu; von den 4 config-0x21-Placement-Signs
 #   liefert 0x04 (P0) flach ~0/0 UND die richtigen REP-103-Vorzeichen (rechte Seite
 #   hoch -> roll negativ, Nase hoch -> pitch negativ = wie die Sim). VERIFIZIERT.
-# roll_offset / pitch_offset (rad): feine Montage-Restschraege, IP2.2 gemessen
-#   (ebener Boden, sign 0x04): flach roll -2.0 Grad / pitch 3.3 Grad -> als Offset
-#   herausgedreht, damit flach -> 0/0. Beide ueber dem Leveling-Totband (1.5 Grad).
+# roll_offset / pitch_offset (rad): feine Montage-Restschraege, bei ebenem Boden
+#   gemessen (sign 0x04): flach roll -2.2 / pitch 3.3 Grad. build_imu dreht sie
+#   Body-frame (rechts) heraus -> yaw-unabhaengig (per Sim + Unit-Test bestaetigt,
+#   test_zero_offset_cancels_mounting_tilt_any_yaw). Bei ZYX-Konvention = direkt die
+#   gemessenen Flach-Winkel in rad.
 /**:
   ros__parameters:
     axis_map_config: 33    # 0x21  (Default P1 = 0x24 = 36)
     axis_map_sign: 4       # 0x04  (BNO-Placement P0; IP2.1 verifiziert)
-    roll_offset: -0.0349   # -2.0 Grad (IP2.2 gemessen)
+    roll_offset: -0.0384   # -2.2 Grad (IP2.2 gemessen)
     pitch_offset: 0.0576   # 3.3 Grad (IP2.2 gemessen)

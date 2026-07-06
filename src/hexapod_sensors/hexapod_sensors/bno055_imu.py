@@ -107,12 +107,15 @@ def build_imu(quat_raw, gyro_raw, roll_offset, pitch_offset, frame_id, stamp):
     """
     Roh-Bytes + Zero-Offset -> ``sensor_msgs/Imu`` (Fuellen der genutzten Felder).
 
-    Der Zero-Offset dreht eine kleine Montage-Restschraege heraus, sodass eine
-    physisch ebene Basis roll/pitch = 0 meldet: eine feste Korrektur-Quaternion
-    ``q_corr = R(-roll_offset, -pitch_offset, 0)`` wird **vor** die (bereits
-    AXIS_MAP-ausgerichtete) Sensor-Quaternion komponiert. Bei
-    ``roll_offset = pitch_offset = 0`` ist ``q_corr`` die Identitaet -> die
-    Quaternion wird unveraendert publiziert.
+    Der Zero-Offset dreht die feste Montage-Restschraege (Sensor gegen base_link
+    verkippt) heraus, sodass eine physisch ebene Basis roll/pitch = 0 meldet. Die
+    Korrektur-Quaternion ``q_corr = R(-roll_offset, -pitch_offset, 0)`` wird
+    **rechts** (im Body-Frame) an die Sensor-Quaternion gehaengt
+    (``q_pub = q_sensor (x) q_corr``) — dadurch ist die Korrektur **yaw-unabhaengig**.
+    Eine Links-/World-frame-Komposition wuerde bei nicht-null mag-yaw die roll/pitch-
+    Korrektur falsch verteilen (HW-Befund IP2: pitch 3.3 -> 6.5 bei yaw -112 Grad).
+    ``roll_offset``/``pitch_offset`` sind die bei ebener Basis gemessenen roll/pitch
+    (ZYX -> yaw entkoppelt). Bei ``0/0`` ist ``q_corr`` die Identitaet -> unveraendert.
 
     ``linear_acceleration`` bleibt leer mit Kovarianz ``[0] = -1`` (ROS-Konvention
     „nicht geliefert"), da der Konsument sie nicht nutzt.
@@ -120,7 +123,8 @@ def build_imu(quat_raw, gyro_raw, roll_offset, pitch_offset, frame_id, stamp):
     x, y, z, w = parse_quat(quat_raw)
     if roll_offset != 0.0 or pitch_offset != 0.0:
         q_corr = euler_to_quat(-roll_offset, -pitch_offset, 0.0)
-        x, y, z, w = quat_mul(q_corr, (x, y, z, w))
+        # RECHTS komponieren (Body-Frame) -> yaw-unabhaengig (s. Docstring).
+        x, y, z, w = quat_mul((x, y, z, w), q_corr)
 
     gx, gy, gz = parse_gyro(gyro_raw)
 

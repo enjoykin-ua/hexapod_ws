@@ -109,16 +109,24 @@ def test_zero_offset_identity():
     assert msg.orientation.w == ref_w
 
 
-def test_zero_offset_cancels_mounting_tilt():
-    """Flache Basis meldet Restschraege (r0,p0); Offset dreht sie auf ~0."""
-    r0, p0 = 0.05, -0.03
-    x, y, z, w = euler_to_quat(r0, p0, 0.0)   # was der Sensor bei „flach" liefert
-    quat = _quat_to_raw(x, y, z, w)
-    gyro = _le_bytes(0) + _le_bytes(0) + _le_bytes(0)
-    msg = build_imu(quat, gyro, r0, p0, 'imu_link', Time())
+def test_zero_offset_cancels_mounting_tilt_any_yaw():
+    """
+    Body-frame-Offset dreht die Montage-Restschraege bei JEDEM yaw auf ~0.
 
-    roll, pitch = _quat_to_roll_pitch(
-        msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w,
-    )
-    assert abs(roll) < 5e-3
-    assert abs(pitch) < 5e-3
+    Regressionstest fuer den IP2-Bug: eine World-frame-/Links-Komposition wuerde
+    bei yaw != 0 die pitch verschlimmern (HW-Befund: pitch 3.3 -> 6.5 bei
+    yaw -112 Grad). Die Rechts-Komposition in build_imu ist yaw-unabhaengig.
+    """
+    r0, p0 = 0.05, -0.03   # Montage-Restschraege (rad)
+    gyro = _le_bytes(0) + _le_bytes(0) + _le_bytes(0)
+    for yaw in (-3.0, -1.95, -1.0, 0.0, 1.2, 2.7):
+        # ebene Basis (physisch roll=pitch=0), Sensor meldet r0/p0 bei diesem yaw
+        x, y, z, w = euler_to_quat(r0, p0, yaw)
+        quat = _quat_to_raw(x, y, z, w)
+        msg = build_imu(quat, gyro, r0, p0, 'imu_link', Time())
+        roll, pitch = _quat_to_roll_pitch(
+            msg.orientation.x, msg.orientation.y,
+            msg.orientation.z, msg.orientation.w,
+        )
+        assert abs(roll) < 1e-2, f'yaw={yaw}: roll={roll}'
+        assert abs(pitch) < 1e-2, f'yaw={yaw}: pitch={pitch}'
