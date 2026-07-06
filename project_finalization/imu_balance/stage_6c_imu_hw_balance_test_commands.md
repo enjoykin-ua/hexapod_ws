@@ -1,88 +1,287 @@
-# Stufe 6 / IP3 — Test-Befehle: IMU-Balance-Tuning auf HW (GROB)
+# Stufe 6 / IP3 — Test-Befehle: IMU-Balance-Tuning auf HW
 
-> ⚠️ **Grob-Skizze, vor Umsetzung im nächsten Chat feinjustieren.** Voraussetzung: IP1/IP2 🟢,
-> **2S-LiPo dran, aufgebockt** (CLAUDE.md §9), **DDS Dev↔Pi** funktioniert (Schritt 0). Plan:
-> [`stage_6c_imu_hw_balance_tuning_plan.md`](stage_6c_imu_hw_balance_tuning_plan.md).
-> Die konkreten Gain-Zahlen unten sind **Sim-Startwerte** — am Roboter nachziehen.
+> **Copy-paste-fertig.** Jeder Test enthält **alle** Terminals/Befehle, die er braucht (Source, Bringup,
+> Aufstehen, Teleop, Tuning) — nichts zusammensuchen. Param-Namen + Launch-Args gegen `gait_node`/
+> Launch-Code **verifiziert**. Plan: [`stage_6c_imu_hw_balance_tuning_plan.md`](stage_6c_imu_hw_balance_tuning_plan.md).
+> HW-Gain-Store: [`config/presets/hw_balance.yaml`](../../src/hexapod_gait/config/presets/hw_balance.yaml).
+>
+> **Ablauf:** Du führst aus (auf dem **Pi**, per SSH), meldest knapp zurück (Status + abgelesene Zahlen);
+> ich werte aus und schlage den nächsten Gain-Schritt vor. Git machst du selbst.
 
-## Schritt 0 — DDS Dev↔Pi (Logging/RViz) sicherstellen
+## ⚠️ Safety (CLAUDE.md §9)
+- **2S-LiPo dran, Roboter aufgebockt** (Beine frei), **PSU/Kill-Switch in der Hand** — bei jedem Stall/
+  Ruck/Aufschwingen sofort trennen.
+- **Reihenfolge:** IP3.1 (Kipp-Erkennung, defensiv) **zuerst** — sie ist das Safe-State-Netz für 3.2/3.3.
+- Leveling/TF (3.2/3.3) mit **kleiner Korrektur-Rate** starten (`leveling_slew_max_dps` klein), dann hoch.
+- Kein DDS/Netzwerk-Setup nötig: alle Befehle laufen **lokal auf dem Pi** (SSH-Terminals). RViz am Dev ist
+  optional (nur bei gemeinsamem Router-Netz, s. Anhang).
 
-Über den Handy-Hotspot ist DDS-Multicast blockiert. Einer der beiden Wege:
+---
+
+## Schritt 0 — Einmalig pro Session: Build + PS4-Controller per Bluetooth
+
+**0a — Bauen + sourcen** (nur nötig, wenn `hexapod_gait`/`hw_balance.yaml` geändert wurde):
 ```bash
-# Variante A — Fast-DDS-Unicast (Profildatei liegt am Dev: ~/fastdds_hotspot.xml)
-#   auf BEIDEN (Pi + Dev): IPs in der XML prüfen, dann export vor jedem ros2-Aufruf:
-export FASTRTPS_DEFAULT_PROFILES_FILE=~/fastdds_hotspot.xml
-export ROS_DOMAIN_ID=42                       # auf beiden gleich!
-#   am Dev zusätzlich Firewall für den Pi öffnen:
-sudo ufw allow from 192.168.75.0/24           # (IP-Bereich ggf. anpassen)
-# Test: am Dev `ros2 topic list | grep imu`  -> Pi-Topics sichtbar?
-
-# Variante B — Dev + Pi ins Router-Netz (Multicast geht dort nativ, kein Extra-Setup)
+cd ~/hexapod_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select hexapod_gait hexapod_sensors hexapod_teleop
+source install/setup.bash
 ```
 
-## Schritt 1 — HW-Bringup (Servo-Stack + IMU + Gait)
-
+**0b — PS4-DS4 per Bluetooth verbinden** (bereits gekoppelt/trusted, MAC `D0:27:88:3D:68:9A`):
 ```bash
-# Pi, Terminal A — Servo-Stack + IMU (2S-LiPo dran, aufgebockt!):
-ros2 launch hexapod_bringup real.launch.py loopback_mode:=false enable_imu:=true
-#   -> Controller aktiv + Relay/Servo-Power + bno055_imu (lädt imu_calibration.yaml) + imu_monitor
-
-# Pi, Terminal B — Gait-Node (WICHTIG: use_sim_time:=false, sonst blockt der Timer still):
-ros2 launch hexapod_gait gait.launch.py use_sim_time:=false
-#   -> gait_node mit allen tip_*/leveling_*/slope_*-Params (live per `ros2 param set`)
+# Normalfall: einfach die PS-Taste am Controller druecken -> verbindet automatisch (trusted).
+# Pruefen, dass er da ist:
+ls /dev/input/js*          # js0 sollte existieren
+# Reconnect erzwingen, falls PS-Taste nicht reicht:
+bluetoothctl connect D0:27:88:3D:68:9A
 ```
-> ⚠️ Exakte Launch-Args/Reihenfolge (real vs. gait, Auto-Standup) im nächsten Chat gegen die aktuelle
-> `gait.launch.py`/`ramp_walk.launch.py` verifizieren — hier nur der grobe Aufbau.
+> Neu koppeln (nur falls verloren): `bluetoothctl` → Controller in Pairing-Mode (Share+PS ~5 s bis
+> Lightbar doppelblinkt) → `scan on` → `pair <MAC>` → `trust <MAC>` → `connect <MAC>`. Details:
+> [`../C4_test_commands.md`](../C4_test_commands.md).
 
-## Schritt 2 — IP3.1 Kipp-Erkennung kalibrieren (aufgebockt, defensiv zuerst)
+> **Ohne Controller** geht alles genauso per `ros2 topic pub /cmd_vel …` (in jedem Test als Alternative
+> angegeben).
+
+---
+
+## IP3.1 — Kipp-Erkennung kalibrieren (aufgebockt, defensiv zuerst)
+
+**Ziel:** fehlalarmfrei in Ruhe + langsamem Gang, aber CRIT/Freeze rechtzeitig bei echtem Kippen.
 
 ```bash
-# Baseline: Rausch-Niveau im Stand beobachten (Dev):
-ros2 topic echo /imu/monitor        # roll/pitch-Ruhe-Rauschen ansehen
-# Schwellen live justieren (Dev oder Pi):
-ros2 param set /gait_node tip_angle_warn_deg  <X>
-ros2 param set /gait_node tip_angle_crit_deg  <Y>
-ros2 param set /gait_node tip_rate_crit_dps   <Z>
-ros2 param set /gait_node tip_debounce_ticks  <N>
+# ── Terminal 1 (Pi): Servo-Stack + IMU (2S-LiPo dran, aufgebockt, Kill-Switch bereit!) ──
+cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py \
+    loopback_mode:=false \
+    enable_imu:=true \
+    initial_pose:=power_on_mid
+#   -> Controller aktiv + Relay/Servo-Power + bno055_imu + imu_monitor. Laeuft weiter.
 ```
-**Prüfen:** Ruhe + langsamer Gang → **kein** WARN/CRIT (fehlalarmfrei). Von Hand kippen (aufgebockt) →
-CRIT + Freeze **rechtzeitig**. Werte notieren.
-
-## Schritt 3 — IP3.2 Statisches Leveling (STANDING)
-
 ```bash
-ros2 param set /gait_node leveling_mode    horizontal
-ros2 param set /gait_node leveling_kd      <klein starten, z.B. 0.01>   # Sim-Default 0.03
-ros2 param set /gait_node deadband_deg     1.5
-ros2 param set /gait_node slew_max_dps     <klein>                       # Korrektur-Rate begrenzen
-ros2 param set /gait_node leveling_enable  true
+# ── Terminal 2 (Pi): Gait-Node + AUTOMATISCHES Aufstehen (kartesisch, ~8 s) ──
+cd ~/hexapod_ws && source install/setup.bash
+HEX_URDF="$(ros2 pkg prefix --share hexapod_description)/urdf/hexapod.urdf.xacro"
+ros2 launch hexapod_gait gait.launch.py \
+    use_sim_time:=false \
+    robot_description_file:="$HEX_URDF"
+#   Der gait_node steht beim Start AUTOMATISCH kartesisch auf (~8 s) — das sind die
+#   Node-Defaults (standup_mode=cartesian, auto_standup_duration=8.0), keine Launch-Args.
+#   -> Roboter steht automatisch auf (aufgebockt: Beine strecken/beugen in der Luft),
+#      danach STANDING. robot_description_file => URDF-Limits aktiv (Pflicht fuer Leveling-Clamp).
 ```
-**Prüfen:** im Stand → **kein Zittern/Oszillieren**. Leicht kippen / schiefe Unterlage → Körper
-**levelt zurück**. `Kd` schrittweise hoch, bis knapp vor Oszillation, dann zurück. HW-Werte notieren.
-
-## Schritt 4 — IP3.3 Terrain-Following im Laufen (höchstes Risiko, langsam!)
-
 ```bash
-ros2 param set /gait_node leveling_mode  terrain     # roll->0, pitch folgt Hang + Gyro-D
-# dann langsam geradeaus laufen (Teleop/cmd_vel), erst flach:
+# ── Terminal 3 (Pi): Baseline-Rauschen im Stand beobachten ──
+cd ~/hexapod_ws && source install/setup.bash
+ros2 topic echo /imu/monitor
+#   Vector3: x=roll, y=pitch, z=yaw in RADIANT (Grad = rad*57.3). Alternativ die roll/pitch-
+#   Grad-Zeilen im imu_monitor-Log (Terminal 1) ablesen. Ziel: Peak-|roll|/|pitch| im Ruhe-
+#   Stand notieren (= Rausch-Baseline in Grad).
 ```
-**Prüfen:** flach geradeaus → Gyro-D dämpft das Gang-Wackeln, **kein Aufschwingen**. Dann leichter Hang
-→ Körper **folgt** statt zu kämpfen. Grenz-Hang + Gyro-D-Wert notieren. **Kill-Switch bereit.**
+```bash
+# ── Terminal 4 (Pi): Schwellen live justieren (Namen EXAKT so) ──
+cd ~/hexapod_ws && source install/setup.bash
+ros2 param set /gait_node tip_angle_warn_deg  <X>   # Sim 15 ; > (Baseline-Rausch + Gang-Ripple + Marge)
+ros2 param set /gait_node tip_angle_crit_deg  <Y>   # Sim 25 ; > warn, aber rechtzeitig vor echtem Kippen
+ros2 param set /gait_node tip_rate_crit_dps   <Z>   # Sim 80 ; Kipprate-Schwelle gg. schnelles Wegkippen
+ros2 param set /gait_node tip_debounce_ticks  <N>   # Sim 5  ; hoeher = mehr Ripple-Unterdrueckung, traeger
+```
 
-## Schritt 5 — Logging + RViz am Dev
+**Prüfen:**
+- **IP3.1a fehlalarmfrei:** Ruhe **und** langsamer Gang → **kein** WARN/CRIT im gait_node-Log (Terminal 2).
+  Gang starten — PS4 (linker Stick leicht nach vorn) **oder** ohne Controller:
+  ```bash
+  # Terminal 3 (statt echo) — langsamer Gang, aufgebockt:
+  ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.03}}'
+  # stoppen: Strg+C, dann einmal Null senden:
+  ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{}'
+  ```
+- **IP3.1b CRIT feuert:** aufgebockt von Hand kippen → gait_node loggt `Kipp-CRIT … Safety-Freeze`
+  **rechtzeitig** (vor dem Umschlagpunkt).
+- Werte notieren → `hw_balance.yaml` (tip_*-Block).
+```bash
+# Recovery nach CRIT-Freeze (Latch loesen): hinsetzen + wieder aufstehen
+ros2 service call /hexapod_sit_down std_srvs/srv/Trigger '{}'
+ros2 service call /hexapod_stand_up std_srvs/srv/Trigger '{}'
+```
+```bash
+# Shutdown (am Ende jedes Tests): Terminal 2 Strg+C (gait), dann Terminal 1 Strg+C (real).
+```
+
+---
+
+## IP3.2 — Statisches Leveling im Stand (`horizontal`)
+
+**Ziel:** kein Zittern/Oszillieren; Körper levelt nach leichtem Kippen zurück.
 
 ```bash
-# gleiche ROS_DOMAIN_ID + DDS (Schritt 0):
-ros2 topic echo /imu/monitor                        # live roll/pitch
-ros2 bag record /imu/data /imu/monitor /imu/slope   # Bag liegt am DEV (nicht Pi-SD)
-rviz2 -d install/hexapod_description/share/hexapod_description/config/view_hw.rviz
-#   -> Modell neigt sich mit der echten Lage; Leveln sichtbar
+# ── Terminal 1 (Pi): Servo-Stack + IMU ──
+cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py \
+    loopback_mode:=false \
+    enable_imu:=true \
+    initial_pose:=power_on_mid
+```
+```bash
+# ── Terminal 2 (Pi): Gait-Node + automatisches Aufstehen ──
+cd ~/hexapod_ws && source install/setup.bash
+HEX_URDF="$(ros2 pkg prefix --share hexapod_description)/urdf/hexapod.urdf.xacro"
+ros2 launch hexapod_gait gait.launch.py \
+    use_sim_time:=false \
+    robot_description_file:="$HEX_URDF"
+#   Der gait_node steht beim Start AUTOMATISCH kartesisch auf (~8 s) — das sind die
+#   Node-Defaults (standup_mode=cartesian, auto_standup_duration=8.0), keine Launch-Args.
+#   -> steht automatisch auf, dann STANDING (Leveling gilt nur in STANDING).
+```
+```bash
+# ── Terminal 3 (Pi): Lage live mitschauen ──
+cd ~/hexapod_ws && source install/setup.bash
+ros2 topic echo /imu/monitor          # roll/pitch [rad] — soll gegen ~0 gehen, wenn Leveling greift
+```
+```bash
+# ── Terminal 4 (Pi): Leveling scharfstellen + Kd-Sweep ──
+cd ~/hexapod_ws && source install/setup.bash
+ros2 param set /gait_node leveling_mode          horizontal   # roll+pitch -> 0
+ros2 param set /gait_node leveling_kd            0.01          # KLEIN starten (Sim 0.03; D rauscht)
+ros2 param set /gait_node leveling_deadband_deg   1.5          # Sim 1.5
+ros2 param set /gait_node leveling_slew_max_dps   4.0          # klein starten (Sim 8) -> Rate zaehmen
+ros2 param set /gait_node leveling_enable         true         # ERST jetzt scharf (IP3.1-Netz steht)
+# Kd schrittweise hoch bis knapp vor Zittern, dann einen Schritt zurueck:
+ros2 param set /gait_node leveling_kd            0.02
+ros2 param set /gait_node leveling_kd            0.03
+```
+
+**Prüfen:**
+- **IP3.2a kein Oszillieren:** im Stand ruhig, **kein Zittern**. Bei Zittern → `leveling_kd` runter.
+- **IP3.2b levelt zurück:** aufgebockt leicht kippen / auf schiefe Unterlage → Körper levelt zurück,
+  ohne aufzuschwingen. Danach `leveling_slew_max_dps` wieder hoch für zügigeres, ruckfreies Nachführen:
+  ```bash
+  ros2 param set /gait_node leveling_slew_max_dps 8.0
+  ```
+- `leveling_max_angle_deg` (10°) ist der Clamp — **nicht** höher ohne `leveling_envelope_check`.
+- HW-Werte (`leveling_kd`/`leveling_deadband_deg`/`leveling_slew_max_dps`) notieren → `hw_balance.yaml`.
+```bash
+# Leveling wieder aus (sicher) + Shutdown:
+ros2 param set /gait_node leveling_enable false
+# Terminal 2 Strg+C, dann Terminal 1 Strg+C
+```
+
+---
+
+## IP3.3 — Terrain-Following im Laufen (`terrain`) — höchstes Risiko, langsam!
+
+**Ziel:** flach geradeaus stabil (Gyro-D dämpft Wackeln, kein Aufschwingen); leichter Hang → Körper folgt.
+
+```bash
+# ── Terminal 1 (Pi): Servo-Stack + IMU ──
+cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py \
+    loopback_mode:=false \
+    enable_imu:=true \
+    initial_pose:=power_on_mid
+```
+```bash
+# ── Terminal 2 (Pi): Gait-Node + automatisches Aufstehen ──
+cd ~/hexapod_ws && source install/setup.bash
+HEX_URDF="$(ros2 pkg prefix --share hexapod_description)/urdf/hexapod.urdf.xacro"
+ros2 launch hexapod_gait gait.launch.py \
+    use_sim_time:=false \
+    robot_description_file:="$HEX_URDF"
+#   Der gait_node steht beim Start AUTOMATISCH kartesisch auf (~8 s) — das sind die
+#   Node-Defaults (standup_mode=cartesian, auto_standup_duration=8.0), keine Launch-Args.
+```
+```bash
+# ── Terminal 3 (Pi): PS4-Teleop per Bluetooth (fahren mit dem linken Stick) ──
+#   Voraussetzung: Controller verbunden (Schritt 0b: PS-Taste). Ohne Controller: cmd_vel-Alternative unten.
+cd ~/hexapod_ws && source install/setup.bash
+ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt
+#   -> linker Stick vor = langsam geradeaus. △/○ = Stand/Sit, L2/R2 = Stance-Modus (siehe Anhang).
+```
+```bash
+# ── Terminal 4 (Pi): terrain-Modus scharf + TF-Gains tunen ──
+cd ~/hexapod_ws && source install/setup.bash
+ros2 param set /gait_node leveling_mode    terrain     # roll->0, pitch folgt Hang-Residual + Gyro-D
+ros2 param set /gait_node leveling_kd       0.02        # Gyro-D KONSERVATIV auf HW (Sim 0.03; D rauscht)
+ros2 param set /gait_node leveling_enable   true
+# gegen zappeligen Hang-Schaetzer ggf. langsamer:
+ros2 param set /gait_node slope_estimate_tau_s 0.8      # Sim 0.5 ; groesser = traeger/glatter
+```
+
+**Prüfen:**
+- **IP3.3a flach stabil:** langsam geradeaus (PS4 linker Stick leicht) → Gyro-D dämpft Gang-Wackeln,
+  **kein Aufschwingen**. Bei Aufschwingen: sofort `leveling_enable false` bzw. Kill-Switch.
+- **IP3.3b Hang folgen:** leichter Hang → Körper folgt (pitch hangparallel), wackelt nicht auf.
+  **Grenz-Hang** (ab wann unsauber) notieren.
+- `leveling_max_angle_walking_deg` (4°) ist der Walking-Clamp — nicht höher ohne Re-Check.
+- **Ohne Controller** (cmd_vel-Alternative statt Terminal 3):
+  ```bash
+  ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.03}}'
+  ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{}'   # stoppen
+  ```
+- HW-Werte (`leveling_kd`, `slope_estimate_tau_s`, Grenz-Hang) notieren → `hw_balance.yaml`.
+```bash
+# Leveling aus + stoppen + Shutdown:
+ros2 param set /gait_node leveling_enable false
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{}'
+# Terminal 3 Strg+C (teleop), Terminal 2 Strg+C (gait), Terminal 1 Strg+C (real)
+```
+
+---
+
+## IP3.4 — HW-Gains sichern + Ladeweg verifizieren
+
+1. Gefundene HW-Werte in [`config/presets/hw_balance.yaml`](../../src/hexapod_gait/config/presets/hw_balance.yaml)
+   eintragen (Sim-Default-Kommentar je Zeile stehen lassen).
+2. Bauen, damit das Preset nach `share/…/presets/` installiert wird:
+   ```bash
+   cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash
+   colcon build --packages-select hexapod_gait
+   source install/setup.bash
+   ```
+3. Laden verifizieren (Terminal 1 = real.launch.py wie oben läuft):
+   ```bash
+   HEX_URDF="$(ros2 pkg prefix --share hexapod_description)/urdf/hexapod.urdf.xacro"
+   ros2 launch hexapod_gait gait.launch.py \
+       use_sim_time:=false \
+       robot_description_file:="$HEX_URDF" \
+       params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/hw_balance.yaml
+   # in einem weiteren Terminal pruefen, dass die HW-Werte greifen:
+   ros2 param get /gait_node leveling_kd
+   ros2 param get /gait_node tip_angle_warn_deg
+   ```
+4. Progress-File [`imu_balance_progress.md`](imu_balance_progress.md) IP3-Checkliste abhaken.
+
+---
+
+## Anhang — Referenz (Services, Buttons, RViz)
+
+**Zustands-Services** (alle `std_srvs/srv/Trigger`, außer Stance = `SetBool`):
+```bash
+ros2 service call /hexapod_stand_up          std_srvs/srv/Trigger '{}'   # SAT -> STANDING (Aufstehen)
+ros2 service call /hexapod_sit_down          std_srvs/srv/Trigger '{}'   # STANDING -> SAT (Hinsetzen)
+ros2 service call /hexapod_sit_stand_toggle  std_srvs/srv/Trigger '{}'   # nach State toggeln
+ros2 service call /hexapod_safety_freeze     std_srvs/srv/Trigger '{}'   # Not-Freeze (manuell)
+ros2 service call /hexapod_cycle_stance      std_srvs/srv/SetBool '{data: true}'  # Stance-Hoehe wechseln
+```
+
+**PS4-Buttons** (Layout wie USB, `hid-playstation`): linker Stick = fahren, △ = Aufstehen, ○ = Hinsetzen,
+L2/R2 = Stance-Modus (tief/mittel/hoch), Options/Share = Gangart/Schrittweite (siehe
+[`../C_teleop.md`](../C_teleop.md)). Reconnect: PS-Taste. Verbindung weg → `/joy` verstummt → B1-Fail-safe.
+
+**Sanity-Checks:**
+```bash
+ros2 node list                          # /gait_node, /bno055_imu, /imu_monitor, /joy_node da?
+ros2 topic hz /imu/data                 # ~50 Hz?
+ros2 topic echo /joy                    # Sticks/Buttons bewegen -> Werte aendern sich?
+ros2 param get /gait_node leveling_kd   # Node lebt, Params da
+```
+
+**Optional RViz am Dev** (nur bei gemeinsamem Router-Netz + gleicher `ROS_DOMAIN_ID`):
+```bash
+ros2 bag record /imu/data /imu/monitor /imu/slope   # Bag liegt am DEV
+rviz2 -d "$(ros2 pkg prefix --share hexapod_description)/config/view_hw.rviz"
 ```
 
 ## Was NICHT hier getestet wird (→ separat/später)
-- **Taster/Fußkontakt-Closed-Loop (S4)** gleichzeitig — eigener HW-Test; Kombi-Integration danach.
+- **Taster/Fußkontakt-Closed-Loop (S4)** gleichzeitig — eigener HW-Test; Kombi-Integration **nach** IP3.3.
 - **Quer-Hang (`TF-Quer`)**, **Auto-Tuning**, **Kante/Stufe** (S4-Terrain).
-
-## Ergebnis sichern
-HW-Gains (`tip_*`, `leveling_kd/deadband/slew`, Gyro-D) in eine **HW-Preset-YAML** (analog
-`hexapod_gait/config/presets/`) + Doku-Eintrag (HW-Werte vs. Sim-Defaults) → Progress-File IP3.

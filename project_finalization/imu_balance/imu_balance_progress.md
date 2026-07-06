@@ -888,6 +888,37 @@ IP2 (IMU-Montage-Kalibrierung):
 
 ---
 
+## Stufe 6 / IP3 — IMU-Balance-Tuning auf HW  🟡 Plan feinjustiert, HW-Ausführung offen
+
+Plan: [`stage_6c_imu_hw_balance_tuning_plan.md`](stage_6c_imu_hw_balance_tuning_plan.md) ·
+Test-Doku: [`stage_6c_imu_hw_balance_test_commands.md`](stage_6c_imu_hw_balance_test_commands.md) ·
+HW-Gains: [`config/presets/hw_balance.yaml`](../../src/hexapod_gait/config/presets/hw_balance.yaml)
+
+> **Reines HW-Tuning, keine neue Logik.** Regler (`tip_monitor`/`balance_controller`/`slope_estimator`)
+> sind sim-unit-getestet und unverändert; IP3 zieht nur die Gains am bestromten, aufgebockten Roboter
+> nach. **Done-Vertrag = alle Bullets `[x]`.** Power-gated auf Phase 8 (2S-LiPo).
+>
+> **§4-Freigabe-Entscheidungen (User):** Reihenfolge St.1→St.2→St.3 (risiko-aufsteigend) · Gain-Ablage =
+> neue HW-Preset-YAML via `params_file:=` · DDS entfällt (Tuning lokal auf dem Pi, RViz optional Router) ·
+> Kombi-Test mit S4-Tastern erst **nach** IP3.3 · `use_sim_time`-Default ist im Code schon `false`.
+
+```
+IP3 (IMU-Balance-Tuning auf HW):
+- [ ] IP3.0 Voraussetzungen: 2S-LiPo/aufgebockt, 3 Pi-SSH-Terminals, gait+IMU-Bringup laeuft am Pi (real.launch.py loopback_mode:=false enable_imu:=true + gait.launch.py)
+- [ ] IP3.1 Kipp-Erkennung kalibriert: fehlalarmfrei (Ruhe+Gang) + CRIT/Freeze bei echtem Kippen; tip_angle_warn_deg/tip_angle_crit_deg/tip_rate_crit_dps/tip_debounce_ticks notiert
+- [ ] IP3.2 Statisches Leveling (horizontal): kein Oszillieren, levelt zurueck; leveling_kd/leveling_deadband_deg/leveling_slew_max_dps (HW vs Sim) notiert
+- [ ] IP3.3 Terrain-Following im Laufen (terrain): flach stabil + Hang folgt ohne Aufschwingen; Grenz-Hang + Gyro-leveling_kd + slope_estimate_tau_s notiert
+- [ ] IP3.4 HW-Gains in hw_balance.yaml gesichert + Lade-Weg (params_file) verifiziert + Doku-Eintrag (HW vs Sim-Defaults)
+- [ ] IP3.5 kritische Self-Review-Tabelle
+```
+
+**Vorbereitung (Doku, ohne HW) erledigt:** Plan feinjustiert (§5-Punkte entschieden, Param-Namen gegen
+`gait_node` verifiziert), Test-Doc mit korrekten Param-Namen + konkreten Baseline-/Sweep-Prozeduren,
+`hw_balance.yaml`-Gerüst (Sim-Defaults als Platzhalter + Sim-vs-HW-Kommentare) angelegt. **HW-Ausführung
+(IP3.0–IP3.5) wartet auf Servo-Power (Phase 8).**
+
+---
+
 ## Stufen 3b–4 — ⚪ offen (vorausgeplant, Implementierung nach §4-Freigabe)
 
 Pläne geschrieben (Logik/Tests/Design/offene Punkte) zum Nachlesen; Code +

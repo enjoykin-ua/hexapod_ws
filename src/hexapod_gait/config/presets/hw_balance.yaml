@@ -1,0 +1,54 @@
+# =============================================================================
+# Hexapod gait_node Preset — "HW Balance" (A5 IMU-Balance, Stufe 6 / IP3)
+# =============================================================================
+#
+# Der am ECHTEN, bestromten Roboter nachgezogene IMU-Balance-Gain-Satz
+# (Kipp-Erkennung + Leveling + Terrain-Following). Sim != HW: Sensor-Rauschen
+# (BNO-055), Servo-Lag ohne Positions-Feedback, reale Reibung/Schlupf → die
+# Sim-Defaults sind nur Startpunkte. Dieses File haelt die HW-verifizierten
+# Werte, gegenuebergestellt den Sim-Defaults (Kommentar je Zeile).
+#
+# HERKUNFT / STATUS:
+#   - Werte unten sind AKTUELL die Sim-Defaults (Platzhalter). Nach jeder
+#     IP3-Sub-Stage (IP3.1/3.2/3.3) den am Roboter gefundenen Wert hier
+#     eintragen und den "# Sim-Default: ..."-Kommentar stehen lassen.
+#   - Done-Vertrag: IP3.4 in imu_balance_progress.md.
+#
+# LADEN (auf dem Pi, nach colcon build):
+#   ros2 launch hexapod_gait gait.launch.py use_sim_time:=false \
+#     params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/hw_balance.yaml
+#   # params_file ueberschreibt die Inline-Launch-Defaults (gait.launch.py).
+#   # Alternativ direkt auf die Quelldatei zeigen (ohne Rebuild), z.B.:
+#   #   params_file:=$HOME/hexapod_ws/src/hexapod_gait/config/presets/hw_balance.yaml
+#
+# WICHTIG: leveling_enable steht hier bewusst auf false. Beim Tuning wird es
+# gezielt live (`ros2 param set /gait_node leveling_enable true`) oder per
+# Launch-Arg geschaltet — nie unbeaufsichtigt beim Bringup aktiv (CLAUDE.md §9).
+# =============================================================================
+
+/gait_node:
+  ros__parameters:
+    # --- IP3.1 Kipp-/Sturz-Erkennung (Safe-State, rein defensiv) --------------
+    tip_detection_enable: true
+    tip_angle_warn_deg: 15.0     # Sim-Default: 15.0  (HW: nach IP3.1 nachziehen)
+    tip_angle_crit_deg: 25.0     # Sim-Default: 25.0  (HW: nach IP3.1 nachziehen)
+    tip_rate_crit_dps: 80.0      # Sim-Default: 80.0  (HW: nach IP3.1 nachziehen)
+    tip_debounce_ticks: 5        # Sim-Default: 5     (HW: nach IP3.1 nachziehen)
+
+    # --- IP3.2 statisches Leveling (STANDING) --------------------------------
+    #     Beim Tuning: leveling_enable live/Launch-Arg schalten, hier false.
+    leveling_enable: false
+    leveling_mode: horizontal    # IP3.2 = horizontal (roll+pitch->0); IP3.3 = terrain
+    leveling_kp: 0.4             # Sim-Default: 0.4   (HW: nach IP3.2 nachziehen)
+    leveling_ki: 0.1            # Sim-Default: 0.1   (HW: nach IP3.2 nachziehen)
+    leveling_kd: 0.03           # Sim-Default: 0.03  (HW: ggf. RUNTER, D rausch-verstaerkend)
+    leveling_deadband_deg: 1.5   # Sim-Default: 1.5   (HW: nach IP3.2 nachziehen)
+    leveling_slew_max_dps: 8.0   # Sim-Default: 8.0   (HW: klein starten, dann hoch)
+    leveling_max_angle_deg: 10.0        # offline-bewiesen (leveling_envelope_check), NICHT ueber 10 ohne Re-Check
+    leveling_max_angle_walking_deg: 4.0  # offline-bewiesen (Walking-Huelle), NICHT ueber 4 ohne Re-Check
+    leveling_startup_grace: true
+
+    # --- IP3.3 Terrain-Following (WALKING, leveling_mode: terrain) ------------
+    slope_aware_tip_enable: true
+    slope_estimate_tau_s: 0.5    # Sim-Default: 0.5   (HW: ggf. langsamer TP)
+    slope_clamp_deg: 40.0        # Sim-Default: 40.0  (deckt Charakterisierung bis 35)
