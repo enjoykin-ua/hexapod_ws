@@ -131,9 +131,41 @@ rviz2 -d install/hexapod_description/share/hexapod_description/config/view_hw.rv
 > Melde: `/imu/data` ~50 Hz? roll/pitch folgt dem Kippen mit richtiger Achse/Vorzeichen? RViz-Neigung
 > plausibel? Cal steigt gyr/acc → 3?
 
+## Schritt 6 — IP2: AXIS_MAP-Verifikation + Zero-Offset
+
+> Der `axis_map_config`/`sign` liegt jetzt in `hexapod_sensors/config/imu_calibration.yaml`
+> (Startwert `0x21`/`0x01` aus dem IP1.7-Befund: Sensor +90° um Z verdreht). Nach Deploy des IP2-Codes
+> den Node **mit** der YAML starten und den Kipp-Test aus Schritt 4 wiederholen — jetzt sollen roll/pitch
+> der **physischen** Achse folgen. Plan: [`stage_6b_imu_mounting_cal_plan.md`](stage_6b_imu_mounting_cal_plan.md).
+
+**Node isoliert mit Cal-YAML (Pi), Terminal A:**
+```bash
+ros2 run hexapod_sensors bno055_imu \
+  --params-file ~/hexapod_ws/install/hexapod_sensors/share/hexapod_sensors/config/imu_calibration.yaml
+# Startup-Log MUSS zeigen: "AXIS_MAP cfg=0x21 sign=0x01"
+```
+Terminal B wie gehabt: `ros2 run hexapod_sensors imu_monitor`.
+
+**Kipp-Test — jetzt ERWARTET (base_link-Konvention):**
+- rechte Seite (−Y) hoch → **roll negativ**, pitch ≈ 0
+- Nase (+X) hoch → **pitch negativ**, roll ≈ 0
+
+- **Passt** → AXIS_MAP korrekt (beweist zugleich: der Chip-Remap dreht die **Quaternion** mit). Vorzeichen
+  final gegen die Sim-Konvention prüfen (rechte Seite **runter** → welches roll-Vorzeichen erwartet das
+  Leveling?).
+- **Passt nicht** (Achsen/Vorzeichen weiter falsch) → Wert in der YAML anpassen (Sign-/Config-Variante),
+  Node neu starten, erneut. Bleibt die Quaternion **ganz unverändert** vertauscht → Chip-Remap dreht sie
+  nicht → Node-Rotation-Contingency ([`stage_6b`](stage_6b_imu_mounting_cal_plan.md) §2.2).
+
+**Zero-Offset (IP2.2):** Roboter flach auf ebene Fläche → `/imu/monitor` roll/pitch ablesen. < ~1° →
+`roll_offset`/`pitch_offset` in der YAML bei `0.0` lassen; sonst gemessenen Wert (rad) eintragen, Node
+neu starten, Gegenprobe roll/pitch ≈ 0.
+
+> ⚠️ YAML-Änderung am Pi wirkt erst nach `colcon build` (Symlink-Install) bzw. sofort, wenn du die Datei
+> unter `install/…/config/` direkt editierst. Sauber: `src/`-YAML ändern → `colcon build` → neu starten.
+
 ## Was NICHT hier getestet wird (→ spätere IP)
 
-- **AXIS_MAP-Werte + Zero-Offset final bestimmen** → IP2 (`stage_6b_imu_mounting_cal_plan.md`).
 - **Leveling bewegt Beine / Gain-Retuning** → IP3 (`stage_6c...`), braucht Servo-Power (Phase 8).
 
 ## Troubleshooting

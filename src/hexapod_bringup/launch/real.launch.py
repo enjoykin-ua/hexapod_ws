@@ -221,12 +221,19 @@ def generate_launch_description() -> LaunchDescription:
     # IMU-Nodes (Stufe 6/IP1), conditional auf enable_imu. use_sim_time=False
     # (HW-Uhr, kein /clock). bno055_imu = Treiber, imu_monitor = /imu/monitor +
     # world->base_link-tf (RViz-Neigung, praktisch fuer den Kipp-Test IP1.7).
+    # IMU-Montage-Kalibrierung (Stufe 6/IP2): AXIS_MAP + Zero-Offset aus
+    # hexapod_sensors/config/imu_calibration.yaml. Gleiche Datei nutzt der
+    # isolierte Test-Start (ros2 run ... --params-file). use_sim_time danach,
+    # damit es die YAML nicht ueberschreibt (kein Konflikt, nur Reihenfolge).
+    imu_calibration_yaml = PathJoinSubstitution([
+        FindPackageShare('hexapod_sensors'), 'config', 'imu_calibration.yaml',
+    ])
     bno055_imu = Node(
         package='hexapod_sensors',
         executable='bno055_imu',
         name='bno055_imu',
         output='screen',
-        parameters=[{'use_sim_time': False}],
+        parameters=[imu_calibration_yaml, {'use_sim_time': False}],
         condition=IfCondition(LaunchConfiguration('enable_imu')),
     )
     imu_monitor = Node(

@@ -1,0 +1,20 @@
+# IMU-Montage-Kalibrierung (BNO-055) — Block A5 Stufe 6 / IP2.
+#
+# Fixe Ausrichtung Chip -> base_link, gemessen im Kipp-Test (IP1.7 / IP2.1).
+# Wird sowohl von real.launch.py (als Node-parameters) als auch beim isolierten
+# Test-Start (`ros2 run hexapod_sensors bno055_imu --params-file <diese Datei>`)
+# geladen. `/**` = greift unabhaengig vom Node-Namen/Namespace.
+#
+# axis_map_config / axis_map_sign: BNO AXIS_MAP (Datenblatt Section 3.4), im Chip
+#   angewandt -> dreht Quaternion + Gyro auf base_link. Werte als Dezimal (der
+#   ROS-YAML-Parser liest keine 0x-Hex zuverlaessig); Hex im Kommentar.
+#   IP1.7-Befund: Sensor +90 Grad um Z verdreht -> Kandidat 0x21 / 0x01.
+#   ⚠️ In IP2.1 am Sensor VERIFIZIEREN (Kipp-Test); ggf. Sign-/Config-Variante.
+# roll_offset / pitch_offset (rad): feine Montage-Restschraege, IP2.2 gemessen.
+#   < ~1 Grad -> 0 lassen (unter dem Leveling-Totband 1.5 Grad).
+/**:
+  ros__parameters:
+    axis_map_config: 33    # 0x21  (Default P1 = 0x24 = 36)
+    axis_map_sign: 1       # 0x01  (Default = 0x00)
+    roll_offset: 0.0       # rad, IP2.2 messen
+    pitch_offset: 0.0      # rad, IP2.2 messen
