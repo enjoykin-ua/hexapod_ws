@@ -133,36 +133,62 @@ rviz2 -d install/hexapod_description/share/hexapod_description/config/view_hw.rv
 
 ## Schritt 6 — IP2: AXIS_MAP-Verifikation + Zero-Offset
 
-> Der `axis_map_config`/`sign` liegt jetzt in `hexapod_sensors/config/imu_calibration.yaml`
-> (Startwert `0x21`/`0x01` aus dem IP1.7-Befund: Sensor +90° um Z verdreht). Nach Deploy des IP2-Codes
-> den Node **mit** der YAML starten und den Kipp-Test aus Schritt 4 wiederholen — jetzt sollen roll/pitch
-> der **physischen** Achse folgen. Plan: [`stage_6b_imu_mounting_cal_plan.md`](stage_6b_imu_mounting_cal_plan.md).
+> Der `axis_map_config`/`sign` liegt in `hexapod_sensors/config/imu_calibration.yaml` (Startwert
+> `0x21`/`0x01` aus dem IP1.7-Befund: Sensor +90° um Z verdreht). Ziel: Node **mit** der YAML starten,
+> Kipp-Test wiederholen — jetzt sollen roll/pitch der **physischen** Achse folgen.
+> Plan: [`stage_6b_imu_mounting_cal_plan.md`](stage_6b_imu_mounting_cal_plan.md). **Power-frei, aufgebockt.**
+>
+> **Braucht 2 Terminals am Pi** (A = Treiber, B = Monitor). Optional ein 3. für `topic hz`/`echo`.
 
-**Node isoliert mit Cal-YAML (Pi), Terminal A:**
+### 6a — IP2-Code holen + bauen (Pi, einmal)
+Voraussetzung: IP2-Code ist am Dev committet + gepusht (`imu_calibration.yaml` + `setup.py` + `real.launch.py`).
 ```bash
-ros2 run hexapod_sensors bno055_imu \
-  --params-file ~/hexapod_ws/install/hexapod_sensors/share/hexapod_sensors/config/imu_calibration.yaml
-# Startup-Log MUSS zeigen: "AXIS_MAP cfg=0x21 sign=0x01"
+cd ~/hexapod_ws && git pull
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-select hexapod_sensors hexapod_bringup
+ls install/hexapod_sensors/share/hexapod_sensors/config/imu_calibration.yaml   # muss existieren
 ```
-Terminal B wie gehabt: `ros2 run hexapod_sensors imu_monitor`.
 
-**Kipp-Test — jetzt ERWARTET (base_link-Konvention):**
-- rechte Seite (−Y) hoch → **roll negativ**, pitch ≈ 0
-- Nase (+X) hoch → **pitch negativ**, roll ≈ 0
+### 6b — Terminal A: Treiber mit Cal-YAML
+```bash
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+ros2 run hexapod_sensors bno055_imu --ros-args \
+  --params-file ~/hexapod_ws/install/hexapod_sensors/share/hexapod_sensors/config/imu_calibration.yaml
+```
+⚠️ **`--ros-args` ist Pflicht** vor `--params-file` — ohne wird die Datei stillschweigend ignoriert und der
+Node nimmt seine Defaults (`0x24`/`0x00`).
+✅ **Startup-Log MUSS zeigen:** `AXIS_MAP cfg=0x21 sign=0x01` — sonst greift die YAML nicht (Pfad/`--ros-args` prüfen).
+
+### 6c — Terminal B: Monitor
+```bash
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+ros2 run hexapod_sensors imu_monitor
+```
+Hier liest du live `roll / pitch / yaw` [deg] ab.
+
+### 6d — Kipp-Test (Betriebslage: Körper oben, aufgebockt, stromlos)
+Isoliert kippen, ~20–30°, halten, Werte aus Terminal B ablesen. **Jetzt erwartet** (base_link-Konvention):
+
+| Bewegung | roll | pitch |
+|---|---|---|
+| flach | ≈ 0 (nach Offset) | ≈ 0 |
+| rechte Seite (−Y) hoch | **negativ** | ≈ 0 |
+| Nase (+X) hoch | ≈ 0 | **negativ** |
 
 - **Passt** → AXIS_MAP korrekt (beweist zugleich: der Chip-Remap dreht die **Quaternion** mit). Vorzeichen
-  final gegen die Sim-Konvention prüfen (rechte Seite **runter** → welches roll-Vorzeichen erwartet das
-  Leveling?).
-- **Passt nicht** (Achsen/Vorzeichen weiter falsch) → Wert in der YAML anpassen (Sign-/Config-Variante),
-  Node neu starten, erneut. Bleibt die Quaternion **ganz unverändert** vertauscht → Chip-Remap dreht sie
-  nicht → Node-Rotation-Contingency ([`stage_6b`](stage_6b_imu_mounting_cal_plan.md) §2.2).
+  final gegen die Sim-Konvention prüfen (rechte Seite **runter** → welches roll-Vorzeichen erwartet das Leveling?).
+- **Passt nicht** → `axis_map_config`/`axis_map_sign` in der `src/`-YAML anpassen (Sign-/Config-Variante) →
+  `colcon build` → Terminal A neu. Bleibt die Quaternion **ganz unverändert** vertauscht → Chip-Remap
+  dreht sie nicht → Node-Rotation-Contingency ([`stage_6b`](stage_6b_imu_mounting_cal_plan.md) §2.2).
 
-**Zero-Offset (IP2.2):** Roboter flach auf ebene Fläche → `/imu/monitor` roll/pitch ablesen. < ~1° →
-`roll_offset`/`pitch_offset` in der YAML bei `0.0` lassen; sonst gemessenen Wert (rad) eintragen, Node
-neu starten, Gegenprobe roll/pitch ≈ 0.
+### 6e — Zero-Offset (IP2.2)
+Roboter **flach** auf ebene Fläche (Wasserwaage) → `/imu/monitor` roll/pitch ablesen:
+- **< ~1°** → `roll_offset`/`pitch_offset` in der YAML bei `0.0` lassen (unter dem Leveling-Totband).
+- **einige Grad** → gemessenen Wert (in **rad**) als `roll_offset`/`pitch_offset` in die `src/`-YAML →
+  `colcon build` → Terminal A neu → Gegenprobe: flach → roll/pitch ≈ 0.
 
-> ⚠️ YAML-Änderung am Pi wirkt erst nach `colcon build` (Symlink-Install) bzw. sofort, wenn du die Datei
-> unter `install/…/config/` direkt editierst. Sauber: `src/`-YAML ändern → `colcon build` → neu starten.
+> ⚠️ YAML-Änderungen wirken erst nach `colcon build` (Symlink-Install kopiert den Inhalt) + Node-Neustart.
+> Immer die **`src/`**-YAML editieren, nicht die unter `install/`.
 
 ## Was NICHT hier getestet wird (→ spätere IP)
 

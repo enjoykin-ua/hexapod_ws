@@ -8,13 +8,16 @@
 # axis_map_config / axis_map_sign: BNO AXIS_MAP (Datenblatt Section 3.4), im Chip
 #   angewandt -> dreht Quaternion + Gyro auf base_link. Werte als Dezimal (der
 #   ROS-YAML-Parser liest keine 0x-Hex zuverlaessig); Hex im Kommentar.
-#   IP1.7-Befund: Sensor +90 Grad um Z verdreht -> Kandidat 0x21 / 0x01.
-#   ⚠️ In IP2.1 am Sensor VERIFIZIEREN (Kipp-Test); ggf. Sign-/Config-Variante.
-# roll_offset / pitch_offset (rad): feine Montage-Restschraege, IP2.2 gemessen.
-#   < ~1 Grad -> 0 lassen (unter dem Leveling-Totband 1.5 Grad).
+#   IP1.7-Befund: Sensor +90 Grad um Z verdreht. IP2.1-Kipp-Test (2026-07-05):
+#   config 0x21 ordnet die Achsen korrekt zu; von den 4 config-0x21-Placement-Signs
+#   liefert 0x04 (P0) flach ~0/0 UND die richtigen REP-103-Vorzeichen (rechte Seite
+#   hoch -> roll negativ, Nase hoch -> pitch negativ = wie die Sim). VERIFIZIERT.
+# roll_offset / pitch_offset (rad): feine Montage-Restschraege, IP2.2 gemessen
+#   (ebener Boden, sign 0x04): flach roll -2.0 Grad / pitch 3.3 Grad -> als Offset
+#   herausgedreht, damit flach -> 0/0. Beide ueber dem Leveling-Totband (1.5 Grad).
 /**:
   ros__parameters:
     axis_map_config: 33    # 0x21  (Default P1 = 0x24 = 36)
-    axis_map_sign: 1       # 0x01  (Default = 0x00)
-    roll_offset: 0.0       # rad, IP2.2 messen
-    pitch_offset: 0.0      # rad, IP2.2 messen
+    axis_map_sign: 4       # 0x04  (BNO-Placement P0; IP2.1 verifiziert)
+    roll_offset: -0.0349   # -2.0 Grad (IP2.2 gemessen)
+    pitch_offset: 0.0576   # 3.3 Grad (IP2.2 gemessen)
