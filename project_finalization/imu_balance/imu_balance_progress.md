@@ -1016,8 +1016,12 @@ Stufe 8 (Fußkontakt-Closed-Loop auf HW):
 - [ ] HW8.4 S4-4 Slip->Freeze: Podest-Kante -> Freeze rechtzeitig + guter Boden kein Fehlalarm; debounce/grace HW-getunt; cliff_depth envelope-geprueft
 - [ ] HW8.5 S4-5 Sensor-Fault (echt abgesteckt von Start): Bein maskiert + WARN, kein Freeze (Variante B: ever_contacted-Schutz greift), keine FP-Kaskade
 - [ ] HW8.6 S4-7 Adaptive Stand: Sim-Rubicon-Verify (Desktop) zuerst, dann HW am Boden (unebener Grund)
-- [ ] HW8.7 Kombi S4 + Leveling: Stand-Kombi (adaptive_stand+horizontal) + Lauf-Kombi (touchdown+terrain) sauber (kein IKError/Konflikt)
-- [ ] HW8.8 HW-Gains in hw_terrain.yaml + Doku (HW vs Sim)
+- [ ] HW8.7 Kombi S4 + Leveling: Stand-Kombi (adaptive_stand+horizontal) + Lauf-Kombi (touchdown+terrain) sauber (kein IKError/Konflikt)  [User-Vorab-Lauf: „läuft vorerst gut"; formaler Durchgang + Befund offen]
+- [x] HW8.7b leveling_mode 'auto' (STANDING->horizontal, WALKING/STOPPING->terrain): _update_leveling loest effektiven Modus auf, filter_pitch folgt effektivem Modus; Code-Default bleibt 'terrain'  [Plan §9, Freigabe erteilt; Node-only, Engine/Regler unveraendert]
+- [x] HW8.7b Tests (auto per State inkl. STOPPING=terrain, Validierung 'auto', Live-Umschalten, Back-Compat) + colcon test hexapod_gait hexapod_kinematics + Lint gruen  [431 gait (+5) / 43 kin, 0 Fehler]
+- [x] HW8.7b Doku: hexapod_gait-README (Drei-Modi-Abschnitt + Param-Tabelle) + ai_navigation (TF-Modus-Eintrag) nachgezogen  [hw_terrain.yaml-Eintrag leveling_mode: auto folgt in HW8.8]
+- [ ] HW8.7b HW-Verify: laufen -> anhalten in Schraeglage -> levelt automatisch aus (ohne param set); Anfahren -> kein Ruck
+- [ ] HW8.8 HW-Gains in hw_terrain.yaml + Doku (HW vs Sim)  [Preset angelegt (Komplett-Preset: HW-verifizierte Leveling-Werte + leveling_mode auto + alle S4-Enables; S4-Werte noch Sim-Defaults) + 3-Terminal-Komplett-Bringup = Test-Doku HW8.8a; rclpy-Smoke: alle 49 Params kommen in Node/Engine/Controller an. Offen: HW-getunte S4-Werte nachziehen + Doku HW-vs-Sim]
 - [ ] HW8.9 kritische Self-Review-Tabelle
 ```
 

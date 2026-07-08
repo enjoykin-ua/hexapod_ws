@@ -924,7 +924,10 @@ class GaitNode(Node):
             self.get_parameter('leveling_enable').value
         )
         # TF-2: Modus 'terrain' (roll→0, pitch folgt Hang via Residual + Gyro-D)
-        # vs. 'horizontal' (Stufe 2/3a Voll-Leveln auf 0/0).
+        # vs. 'horizontal' (Stufe 2/3a Voll-Leveln auf 0/0). HW8.7b: 'auto' =
+        # state-abhängig (STANDING→horizontal, WALKING/STOPPING→terrain) —
+        # Auflösung pro Tick in _update_leveling. Code-Default bleibt 'terrain'
+        # (kein Sim-Regress); 'auto' ist der HW-Arbeitswert (hw_terrain.yaml).
         self._leveling_mode = str(self.get_parameter('leveling_mode').value)
         self._leveling_startup_grace = bool(
             self.get_parameter('leveling_startup_grace').value
@@ -1716,22 +1719,38 @@ class GaitNode(Node):
             else self._engine.max_level_angle_walking
         )
         self._balance.set_gains(max_level_angle=state_max)
+        # HW8.7b: 'auto' löst den effektiven Modus pro Tick aus dem Engine-State
+        # auf — STANDING = horizontal (voll ausleveln: eine Gang-End-Schräge auf
+        # ebenem Boden sähe der Slope-Schätzer als „Hang" und ließe sie stehen),
+        # WALKING **und STOPPING** = terrain (STOPPING gehört zum Lauf-Block,
+        # sonst zieht das Anhalten am Hang den Körper ruckartig waagerecht).
+        # Kein Controller-Reset am Übergang: der Slew-Limiter glättet den
+        # Eingangs-Sprung Residual↔roh (derselbe Mechanismus wie der
+        # 3a-Clamp-Fix oben).
+        mode = self._leveling_mode
+        if mode == 'auto':
+            mode = (
+                'horizontal'
+                if self._engine.state == GaitEngine.STATE_STANDING
+                else 'terrain'
+            )
         # TF-2: pitch im terrain-Modus gegen die Hang-Schätzung (Residual), roll
         # roh (→0). Der SlopeEstimator (TF-1) wurde diesen Tick bereits in
         # _update_slope_estimate aktualisiert (läuft vor _update_leveling).
         roll_in = self._imu_roll
-        if self._leveling_mode == 'terrain':
+        if mode == 'terrain':
             pitch_in = self._imu_pitch - self._slope_est.slope_pitch
         else:  # 'horizontal'
             pitch_in = self._imu_pitch
         # Stufe 7 (A): Filter-Flag pro Achse — roll ist immer roh (→0), pitch nur
         # im horizontal-Modus roh; im terrain-Modus ist pitch_in ein Residual
         # (Slope-Schätzer = langsame Stufe → KEIN zweiter Filter im Regler).
+        # Folgt dem EFFEKTIVEN Modus (im 'auto'-STANDING also horizontal=roh).
         corr = self._balance.update(
             roll_in, pitch_in, dt,
             self._imu_gyro_roll, self._imu_gyro_pitch,
             filter_roll=True,
-            filter_pitch=(self._leveling_mode != 'terrain'),
+            filter_pitch=(mode != 'terrain'),
         )
         self._engine.set_body_orientation_offset(*corr)
 
@@ -2650,16 +2669,16 @@ class GaitNode(Node):
                     reason=f'slope_clamp_deg must be > 0, got {p.value}',
                 )
 
-        # 1i. TF-2 leveling_mode ∈ {horizontal, terrain}.
+        # 1i. TF-2/HW8.7b leveling_mode ∈ {horizontal, terrain, auto}.
         for p in params:
             if p.name == 'leveling_mode' and p.value not in (
-                'horizontal', 'terrain',
+                'horizontal', 'terrain', 'auto',
             ):
                 return SetParametersResult(
                     successful=False,
                     reason=(
                         f'unknown leveling_mode {p.value!r}, '
-                        f'valid: horizontal | terrain'
+                        f'valid: horizontal | terrain | auto'
                     ),
                 )
 
@@ -2957,7 +2976,8 @@ class GaitNode(Node):
                 self._engine.set_body_orientation_offset(0.0, 0.0)
                 self._last_leveling_t = None
         elif name == 'leveling_mode':
-            self._leveling_mode = str(value)  # 'terrain' | 'horizontal' (TF-2)
+            # 'terrain' | 'horizontal' (TF-2) | 'auto' (HW8.7b, state-abhängig)
+            self._leveling_mode = str(value)
         elif name == 'leveling_startup_grace':
             self._leveling_startup_grace = bool(value)
         # Stufe 7 (E4): per-Achse Leveling-Gains live via Name→(axis,kwarg,is_deg).

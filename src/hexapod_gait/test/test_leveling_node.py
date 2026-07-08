@@ -352,6 +352,93 @@ def test_filter_flag_passed_per_mode(node):
     assert captured['filter_pitch'] is True
 
 
+# ----- HW8.7b: leveling_mode 'auto' (state-abhängig) -------------------
+
+
+def test_auto_mode_standing_levels_pitch(node):
+    # Der HW8.7-Befund als Test: Körper steht schief (8° pitch), der Slope-
+    # Schätzer hat die Schräge bereits als „Hang" übernommen → terrain würde
+    # NICHT stellen (Residual 0). auto im STANDING = horizontal (pitch roh)
+    # → levelt trotzdem aus.
+    node._leveling_enable = True
+    node._leveling_mode = 'auto'
+    node._imu_roll, node._imu_pitch = 0.0, math.radians(8.0)
+    node._slope_est.update(0.0, math.radians(8.0), 0.0)  # Snap → slope=8°
+    assert node._engine.state == GaitEngine.STATE_STANDING
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert node._engine._level_pitch < 0.0   # kontert die 8° (Voll-Leveln)
+
+
+def test_auto_mode_walking_follows_slope(node):
+    # auto im WALKING = terrain: Körper auf dem Hang (Residual 0) → pitch
+    # stellt NICHT (folgt dem Hang) — kein Regress ggü. TF-2.
+    node._leveling_enable = True
+    node._leveling_mode = 'auto'
+    node._imu_roll, node._imu_pitch = 0.0, math.radians(8.0)
+    node._slope_est.update(0.0, math.radians(8.0), 0.0)
+    node._engine.set_command(0.05, 0.0, 0.0, 0.0)
+    assert node._engine.state == GaitEngine.STATE_WALKING
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert abs(node._engine._level_pitch) < 1e-6
+
+
+def test_auto_mode_stopping_stays_terrain(node):
+    # Design-Entscheid §9.1-1: STOPPING gehört zum Lauf-Block (terrain) —
+    # Anhalten am Hang darf den Körper nicht mitten im Auslauf waagerecht
+    # ziehen. Erst STANDING levelt.
+    node._leveling_enable = True
+    node._leveling_mode = 'auto'
+    node._imu_roll, node._imu_pitch = 0.0, math.radians(8.0)
+    node._slope_est.update(0.0, math.radians(8.0), 0.0)
+    node._engine.set_command(0.05, 0.0, 0.0, 0.0)   # → WALKING
+    node._engine.set_command(0.0, 0.0, 0.0, 1.0)    # → STOPPING
+    assert node._engine.state == GaitEngine.STATE_STOPPING
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert abs(node._engine._level_pitch) < 1e-6    # noch kein Waagerecht-Zug
+
+
+def test_auto_mode_filter_flag_follows_effective_mode(node):
+    # Doppelfilter-Falle: filter_pitch muss dem EFFEKTIVEN Modus folgen —
+    # auto-STANDING → True (roh, Filter erlaubt), auto-WALKING → False
+    # (Residual ist schon slope-gefiltert).
+    captured = {}
+    orig = node._balance.update
+
+    def spy(*args, **kwargs):
+        captured.clear()
+        captured.update(kwargs)
+        return orig(*args, **kwargs)
+
+    node._balance.update = spy
+    node._leveling_enable = True
+    node._leveling_mode = 'auto'
+    node._imu_roll, node._imu_pitch = math.radians(3.0), math.radians(3.0)
+
+    assert node._engine.state == GaitEngine.STATE_STANDING
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert captured['filter_pitch'] is True
+
+    node._engine.set_command(0.05, 0.0, 0.0, 0.0)   # → WALKING
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert captured['filter_pitch'] is False
+
+
+def test_auto_mode_accepted_live(node):
+    # 'auto' passiert die Mode-Validierung (Live-Umschalten wirkt ab dem
+    # nächsten Tick); der Reject-Pfad für Unsinn-Strings ist in
+    # test_leveling_mode_live_and_validation abgedeckt.
+    res = node.set_parameters([
+        Parameter('leveling_mode', Parameter.Type.STRING, 'auto'),
+    ])
+    assert res[0].successful
+    assert node._leveling_mode == 'auto'
+
+
 def test_per_axis_tip_threshold(node):
     # E5: roll-Schwelle kleiner → roll feuert bei einem Winkel, bei dem pitch
     # (größere Schwelle) noch NONE ist.

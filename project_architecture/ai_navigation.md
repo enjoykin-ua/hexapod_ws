@@ -155,7 +155,10 @@
   `leveling_slew_max_dps_{roll,pitch}`; gemeinsam `leveling_enable/mode/max_angle_deg/
   max_angle_walking_deg/startup_grace`; `slope_aware_tip_enable/slope_estimate_tau_s/slope_clamp_deg`;
   `tip_angle_{warn,crit}_deg_{roll,pitch}`, `tip_rate_crit_dps/tip_debounce_ticks`. NICHTS hardcoden.
-  **Code-Default = Stufe-2** (E9); HW-Arbeitswerte in `hexapod_gait/config/presets/hw_balance.yaml`.
+  **Code-Default = Stufe-2** (E9); HW-Arbeitswerte in `hexapod_gait/config/presets/hw_balance.yaml`
+  (reines Leveling-Tuning-Preset) bzw. `hw_terrain.yaml` (fahrbereites **Komplett**-Preset:
+  dieselben Leveling-Werte + `leveling_mode: auto` + alle S4-Enables — der 3-Terminal-Bringup,
+  Stufe-8-Test-Doku HW8.8a; `params_file` lädt nur EIN File, daher enthält es beide Blöcke).
 - **Wann muss ich HIER ran? (Symptom → Stellschraube, Stufe 7):**
   - *Pendeln/Aufschwingen im Stand* → `leveling_kd_*` hoch bzw. `leveling_kp/ki_*` runter; Hysterese-
     Fenster prüfen (`inner < outer`).
@@ -169,7 +172,11 @@
   - *Fuß findet an Kante/Stufe keinen Boden* → **kein** Balance-Problem → Stufe 4 (Fußkontakte).
 - **TF-Modus (`leveling_mode`):** `terrain` (Default) = roll→0, **pitch folgt dem Hang** (pitch-
   Eingang = Residual gegen die `SlopeEstimator`-Schätzung) + Gyro-D; `horizontal` = Stufe-2-Voll-
-  Leveln (roll+pitch→0, fürs statische Horizontal-Stehen).
+  Leveln (roll+pitch→0, fürs statische Horizontal-Stehen); **`auto` (HW8.7b, HW-Arbeitswert)** =
+  state-abhängig STANDING→horizontal / WALKING+**STOPPING**→terrain — behebt „steht nach dem
+  Anhalten schief und levelt nicht" (Slope-Schätzer hält die statische Schräge für Hang →
+  Residual 0). Auflösung pro Tick in `_update_leveling`; `filter_pitch` folgt dem **effektiven**
+  Modus; STOPPING bewusst terrain (kein Waagerecht-Ruck beim Anhalten am Hang).
 - **Fallen:** (1) **`max_level_angle` offline-bewiesen** (10° STANDING / 4° WALKING,
   `tools/leveling_envelope_check.py`). (2) **gz-IMU spawn-referenziert** → in Sim **flach spawnen**
   (`slope.launch.py`/`ramp.launch.py` Default), Memory `project_gz_imu_spawn_referenced`.
@@ -267,6 +274,9 @@
   Floor unter `body_height`, ≥0; Rubicon-Dips ~3–5 cm, 0.02 war zu flach; Envelope-Max über alle Modi
   = 0.05), `stand_conform_rate` (0.02 m/s, >0). Envelope je Stance-Höhe:
   `python3 tools/stand_conform_envelope_check.py` (tief/mittel/hoch GREEN, Floor hoch −0.140).
+  **HW-Arbeitspreset:** `config/presets/hw_terrain.yaml` (Stufe 8) schaltet alle S4-Enables +
+  Leveling `auto` beim Launch scharf (`params_file:=`, 3-Terminal-Bringup HW8.8a) — Code-Defaults
+  bleiben false; HW-getunte S4-Werte dort nachziehen (HW8.8).
 - **Fallen:** (1) **Körper-Anker NICHT aufgeben** — der Erst-Entwurf (Freeze an Kontakthöhe, auch
   über `body_height`) war closed-loop-instabil (Drift). Option A hält den Anker bei `body_height`
   und senkt **nur nach unten**. (2) **`probe_start` > Kontakt-Lag in Stance-Phasen** (bei
@@ -316,7 +326,7 @@
 | Joint-Limits (URDF) | `hexapod_description/urdf/hexapod.urdf.xacro` (+ `ros2_control.xacro`, `physical_properties.xacro`) |
 | Puls-Cal je Servo | `hexapod_hardware/config/servo_mapping.yaml` |
 | Gait-Logik / State-Machine | `hexapod_gait/hexapod_gait/gait_engine.py`, `gait_node.py` |
-| IMU-Balance / Leveling / Kipp-Erkennung (A5) | `hexapod_gait/{tip_monitor,balance_controller}.py` (Regler **v2** per-Achse), `gait_engine._compute_leveled_ik`, `gait_node._update_{tip,leveling}` + `_apply_leveling_axis_params`, `config/presets/hw_balance.yaml`; Tests `test_{balance_controller,tip_monitor,leveling_node}`; `project_finalization/imu_balance/` |
+| IMU-Balance / Leveling / Kipp-Erkennung (A5) | `hexapod_gait/{tip_monitor,balance_controller}.py` (Regler **v2** per-Achse), `gait_engine._compute_leveled_ik`, `gait_node._update_{tip,leveling}` + `_apply_leveling_axis_params`, `config/presets/hw_balance.yaml` (Leveling-Tuning) + `hw_terrain.yaml` (HW-Komplett-Preset inkl. `leveling_mode: auto` + S4); Tests `test_{balance_controller,tip_monitor,leveling_node}`; `project_finalization/imu_balance/` |
 | Gangmuster | `hexapod_gait/hexapod_gait/gait_patterns.py` |
 | Lauf-Presets | `hexapod_gait/config/presets/*.yaml` |
 | Controller-Config | `hexapod_control/config/controllers{,.real}.yaml` |

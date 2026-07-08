@@ -569,18 +569,86 @@ ros2 param set /gait_node leveling_enable false
 
 ---
 
-# HW8.8 — Gute Werte sichern (→ `hw_terrain.yaml`)
+# HW8.7b — `leveling_mode auto` (Stand levelt von selbst aus)
 
-Während HW8.2–8.7 geänderte, für gut befundene Werte hier eintragen (✍️) und melden — ich erstelle
-daraus `hexapod_gait/config/presets/hw_terrain.yaml` (S4-Params, getrennt von `hw_balance.yaml`)
-+ Doku HW vs. Sim-Default. Lade-Weg danach:
+**Ziel:** kein manuelles Umschalten mehr — im STANDING levelt der Körper automatisch voll aus
+(horizontal), beim Laufen/Anhalten gilt Terrain-Following. Das ist der Fix für den HW8.7-Befund
+„steht nach dem Anhalten schief und regelt nicht aus".
+
+**Bringup identisch zu HW8.7** (Terminals 1–4, `enable_imu:=true` + `hw_balance.yaml`). Dann:
 ```bash
-# beide Presets zusammen geht NICHT über params_file (nur EIN File) -> hw_terrain.yaml wird die
-# S4-Werte enthalten; für Kombi-Läufe lade ich die Leveling-Werte mit hinein (wird bei Erstellung
-# entschieden + dokumentiert).
-ros2 launch hexapod_gait gait.launch.py use_sim_time:=false robot_description_file:="$HEX_URDF" \
-    params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/hw_terrain.yaml
+# ── Terminal 4 (Pi): auto-Modus + gewünschte Features scharf ──
+ros2 daemon stop
+ros2 param set /gait_node leveling_mode             auto
+ros2 param set /gait_node leveling_enable           true
+ros2 param set /gait_node adaptive_touchdown_enable true
+ros2 param set /gait_node adaptive_stand_enable     true
+ros2 param set /gait_node slip_detection_enable     true
+# -> das ist die spätere hw_terrain.yaml-Standard-Konfiguration in Befehlsform.
 ```
+
+**Test A — Auto-Ausleveln im Stand (der Befund-Fix):** ein Stück laufen (gern unebener
+Untergrund/Auslauf, sodass er schief zum Stehen kommt), Stick loslassen.
+**✅ Erwartung:** nach dem Anhalten (STOPPING → STANDING) richtet sich der Körper **von selbst,
+langsam und ruhig** auf (Terminal 4: `/imu/monitor` pitch → Richtung 0, bis in das
+Hysterese-Fenster ~1–2°) — **ohne** einen einzigen `param set`. Kein Ruck, kein Pendeln.
+
+**Test B — Anhalten am Hang (STOPPING bleibt terrain):** auf der Rampe/Schräge anhalten.
+**✅ Erwartung:** WÄHREND des Auslaufens (STOPPING) kein plötzliches Waagerecht-Ziehen; **erst im
+Stand** zieht er sich sanft horizontal (bis max 10°-Clamp). Beim Wieder-Anfahren am Hang gibt er
+die Horizontal-Korrektur sanft wieder her (terrain übernimmt) — kein Ruck.
+
+| Param (Default) | Wirkung | Hinweis |
+|---|---|---|
+| `leveling_mode` (`terrain`) | `auto` = STANDING→horizontal, WALKING/STOPPING→terrain; `horizontal`/`terrain` bleiben als manuelle Overrides | Code-Default bleibt `terrain`; `auto` wird der `hw_terrain.yaml`-Standard (HW8.8) |
+| Rest-Schräge im Stand | Regelung startet ab `outer` (2.0° hw_balance) und stoppt bei `inner` (1.0°) → bis ~1–2° Rest bleibt | by design (Hysterese gegen Chatter); engere Fenster nur im Stand = deferred (D3) |
+
+---
+
+# HW8.8a — DER 3-Terminal-Komplett-Bringup (alles automatisch, kein param set)
+
+**Ziel:** ein fahrbereiter Roboter mit **3 Befehlen in 3 Terminals** — nach dem automatischen
+Aufstehen ist ALLES aktiv (Leveling `auto` + adaptiver Touchdown + Adaptive Stand + Slip-Freeze +
+Sensor-Plausibilität), ohne ein einziges `ros2 param set`. Der Mechanismus: das Komplett-Preset
+`hw_terrain.yaml` (enthält die HW-verifizierten Leveling-Werte UND die S4-Params, weil
+`params_file` nur ein File lädt; `hw_balance.yaml` bleibt das reine Leveling-Tuning-Preset).
+
+> ⚠️ Preset schaltet die Regelkreise ab Start scharf — nur beaufsichtigt, Kill-Switch bereit (§9).
+> Während des Aufstehens sind alle Regelkreise state-gated inaktiv (erst ab STANDING/WALKING).
+
+```bash
+# ── Terminal 1 (Pi): Servo-Stack + IMU (Boden, Kill-Switch!) ──
+cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+ros2 launch hexapod_bringup real.launch.py loopback_mode:=false enable_imu:=true initial_pose:=power_on_mid
+```
+```bash
+# ── Terminal 2 (Pi): Gait + Komplett-Preset -> steht AUTOMATISCH auf, danach alles aktiv ──
+cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+ros2 launch hexapod_gait gait.launch.py use_sim_time:=false \
+    robot_description_file:="$(ros2 pkg prefix --share hexapod_description)/urdf/hexapod.urdf.xacro" \
+    params_file:="$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/hw_terrain.yaml"
+```
+```bash
+# ── Terminal 3 (Pi): Teleop (PS4-BT; PS-Taste am Controller drücken) ──
+cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt
+```
+
+**✅ Erwartung:** Aufstehen automatisch (~8 s) → im Stand konformen die Füße auf den Untergrund
+(Adaptive Stand) und der Körper levelt aus (`auto`→horizontal) → losfahren per Stick → Terrain-
+Following + adaptiver Touchdown + Slip-Schutz aktiv → anhalten → levelt von selbst wieder aus.
+Kein einziges `param set`. Sanity-Check, dass das Preset wirklich geladen ist:
+```bash
+ros2 param get /gait_node leveling_mode     # String value is: auto  -> Preset aktiv
+```
+
+---
+
+# HW8.8 — Gute Werte sichern (→ `hw_terrain.yaml` nachziehen)
+
+Das Preset existiert (HW8.8a) — die S4-Werte darin sind noch **Sim-Defaults**. Während HW8.2–8.7
+geänderte, für gut befundene Werte hier eintragen (✍️) und melden — ich ziehe sie in
+`hw_terrain.yaml` nach + Doku HW vs. Sim-Default.
 
 | Param | Sim-Default | HW-Wert ✍️ | Begründung ✍️ |
 |---|---|---|---|
@@ -596,6 +664,7 @@ ros2 launch hexapod_gait gait.launch.py use_sim_time:=false robot_description_fi
 | `sensor_dead_cycles` | 2 | | |
 | `stand_conform_max_depth` | 0.04 | | |
 | `stand_conform_rate` | 0.02 | | |
+| `leveling_mode` | `terrain` | `auto` (gesetzt) | HW8.7b: Stand levelt von selbst aus |
 | HW8.1-Messwerte (lat avg/max, miss, apex, gap) | — | | Basis der Timing-Entscheide |
 
 ---

@@ -76,7 +76,7 @@ Kippen feuert.
 ## Körper-Stabilisierung / Leveling (Block A5 Stufe 2 + 3a + TF-2)
 
 Der `gait_node` stabilisiert die Körperlage, indem die Fuß-Targets um eine Körper-Rotation
-gedreht werden. **Zwei Modi** (`leveling_mode`):
+gedreht werden. **Drei Modi** (`leveling_mode`):
 
 - **`terrain` (TF-2, Default):** Körper bleibt **parallel zum Boden** — **roll → 0**,
   **pitch folgt dem Hang** (flach → waagerecht, Hang → hangparallel) + **Wackel-Dämpfung**.
@@ -84,6 +84,14 @@ gedreht werden. **Zwei Modi** (`leveling_mode`):
   (IMU − Hang-Schätzung aus TF-1 → der langsame Hang fällt heraus, nur Wackeln wird korrigiert).
 - **`horizontal` (Stufe 2/3a):** Körper **waagerecht** (roll **und** pitch → 0), egal wie der
   Boden liegt — fürs statische Horizontal-Stehen (z.B. Sensor-/Kamera-Plattform).
+- **`auto` (HW8.7b):** state-abhängig — **STANDING → horizontal, WALKING/STOPPING → terrain**.
+  Behebt den HW8.7-Befund: im terrain-Modus bleibt eine Gang-End-Schräge im Stand stehen (der
+  Slope-Schätzer hält die statische Körper-Neigung für einen „Hang" → Residual ≈ 0 → kein
+  Stellen). `auto` levelt im Stand voll aus, ohne dass man den Modus manuell umschalten muss.
+  STOPPING bleibt bewusst terrain (Anhalten am Hang darf nicht mitten im Auslauf waagerecht
+  ziehen); den Eingangs-Sprung Residual↔roh am Übergang glättet der Slew-Limiter. Das
+  `filter_pitch`-Flag folgt dem **effektiven** Modus (kein Doppelfilter). Empfohlener
+  HW-Arbeitswert (Preset); der Code-Default bleibt `terrain` (kein Sim-Regress).
 
 **Stufe 2:** im `STANDING`. **Stufe 3a/TF-2:** zusätzlich im `WALKING`/`STOPPING`. Drei
 Schichten (analog Stufe 1):
@@ -126,7 +134,7 @@ Schichten (analog Stufe 1):
   während der Konvergenz unterdrückt (greift im terrain-Modus praktisch nie — Korrektur klein).
 - **Parameter (live; Stufe 7: Gains + Fenster + Filter je Achse `_roll`/`_pitch`):**
   `leveling_enable` (Default **false**, Opt-in; flach No-Op), `leveling_mode`
-  (`terrain`|`horizontal`, Default **terrain**), `leveling_{kp,ki,kd}_{roll,pitch}`,
+  (`terrain`|`horizontal`|`auto`, Default **terrain**), `leveling_{kp,ki,kd}_{roll,pitch}`,
   `leveling_deadband_{inner,outer}_deg_{roll,pitch}` (Zwei-Fenster-Hysterese; Default
   inner==outer==1.5 = aus), `leveling_slew_max_dps_{roll,pitch}`,
   `leveling_tau_{fast,slow}_s_{roll,pitch}` (Dual-Tiefpass; Default 0 = aus),
@@ -517,7 +525,7 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `tick_rate` | `50.0` | Engine-Loop-Rate (Hz) |
 | `time_from_start_factor` | `2.0` | JTC-Lookahead = factor / tick_rate |
 | `leveling_enable` | `false` | Body-Stabilisierung aktivieren (Opt-in; flach No-Op) |
-| `leveling_mode` | `terrain` | TF-2: `terrain` (roll→0, pitch folgt Hang) vs. `horizontal` (Voll-Leveln) |
+| `leveling_mode` | `terrain` | TF-2: `terrain` (roll→0, pitch folgt Hang) vs. `horizontal` (Voll-Leveln) vs. `auto` (HW8.7b: STANDING→horizontal, WALKING/STOPPING→terrain) |
 | `leveling_{kp,ki}_{roll,pitch}` | `0.4` / `0.1` | PI-Gains je Achse (Stufe 7, live) |
 | `leveling_kd_{roll,pitch}` | `0.03` | Gyro-Dämpfung (Wackeln); `0` = kein D |
 | `leveling_deadband_{inner,outer}_deg_{roll,pitch}` | `1.5` / `1.5` | Zwei-Fenster-Hysterese; inner==outer = aus (Stufe 7) |

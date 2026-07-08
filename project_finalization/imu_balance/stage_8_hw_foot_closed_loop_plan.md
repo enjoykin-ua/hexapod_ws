@@ -191,3 +191,93 @@ Stufe 8 (Fußkontakt-Closed-Loop auf HW):
   → `touchdown_probe_start` gegen HW-Lag).
 - `PHASE.md`: A5-Zeile (Stufe 8 HW-Closed-Loop).
 - HW-Test-Commands-Datei `stage_8_hw_foot_closed_loop_test_commands.md` (self-contained, copy-paste).
+
+---
+
+## 9. HW8.7-Finding: `leveling_mode 'auto'` (Stand → horizontal, Lauf → terrain)  🟢 freigegeben + implementiert (HW-Verify offen)
+
+> **§9.4-Entscheide (User):** alle drei Punkte wie empfohlen — Rest-Schräge bis Hysterese-Fenster
+> akzeptiert · Name `auto` · Code-Default bleibt `terrain` (auto = HW-Preset-Wert).
+> **Implementiert:** `gait_node._update_leveling` (auto-Auflösung) + Validierung + 5 neue Tests
+> (431 gait / 43 kin grün) + README/ai_navigation. HW-Verify = Test-Doku HW8.7b.
+
+> **HW-Befund (User, HW8.7):** nach dem Anhalten stand der Roboter sichtbar **pitch-geneigt und
+> regelte nicht aus** — erst manuelles `leveling_mode horizontal` richtete ihn auf. **Kein Bug,
+> sondern terrain-by-design:** der `SlopeEstimator` (langsamer Tiefpass auf die IMU-Lage) konvergiert
+> im Stand auf die aktuelle Körper-Neigung → pitch-Residual ≈ 0 → Regler sieht „im Soll". Der
+> Schätzer kann „Boden ist geneigt" (→ folgen, gewollt) nicht von „Körper steht schief auf ebenem
+> Boden" (Gang-Endzustand → sollte ausleveln) unterscheiden. Roll ist nicht betroffen (in beiden
+> Modi roh → 0) — deckt sich mit dem Befund („man sah es am pitch").
+>
+> **Fix-Idee (User-Wunsch):** ein Modus, der **nicht manuell umgeschaltet** werden muss —
+> im STANDING automatisch voll ausleveln, beim Laufen Terrain-Following.
+
+### 9.1 Logik-Skizze
+
+**Neuer `leveling_mode`-Wert `'auto'`** (dritter Wert neben `horizontal`/`terrain`, beide bleiben
+als statische Modi unverändert — backward-kompatibel):
+
+```
+_update_leveling (gait_node, einzige Auswertungsstelle Z. ~1722):
+    mode = self._leveling_mode
+    if mode == 'auto':
+        mode = 'horizontal' if engine.state == STANDING else 'terrain'
+    # ab hier unverändert, aber gegen `mode` statt `self._leveling_mode`:
+    pitch_in     = imu_pitch − slope_pitch   wenn mode=='terrain', sonst imu_pitch (roh)
+    filter_pitch = (mode != 'terrain')       # Doppelfilter-Falle: folgt dem EFFEKTIVEN Modus
+```
+
+**Design-Entscheidungen (mit Begründung):**
+1. **STOPPING → terrain** (nicht horizontal): Anhalten *am Hang* darf den Körper nicht mitten im
+   Auslauf ruckartig waagerecht ziehen — WALKING+STOPPING bleiben ein Block (dieselbe Logik wie
+   die `_LEVELING_NODE_STATES`-Falle 4 aus TF-2). Das Waagerecht-Ziehen beginnt erst im STANDING.
+2. **Kein Controller-Reset beim effektiven Modus-Wechsel:** der pitch-Eingang springt beim
+   STOPPING→STANDING-Wechsel von Residual (≈0) auf roh (= echte Neigung) — der **Slew-Limiter**
+   (8°/s) macht daraus das gewünschte langsame, sanfte Aufrichten (exakt der Mechanismus des
+   3a-Fixes für den state-abhängigen Clamp). Ein Reset würde Snap-Init triggern und nichts
+   verbessern.
+3. **Engine/Regler/SlopeEstimator unverändert** — reine Node-Änderung an EINER Stelle
+   (`_update_leveling`) + String-Validierung (`_on_param_change` Z. ~2655) + Kommentar (Z. ~2960).
+   Die Slope-Schätzung läuft im STANDING weiter (wie bisher): sie wird dort nur nicht fürs
+   Leveling benutzt; der slope-aware Tip (TF-1) bleibt unabhängig davon residual-gefüttert.
+4. **Code-Default bleibt `terrain`** (E9-Prinzip: Code-Default = bisheriges Verhalten, kein
+   Sim-Regress); `auto` wird der Arbeitswert in der HW-Preset-YAML (`hw_terrain.yaml`, HW8.8).
+5. **Bewusster Nebeneffekt:** auf einem *echten* Hang zieht sich der Körper im Stand ebenfalls
+   waagerecht (bis `max_level_angle` 10°) — Stufe-2-Verhalten, beim „Parken" erwünscht. Hang
+   > 10° → Rest-Neigung bleibt (Clamp).
+
+### 9.2 Tests-Liste (mit Begründung)
+
+| Test | Prüft | Warum |
+|---|---|---|
+| `auto` + STANDING → pitch-Eingang **roh** + `filter_pitch=True` | horizontal-Verhalten im Stand | der Kern des Features (Befund-Fix) |
+| `auto` + WALKING → pitch-Eingang **Residual** + `filter_pitch=False` | terrain-Verhalten im Lauf | kein Regress ggü. TF-2; Doppelfilter-Falle |
+| `auto` + **STOPPING → terrain** | Anhalte-Übergang | Design-Entscheid 1 (kein Ruck am Hang) |
+| Validierung: `'auto'` akzeptiert, Unsinn-String weiter abgelehnt | Param-Schutz | bestehende Mode-Validierung erweitert |
+| Live-Umschalten `terrain`→`auto` im Stand wirkt ab nächstem Tick | Live-Tuning-Pfad | Konsistenz mit allen Leveling-Params |
+| Bestehende Suite unverändert grün (426 gait / 43 kin) | Back-Compat statischer Modi | horizontal/terrain-Pfade unangetastet |
+
+**Bewusst NICHT getestet:** Übergangs-Sanftheit quantitativ (Slew-Mechanik ist v2-unit-getestet);
+kein Engine-Test (Engine unberührt); kein eigener Sim-Verify (HW-Verify läuft ohnehin im
+Stufe-8-Programm mit — anhalten in Schräglage → levelt aus).
+
+### 9.3 Progress-Checkliste (→ `imu_balance_progress.md` Stufe 8, nach HW8.7 einfügen)
+
+```
+- [ ] HW8.7b leveling_mode 'auto' (STANDING->horizontal, WALKING/STOPPING->terrain): _update_leveling loest effektiven Modus auf, filter_pitch folgt effektivem Modus; Code-Default bleibt 'terrain'
+- [ ] HW8.7b Tests (auto per State inkl. STOPPING=terrain, Validierung 'auto', Live-Umschalten, Back-Compat) + colcon test hexapod_gait hexapod_kinematics + Lint gruen
+- [ ] HW8.7b Doku: hexapod_gait-README (auto-Modus) + ai_navigation (leveling_mode-Eintrag) nachgezogen
+- [ ] HW8.7b HW-Verify: laufen -> anhalten in Schraeglage -> levelt automatisch aus (ohne param set); Anfahren -> kein Ruck
+```
+
+### 9.4 Offene Punkte für User-Review (vor Code-Beginn entscheiden)
+
+1. **Rest-Schräge im Stand bis zum Hysterese-Fenster bleibt stehen** (Regelung startet erst ab
+   `outer` = 2.0° mit den hw_balance-Werten, stoppt bei `inner` = 1.0°): akzeptabel? Alternative
+   (engere Fenster nur im Stand) wäre „state-abhängige Fenster" = bewusst deferred (D3), würde ich
+   NICHT jetzt mitbauen.
+2. **Modus-Name `'auto'`** ok? (Alternative wäre z. B. `'terrain_auto'` — mir ist `auto` lieber:
+   kurz, und horizontal/terrain bleiben die expliziten Overrides.)
+3. **Code-Default `terrain` behalten** (auto nur im HW-Preset) — einverstanden? Alternative:
+   Default gleich `auto` (bequemer, aber ändert Sim-Default-Verhalten aller bestehenden Welten
+   im STANDING — ich rate ab).
