@@ -20,21 +20,36 @@
 
 ## Schritt 0 — Einmalig pro Session: Build + PS4-Controller per Bluetooth
 
-**0a — Bauen + sourcen** (nur nötig, wenn `hexapod_gait`/`hw_balance.yaml` geändert wurde):
+**0a — Bauen + sourcen.** Nach einem frischen `git`-Sync/Reset **den ganzen Workspace bauen**, sonst
+bleiben Pakete stale (z. B. fehlt sonst `hexapod.imu.xacro` im installierten `hexapod_description` →
+`real.launch.py` bricht beim xacro-Expandieren ab):
 ```bash
 cd ~/hexapod_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select hexapod_gait hexapod_sensors hexapod_teleop
+colcon build            # ganzer Workspace (hexapod_gazebo hat COLCON_IGNORE -> auf dem Pi uebersprungen)
 source install/setup.bash
 ```
+> Nur wenn du **sicher** weißt, dass sich seit dem letzten Voll-Build nur diese Pakete geändert haben,
+> reicht das Teil-Build: `colcon build --packages-select hexapod_gait hexapod_sensors hexapod_teleop`.
+> Bei „No such file … hexapod.imu.xacro" o. ä. → `colcon build --packages-select hexapod_description`
+> (oder Voll-Build oben) nachziehen.
 
-**0b — PS4-DS4 per Bluetooth verbinden** (bereits gekoppelt/trusted, MAC `D0:27:88:3D:68:9A`):
+**0b — PS4-Controller bereitstellen** (eine der zwei Varianten — der eigentliche Teleop-Start passiert
+pro Test in einem eigenen Terminal, s. IP3.3; hier die Befehle zum Merken):
+
+*Variante A — per USB-Kabel* (kein Pairing, einfach einstecken):
 ```bash
-# Normalfall: einfach die PS-Taste am Controller druecken -> verbindet automatisch (trusted).
-# Pruefen, dass er da ist:
-ls /dev/input/js*          # js0 sollte existieren
-# Reconnect erzwingen, falls PS-Taste nicht reicht:
-bluetoothctl connect D0:27:88:3D:68:9A
+# DS4 per USB-Kabel an den Pi stecken -> js0 erscheint sofort.
+ls /dev/input/js*                                                   # js0 sichtbar?
+ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_usb # <- Teleop-Start (USB)
+```
+
+*Variante B — per Bluetooth* (bereits gekoppelt/trusted, MAC `D0:27:88:3D:68:9A`):
+```bash
+# PS-Taste am Controller druecken -> verbindet automatisch (trusted). Pruefen:
+ls /dev/input/js*                                                   # js0 sichtbar?
+bluetoothctl connect D0:27:88:3D:68:9A                             # nur falls PS-Taste nicht reicht
+ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt  # <- Teleop-Start (Bluetooth)
 ```
 > Neu koppeln (nur falls verloren): `bluetoothctl` → Controller in Pairing-Mode (Share+PS ~5 s bis
 > Lightbar doppelblinkt) → `scan on` → `pair <MAC>` → `trust <MAC>` → `connect <MAC>`. Details:
@@ -141,15 +156,34 @@ ros2 topic echo /imu/monitor          # roll/pitch [rad] — soll gegen ~0 gehen
 ```bash
 # ── Terminal 4 (Pi): Leveling scharfstellen + Kd-Sweep ──
 cd ~/hexapod_ws && source install/setup.bash
+# HW-erprobte Startwerte (aufgebockt, "vorerst gut" — folgt zuegig, kein Pendeln). Sim-Default in Klammern.
 ros2 param set /gait_node leveling_mode          horizontal   # roll+pitch -> 0
-ros2 param set /gait_node leveling_kd            0.01          # KLEIN starten (Sim 0.03; D rauscht)
-ros2 param set /gait_node leveling_deadband_deg   1.5          # Sim 1.5
-ros2 param set /gait_node leveling_slew_max_dps   4.0          # klein starten (Sim 8) -> Rate zaehmen
+ros2 param set /gait_node leveling_kp            1.3           # HW (Sim 0.4) ; Antrieb (P) — hoch = kraeftiger, Pendel-Gefahr
+ros2 param set /gait_node leveling_ki            0.2           # HW (Sim 0.1) ; Integral — drueckt Rest-Schraege raus, langsam
+ros2 param set /gait_node leveling_kd            0.02          # HW (Sim 0.03) ; Daempfung gg. Pendeln — zu hoch = Summen/Zittern
+ros2 param set /gait_node leveling_deadband_deg   2.0          # HW (Sim 1.5) ; Totzone um 0
+ros2 param set /gait_node leveling_slew_max_dps   6.0          # HW (Sim 8) ; Nachfuehr-Tempo
 ros2 param set /gait_node leveling_enable         true         # ERST jetzt scharf (IP3.1-Netz steht)
-# Kd schrittweise hoch bis knapp vor Zittern, dann einen Schritt zurueck:
-ros2 param set /gait_node leveling_kd            0.02
-ros2 param set /gait_node leveling_kd            0.03
+# Weiter-Tunen (optional): eine Schraube aendern, beobachten. Wirkung je Param -> Tabelle unten.
 ```
+
+**Was jeder Parameter bewirkt** (die Start-Werte oben sind nur Ausprobier-Defaults — so tunt man sie):
+
+| Param | Wert **kleiner** | Wert **größer** | Kopplung / Hinweis |
+|---|---|---|---|
+| `leveling_kp` (0.4) | schwächere/langsamere Rückstellung; bleibt eher schief | kräftiger/schneller, aber **Überschwingen → Pendeln** ("hin und her") | treibt die Korrektur; braucht `kd` als Bremse |
+| `leveling_ki` (0.1) | Rest-Schräge bleibt länger, dafür stabiler | drückt Rest-Schräge schneller raus, aber **träges Nachpendeln** | wirkt langsam/aufintegrierend; zu hoch = Wind-up-Schwingen |
+| `leveling_kd` (0.03) | **weniger Dämpfung → Pendeln bleibt/steigt** (Aufschwingen) | dämpft das Pendeln, ABER ab zu hoch **Summen/Zittern** (verstärkt Sensor-Rauschen) | **Haupthebel gegen "hin und her"**; höchster Wert, der noch nicht zittert = Ziel |
+| `leveling_deadband_deg` (1.5) | levelt **genauer** Richtung 0°, aber **nervöser** um die Nulllage (mehr Zappeln) | **ruhiger/stabiler**, aber levelt nur **grob** bis zu diesem Rest-Winkel | Totzone um 0; hilft gegen Zappeln, kostet Genauigkeit |
+| `leveling_slew_max_dps` (8, Start 4) | **sanftes, langsames** Nachführen (ruckfrei), aber träge | **schneller** nachführen, aber ruckiger; lässt Oszillation schneller durch | Tempo-Limit; begrenzt auch, wie schnell `kd` wirken kann |
+| `leveling_max_angle_deg` (10) | kappt Korrektur früher (weniger Schräge wird ausgeregelt) | **NICHT erhöhen** — 10° ist offline als envelope-sicher bewiesen | harter Clamp, kein Tuning-Knopf |
+
+> **Gegen dein "kippt hin und her" (Oszillation), in dieser Reihenfolge:** (1) `leveling_kd` **hoch**
+> (dämpfen) bis knapp vors Summen. (2) Reicht's nicht → `leveling_kp` (und/oder `leveling_ki`)
+> **runter** (weniger treiben). (3) `leveling_slew_max_dps` **runter** verlangsamt das Pendeln
+> zusätzlich. (4) Zappelt's nur eng um die Nulllage → `leveling_deadband_deg` etwas **hoch**.
+> Faustregel: erst dämpfen (kd↑), dann Antrieb zähmen (kp/ki↓) — nicht beides gleichzeitig verstellen,
+> sonst weißt du nicht, was gewirkt hat.
 
 **Prüfen:**
 - **IP3.2a kein Oszillieren:** im Stand ruhig, **kein Zittern**. Bei Zittern → `leveling_kd` runter.
@@ -191,10 +225,12 @@ ros2 launch hexapod_gait gait.launch.py \
 #   Node-Defaults (standup_mode=cartesian, auto_standup_duration=8.0), keine Launch-Args.
 ```
 ```bash
-# ── Terminal 3 (Pi): PS4-Teleop per Bluetooth (fahren mit dem linken Stick) ──
-#   Voraussetzung: Controller verbunden (Schritt 0b: PS-Taste). Ohne Controller: cmd_vel-Alternative unten.
+# ── Terminal 3 (Pi): PS4-Teleop (fahren mit dem linken Stick) ──
+#   Voraussetzung: Controller bereit (Schritt 0b). Ohne Controller: cmd_vel-Alternative unten.
 cd ~/hexapod_ws && source install/setup.bash
-ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt
+ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt    # Bluetooth
+# ODER per Kabel:
+# ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_usb # USB
 #   -> linker Stick vor = langsam geradeaus. △/○ = Stand/Sit, L2/R2 = Stance-Modus (siehe Anhang).
 ```
 ```bash
