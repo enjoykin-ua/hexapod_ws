@@ -11,11 +11,15 @@
 
 ## Stand & nächster Schritt (Übergabe)
 
-> **🧭 AKTUELL: Stufe 7 (Balance-Regler v2) 🟢 KOMPLETT** — Zwei-Fenster-Hysterese + Dual-Tiefpass +
-> per-Achse, behebt das HW-Pendeln. **Code+Tests grün** (426 gait / 43 kin, 0 Fehler) **+ HW-verifiziert**
-> (Kipp-Platte am Boden: hält sauber horizontal, kein Überschwingen/Zittern). Verifizierte Konfig in
-> `hw_balance.yaml`. **Nächster Schritt: 6c/IP3.3-auf-v2 = Terrain-Following im Laufen** (am Boden,
-> terrain-Modus) — Standing-Leveling ist damit erledigt. Details: Stufe-7-Abschnitt unten. **User committet selbst.**
+> **🧭 AKTUELL: Stufe 8 (Fußkontakt-Closed-Loop auf HW) 🟡 in Arbeit** — bringt S4-2/4/5/7 (bisher
+> nur Sim) auf die echte HW; Sensor-Kette (Stufe 5) + Regler-Code stehen → überwiegend HW-Verifikation
+> + Timing-Tuning, **kein neuer Code** (nur `hw_terrain.yaml` am Ende + evtl. HW8.7-Integrations-Fix).
+> Plan: [`stage_8_hw_foot_closed_loop_plan.md`](stage_8_hw_foot_closed_loop_plan.md) · Test-Doku:
+> [`stage_8_hw_foot_closed_loop_test_commands.md`](stage_8_hw_foot_closed_loop_test_commands.md).
+> **HW8.0 ✅** (User-Vorab-Verify); als Nächstes **HW8.2a** (Touchdown aufgebockt, Probe ohne Boden).
+> _(Davor: Stufe 7 Regler v2 🟢 KOMPLETT + HW-verifiziert, Konfig in `hw_balance.yaml`; der frühere
+> „nächste Schritt" IP3.3-auf-v2 [Terrain-Following im Laufen] läuft faktisch in HW8.7 mit bzw. danach.)_
+> **User committet selbst.**
 >
 > _(Historie unten: Stufe 4 Terrain-adaptiv war der vorherige aktive Punkt.)_
 
@@ -980,6 +984,42 @@ Stufe 7 (Balance-Regler v2):
 **Fazit:** keine 🔴. **7.1–7.12 alle erfüllt** (Code + 426/43 Tests + Lint + Doku + **HW-verifiziert**).
 **Stufe 7 🟢 KOMPLETT.** Standing-Leveling auf v2 ist HW-sauber (kein Pendeln/Überschwingen/Zittern),
 Konfig in `hw_balance.yaml`. Nächster Schritt: **IP3.3-auf-v2** (Terrain-Following im Laufen, am Boden).
+
+---
+
+## Stufe 8 — Fußkontakt-Closed-Loop auf HW  🟡 in Arbeit
+
+Plan: [`stage_8_hw_foot_closed_loop_plan.md`](stage_8_hw_foot_closed_loop_plan.md) (§4-Freigabe erteilt) ·
+Test-Doku: [`stage_8_hw_foot_closed_loop_test_commands.md`](stage_8_hw_foot_closed_loop_test_commands.md)
+(self-contained, alle Befehle pro Test + Tuning-Tabellen Default/↑/↓).
+
+> **§4-/Vorab-Entscheide (User):** alle 6 Taster verdrahtet + HW8.0 vorab verifiziert · gestaffelt
+> risk-aufsteigend · **Reihenfolge-Umbau ggü. Plan-§2:** Timing-Charakterisierung (HW8.1) läuft **am
+> Boden beim Gate-Lauf (HW8.2b) mit** statt aufgebockt (aufgebockt lassen sich nicht 5–6 Taster
+> gleichzeitig drücken; am Boden liefern alle 6 Beine echte Flanken automatisch — realistischere
+> Daten). Aufgebockt bleibt der taster-freie Probe-Test (HW8.2a) · Steuerung Boden-Läufe = PS4-BT
+> (cmd_vel-Fallback in der Doku) · HW8.4-Kante = Podest ~5–15 cm · HW-Gains → eigene
+> `hw_terrain.yaml` (getrennt von `hw_balance.yaml`).
+>
+> **Plan-§6-Klärungen:** (5) Fail-safe-Richtung ✅ — abgesteckt/Kabelbruch = offener Kreis = `False`
+> (Luft) = sichere Fehlrichtung (schlimmstenfalls Fehl-Freeze; S4-5-dead fängt den Dauer-False-Fall).
+> (Recherche-Befund für HW8.4/8.5: **Safety-Freeze auf HW = Position HALTEN**, Plugin hält
+> `last_command_pulse_us_` + füttert den FW-Watchdog weiter — kein Relay-Drop; Recovery-Reihenfolge
+> `/hexapod_safety_reset` → sit → stand, siehe Test-Doku-Safety-Block.)
+
+```
+Stufe 8 (Fußkontakt-Closed-Loop auf HW):
+- [x] HW8.0 Sensor-Kette alle 6 Taster HW-verifiziert (Topics + RViz, keine Geister) — read-only  [✅ User-Vorab-Verify 2026-07: jeder Taster -> richtiges Topic + richtiger Fuß in RViz; Fail-safe-Richtung geklärt (abgesteckt = False = sicher)]
+- [ ] HW8.2a S4-2 adaptiver Touchdown aufgebockt (Probe-bis-Floor ohne Kontakte): kein Drift/IKError/Ruckeln; optionaler Ein-Taster-Spot-Check friert ein
+- [ ] HW8.2b+HW8.1 Boden-Lauf-Gate (S4+Leveling AUS) bestanden UND Timing-Charakterisierung (ContactDiagnostic: lat/miss/apex/gap) -> Param-Basis notiert
+- [ ] HW8.3 S4-2 am Boden: Fuss reicht in Stufe/Graben nach, flach exakt nominal (Anker haelt), Strom ok; probe_start/max_depth HW-getunt
+- [ ] HW8.4 S4-4 Slip->Freeze: Podest-Kante -> Freeze rechtzeitig + guter Boden kein Fehlalarm; debounce/grace HW-getunt; cliff_depth envelope-geprueft
+- [ ] HW8.5 S4-5 Sensor-Fault (echt abgesteckt von Start): Bein maskiert + WARN, kein Freeze (Variante B: ever_contacted-Schutz greift), keine FP-Kaskade
+- [ ] HW8.6 S4-7 Adaptive Stand: Sim-Rubicon-Verify (Desktop) zuerst, dann HW am Boden (unebener Grund)
+- [ ] HW8.7 Kombi S4 + Leveling: Stand-Kombi (adaptive_stand+horizontal) + Lauf-Kombi (touchdown+terrain) sauber (kein IKError/Konflikt)
+- [ ] HW8.8 HW-Gains in hw_terrain.yaml + Doku (HW vs Sim)
+- [ ] HW8.9 kritische Self-Review-Tabelle
+```
 
 ---
 
