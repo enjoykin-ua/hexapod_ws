@@ -36,12 +36,31 @@ def quat_to_roll_pitch(x, y, z, w):
 
 
 class TipMonitor:
-    """Kipp-Schwellen + Entprellung + Latch. Keine ROS-Dependency."""
+    """Kipp-Schwellen (per Achse) + Entprellung + Latch. Keine ROS-Dependency."""
 
-    def __init__(self, angle_warn, angle_crit, rate_crit, debounce_ticks):
-        """Winkel ``angle_*`` in rad, ``rate_crit`` in rad/s, debounce in Ticks."""
-        self._angle_warn = float(angle_warn)
-        self._angle_crit = float(angle_crit)
+    def __init__(
+        self, angle_warn, angle_crit, rate_crit, debounce_ticks,
+        angle_warn_pitch=None, angle_crit_pitch=None,
+    ):
+        """
+        Winkel ``angle_*`` in rad, ``rate_crit`` in rad/s, debounce in Ticks.
+
+        **Stufe 7 (E5) — per Achse:** ``angle_warn``/``angle_crit`` gelten für
+        **roll**; ``angle_warn_pitch``/``angle_crit_pitch`` für **pitch**. Sind
+        die pitch-Werte ``None`` (Default), wird die roll-Schwelle für beide
+        Achsen benutzt (symmetrisch = altes Verhalten). ``rate_crit``/``debounce``
+        sind achsen-übergreifend.
+        """
+        self._warn_roll = float(angle_warn)
+        self._crit_roll = float(angle_crit)
+        self._warn_pitch = (
+            float(angle_warn) if angle_warn_pitch is None
+            else float(angle_warn_pitch)
+        )
+        self._crit_pitch = (
+            float(angle_crit) if angle_crit_pitch is None
+            else float(angle_crit_pitch)
+        )
         self._rate_crit = float(rate_crit)
         self._debounce = max(1, int(debounce_ticks))
         self._warn_count = 0
@@ -70,9 +89,12 @@ class TipMonitor:
         if self._latched_crit:
             return TIP_CRIT
 
-        tilt = max(abs(roll), abs(pitch))
-
-        if tilt >= self._angle_crit or abs(tilt_rate) >= self._rate_crit:
+        # Per-Achse (E5): CRIT/WARN wenn EINE Achse ihre Schwelle reißt (ODER Rate
+        # bei CRIT). Bei symmetrischen Schwellen == altem max(|roll|,|pitch|).
+        crit_angle = (
+            abs(roll) >= self._crit_roll or abs(pitch) >= self._crit_pitch
+        )
+        if crit_angle or abs(tilt_rate) >= self._rate_crit:
             self._crit_count += 1
         else:
             self._crit_count = 0
@@ -80,7 +102,7 @@ class TipMonitor:
             self._latched_crit = True
             return TIP_CRIT
 
-        if tilt >= self._angle_warn:
+        if abs(roll) >= self._warn_roll or abs(pitch) >= self._warn_pitch:
             self._warn_count += 1
         else:
             self._warn_count = 0

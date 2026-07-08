@@ -1,38 +1,46 @@
 """
-BalanceController — ROS-freie statische Körper-Leveling-Regelung (Block A5 Stufe 2).
+BalanceController v2 — ROS-freie Körper-Leveling-Regelung (Block A5 Stufe 2 + 7).
 
 Schmale, austauschbare Regler-Schnittstelle (gleiche Trennung wie ``TipMonitor``
 / ``hexapod_kinematics`` — unit-testbar ohne ROS). Konsumiert die gemessene
 Körper-Neigung (roll/pitch, rad) und liefert pro Tick eine **Körper-Rotations-
 Korrektur** ``(corr_roll, corr_pitch)`` (rad), die der gait_engine-Stellpfad als
-Rotation ``R(corr_roll, corr_pitch)`` auf alle 6 Fuß-Targets anwendet, um den
-Körper horizontal zu halten (Soll = 0/0).
+Rotation ``R(corr_roll, corr_pitch)`` auf alle 6 Fuß-Targets anwendet (Soll 0/0).
 
-v1-Gesetz pro Achse (Master D3): **Totband-PI + Gyro-D + Slew-Rate-Limit + Anti-Windup**.
+**Stufe 7 (v2)** — pro Achse (roll/pitch) getrennt konfigurierbar, mit
+**Zwei-Fenster-Hysterese** und optionalem **Dual-Tiefpass**:
 
-- ``error = 0 − measured`` (Soll = 0; im TF-2-terrain-Modus speist der gait_node
-  pro Achse die passende Größe ein — roll roh, pitch = Residual gegen den Hang —
-  sodass „Soll 0" jeweils „roll→0" bzw. „pitch folgt Hang" bedeutet).
-- **Totband:** ``|error| < deadband`` → P-Term = 0 und Integrator **eingefroren**
-  (gehalten). So jagen die 18 Servos nicht dem IMU-Rauschen / Gang-Ripple um die
-  Soll hinterher; die im Integrator gespeicherte Korrektur **hält** die Lage.
-- **PI:** ``out = Kp·error + I``, ``I += Ki·error·dt`` (nur außerhalb Totband).
-- **Gyro-D (TF-2):** ``d = −Kd·gyro_rate`` — dämpft die Drehrate (Wackeln),
-  wirkt **immer** (auch im Winkel-Totband: Wackeln hat kleinen Winkel, aber hohe
-  Rate). ``Kd=0`` (Default) → Stufe-2-Verhalten unverändert. ``d`` geht **vor** den
-  Slew (Slew bindet die Gesamt-Stellbewegung weiter als Scrub-Schutz). ⚠️ D
-  differenziert → rausch-verstärkend (Sim rauschfrei, HW ggf. ``Kd`` senken).
-- **Anti-Windup:** Integrator-Beitrag ``I`` auf ``±max_level_angle`` geclampt,
-  ``out`` final auf ``±max_level_angle`` geclampt.
-- **Slew:** ``|Δout/dt| ≤ slew_max`` (sanfte Stellbewegung → schützt vor
-  Fuß-Scrub-Spikes; Risiko 3).
+- **Zwei-Fenster-Hysterese (E1):** nicht-regelnd → **start** bei ``|m_slow| ≥ outer``;
+  regelnd → **stop** (P=0, Integrator eingefroren) bei ``|m_fast| < inner``. Dazwischen
+  hält der Zustand → **kein Rand-Chatter** (der Stufe-2-Grenzzyklus). Bei
+  ``inner == outer`` reduziert sich das exakt auf das alte Single-Totband
+  (regelnd ⇔ ``|x| ≥ inner``).
+- **Dual-Tiefpass (E2, nur wenn ``apply_filter`` und ``tau_slow > 0``):** fast/slow-EMA
+  auf den Eingang. Der **slow**-Filter entscheidet „resume" (ignoriert Transiente),
+  der **fast**-Filter „stop" (schnelles Settle). ``apply_filter=False`` (Eingang ist
+  bereits ein Slope-Residual → Slope-Schätzer ist die langsame Stufe) ⇒ **kein**
+  zweiter Filter (``m_fast = m_slow = measured``). ``tau_fast=0`` ⇒ ``m_fast = measured``.
+- **Snap-Init (B):** erstes Sample nach ``reset()`` setzt die Filter direkt auf die
+  Messung (kein Hochlauf von 0 → kein verzögertes Engagement am gekippten Roboter).
+- **Stellgröße-Eingang (D):** ``error = -m_fast`` (geglättet wenn gefiltert, sonst
+  == ``measured``).
+- **Gyro-D (E6):** ``d = -kd·gyro_rate`` — dämpft die Drehrate (Wackeln), wirkt
+  **immer** (auch im „nicht-regelnd"-Hold; Wackeln = kleiner Winkel + hohe Rate),
+  auf der **rohen** Gyro-Rate. ⚠️ D rausch-verstärkend → auf HW ``kd`` konservativ.
+- **Anti-Windup + Clamp:** Integrator + Ausgang auf ``±max_level_angle`` (gemeinsam,
+  state-abhängig 10/4° vom gait_node via ``set_gains`` gesetzt). Muss offline
+  envelope-sicher bewiesen sein (Stufe-2-Checkliste 2.5).
+- **Slew:** ``|Δout/dt| ≤ slew_max`` (Scrub-Schutz; deckelt auch die Lurch-Rate).
 
-Vorzeichen: ``corr`` kontert die gemessene Neigung (``error = −measured``) — die
+Vorzeichen: ``corr`` kontert die gemessene Neigung (``error = -measured``) — die
 konkrete Dreh-Richtung im Base-Frame setzt der Engine-Stellpfad (``rotate_xy``)
 und wird in Sim/Round-Trip-Test verifiziert.
 
-Austauschbar: hinter dieselbe ``update(roll, pitch, dt)``-Schnittstelle passt als
-zweite Implementierung das Dual-Tiefpass/Dual-Fenster-Schema (Master D3).
+**Backward-Compat:** der alte Konstruktor ``(kp, ki, deadband, slew_max,
+max_level_angle, kd=0)`` erzeugt beide Achsen symmetrisch mit ``inner == outer ==
+deadband`` und ``tau_fast == tau_slow == 0`` ⇒ **exakt** das Stufe-2-Verhalten
+(``resume ≥ D``, ``stop < D`` ⇒ regelnd iff ``|x| ≥ D``; ``error = -measured``).
+Per-Achse-Feintuning über ``set_axis_gains``.
 """
 
 from __future__ import annotations
@@ -47,8 +55,42 @@ def _clamp(value: float, limit: float) -> float:
     return value
 
 
+class _Axis:
+    """Per-Achse Gains + Regler-/Filter-Zustand (roll bzw. pitch)."""
+
+    def __init__(
+        self, kp: float, ki: float, kd: float, inner: float, outer: float,
+        slew_max: float, tau_fast: float, tau_slow: float,
+    ):
+        # Gains
+        self.kp = float(kp)
+        self.ki = float(ki)
+        self.kd = float(kd)
+        self.inner = float(inner)
+        self.outer = float(outer)
+        self.slew_max = float(slew_max)
+        self.tau_fast = float(tau_fast)
+        self.tau_slow = float(tau_slow)
+        # State
+        self.integ = 0.0        # Integrator-Beitrag (rad, Ki eingerechnet)
+        self.out = 0.0          # zuletzt emittierte Korrektur (rad)
+        self.m_fast = 0.0       # fast-EMA des Eingangs
+        self.m_slow = 0.0       # slow-EMA des Eingangs
+        self.regulating = False  # Hysterese-Latch
+        self.initialized = False  # Snap-Init-Flag
+
+    def reset(self) -> None:
+        """Integrator + Ausgang + Filter + Latch nullen (State-Gating/Recovery)."""
+        self.integ = 0.0
+        self.out = 0.0
+        self.m_fast = 0.0
+        self.m_slow = 0.0
+        self.regulating = False
+        self.initialized = False
+
+
 class BalanceController:
-    """Totband-PI + Slew + Anti-Windup pro Achse. Keine ROS-Dependency."""
+    """Per-Achse Totband-PI + Hysterese + Dual-Tiefpass + Gyro-D. Keine ROS-Dependency."""
 
     def __init__(
         self,
@@ -60,36 +102,24 @@ class BalanceController:
         kd: float = 0.0,
     ):
         """
-        Alle Winkel in rad, ``slew_max`` in rad/s, ``ki`` in 1/s, ``kd`` in s.
+        Back-Compat-Konstruktor (beide Achsen symmetrisch).
 
-        ``deadband`` = Halb-Breite des Totbands (rad). ``max_level_angle`` =
-        harter Ausgangs-/Integrator-Clamp (rad); muss offline als
-        envelope-sicher bewiesen sein (Stufe-2-Checkliste 2.5). ``kd`` =
-        Gyro-Dämpfungs-Gain (TF-2); Default 0 → Stufe-2-Verhalten.
+        ``inner == outer == deadband``, Filter aus (``tau_fast == tau_slow ==
+        0``). Alle Winkel in rad, ``slew_max`` in rad/s, ``ki`` in 1/s, ``kd``
+        in s. ``max_level_angle`` = gemeinsamer harter Clamp (rad). Per-Achse-
+        Werte via ``set_axis_gains``.
         """
-        self._kp = float(kp)
-        self._ki = float(ki)
-        self._kd = float(kd)
-        self._deadband = float(deadband)
-        self._slew_max = float(slew_max)
         self._max = float(max_level_angle)
-        # Per-Achse: Integrator-Beitrag (rad, Ki bereits eingerechnet),
-        # zuletzt emittierte Korrektur (rad), zuletzt gesehener error (rad).
-        self._i_roll = 0.0
-        self._i_pitch = 0.0
-        self._out_roll = 0.0
-        self._out_pitch = 0.0
-        self._err_roll = 0.0
-        self._err_pitch = 0.0
+        self._roll = _Axis(kp, ki, kd, deadband, deadband, slew_max, 0.0, 0.0)
+        self._pitch = _Axis(kp, ki, kd, deadband, deadband, slew_max, 0.0, 0.0)
+
+    def _axis(self, name: str) -> _Axis:
+        return self._roll if name == 'roll' else self._pitch
 
     def reset(self) -> None:
-        """Integrator + Ausgang + error-Cache nullen (State-Gating / Recovery)."""
-        self._i_roll = 0.0
-        self._i_pitch = 0.0
-        self._out_roll = 0.0
-        self._out_pitch = 0.0
-        self._err_roll = 0.0
-        self._err_pitch = 0.0
+        """Beide Achsen zurücksetzen (State-Gating / Recovery)."""
+        self._roll.reset()
+        self._pitch.reset()
 
     def set_gains(
         self,
@@ -101,92 +131,149 @@ class BalanceController:
         kd: float | None = None,
     ) -> None:
         """
-        Live-Tuning (rqt_reconfigure): nur übergebene Gains überschreiben.
+        Back-Compat „beide Achsen"-Setter (+ gemeinsamer ``max_level_angle``).
 
-        Bei kleinerem ``max_level_angle`` wird der gehaltene Integrator-Beitrag
-        sofort nachgeclampt, damit ``out`` nicht über dem neuen Limit klebt.
+        ``deadband`` setzt ``inner = outer = deadband`` auf beiden Achsen. Bei
+        kleinerem ``max_level_angle`` werden die gehaltenen Integratoren sofort
+        nachgeclampt.
         """
-        if kp is not None:
-            self._kp = float(kp)
-        if ki is not None:
-            self._ki = float(ki)
-        if kd is not None:
-            self._kd = float(kd)
-        if deadband is not None:
-            self._deadband = float(deadband)
-        if slew_max is not None:
-            self._slew_max = float(slew_max)
+        for ax in (self._roll, self._pitch):
+            if kp is not None:
+                ax.kp = float(kp)
+            if ki is not None:
+                ax.ki = float(ki)
+            if kd is not None:
+                ax.kd = float(kd)
+            if deadband is not None:
+                ax.inner = float(deadband)
+                ax.outer = float(deadband)
+            if slew_max is not None:
+                ax.slew_max = float(slew_max)
         if max_level_angle is not None:
             self._max = float(max_level_angle)
-            self._i_roll = _clamp(self._i_roll, self._max)
-            self._i_pitch = _clamp(self._i_pitch, self._max)
+            self._roll.integ = _clamp(self._roll.integ, self._max)
+            self._pitch.integ = _clamp(self._pitch.integ, self._max)
+
+    def set_axis_gains(
+        self,
+        axis: str,
+        kp: float | None = None,
+        ki: float | None = None,
+        kd: float | None = None,
+        inner: float | None = None,
+        outer: float | None = None,
+        slew_max: float | None = None,
+        tau_fast: float | None = None,
+        tau_slow: float | None = None,
+    ) -> None:
+        """Per-Achse-Setter (``axis`` = ``'roll'`` | ``'pitch'``). Nur Übergebenes."""
+        ax = self._axis(axis)
+        if kp is not None:
+            ax.kp = float(kp)
+        if ki is not None:
+            ax.ki = float(ki)
+        if kd is not None:
+            ax.kd = float(kd)
+        if inner is not None:
+            ax.inner = float(inner)
+        if outer is not None:
+            ax.outer = float(outer)
+        if slew_max is not None:
+            ax.slew_max = float(slew_max)
+        if tau_fast is not None:
+            ax.tau_fast = float(tau_fast)
+        if tau_slow is not None:
+            ax.tau_slow = float(tau_slow)
 
     @property
     def correction(self) -> tuple[float, float]:
         """Zuletzt emittierte Korrektur ``(corr_roll, corr_pitch)`` (rad)."""
-        return (self._out_roll, self._out_pitch)
+        return (self._roll.out, self._pitch.out)
 
     @property
     def converged(self) -> bool:
         """
-        Konvergenz-Flag: beide Achsen zuletzt im Totband (|error| < deadband).
+        Konvergenz-Flag: **beide Achsen nicht-regelnd** (eingeschwungen/Hold).
 
-        Genutzt für den Stufe-2-Startup-Grace-Gate (Tip während aktiver
-        Leveling-Konvergenz unterdrücken). Nach ``reset()`` True (error=0).
+        Genutzt für den Startup-Grace-Gate (Tip während aktiver Leveling-Konvergenz
+        unterdrücken). Nach ``reset()`` True. ⚠️ Kann True sein, während der Körper
+        zwischen ``inner`` und ``outer`` (bis ~``outer``) schief steht.
         """
-        return (
-            abs(self._err_roll) < self._deadband
-            and abs(self._err_pitch) < self._deadband
-        )
+        return (not self._roll.regulating) and (not self._pitch.regulating)
 
     def update(
         self, roll: float, pitch: float, dt: float,
         gyro_roll: float = 0.0, gyro_pitch: float = 0.0,
+        filter_roll: bool = True, filter_pitch: bool = True,
     ) -> tuple[float, float]:
         """
         Ein Tick: gemessene roll/pitch (rad) + dt (s) → Korrektur (rad).
 
-        ``gyro_roll/pitch`` = signierte Achsen-Drehraten (rad/s) für den Gyro-D-
-        Term (TF-2); Default 0 → reines Stufe-2-PI. ``dt <= 0`` (erster Tick /
-        Zeitsprung): Ausgang unverändert halten (Slew-Step 0), kein Integrieren.
+        ``gyro_roll/pitch`` = signierte Achsen-Drehraten (rad/s) für Gyro-D.
+        ``filter_roll/pitch`` = **True** wenn der Eingang **roh** ist (Dual-TP
+        anwenden), **False** wenn er bereits slope-gefiltert ist (Residual →
+        kein zweiter Filter). gait_node setzt ``filter_roll=True`` immer,
+        ``filter_pitch = (mode != 'terrain')``. ``dt <= 0`` → Slew-Step 0.
         """
-        self._out_roll, self._i_roll, self._err_roll = self._update_axis(
-            roll, dt, self._i_roll, self._out_roll, gyro_roll,
+        out_roll = self._update_axis(
+            self._roll, roll, dt, gyro_roll, filter_roll,
         )
-        self._out_pitch, self._i_pitch, self._err_pitch = self._update_axis(
-            pitch, dt, self._i_pitch, self._out_pitch, gyro_pitch,
+        out_pitch = self._update_axis(
+            self._pitch, pitch, dt, gyro_pitch, filter_pitch,
         )
-        return (self._out_roll, self._out_pitch)
+        return (out_roll, out_pitch)
 
     def _update_axis(
-        self, measured: float, dt: float, integ: float, prev_out: float,
-        gyro_rate: float = 0.0,
-    ) -> tuple[float, float, float]:
-        """Eine Achse: Totband-PI + Gyro-D + Anti-Windup + Slew. Returns (out, I, error)."""
-        error = -measured  # Soll = 0 (gait_node speist roll roh / pitch-Residual ein)
+        self, ax: _Axis, measured: float, dt: float,
+        gyro_rate: float, apply_filter: bool,
+    ) -> float:
+        """Eine Achse: Snap-Init + Dual-TP + Hysterese + PI + Gyro-D + Slew → out."""
+        # (B) Snap-Init: erstes Sample nach reset → Filter direkt auf die Messung.
+        if not ax.initialized:
+            ax.m_fast = measured
+            ax.m_slow = measured
+            ax.initialized = True
 
-        if abs(error) < self._deadband:
-            # Totband: P aus, Integrator einfrieren (hält die Korrektur).
-            p_term = 0.0
+        # (1) Dual-Tiefpass NUR wenn Eingang roh UND Filter an. Sonst m = measured.
+        #     terrain-pitch (apply_filter=False) → m=measured=Residual (kein Doppelfilter).
+        if apply_filter and ax.tau_slow > 0.0 and dt > 0.0:
+            a_fast = dt / (ax.tau_fast + dt) if ax.tau_fast > 0.0 else 1.0
+            a_slow = dt / (ax.tau_slow + dt)
+            ax.m_fast = ax.m_fast + a_fast * (measured - ax.m_fast)
+            ax.m_slow = ax.m_slow + a_slow * (measured - ax.m_slow)
         else:
-            p_term = self._kp * error
+            ax.m_fast = measured
+            ax.m_slow = measured
+
+        # (2) Hysterese-Latch: resume via slow (≥ outer), stop via fast (< inner).
+        #     inner == outer → Single-Schwelle (regelnd iff |x| ≥ inner) == Stufe 2.
+        if not ax.regulating:
+            if abs(ax.m_slow) >= ax.outer:
+                ax.regulating = True
+        else:
+            if abs(ax.m_fast) < ax.inner:
+                ax.regulating = False
+
+        # (3) Regelung — Soll 0, Stellgröße-Eingang = m_fast.
+        error = -ax.m_fast
+        if not ax.regulating:
+            p_term = 0.0  # Integrator eingefroren (HÄLT die Korrektur)
+        else:
+            p_term = ax.kp * error
             if dt > 0.0:
-                integ += self._ki * error * dt
-                integ = _clamp(integ, self._max)  # Anti-Windup
+                ax.integ = _clamp(ax.integ + ax.ki * error * dt, self._max)
 
-        # Gyro-D (TF-2): dämpft die Drehrate, wirkt IMMER (auch im Totband —
-        # Wackeln = kleiner Winkel + hohe Rate). Kd=0 → kein Beitrag.
-        d_term = -self._kd * gyro_rate
+        # Gyro-D (E6): immer aktiv (auch im Hold), auf roher Rate.
+        d_term = -ax.kd * gyro_rate
+        raw = _clamp(p_term + ax.integ + d_term, self._max)
 
-        raw = _clamp(p_term + integ + d_term, self._max)
-
-        # Slew-Rate-Limit: |Δout| ≤ slew_max·dt.
-        max_step = self._slew_max * dt if dt > 0.0 else 0.0
-        delta = raw - prev_out
+        # (4) Slew-Rate-Limit.
+        max_step = ax.slew_max * dt if dt > 0.0 else 0.0
+        delta = raw - ax.out
         if delta > max_step:
-            out = prev_out + max_step
+            ax.out = ax.out + max_step
         elif delta < -max_step:
-            out = prev_out - max_step
+            ax.out = ax.out - max_step
         else:
-            out = raw
-        return out, integ, error
+            ax.out = raw
+        return ax.out

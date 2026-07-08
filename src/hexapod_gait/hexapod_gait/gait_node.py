@@ -74,6 +74,21 @@ _LEVELING_NODE_STATES = (
     GaitEngine.STATE_STOPPING,
 )
 
+# Block A5 Stufe 7 — per-Achse Leveling-Gains (BalanceController v2). Jede Zeile
+# wird als Param ``leveling_<suffix>_{roll,pitch}`` deklariert. is_deg=True →
+# Param ist in Grad/Grad-pro-s und wird für den Controller nach rad umgerechnet.
+# (suffix, set_axis_gains-kwarg, is_deg, default)
+_LEVELING_AXIS_SPECS = (
+    ('kp', 'kp', False, 0.4),
+    ('ki', 'ki', False, 0.1),
+    ('kd', 'kd', False, 0.03),
+    ('deadband_inner_deg', 'inner', True, 1.5),
+    ('deadband_outer_deg', 'outer', True, 1.5),
+    ('slew_max_dps', 'slew_max', True, 8.0),
+    ('tau_fast_s', 'tau_fast', False, 0.0),
+    ('tau_slow_s', 'tau_slow', False, 0.0),
+)
+
 
 # =====================================================================
 # Stage 0.6 — URDF Joint-Limits Parser
@@ -842,20 +857,30 @@ class GaitNode(Node):
         # nicht aus (Live-Set tunet hier nicht; Relaunch zum Aendern, Feintuning
         # auf der Rampe in Stufe 2).
         self.declare_parameter('tip_detection_enable', True)
-        self.declare_parameter('tip_angle_warn_deg', 15.0)
-        self.declare_parameter('tip_angle_crit_deg', 25.0)
+        # Stufe 7 (E5): Kipp-Schwellen per Achse (roll kippt seitlich früher als
+        # pitch beim länglichen Roboter). Rate/Debounce achsen-übergreifend.
+        self.declare_parameter('tip_angle_warn_deg_roll', 15.0)
+        self.declare_parameter('tip_angle_warn_deg_pitch', 15.0)
+        self.declare_parameter('tip_angle_crit_deg_roll', 25.0)
+        self.declare_parameter('tip_angle_crit_deg_pitch', 25.0)
         self.declare_parameter('tip_rate_crit_dps', 80.0)
         self.declare_parameter('tip_debounce_ticks', 5)
-        # Stufe 2: Tip-Params als Member halten → Live-Rebuild des Monitors
-        # über _on_param_change (Feintuning auf der Schräge, §4-Entscheidung).
+        # Tip-Params als Member halten → Live-Rebuild des Monitors über
+        # _on_param_change (Feintuning auf der Schräge, §4-Entscheidung).
         self._tip_detection_enable = bool(
             self.get_parameter('tip_detection_enable').value
         )
-        self._tip_angle_warn_deg = float(
-            self.get_parameter('tip_angle_warn_deg').value
+        self._tip_angle_warn_deg_roll = float(
+            self.get_parameter('tip_angle_warn_deg_roll').value
         )
-        self._tip_angle_crit_deg = float(
-            self.get_parameter('tip_angle_crit_deg').value
+        self._tip_angle_warn_deg_pitch = float(
+            self.get_parameter('tip_angle_warn_deg_pitch').value
+        )
+        self._tip_angle_crit_deg_roll = float(
+            self.get_parameter('tip_angle_crit_deg_roll').value
+        )
+        self._tip_angle_crit_deg_pitch = float(
+            self.get_parameter('tip_angle_crit_deg_pitch').value
         )
         self._tip_rate_crit_dps = float(
             self.get_parameter('tip_rate_crit_dps').value
@@ -863,12 +888,7 @@ class GaitNode(Node):
         self._tip_debounce_ticks = int(
             self.get_parameter('tip_debounce_ticks').value
         )
-        self._tip_monitor = TipMonitor(
-            math.radians(self._tip_angle_warn_deg),
-            math.radians(self._tip_angle_crit_deg),
-            math.radians(self._tip_rate_crit_dps),
-            self._tip_debounce_ticks,
-        )
+        self._tip_monitor = self._build_tip_monitor()
         self._imu_roll: float | None = None
         self._imu_pitch = 0.0
         self._imu_tilt_rate = 0.0
@@ -888,11 +908,15 @@ class GaitNode(Node):
         # tunbar (§4-Entscheidung) — siehe _apply_param.
         self.declare_parameter('leveling_enable', False)
         self.declare_parameter('leveling_mode', 'terrain')
-        self.declare_parameter('leveling_kp', 0.4)
-        self.declare_parameter('leveling_ki', 0.1)
-        self.declare_parameter('leveling_kd', 0.03)
-        self.declare_parameter('leveling_deadband_deg', 1.5)
-        self.declare_parameter('leveling_slew_max_dps', 8.0)
+        # Stufe 7 (E4): per-Achse-Gains (kp/ki/kd/inner/outer/slew/tau je roll,
+        # pitch). Default roll==pitch, inner==outer, tau==0 → exakt Stufe-2-
+        # Verhalten (E9). Der Name→(axis,kwarg,is_deg)-Lookup treibt _on_param_change.
+        self._leveling_axis_param_map: dict[str, tuple[str, str, bool]] = {}
+        for suffix, kwarg, is_deg, default in _LEVELING_AXIS_SPECS:
+            for axis in ('roll', 'pitch'):
+                pname = f'leveling_{suffix}_{axis}'
+                self.declare_parameter(pname, default)
+                self._leveling_axis_param_map[pname] = (axis, kwarg, is_deg)
         self.declare_parameter('leveling_max_angle_deg', 10.0)
         self.declare_parameter('leveling_max_angle_walking_deg', 4.0)
         self.declare_parameter('leveling_startup_grace', True)
@@ -911,18 +935,21 @@ class GaitNode(Node):
         self._leveling_max_angle_walking_deg = float(
             self.get_parameter('leveling_max_angle_walking_deg').value
         )
+        # BalanceController v2: Back-Compat-Konstruktor (symmetrisch aus roll-
+        # Defaults), dann per-Achse-Gains (inner/outer/tau + pitch) einspielen.
         self._balance = BalanceController(
-            kp=float(self.get_parameter('leveling_kp').value),
-            ki=float(self.get_parameter('leveling_ki').value),
-            kd=float(self.get_parameter('leveling_kd').value),
-            deadband=math.radians(
-                float(self.get_parameter('leveling_deadband_deg').value)
-            ),
-            slew_max=math.radians(
-                float(self.get_parameter('leveling_slew_max_dps').value)
-            ),
+            kp=float(self.get_parameter('leveling_kp_roll').value),
+            ki=float(self.get_parameter('leveling_ki_roll').value),
+            kd=float(self.get_parameter('leveling_kd_roll').value),
+            deadband=math.radians(float(
+                self.get_parameter('leveling_deadband_inner_deg_roll').value
+            )),
+            slew_max=math.radians(float(
+                self.get_parameter('leveling_slew_max_dps_roll').value
+            )),
             max_level_angle=math.radians(self._leveling_max_angle_deg),
         )
+        self._apply_leveling_axis_params()
         self._engine.max_level_angle = math.radians(self._leveling_max_angle_deg)
         self._engine.max_level_angle_walking = math.radians(
             self._leveling_max_angle_walking_deg
@@ -1697,21 +1724,43 @@ class GaitNode(Node):
             pitch_in = self._imu_pitch - self._slope_est.slope_pitch
         else:  # 'horizontal'
             pitch_in = self._imu_pitch
+        # Stufe 7 (A): Filter-Flag pro Achse — roll ist immer roh (→0), pitch nur
+        # im horizontal-Modus roh; im terrain-Modus ist pitch_in ein Residual
+        # (Slope-Schätzer = langsame Stufe → KEIN zweiter Filter im Regler).
         corr = self._balance.update(
             roll_in, pitch_in, dt,
             self._imu_gyro_roll, self._imu_gyro_pitch,
+            filter_roll=True,
+            filter_pitch=(self._leveling_mode != 'terrain'),
         )
         self._engine.set_body_orientation_offset(*corr)
 
-    def _rebuild_tip_monitor(self) -> None:
-        """Baue den TipMonitor aus den aktuellen Tip-Param-Membern neu (Live-Tuning)."""
-        self._tip_monitor = TipMonitor(
-            math.radians(self._tip_angle_warn_deg),
-            math.radians(self._tip_angle_crit_deg),
+    def _build_tip_monitor(self) -> TipMonitor:
+        """Baue den TipMonitor aus den per-Achse Tip-Param-Membern (Stufe 7 E5)."""
+        return TipMonitor(
+            math.radians(self._tip_angle_warn_deg_roll),
+            math.radians(self._tip_angle_crit_deg_roll),
             math.radians(self._tip_rate_crit_dps),
             self._tip_debounce_ticks,
+            angle_warn_pitch=math.radians(self._tip_angle_warn_deg_pitch),
+            angle_crit_pitch=math.radians(self._tip_angle_crit_deg_pitch),
         )
+
+    def _rebuild_tip_monitor(self) -> None:
+        """Baue den TipMonitor neu (Live-Tuning der Tip-Schwellen)."""
+        self._tip_monitor = self._build_tip_monitor()
         self._tip_crit_fired = False
+
+    def _apply_leveling_axis_params(self) -> None:
+        """Alle per-Achse-Leveling-Gains aus den Params in den Controller schreiben."""
+        for axis in ('roll', 'pitch'):
+            kwargs = {}
+            for suffix, kwarg, is_deg, _default in _LEVELING_AXIS_SPECS:
+                val = float(
+                    self.get_parameter(f'leveling_{suffix}_{axis}').value
+                )
+                kwargs[kwarg] = math.radians(val) if is_deg else val
+            self._balance.set_axis_gains(axis, **kwargs)
 
     def _update_slope_estimate(self) -> None:
         """
@@ -2614,6 +2663,38 @@ class GaitNode(Node):
                     ),
                 )
 
+        # 1i2. Stufe 7 — per-Achse Leveling-Fenster/Filter: >= 0 und inner <= outer.
+        for p in params:
+            if (
+                p.name.startswith('leveling_tau_fast_s_')
+                or p.name.startswith('leveling_tau_slow_s_')
+                or p.name.startswith('leveling_deadband_inner_deg_')
+                or p.name.startswith('leveling_deadband_outer_deg_')
+                or p.name.startswith('leveling_slew_max_dps_')
+            ) and p.value < 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{p.name} must be >= 0, got {p.value}',
+                )
+        _batch = {p.name: p.value for p in params}
+        for axis in ('roll', 'pitch'):
+            inner_name = f'leveling_deadband_inner_deg_{axis}'
+            outer_name = f'leveling_deadband_outer_deg_{axis}'
+            inner = _batch.get(
+                inner_name, self.get_parameter(inner_name).value
+            )
+            outer = _batch.get(
+                outer_name, self.get_parameter(outer_name).value
+            )
+            if inner > outer:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'{inner_name} ({inner}) must be <= '
+                        f'{outer_name} ({outer})'
+                    ),
+                )
+
         # 1j. S4-2 adaptiver Touchdown: Stance-Probe-Fenster + Tiefe plausibel.
         td_probe = self._engine.touchdown_probe_start_stance_phase
         td_search = self._engine.touchdown_search_end_stance_phase
@@ -2879,16 +2960,12 @@ class GaitNode(Node):
             self._leveling_mode = str(value)  # 'terrain' | 'horizontal' (TF-2)
         elif name == 'leveling_startup_grace':
             self._leveling_startup_grace = bool(value)
-        elif name == 'leveling_kp':
-            self._balance.set_gains(kp=value)
-        elif name == 'leveling_ki':
-            self._balance.set_gains(ki=value)
-        elif name == 'leveling_kd':
-            self._balance.set_gains(kd=value)  # Gyro-D (TF-2)
-        elif name == 'leveling_deadband_deg':
-            self._balance.set_gains(deadband=math.radians(value))
-        elif name == 'leveling_slew_max_dps':
-            self._balance.set_gains(slew_max=math.radians(value))
+        # Stufe 7 (E4): per-Achse Leveling-Gains live via Name→(axis,kwarg,is_deg).
+        elif name in self._leveling_axis_param_map:
+            axis, kwarg, is_deg = self._leveling_axis_param_map[name]
+            self._balance.set_axis_gains(
+                axis, **{kwarg: math.radians(value) if is_deg else value},
+            )
         elif name == 'leveling_max_angle_deg':
             self._leveling_max_angle_deg = value
             self._balance.set_gains(max_level_angle=math.radians(value))
@@ -2896,14 +2973,20 @@ class GaitNode(Node):
         elif name == 'leveling_max_angle_walking_deg':
             self._leveling_max_angle_walking_deg = value
             self._engine.max_level_angle_walking = math.radians(value)
-        # Block A5 Stufe 1 — Tip-Params live (§4-Entscheidung): Monitor rebuild.
+        # Block A5 Stufe 1/7 — Tip-Params live: Monitor rebuild (per Achse E5).
         elif name == 'tip_detection_enable':
             self._tip_detection_enable = bool(value)
-        elif name == 'tip_angle_warn_deg':
-            self._tip_angle_warn_deg = value
+        elif name == 'tip_angle_warn_deg_roll':
+            self._tip_angle_warn_deg_roll = value
             self._rebuild_tip_monitor()
-        elif name == 'tip_angle_crit_deg':
-            self._tip_angle_crit_deg = value
+        elif name == 'tip_angle_warn_deg_pitch':
+            self._tip_angle_warn_deg_pitch = value
+            self._rebuild_tip_monitor()
+        elif name == 'tip_angle_crit_deg_roll':
+            self._tip_angle_crit_deg_roll = value
+            self._rebuild_tip_monitor()
+        elif name == 'tip_angle_crit_deg_pitch':
+            self._tip_angle_crit_deg_pitch = value
             self._rebuild_tip_monitor()
         elif name == 'tip_rate_crit_dps':
             self._tip_rate_crit_dps = value

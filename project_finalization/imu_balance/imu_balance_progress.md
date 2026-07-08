@@ -11,6 +11,15 @@
 
 ## Stand & nächster Schritt (Übergabe)
 
+> **🧭 AKTUELL (Stufe 7): Balance-Regler v2** — Zwei-Fenster-Hysterese + Dual-Tiefpass + per-Achse,
+> behebt das HW-Pendeln (Rand-Chatter). **🟢 Code+Tests grün** (426 gait / 43 kin, 0 Fehler),
+> **offen: 7.10 HW-Verify aufgebockt durch User** (Default=kein Regress + Hysterese killt das Pendeln
+> + per-Achse; Sim nicht nötig). Danach
+> **6c/IP3 = HW-Gain-Tuning auf v2** (⏸️, wartet auf Stufe 7 + Servo-Power). Details: Stufe-7-Abschnitt
+> unten + [`stage_7_balance_controller_v2_plan.md`](stage_7_balance_controller_v2_plan.md). **User committet selbst.**
+>
+> _(Historie unten: Stufe 4 Terrain-adaptiv war der vorherige aktive Punkt.)_
+
 > **🧭 NEUER CHAT, KURZ: Wir sind in Block A5 → Stufe 4 (Terrain-adaptiv, Fußkontakte).**
 > **TF (Stufe 3, IMU-Hang-Laufen) ist 🟢 Sim-fertig + ⏸️ pausiert** (Wiedereinstieg
 > [stage_3 §7](stage_3_terrain_following_plan.md)). **Aktiv: Stufe 4.** **S4-1 (Kontakt-Consumer +
@@ -888,7 +897,12 @@ IP2 (IMU-Montage-Kalibrierung):
 
 ---
 
-## Stufe 6 / IP3 — IMU-Balance-Tuning auf HW  🟡 Plan feinjustiert, HW-Ausführung offen
+## Stufe 6 / IP3 — IMU-Balance-Tuning auf HW  ⏸️ pausiert (wartet auf Stufe 7 = Regler v2)
+
+> **⏸️ PAUSIERT:** IP3.2 (HW, aufgebockt) deckte **Pendeln** (Rand-Chatter des Single-Totband-Reglers)
+> auf → der Regler wird in **Stufe 7 (Balance-Regler v2)** umgebaut (Hysterese + Dual-Tiefpass +
+> per-Achse). **IP3 läuft danach auf v2 neu** (die Param-Namen unten sind v1 — für 6c-auf-v2 auf die
+> per-Achse-Namen `leveling_*_{roll,pitch}` aktualisieren; Test-Doc dann nachziehen).
 
 Plan: [`stage_6c_imu_hw_balance_tuning_plan.md`](stage_6c_imu_hw_balance_tuning_plan.md) ·
 Test-Doku: [`stage_6c_imu_hw_balance_test_commands.md`](stage_6c_imu_hw_balance_test_commands.md) ·
@@ -914,8 +928,58 @@ IP3 (IMU-Balance-Tuning auf HW):
 
 **Vorbereitung (Doku, ohne HW) erledigt:** Plan feinjustiert (§5-Punkte entschieden, Param-Namen gegen
 `gait_node` verifiziert), Test-Doc mit korrekten Param-Namen + konkreten Baseline-/Sweep-Prozeduren,
-`hw_balance.yaml`-Gerüst (Sim-Defaults als Platzhalter + Sim-vs-HW-Kommentare) angelegt. **HW-Ausführung
-(IP3.0–IP3.5) wartet auf Servo-Power (Phase 8).**
+`hw_balance.yaml`-Gerüst angelegt. **HW-Ausführung (IP3.0–IP3.5) wartet auf Stufe 7 + Servo-Power (Phase 8).**
+
+---
+
+## Stufe 7 — Balance-Regler v2 (Hysterese + Dual-Tiefpass + per-Achse)  🟢 Code+Tests (Sim-Verify offen)
+
+Plan: [`stage_7_balance_controller_v2_plan.md`](stage_7_balance_controller_v2_plan.md) ·
+HW-Test-Doku (7.10, aufgebockt): [`stage_7_test_commands.md`](stage_7_test_commands.md).
+
+> **Motivation:** IP3.2 (HW, aufgebockt) zeigte **Pendeln** = Rand-Chatter des Single-Totband-Reglers.
+> Fix = **Zwei-Fenster-Hysterese** (resume ≥outer / stop <inner) + **Dual-Tiefpass** (fast/slow, nur
+> roher Eingang) + **per-Achse** (roll/pitch getrennt), **backward-kompatibel** (Code-Default =
+> Stufe-2-Verhalten, E9; die HW-Arbeitswerte leben in `hw_balance.yaml`). **User committet selbst.**
+> **Danach: 6c/IP3 = HW-Gain-Tuning auf v2.**
+
+```
+Stufe 7 (Balance-Regler v2):
+- [x] 7.1 BalanceController v2: per-Achse-State + Zwei-Fenster-Hysterese (resume >=outer / stop <inner) + Snap-Init + Gyro-D immer aktiv (rohe Rate) + Back-Compat-Degradation (inner==outer, tau==0)
+- [x] 7.2 Dual-Tiefpass (fast/slow EMA) pro-Achse via apply_filter-Flag: roh->gefiltert, Residual->bypass; Stellgroesse-Eingang = m_fast
+- [x] 7.3 Per-Achse-Params in gait_node (kp/ki/kd/inner/outer/slew/tau je roll,pitch), KEIN Skalar-Alias + hw_balance.yaml auf _roll/_pitch migriert + live + Validierung (inner<=outer, tau>=0)
+- [x] 7.4 converged neu (beide Achsen nicht-regelnd) + Startup-Grace/Tip-Netz-Gate geprueft
+- [x] 7.5 TipMonitor: tip_angle_warn/crit per Achse (Rate/Debounce gemeinsam)
+- [x] 7.6 Unit-Tests (Hysterese enter/exit, kein Chatter, Back-Compat-Schwelle, Dual-TP, Filter-Bypass, Snap-Init, Gyro-D, converged, per-Achse) gruen
+- [x] 7.7 Node-Tests (Startup-Grace v2, per-Achse live+Validierung, Filter-Flag-Pfad roll/pitch, per-Achse Tip) gruen
+- [x] 7.8 colcon test hexapod_gait hexapod_kinematics + Lint gruen  [426 gait / 43 kin, 0 Fehler; +30 Tests ggue. v1]
+- [x] 7.9 README/Konzept-Update (v2-Regler, Hysterese, Dual-TP horizontal-only, per-Achse, Filter-Flag)
+- [ ] 7.10 HW-Verify aufgebockt (User): Default=kein Regress + Hysterese killt das Pendeln (IP3.2) + per-Achse/Validierung  [stage_7_test_commands.md; Sim nicht noetig — rauschfrei zeigt Pendel-Fix nicht]
+- [x] 7.11 Projekt-Architektur-Doku nachgezogen (ai_navigation A5 + §3-Tabelle + Symptom->Stellschraube)
+- [x] 7.12 kritische Self-Review-Tabelle  [unten]
+```
+
+### Stufe-7-Post-Review
+
+| Punkt | Status |
+|---|---|
+| Back-Compat exakt (inner==outer + tau==0 + roll==pitch → Stufe 2/TF-2) | OK — alle bestehenden Balance/Tip/Leveling-Tests unverändert grün; `resume ≥ / stop <` am Gleichstand explizit getestet (`test_backcompat_single_threshold_at_equality`) |
+| Zwei-Fenster-Hysterese behebt Rand-Chatter | OK — `test_hysteresis_enter_exit` + `test_no_edge_chatter` (Latch flippt genau 1×) |
+| Filter pro Achse (roll roh / pitch terrain=Residual → bypass) | OK — `test_filter_bypass_when_flag_false` + `test_filter_flag_passed_per_mode` (Node) |
+| Snap-Init → kein verzögertes Engagement am gekippten Roboter | OK — `test_snap_init_no_rampup_engages_immediately` |
+| `converged`=nicht-regelnd + Startup-Grace (Safety-nah) | OK — `test_startup_grace_suppresses_tip...` (bestehend, grün mit v2) + `test_converged_reflects_not_regulating` |
+| Validierung `inner ≤ outer` + `tau ≥ 0` | OK — `test_deadband_inner_gt_outer_rejected` + `test_negative_tau_rejected` |
+| Gyro-D immer aktiv (auch Hold) auf roher Rate | OK — `test_gyro_d_acts_inside_deadband` (bestehend) |
+| kein Skalar-Alias → `hw_balance.yaml` migriert, paketweit sauber | OK — grep: keine Skalar-Referenzen mehr in Code/README/yaml |
+| **`hw_balance.yaml`-Startwerte (inner1.0/outer2.0 + v1-Gains) NICHT auf v2 verifiziert** | 🟡 **vormerken:** Vorschlag, in 6c-auf-v2 (HW) verifizieren/nachziehen + per-Achse aufsplitten |
+| **HW-Verify (7.10) offen** | 🟡 **vormerken:** User bestätigt auf HW (aufgebockt): Default=kein Regress + Hysterese killt das Pendeln + per-Achse/Validierung. Sim **nicht nötig** (Logik = 426 Unit-Tests; rauschfreie Sim zeigt den Pendel-Fix nicht) |
+| terrain-pitch Doppelfilter-Falle | OK — `filter_pitch=False` im terrain-Modus (Finding A), Fallen-Punkt (8) in ai_navigation |
+| State-abhängige Fenster (D3) / adaptiver Slope-Schätzer (D1) | 🟢 später — deferred, erst bei HW-Bedarf (6c-auf-v2) |
+| Latch persistiert STANDING↔WALKING (nur Reset beim Verlassen der Leveling-States) | 🟢 gewollt (glatter Übergang); state-Clamp greift via `set_gains` weiter |
+
+**Fazit:** keine 🔴. 7.1–7.9 + 7.11 + 7.12 erfüllt (Code + 426/43 Tests + Lint + Doku). **Offen: 7.10
+Sim-Re-Verify (User)** → dann Stufe 7 🟢 komplett, danach **6c/IP3 auf v2**. Zwei 🟡 sind HW-/Sim-
+Verifikations-Punkte, keine Code-Mängel.
 
 ---
 

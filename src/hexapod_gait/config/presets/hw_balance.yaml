@@ -1,54 +1,73 @@
 # =============================================================================
-# Hexapod gait_node Preset — "HW Balance" (A5 IMU-Balance, Stufe 6 / IP3)
+# Hexapod gait_node Preset — "HW Balance" (A5 IMU-Balance, Stufe 6/IP3 + Stufe 7)
 # =============================================================================
 #
-# Der am ECHTEN, bestromten Roboter nachgezogene IMU-Balance-Gain-Satz
-# (Kipp-Erkennung + Leveling + Terrain-Following). Sim != HW: Sensor-Rauschen
-# (BNO-055), Servo-Lag ohne Positions-Feedback, reale Reibung/Schlupf → die
-# Sim-Defaults sind nur Startpunkte. Dieses File haelt die HW-verifizierten
-# Werte, gegenuebergestellt den Sim-Defaults (Kommentar je Zeile).
+# Der am ECHTEN, bestromten Roboter nachgezogene IMU-Balance-Gain-Satz fuer den
+# BalanceController v2 (Stufe 7): Zwei-Fenster-Hysterese + Dual-Tiefpass +
+# per-Achse (roll/pitch). Sim != HW: Sensor-Rauschen (BNO), Servo-Lag ohne
+# Positions-Feedback, reale Reibung/Schlupf.
 #
-# HERKUNFT / STATUS:
-#   - Werte unten sind AKTUELL die Sim-Defaults (Platzhalter). Nach jeder
-#     IP3-Sub-Stage (IP3.1/3.2/3.3) den am Roboter gefundenen Wert hier
-#     eintragen und den "# Sim-Default: ..."-Kommentar stehen lassen.
-#   - Done-Vertrag: IP3.4 in imu_balance_progress.md.
+# WICHTIG — CODE-DEFAULT vs. PRESET (Stufe 7, E9):
+#   Der gait_node-Code-Default ist bewusst = heutiges Verhalten (Hysterese/Filter
+#   AUS: inner==outer, tau==0). DER FIX (Hysterese/Filter an) LEBT HIER im Preset.
+#
+# STATUS DER WERTE:
+#   - Gains unten = HW-Start aus IP3.2 (v1-Regler, aufgebockt: kp1.3/ki0.2/kd0.02
+#     /deadband2.0/slew6.0) + die vorgeschlagene Zwei-Fenster-Hysterese (innen 1.0
+#     / aussen 2.0). Symmetrisch (roll==pitch), Filter noch aus (tau=0).
+#   - >>> In "6c-auf-v2" (HW-Tuning auf dem neuen Regler) verifizieren/nachziehen:
+#     per-Achse aufsplitten (Roll kippt seitlich frueher), ggf. Dual-Tiefpass
+#     (tau_slow>0) fuers Laufen, tip-Schwellen per Achse. <<<
 #
 # LADEN (auf dem Pi, nach colcon build):
 #   ros2 launch hexapod_gait gait.launch.py use_sim_time:=false \
+#     robot_description_file:=$(ros2 pkg prefix --share hexapod_description)/urdf/hexapod.urdf.xacro \
 #     params_file:=$(ros2 pkg prefix hexapod_gait)/share/hexapod_gait/config/presets/hw_balance.yaml
-#   # params_file ueberschreibt die Inline-Launch-Defaults (gait.launch.py).
-#   # Alternativ direkt auf die Quelldatei zeigen (ohne Rebuild), z.B.:
-#   #   params_file:=$HOME/hexapod_ws/src/hexapod_gait/config/presets/hw_balance.yaml
 #
-# WICHTIG: leveling_enable steht hier bewusst auf false. Beim Tuning wird es
-# gezielt live (`ros2 param set /gait_node leveling_enable true`) oder per
-# Launch-Arg geschaltet — nie unbeaufsichtigt beim Bringup aktiv (CLAUDE.md §9).
+# leveling_enable steht bewusst auf false — beim Tuning gezielt live/Arg schalten,
+# nie unbeaufsichtigt beim Bringup aktiv (CLAUDE.md §9).
 # =============================================================================
 
 /gait_node:
   ros__parameters:
-    # --- IP3.1 Kipp-/Sturz-Erkennung (Safe-State, rein defensiv) --------------
+    # --- IP3.1 Kipp-/Sturz-Erkennung (Safe-State, per Achse) -----------------
     tip_detection_enable: true
-    tip_angle_warn_deg: 15.0     # Sim-Default: 15.0  (HW: nach IP3.1 nachziehen)
-    tip_angle_crit_deg: 25.0     # Sim-Default: 25.0  (HW: nach IP3.1 nachziehen)
-    tip_rate_crit_dps: 80.0      # Sim-Default: 80.0  (HW: nach IP3.1 nachziehen)
-    tip_debounce_ticks: 5        # Sim-Default: 5     (HW: nach IP3.1 nachziehen)
+    tip_angle_warn_deg_roll: 15.0    # Sim 15 ; Roll seitlich -> ggf. kleiner
+    tip_angle_warn_deg_pitch: 15.0   # Sim 15
+    tip_angle_crit_deg_roll: 25.0    # Sim 25 ; Roll seitlich -> ggf. kleiner
+    tip_angle_crit_deg_pitch: 25.0   # Sim 25
+    tip_rate_crit_dps: 80.0          # Sim 80 (gemeinsam)
+    tip_debounce_ticks: 5            # Sim 5  (gemeinsam)
 
-    # --- IP3.2 statisches Leveling (STANDING) --------------------------------
-    #     Beim Tuning: leveling_enable live/Launch-Arg schalten, hier false.
+    # --- IP3.2 statisches Leveling (STANDING) — BalanceController v2 ----------
+    #     Beim Tuning: leveling_enable live/Arg schalten, hier false.
     leveling_enable: false
-    leveling_mode: horizontal    # IP3.2 = horizontal (roll+pitch->0); IP3.3 = terrain
-    leveling_kp: 0.4             # Sim-Default: 0.4   (HW: nach IP3.2 nachziehen)
-    leveling_ki: 0.1            # Sim-Default: 0.1   (HW: nach IP3.2 nachziehen)
-    leveling_kd: 0.03           # Sim-Default: 0.03  (HW: ggf. RUNTER, D rausch-verstaerkend)
-    leveling_deadband_deg: 1.5   # Sim-Default: 1.5   (HW: nach IP3.2 nachziehen)
-    leveling_slew_max_dps: 8.0   # Sim-Default: 8.0   (HW: klein starten, dann hoch)
-    leveling_max_angle_deg: 10.0        # offline-bewiesen (leveling_envelope_check), NICHT ueber 10 ohne Re-Check
-    leveling_max_angle_walking_deg: 4.0  # offline-bewiesen (Walking-Huelle), NICHT ueber 4 ohne Re-Check
+    leveling_mode: horizontal        # IP3.2 = horizontal; IP3.3 = terrain
+    # per-Achse-Gains (roll/pitch getrennt; hier symmetrischer HW-Start):
+    leveling_kp_roll: 1.3            # HW-Start IP3.2 (Sim 0.4)
+    leveling_kp_pitch: 1.3
+    leveling_ki_roll: 0.2            # HW-Start IP3.2 (Sim 0.1)
+    leveling_ki_pitch: 0.2
+    leveling_kd_roll: 0.02           # HW-Start IP3.2 (Sim 0.03) ; Gyro-D, D rauscht
+    leveling_kd_pitch: 0.02
+    # Zwei-Fenster-Hysterese (Stufe 7): innen < aussen -> Fix aktiv.
+    leveling_deadband_inner_deg_roll: 1.0    # stop-Fenster (praezise bis hier)
+    leveling_deadband_inner_deg_pitch: 1.0
+    leveling_deadband_outer_deg_roll: 2.0    # start-Fenster (ab hier regeln)
+    leveling_deadband_outer_deg_pitch: 2.0
+    leveling_slew_max_dps_roll: 6.0  # HW-Start IP3.2 (Sim 8)
+    leveling_slew_max_dps_pitch: 6.0
+    # Dual-Tiefpass (nur horizontal-Modus): tau_slow>0 aktiviert; Start aus.
+    leveling_tau_fast_s_roll: 0.0
+    leveling_tau_fast_s_pitch: 0.0
+    leveling_tau_slow_s_roll: 0.0
+    leveling_tau_slow_s_pitch: 0.0
+    # Clamp (gemeinsam, offline envelope-bewiesen — NICHT ohne Re-Check erhoehen):
+    leveling_max_angle_deg: 10.0
+    leveling_max_angle_walking_deg: 4.0
     leveling_startup_grace: true
 
     # --- IP3.3 Terrain-Following (WALKING, leveling_mode: terrain) ------------
     slope_aware_tip_enable: true
-    slope_estimate_tau_s: 0.5    # Sim-Default: 0.5   (HW: ggf. langsamer TP)
-    slope_clamp_deg: 40.0        # Sim-Default: 40.0  (deckt Charakterisierung bis 35)
+    slope_estimate_tau_s: 0.5        # Sim 0.5 ; groesser = traeger/glatter
+    slope_clamp_deg: 40.0            # Sim 40

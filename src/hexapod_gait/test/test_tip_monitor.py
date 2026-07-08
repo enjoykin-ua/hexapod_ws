@@ -92,3 +92,41 @@ def test_quat_roll_20deg():
     roll, pitch = quat_to_roll_pitch(math.sin(half), 0.0, 0.0, math.cos(half))
     assert abs(roll - math.radians(20.0)) < 1e-6
     assert abs(pitch) < 1e-6
+
+
+# ----- Stufe 7 (E5): per-Achse-Schwellen ------------------------------
+
+
+def _mon_per_axis():
+    # Roll strenger (crit 20°) als pitch (crit 30°); warn beide 15°.
+    return TipMonitor(
+        math.radians(15.0), math.radians(20.0), RATE, DEB,
+        angle_warn_pitch=math.radians(15.0),
+        angle_crit_pitch=math.radians(30.0),
+    )
+
+
+def test_per_axis_crit_roll_fires_at_lower_angle():
+    m = _mon_per_axis()
+    # 22° roll ≥ crit_roll 20° → CRIT nach Debounce.
+    for _ in range(DEB - 1):
+        assert m.update(math.radians(22.0), 0.0, 0.0) == TIP_NONE
+    assert m.update(math.radians(22.0), 0.0, 0.0) == TIP_CRIT
+
+
+def test_per_axis_crit_pitch_higher_threshold_no_crit():
+    m = _mon_per_axis()
+    # 22° pitch < crit_pitch 30° → kein CRIT (aber ≥ warn_pitch 15° → WARN).
+    lvl = TIP_NONE
+    for _ in range(DEB):
+        lvl = m.update(0.0, math.radians(22.0), 0.0)
+    assert lvl == TIP_WARN
+    assert not m.crit_latched
+
+
+def test_symmetric_constructor_backcompat():
+    # Ohne pitch-Args → beide Achsen gleiche Schwelle (altes Verhalten).
+    m = TipMonitor(WARN, CRIT, RATE, DEB)
+    for _ in range(DEB):
+        lvl = m.update(0.0, math.radians(30.0), 0.0)
+    assert lvl == TIP_CRIT  # 30° pitch ≥ 25° crit (symmetrisch)

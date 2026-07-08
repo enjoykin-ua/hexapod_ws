@@ -14,7 +14,7 @@ publiziert `JointTrajectory` an die 6 JTC-Controller aus Phase 4.
 | [gait_patterns.py](hexapod_gait/gait_patterns.py) | `GaitPattern`-Dataclass + Presets `TRIPOD`, `SINGLE_LEG_1..6`, erweiterbar für Wave/Ripple |
 | [trajectory_gen.py](hexapod_gait/trajectory_gen.py) | Pure-Python `swing_traj` (Halbsinus) + `stance_traj` (linear) im Bein-Frame |
 | [tip_monitor.py](hexapod_gait/tip_monitor.py) | Pure-Python Kipp-/Sturz-Erkennung (Schwellen + Entprellung + Latch), Block A5 Stufe 1 |
-| [balance_controller.py](hexapod_gait/balance_controller.py) | Pure-Python Body-Stabilisierungs-Regler (Totband-PI + Gyro-D + Slew + Anti-Windup), Block A5 Stufe 2 / TF-2 |
+| [balance_controller.py](hexapod_gait/balance_controller.py) | Pure-Python Body-Stabilisierungs-Regler **v2** (per Achse: Zwei-Fenster-Hysterese + Dual-Tiefpass + Totband-PI + Gyro-D + Slew), Block A5 Stufe 2 / TF-2 / **7** |
 | [slope_estimator.py](hexapod_gait/slope_estimator.py) | Pure-Python Hang-Schätzung (langsamer Tiefpass + Residual), Block A5 TF-1 |
 | [contact_diagnostic.py](hexapod_gait/contact_diagnostic.py) | Pure-Python Fußkontakt-Diagnose (Latenz/Plausibilität/Quote), Block A5 Stufe 4 / S4-1 |
 | [support_monitor.py](hexapod_gait/support_monitor.py) | Pure-Python Stütz-Verlust-Erkennung (Slip/Kante → Freeze, Leaky-Entprellung + Latch), Block A5 Stufe 4 / S4-4 |
@@ -29,8 +29,8 @@ Körperlage gegen Kippen — Sicherheitsnetz, bevor Stufe 2 aktiv levelt.
   roll/pitch (aus Quaternion) + Kipprate (`hypot(gyro_x, gyro_y)`) gegen Schwellen,
   mit Entprellung (N Ticks) + Latch.
 - **Reaktion:**
-  - **WARN** (`tip_angle_warn_deg`, Default 15°): `cmd_vel` → 0, Roboter stoppt/settelt.
-  - **CRIT** (`tip_angle_crit_deg` 25° **oder** `tip_rate_crit_dps` 80°/s): einmaliger
+  - **WARN** (`tip_angle_warn_deg_{roll,pitch}`, Default 15°): `cmd_vel` → 0, Roboter stoppt/settelt.
+  - **CRIT** (`tip_angle_crit_deg_{roll,pitch}` 25° **oder** `tip_rate_crit_dps` 80°/s): einmaliger
     `/hexapod_safety_freeze` (hart, gelatcht) + dieser Tick publisht nicht. Recovery:
     State-Wechsel (sit/stand-Service) setzt zurück. **Kein Hinsetzen** (am Hang würde
     die Sitz-Bewegung selbst kippen).
@@ -38,8 +38,9 @@ Körperlage gegen Kippen — Sicherheitsnetz, bevor Stufe 2 aktiv levelt.
   Show/Stance-Switch ausgesetzt (Körper kippt dort *gewollt*).
 - **Ohne IMU** (kein `/imu/data`, z.B. `enable_imu:=false`): `TipMonitor` bleibt inaktiv
   → normales Laufen (graceful degradation).
-- **Parameter (live, ab Stufe 2):** `tip_detection_enable`, `tip_angle_warn_deg`,
-  `tip_angle_crit_deg`, `tip_rate_crit_dps`, `tip_debounce_ticks` — via
+- **Parameter (live; Stufe 7: warn/crit per Achse):** `tip_detection_enable`,
+  `tip_angle_warn_deg_{roll,pitch}`, `tip_angle_crit_deg_{roll,pitch}`,
+  `tip_rate_crit_dps`, `tip_debounce_ticks` — via
   `_on_param_change`/rqt_reconfigure verstellbar (Monitor-Rebuild). Winkel-Feintuning auf
   der Schräge.
 - **TF-1 (slope-bewusst):** seit Terrain-Following bekommt der `TipMonitor` das **Residual**
@@ -87,16 +88,20 @@ gedreht werden. **Zwei Modi** (`leveling_mode`):
 **Stufe 2:** im `STANDING`. **Stufe 3a/TF-2:** zusätzlich im `WALKING`/`STOPPING`. Drei
 Schichten (analog Stufe 1):
 
-- **Regler:** ROS-frei in [balance_controller.py](hexapod_gait/balance_controller.py)
-  (`BalanceController`). Pro Achse **Totband-PI + Gyro-D + Slew-Rate-Limit + Anti-Windup**:
-  `error = 0 − measured`; im Totband P=0 + Integrator eingefroren (kein Servo-Jagen um
-  die Soll — der Integrator *hält* die Lage); außerhalb PI; **Gyro-D** `d = −Kd·Drehrate`
-  dämpft das Wackeln und wirkt **immer** (auch im Winkel-Totband — Wackeln = kleiner Winkel +
-  hohe Rate), `d` geht **vor** den Slew; Ausgang/Integrator auf `max_level_angle` geclampt;
-  Slew begrenzt `|Δcorr/dt|` (schützt vor Fuß-Scrub-Spikes). Schnittstelle
-  `update(roll, pitch, dt, gyro_roll=0, gyro_pitch=0) → (corr_roll, corr_pitch)` — `Kd=0` →
-  Stufe-2-Verhalten. ⚠️ D differenziert → rausch-verstärkend (gz-IMU rauschfrei; auf HW ggf.
-  `Kd` senken).
+- **Regler (v2, Stufe 7):** ROS-frei in [balance_controller.py](hexapod_gait/balance_controller.py)
+  (`BalanceController`), **pro Achse roll/pitch getrennt** konfigurierbar. Pro Achse
+  **Zwei-Fenster-Hysterese + Totband-PI + Gyro-D + Slew + Anti-Windup + optionaler
+  Dual-Tiefpass**: `error = 0 − m_fast`. **Hysterese** (behebt den Stufe-2-Rand-Chatter):
+  regeln ab `|m_slow| ≥ outer`, stoppen (P=0, Integrator eingefroren = hält die Lage) bei
+  `|m_fast| < inner` — bei `inner==outer` = altes Single-Totband. **Gyro-D** `d = −Kd·Drehrate`
+  dämpft Wackeln, wirkt **immer** (auch im Hold), auf roher Rate; Ausgang/Integrator auf
+  `max_level_angle` geclampt; Slew begrenzt `|Δcorr/dt|`. **Dual-Tiefpass** (fast/slow-EMA,
+  nur wenn Eingang **roh** — `filter_*`): slow entscheidet „resume", fast „stop"; im
+  terrain-Modus ist pitch ein Residual → `filter_pitch=False` (kein Doppelfilter mit dem
+  Slope-Schätzer, Finding A). **Snap-Init:** erstes Sample nach `reset` = Messung. Schnittstelle
+  `update(roll, pitch, dt, gyro_roll=0, gyro_pitch=0, filter_roll=True, filter_pitch=True)`.
+  **Back-Compat:** `inner==outer` + `tau==0` + roll==pitch → exakt Stufe-2/TF-2-Verhalten.
+  ⚠️ D + kleines τ rausch-verstärkend; auf HW `Kd` konservativ, Fenster/τ live tunen.
 - **Stellpfad:** in der `GaitEngine` (`set_body_orientation_offset` →
   `compute_joint_angles`, in STANDING/WALKING/STOPPING). Pro Bein der B4-Round-Trip als
   **Rotation**: `leg_to_base_frame` → `rotate_xy(corr_roll, corr_pitch)` um den
@@ -119,11 +124,16 @@ Schichten (analog Stufe 1):
   in `_update_slope_estimate` aktualisiert wurde) + die signierten Gyro-Achsenraten für den
   D-Term. Bei aktivem Leveling + `leveling_startup_grace` wird die Stufe-1-Kipp-Erkennung
   während der Konvergenz unterdrückt (greift im terrain-Modus praktisch nie — Korrektur klein).
-- **Parameter (live):** `leveling_enable` (Default **false**, Opt-in; flach No-Op),
-  `leveling_mode` (`terrain`|`horizontal`, Default **terrain**), `leveling_kp`, `leveling_ki`,
-  `leveling_kd` (Gyro-Dämpfung, Default **0.03**), `leveling_deadband_deg`,
-  `leveling_slew_max_dps`, `leveling_max_angle_deg` (STANDING-Clamp, **10°**),
+- **Parameter (live; Stufe 7: Gains + Fenster + Filter je Achse `_roll`/`_pitch`):**
+  `leveling_enable` (Default **false**, Opt-in; flach No-Op), `leveling_mode`
+  (`terrain`|`horizontal`, Default **terrain**), `leveling_{kp,ki,kd}_{roll,pitch}`,
+  `leveling_deadband_{inner,outer}_deg_{roll,pitch}` (Zwei-Fenster-Hysterese; Default
+  inner==outer==1.5 = aus), `leveling_slew_max_dps_{roll,pitch}`,
+  `leveling_tau_{fast,slow}_s_{roll,pitch}` (Dual-Tiefpass; Default 0 = aus),
+  `leveling_max_angle_deg` (STANDING-Clamp, **10°**, gemeinsam),
   `leveling_max_angle_walking_deg` (WALKING-Clamp, **4°**), `leveling_startup_grace`.
+  **Code-Default = Stufe-2-Verhalten** (E9); die HW-Arbeitswerte (Hysterese/Filter/per-Achse)
+  leben in `config/presets/hw_balance.yaml`.
 - **Quer-/Diagonal-Traversieren** (Hang seitlich) ist **noch nicht** abgedeckt: `terrain`
   regelt roll→0 (Geradeaus-Klettern). Sauberes Quer-Laufen braucht roll-Residual **+**
   `cmd_vel`-Richtungslogik → eigener Nachfolge-Block (`TF-Quer`). Kanten/Stufen (kein
@@ -508,11 +518,12 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `time_from_start_factor` | `2.0` | JTC-Lookahead = factor / tick_rate |
 | `leveling_enable` | `false` | Body-Stabilisierung aktivieren (Opt-in; flach No-Op) |
 | `leveling_mode` | `terrain` | TF-2: `terrain` (roll→0, pitch folgt Hang) vs. `horizontal` (Voll-Leveln) |
-| `leveling_kp` / `leveling_ki` | `0.4` / `0.1` | PI-Gains (live tunbar) |
-| `leveling_kd` | `0.03` | TF-2: Gyro-Dämpfungs-Gain (Wackeln); `0` = Stufe-2-Verhalten |
-| `leveling_deadband_deg` | `1.5` | Totband — kein Servo-Jagen um die Soll |
-| `leveling_slew_max_dps` | `8.0` | Slew-Rate-Limit der Korrektur (°/s) |
-| `leveling_max_angle_deg` | `10.0` | STANDING-Clamp vor IK (offline-bewiesen, Risiko 1) |
+| `leveling_{kp,ki}_{roll,pitch}` | `0.4` / `0.1` | PI-Gains je Achse (Stufe 7, live) |
+| `leveling_kd_{roll,pitch}` | `0.03` | Gyro-Dämpfung (Wackeln); `0` = kein D |
+| `leveling_deadband_{inner,outer}_deg_{roll,pitch}` | `1.5` / `1.5` | Zwei-Fenster-Hysterese; inner==outer = aus (Stufe 7) |
+| `leveling_tau_{fast,slow}_s_{roll,pitch}` | `0.0` | Dual-Tiefpass (nur roher Eingang); 0 = aus (Stufe 7) |
+| `leveling_slew_max_dps_{roll,pitch}` | `8.0` | Slew-Rate-Limit der Korrektur (°/s) |
+| `leveling_max_angle_deg` | `10.0` | STANDING-Clamp vor IK (gemeinsam, offline-bewiesen) |
 | `leveling_max_angle_walking_deg` | `4.0` | WALKING/STOPPING-Clamp (Stufe 3a, Swing-Apex bindet) |
 | `leveling_startup_grace` | `true` | Tip während Leveling-Konvergenz unterdrücken |
 | `slope_aware_tip_enable` | `true` | TF-1: Tip gegen Residual (IMU − Hang) statt absolut |

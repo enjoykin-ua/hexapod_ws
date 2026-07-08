@@ -3,6 +3,7 @@
 import math
 
 from hexapod_gait.balance_controller import BalanceController
+import pytest
 
 
 DT = 0.02  # 50 Hz
@@ -196,3 +197,107 @@ def _osc_late_peak(kd, steps=400):
 def test_gyro_d_damps_oscillation():
     """Closed-Loop: mit Gyro-D klingt die Schwingung ab, ohne nicht."""
     assert _osc_late_peak(kd=0.05) < 0.3 * _osc_late_peak(kd=0.0)
+
+
+# ----- Stufe 7 (v2): Zwei-Fenster-Hysterese ---------------------------
+
+
+def test_hysteresis_enter_exit():
+    """Hysterese: resume ≥ outer, stop < inner; dazwischen gehalten (Latch)."""
+    c = _ctrl(slew_dps=100000.0, max_deg=60.0)
+    c.set_axis_gains('roll', inner=math.radians(1.0), outer=math.radians(2.0))
+    ax = c._roll
+    c.update(math.radians(1.5), 0.0, DT)   # zwischen, nie gestartet → aus
+    assert not ax.regulating
+    c.update(math.radians(2.5), 0.0, DT)   # ≥ outer → an
+    assert ax.regulating
+    c.update(math.radians(1.5), 0.0, DT)   # zwischen → bleibt an (Latch)
+    assert ax.regulating
+    c.update(math.radians(0.5), 0.0, DT)   # < inner → aus
+    assert not ax.regulating
+
+
+def test_no_edge_chatter():
+    """Signal oszilliert eng über outer → Latch flippt genau EINMAL (kein Chatter)."""
+    c = _ctrl(slew_dps=100000.0, max_deg=60.0)
+    c.set_axis_gains('roll', inner=math.radians(1.0), outer=math.radians(2.0))
+    ax = c._roll
+    prev = ax.regulating
+    flips = 0
+    for _ in range(10):
+        for val in (2.2, 1.8, 2.1, 1.85, 2.3, 1.9):  # bleibt über inner
+            c.update(math.radians(val), 0.0, DT)
+            if ax.regulating != prev:
+                flips += 1
+                prev = ax.regulating
+    assert flips == 1
+
+
+def test_backcompat_single_threshold_at_equality():
+    """inner==outer: regelnd iff |x|≥D (resume ≥, stop <) — wie altes Totband."""
+    c = _ctrl(deadband_deg=1.5, slew_dps=100000.0)  # inner==outer==1.5
+    ax = c._roll
+    c.update(math.radians(1.0), 0.0, DT)   # < 1.5 → aus
+    assert not ax.regulating
+    c.update(math.radians(1.5), 0.0, DT)   # ≥ 1.5 → an
+    assert ax.regulating
+    c.update(math.radians(1.4), 0.0, DT)   # < 1.5 → aus
+    assert not ax.regulating
+
+
+def test_converged_reflects_not_regulating():
+    c = _ctrl(deadband_deg=1.0, slew_dps=100000.0)
+    assert c.converged                      # frisch → nicht regelnd
+    c.update(math.radians(5.0), 0.0, DT)    # roll regelt
+    assert not c.converged
+    c.update(math.radians(0.5), 0.0, DT)    # < inner → stop
+    assert c.converged
+
+
+# ----- Stufe 7 (v2): Dual-Tiefpass + Filter-Flag (A) + Snap-Init (B) ---
+
+
+def test_dual_lowpass_smooths_when_filter_on():
+    c = _ctrl(slew_dps=100000.0)
+    c.set_axis_gains(
+        'roll', tau_slow=1.0, tau_fast=0.0,
+        inner=math.radians(1.0), outer=math.radians(2.0),
+    )
+    ax = c._roll
+    c.update(0.0, 0.0, DT, filter_roll=True)             # Snap m_slow=0
+    c.update(math.radians(10.0), 0.0, DT, filter_roll=True)
+    assert ax.m_slow < math.radians(10.0)               # slow lagt (gefiltert)
+    assert ax.m_fast == pytest.approx(math.radians(10.0))  # tau_fast=0 → =measured
+
+
+def test_filter_bypass_when_flag_false():
+    """apply_filter=False (Residual) → kein Filter, m=measured (Finding A)."""
+    c = _ctrl(slew_dps=100000.0)
+    c.set_axis_gains(
+        'roll', tau_slow=1.0, tau_fast=0.5,
+        inner=math.radians(1.0), outer=math.radians(2.0),
+    )
+    ax = c._roll
+    c.update(0.0, 0.0, DT, filter_roll=False)            # Snap
+    c.update(math.radians(10.0), 0.0, DT, filter_roll=False)
+    assert ax.m_slow == pytest.approx(math.radians(10.0))  # kein Lag (bypass)
+    assert ax.m_fast == pytest.approx(math.radians(10.0))
+
+
+def test_snap_init_no_rampup_engages_immediately():
+    c = _ctrl(slew_dps=100000.0)
+    c.set_axis_gains(
+        'roll', tau_slow=5.0, inner=math.radians(1.0), outer=math.radians(2.0),
+    )
+    ax = c._roll
+    c.update(math.radians(8.0), 0.0, DT, filter_roll=True)  # erstes Sample am Hang
+    assert ax.m_slow == pytest.approx(math.radians(8.0))    # Snap statt Hochlauf
+    assert ax.regulating                                    # |8°|≥outer → sofort an
+
+
+def test_set_axis_gains_independent():
+    c = _ctrl()
+    c.set_axis_gains('roll', kp=1.3)
+    c.set_axis_gains('pitch', kp=0.5)
+    assert c._roll.kp == pytest.approx(1.3)
+    assert c._pitch.kp == pytest.approx(0.5)

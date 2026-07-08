@@ -30,8 +30,10 @@ def node():
 
 def test_leveling_params_declared(node):
     for name in (
-        'leveling_enable', 'leveling_kp', 'leveling_ki',
-        'leveling_deadband_deg', 'leveling_slew_max_dps',
+        'leveling_enable', 'leveling_kp_roll', 'leveling_kp_pitch',
+        'leveling_ki_roll', 'leveling_deadband_inner_deg_roll',
+        'leveling_deadband_outer_deg_pitch', 'leveling_slew_max_dps_roll',
+        'leveling_tau_fast_s_roll', 'leveling_tau_slow_s_pitch',
         'leveling_max_angle_deg', 'leveling_startup_grace',
     ):
         assert node.has_parameter(name)
@@ -112,11 +114,11 @@ def test_leveling_enable_live(node):
 
 def test_tip_warn_live_rebuilds_monitor(node):
     res = node.set_parameters([
-        Parameter('tip_angle_warn_deg', Parameter.Type.DOUBLE, 20.0),
+        Parameter('tip_angle_warn_deg_roll', Parameter.Type.DOUBLE, 20.0),
     ])
     assert res[0].successful
-    assert node._tip_angle_warn_deg == 20.0
-    assert node._tip_monitor._angle_warn == pytest.approx(math.radians(20.0))
+    assert node._tip_angle_warn_deg_roll == 20.0
+    assert node._tip_monitor._warn_roll == pytest.approx(math.radians(20.0))
 
 
 # ----- Startup-Grace ---------------------------------------------------
@@ -231,11 +233,11 @@ def test_slope_params_reject_invalid(node):
 
 def test_tf2_params_declared(node):
     assert node.has_parameter('leveling_mode')
-    assert node.has_parameter('leveling_kd')
+    assert node.has_parameter('leveling_kd_roll')
     assert node.get_parameter('leveling_mode').value == 'terrain'
-    assert node.get_parameter('leveling_kd').value == pytest.approx(0.03)
-    # Kd in den ROS-freien Controller durchgereicht.
-    assert node._balance._kd == pytest.approx(0.03)
+    assert node.get_parameter('leveling_kd_roll').value == pytest.approx(0.03)
+    # Kd in den ROS-freien Controller durchgereicht (per Achse).
+    assert node._balance._roll.kd == pytest.approx(0.03)
 
 
 def test_terrain_mode_pitch_follows_slope_roll_to_zero(node):
@@ -278,14 +280,91 @@ def test_gyro_d_reaches_controller(node):
 def test_leveling_mode_live_and_validation(node):
     res = node.set_parameters([
         Parameter('leveling_mode', Parameter.Type.STRING, 'horizontal'),
-        Parameter('leveling_kd', Parameter.Type.DOUBLE, 0.05),
+        Parameter('leveling_kd_roll', Parameter.Type.DOUBLE, 0.05),
     ])
     assert res[0].successful
     assert node._leveling_mode == 'horizontal'
-    assert node._balance._kd == pytest.approx(0.05)
+    assert node._balance._roll.kd == pytest.approx(0.05)
     # Unbekannter Modus → Reject, Node läuft weiter.
     bad = node.set_parameters([
         Parameter('leveling_mode', Parameter.Type.STRING, 'bogus'),
     ])
     assert not bad[0].successful
     assert node._leveling_mode == 'horizontal'
+
+
+# ----- Stufe 7: per-Achse (roll/pitch) getrennt + Filter-Flag ----------
+
+
+def test_per_axis_gains_live_independent(node):
+    # roll/pitch getrennt live tunbar → landen getrennt im Controller.
+    res = node.set_parameters([
+        Parameter('leveling_kp_roll', Parameter.Type.DOUBLE, 1.3),
+        Parameter('leveling_kp_pitch', Parameter.Type.DOUBLE, 0.5),
+    ])
+    assert res[0].successful
+    assert node._balance._roll.kp == pytest.approx(1.3)
+    assert node._balance._pitch.kp == pytest.approx(0.5)
+
+
+def test_deadband_inner_gt_outer_rejected(node):
+    # inner > outer ist ungültig (Hysterese-Fenster verkehrt).
+    res = node.set_parameters([
+        Parameter(
+            'leveling_deadband_inner_deg_roll', Parameter.Type.DOUBLE, 3.0),
+        Parameter(
+            'leveling_deadband_outer_deg_roll', Parameter.Type.DOUBLE, 2.0),
+    ])
+    assert not res[0].successful
+
+
+def test_negative_tau_rejected(node):
+    res = node.set_parameters([
+        Parameter('leveling_tau_slow_s_pitch', Parameter.Type.DOUBLE, -0.1),
+    ])
+    assert not res[0].successful
+
+
+def test_filter_flag_passed_per_mode(node):
+    # Finding A/H: gait_node reicht filter_roll=True immer, filter_pitch=(mode≠
+    # terrain) durch. terrain → pitch bypass (Residual), horizontal → pitch roh.
+    captured = {}
+    orig = node._balance.update
+
+    def spy(*args, **kwargs):
+        captured.clear()
+        captured.update(kwargs)
+        return orig(*args, **kwargs)
+
+    node._balance.update = spy
+    node._leveling_enable = True
+    node._imu_roll, node._imu_pitch = math.radians(3.0), math.radians(3.0)
+
+    node._leveling_mode = 'terrain'
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert captured['filter_roll'] is True
+    assert captured['filter_pitch'] is False
+
+    node._leveling_mode = 'horizontal'
+    node._last_leveling_t = time.monotonic() - 0.5
+    node._update_leveling()
+    assert captured['filter_pitch'] is True
+
+
+def test_per_axis_tip_threshold(node):
+    # E5: roll-Schwelle kleiner → roll feuert bei einem Winkel, bei dem pitch
+    # (größere Schwelle) noch NONE ist.
+    res = node.set_parameters([
+        Parameter('tip_angle_warn_deg_roll', Parameter.Type.DOUBLE, 8.0),
+        Parameter('tip_angle_warn_deg_pitch', Parameter.Type.DOUBLE, 20.0),
+    ])
+    assert res[0].successful
+    m = node._tip_monitor
+    # 10° roll ≥ 8° warn_roll → nach Debounce WARN; 10° pitch < 20° → allein NONE.
+    from hexapod_gait.tip_monitor import TIP_NONE as _NONE
+    from hexapod_gait.tip_monitor import TIP_WARN as _WARN
+    last = _NONE
+    for _ in range(node._tip_debounce_ticks):
+        last = m.update(math.radians(10.0), math.radians(10.0), 0.0)
+    assert last == _WARN

@@ -128,12 +128,16 @@
 - **Stand:** Stufe 0 (IMU-Plumbing/Viz) + 1 (Kipp-Erkennung→Safe-State) + 2 (statisches
   Leveling) + 3a (Leveling im Laufen) 🟢 Sim. **Terrain-Following** (Klettern via Voll-Leveln
   **verworfen** → Körper folgt dem Boden): **TF-1** (passiv + slope-bewusster Tip) + **TF-2**
-  (aktiv: roll→0, pitch folgt Hang, Gyro-Dämpfung) 🟡 Code+Tests fertig, Sim-Verify offen.
+  (aktiv: roll→0, pitch folgt Hang, Gyro-Dämpfung) 🟢 Sim. **Stufe 6** (HW-IMU BNO-055) 🟢 HW.
+  **Stufe 7 (Regler v2)** 🟢 Code+Tests (Sim-Verify offen): Zwei-Fenster-Hysterese + Dual-Tiefpass
+  + per-Achse — behebt das HW-Pendeln (Rand-Chatter). Danach **6c/IP3** = HW-Gain-Tuning auf v2.
 - **Wo (3 Schichten, je Fähigkeit):**
   - **Regler (ROS-frei):** `tip_monitor.py` (`TipMonitor` — Schwellen/Entprellung/Latch,
-    Stufe 1) · `balance_controller.py` (`BalanceController` — Totband-PI + **Gyro-D (TF-2)** +
-    Slew + Anti-Windup) · `slope_estimator.py` (`SlopeEstimator` — langsamer Tiefpass + Residual,
-    **TF-1**). Alle unit-testbar wie `hexapod_kinematics`.
+    **per Achse** roll/pitch ab Stufe 7) · `balance_controller.py` (`BalanceController` **v2** —
+    **per Achse**: Zwei-Fenster-Hysterese [resume ≥outer / stop <inner] + Dual-Tiefpass [fast/slow,
+    nur roher Eingang] + Totband-PI + **Gyro-D** + Slew + Anti-Windup; `converged`=nicht-regelnd) ·
+    `slope_estimator.py` (`SlopeEstimator` — langsamer Tiefpass + Residual, **TF-1**). Alle
+    unit-testbar. **Back-Compat:** `inner==outer`+`tau==0`+roll==pitch → exakt Stufe-2/TF-2.
   - **Stellpfad (Engine):** `gait_engine.py` — `set_body_orientation_offset` +
     `_compute_leveled_ik`/`_leveled_ik_at` (R(roll,pitch)-Rotation aller Fuß-Targets via
     `rotate_xy`, STANDING **und** WALKING/STOPPING, Clamp `max_level_angle(_walking)` VOR IK +
@@ -142,11 +146,27 @@
     Kipprate + **signierte Gyro-Achsen** für D), `_update_slope_estimate` (TF-1, publisht
     `/imu/slope`, **VOR** Tip+Leveling), `_update_tip` (residual-gefüttert + Startup-Grace),
     `_update_leveling` (modus-abh.: **terrain** = pitch-Residual/roll-roh + Gyro / **horizontal** =
-    beide roh), `_rebuild_tip_monitor`, alle `tip_*`/`leveling_*`/`slope_*`-Params **live**.
-- **Verhalten tunen:** alles über **Params** (live): `leveling_enable/mode/kp/ki/`**`kd`**`/`
-  `deadband_deg/slew_max_dps/max_level_angle_deg/max_level_angle_walking_deg/startup_grace`,
-  `slope_aware_tip_enable/slope_estimate_tau_s/slope_clamp_deg`, `tip_angle_warn/crit_deg`,
-  `tip_rate_crit_dps/tip_debounce_ticks`. NICHTS in Engine/Regler hardcoden.
+    beide roh; **Stufe 7:** reicht `filter_roll=True` immer, `filter_pitch=(mode≠terrain)` an den
+    Regler = Filter nur auf rohem Eingang), `_build/_rebuild_tip_monitor`, `_apply_leveling_axis_params`,
+    alle `tip_*`/`leveling_*`/`slope_*`-Params **live**.
+- **Verhalten tunen:** alles über **Params** (live). **Stufe 7 = per Achse** (`_roll`/`_pitch`):
+  `leveling_{kp,ki,kd}_{roll,pitch}`, `leveling_deadband_{inner,outer}_deg_{roll,pitch}`
+  (Hysterese; inner==outer=aus), `leveling_tau_{fast,slow}_s_{roll,pitch}` (Dual-TP; 0=aus),
+  `leveling_slew_max_dps_{roll,pitch}`; gemeinsam `leveling_enable/mode/max_angle_deg/
+  max_angle_walking_deg/startup_grace`; `slope_aware_tip_enable/slope_estimate_tau_s/slope_clamp_deg`;
+  `tip_angle_{warn,crit}_deg_{roll,pitch}`, `tip_rate_crit_dps/tip_debounce_ticks`. NICHTS hardcoden.
+  **Code-Default = Stufe-2** (E9); HW-Arbeitswerte in `hexapod_gait/config/presets/hw_balance.yaml`.
+- **Wann muss ich HIER ran? (Symptom → Stellschraube, Stufe 7):**
+  - *Pendeln/Aufschwingen im Stand* → `leveling_kd_*` hoch bzw. `leveling_kp/ki_*` runter; Hysterese-
+    Fenster prüfen (`inner < outer`).
+  - *Zittern/Summen* → `leveling_kd_*` runter (D rausch-verstärkend auf HW).
+  - *Rand-Chatter (togglet an Totband-Kante)* → `inner < outer` setzen (Zwei-Fenster-Hysterese).
+  - *Jagt Gang-Ripple beim Laufen* → `leveling_deadband_inner_deg_*` über die Ripple-Amplitude heben
+    (ggf. state-abh. Fenster = deferred D3).
+  - *Roll sensibler als Pitch* (schmaler Roboter) → `_roll`-Fenster enger/`kp` höher + `tip_*_roll` kleiner.
+  - *Rausch/Transiente im Stand* → `leveling_tau_slow_s_*` > 0 (Dual-Tiefpass, nur horizontal-Eingang).
+  - *Ruck/Lurch am Knick (flach→Hang)* → adaptiver Slope-Schätzer (deferred D1) erwägen; Slew prüfen.
+  - *Fuß findet an Kante/Stufe keinen Boden* → **kein** Balance-Problem → Stufe 4 (Fußkontakte).
 - **TF-Modus (`leveling_mode`):** `terrain` (Default) = roll→0, **pitch folgt dem Hang** (pitch-
   Eingang = Residual gegen die `SlopeEstimator`-Schätzung) + Gyro-D; `horizontal` = Stufe-2-Voll-
   Leveln (roll+pitch→0, fürs statische Horizontal-Stehen).
@@ -159,7 +179,9 @@
   levelt im STOPPING fälschlich auf 0. (5) **D rausch-verstärkend:** Sim rauschfrei → `Kd` auf HW
   konservativ. (6) **roll→0 nur Geradeaus** — Quer-/Diagonal-Hang ist der Nachfolge-Block
   **`TF-Quer`** (roll-Residual + `cmd_vel`-Richtungslogik, [TF-2-Plan §6](../project_finalization/imu_balance/stage_3b_active_tf_plan.md)); Kante/Stufe = Stufe 4 (Fußtaster). (7) Zwei
-  Limit-Quellen — Clamp gegen **URDF**-Limits.
+  Limit-Quellen — Clamp gegen **URDF**-Limits. (8) **Stufe-7-Dual-Tiefpass NICHT im terrain-pitch**
+  (Residual ist schon slope-gefiltert → `filter_pitch=False`; sonst Doppelfilter → Knick-Lurch). (9)
+  **`inner ≤ outer`** und `tau ≥ 0` werden validiert; per-Achse-Params `_roll`/`_pitch`, kein Skalar-Alias.
 - **Schräg-Welten:** `slope.launch.py` (statische Box) / `ramp.launch.py slope_deg:=8.0`
   (flach→Hang→Plateau zum Hineinlaufen) — beide parametrisch, **flach gespawnt**.
 - **Validieren:** `colcon test hexapod_kinematics hexapod_gait` (`test_balance_controller`,
@@ -294,7 +316,7 @@
 | Joint-Limits (URDF) | `hexapod_description/urdf/hexapod.urdf.xacro` (+ `ros2_control.xacro`, `physical_properties.xacro`) |
 | Puls-Cal je Servo | `hexapod_hardware/config/servo_mapping.yaml` |
 | Gait-Logik / State-Machine | `hexapod_gait/hexapod_gait/gait_engine.py`, `gait_node.py` |
-| IMU-Balance / Leveling / Kipp-Erkennung (A5) | `hexapod_gait/{tip_monitor,balance_controller}.py`, `gait_engine._compute_leveled_ik`, `gait_node._update_{tip,leveling}`; `project_finalization/imu_balance/` |
+| IMU-Balance / Leveling / Kipp-Erkennung (A5) | `hexapod_gait/{tip_monitor,balance_controller}.py` (Regler **v2** per-Achse), `gait_engine._compute_leveled_ik`, `gait_node._update_{tip,leveling}` + `_apply_leveling_axis_params`, `config/presets/hw_balance.yaml`; Tests `test_{balance_controller,tip_monitor,leveling_node}`; `project_finalization/imu_balance/` |
 | Gangmuster | `hexapod_gait/hexapod_gait/gait_patterns.py` |
 | Lauf-Presets | `hexapod_gait/config/presets/*.yaml` |
 | Controller-Config | `hexapod_control/config/controllers{,.real}.yaml` |
