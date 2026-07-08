@@ -11,12 +11,11 @@
 
 ## Stand & nächster Schritt (Übergabe)
 
-> **🧭 AKTUELL (Stufe 7): Balance-Regler v2** — Zwei-Fenster-Hysterese + Dual-Tiefpass + per-Achse,
-> behebt das HW-Pendeln (Rand-Chatter). **🟢 Code+Tests grün** (426 gait / 43 kin, 0 Fehler),
-> **offen: 7.10 HW-Verify aufgebockt durch User** (Default=kein Regress + Hysterese killt das Pendeln
-> + per-Achse; Sim nicht nötig). Danach
-> **6c/IP3 = HW-Gain-Tuning auf v2** (⏸️, wartet auf Stufe 7 + Servo-Power). Details: Stufe-7-Abschnitt
-> unten + [`stage_7_balance_controller_v2_plan.md`](stage_7_balance_controller_v2_plan.md). **User committet selbst.**
+> **🧭 AKTUELL: Stufe 7 (Balance-Regler v2) 🟢 KOMPLETT** — Zwei-Fenster-Hysterese + Dual-Tiefpass +
+> per-Achse, behebt das HW-Pendeln. **Code+Tests grün** (426 gait / 43 kin, 0 Fehler) **+ HW-verifiziert**
+> (Kipp-Platte am Boden: hält sauber horizontal, kein Überschwingen/Zittern). Verifizierte Konfig in
+> `hw_balance.yaml`. **Nächster Schritt: 6c/IP3.3-auf-v2 = Terrain-Following im Laufen** (am Boden,
+> terrain-Modus) — Standing-Leveling ist damit erledigt. Details: Stufe-7-Abschnitt unten. **User committet selbst.**
 >
 > _(Historie unten: Stufe 4 Terrain-adaptiv war der vorherige aktive Punkt.)_
 
@@ -932,7 +931,7 @@ IP3 (IMU-Balance-Tuning auf HW):
 
 ---
 
-## Stufe 7 — Balance-Regler v2 (Hysterese + Dual-Tiefpass + per-Achse)  🟢 Code+Tests (Sim-Verify offen)
+## Stufe 7 — Balance-Regler v2 (Hysterese + Dual-Tiefpass + per-Achse)  🟢 KOMPLETT (Code+Tests+HW-verifiziert)
 
 Plan: [`stage_7_balance_controller_v2_plan.md`](stage_7_balance_controller_v2_plan.md) ·
 HW-Test-Doku (7.10, aufgebockt): [`stage_7_test_commands.md`](stage_7_test_commands.md).
@@ -954,7 +953,7 @@ Stufe 7 (Balance-Regler v2):
 - [x] 7.7 Node-Tests (Startup-Grace v2, per-Achse live+Validierung, Filter-Flag-Pfad roll/pitch, per-Achse Tip) gruen
 - [x] 7.8 colcon test hexapod_gait hexapod_kinematics + Lint gruen  [426 gait / 43 kin, 0 Fehler; +30 Tests ggue. v1]
 - [x] 7.9 README/Konzept-Update (v2-Regler, Hysterese, Dual-TP horizontal-only, per-Achse, Filter-Flag)
-- [ ] 7.10 HW-Verify aufgebockt (User): Default=kein Regress + Hysterese killt das Pendeln (IP3.2) + per-Achse/Validierung  [stage_7_test_commands.md; Sim nicht noetig — rauschfrei zeigt Pendel-Fix nicht]
+- [x] 7.10 HW-Verify (User, Kipp-Platte am Boden): v2 haelt Koerper sauber horizontal (roll/pitch/kombiniert), KEIN Ueberschwingen/Zittern -> Hysterese behebt das IP3.2-Pendeln. Verifizierte Konfig: kp1.3 / inner1.0 / outer2.0 (beide Achsen), ki0.1/kd0.03/slew8.0 (Default), mode horizontal -> in hw_balance.yaml gesichert
 - [x] 7.11 Projekt-Architektur-Doku nachgezogen (ai_navigation A5 + §3-Tabelle + Symptom->Stellschraube)
 - [x] 7.12 kritische Self-Review-Tabelle  [unten]
 ```
@@ -971,15 +970,16 @@ Stufe 7 (Balance-Regler v2):
 | Validierung `inner ≤ outer` + `tau ≥ 0` | OK — `test_deadband_inner_gt_outer_rejected` + `test_negative_tau_rejected` |
 | Gyro-D immer aktiv (auch Hold) auf roher Rate | OK — `test_gyro_d_acts_inside_deadband` (bestehend) |
 | kein Skalar-Alias → `hw_balance.yaml` migriert, paketweit sauber | OK — grep: keine Skalar-Referenzen mehr in Code/README/yaml |
-| **`hw_balance.yaml`-Startwerte (inner1.0/outer2.0 + v1-Gains) NICHT auf v2 verifiziert** | 🟡 **vormerken:** Vorschlag, in 6c-auf-v2 (HW) verifizieren/nachziehen + per-Achse aufsplitten |
-| **HW-Verify (7.10) offen** | 🟡 **vormerken:** User bestätigt auf HW (aufgebockt): Default=kein Regress + Hysterese killt das Pendeln + per-Achse/Validierung. Sim **nicht nötig** (Logik = 426 Unit-Tests; rauschfreie Sim zeigt den Pendel-Fix nicht) |
+| **`hw_balance.yaml` Leveling-Werte** | ✅ HW-verifiziert (Stufe 7); per-Achse-Aufsplitten (Roll seitlich früher) bleibt optional für später |
+| **HW-Verify (7.10)** | ✅ **erledigt (User, Kipp-Platte am Boden):** v2 hält den Körper sauber horizontal (roll/pitch/kombiniert), kein Überschwingen/Zittern → Hysterese behebt das IP3.2-Pendeln. Konfig in `hw_balance.yaml` gesichert |
+| **`hw_balance.yaml`-Werte** | ✅ **auf verifizierte v2-Konfig gesetzt** (kp1.3/inner1.0/outer2.0, ki/kd/slew Default); terrain/slope-Teil offen (IP3.3-auf-v2) |
 | terrain-pitch Doppelfilter-Falle | OK — `filter_pitch=False` im terrain-Modus (Finding A), Fallen-Punkt (8) in ai_navigation |
 | State-abhängige Fenster (D3) / adaptiver Slope-Schätzer (D1) | 🟢 später — deferred, erst bei HW-Bedarf (6c-auf-v2) |
 | Latch persistiert STANDING↔WALKING (nur Reset beim Verlassen der Leveling-States) | 🟢 gewollt (glatter Übergang); state-Clamp greift via `set_gains` weiter |
 
-**Fazit:** keine 🔴. 7.1–7.9 + 7.11 + 7.12 erfüllt (Code + 426/43 Tests + Lint + Doku). **Offen: 7.10
-Sim-Re-Verify (User)** → dann Stufe 7 🟢 komplett, danach **6c/IP3 auf v2**. Zwei 🟡 sind HW-/Sim-
-Verifikations-Punkte, keine Code-Mängel.
+**Fazit:** keine 🔴. **7.1–7.12 alle erfüllt** (Code + 426/43 Tests + Lint + Doku + **HW-verifiziert**).
+**Stufe 7 🟢 KOMPLETT.** Standing-Leveling auf v2 ist HW-sauber (kein Pendeln/Überschwingen/Zittern),
+Konfig in `hw_balance.yaml`. Nächster Schritt: **IP3.3-auf-v2** (Terrain-Following im Laufen, am Boden).
 
 ---
 
