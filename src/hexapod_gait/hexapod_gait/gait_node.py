@@ -193,11 +193,14 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_height', default=0.040,
+        name='step_height', default=0.050,
         fp_range=(0.005, 0.10, 0.001),
         description=(
             'Foot-Hub-Höhe im Swing (m). '
-            'Live-Update wirkt ab nächstem Swing.'
+            'Live-Update wirkt ab nächstem Swing. '
+            'H1: gedeckelt auf den step_height des aktuellen Stance-Modus '
+            '(tief 0.04 / mittel 0.05 / hoch 0.08 — Gate-validiert); '
+            'Default = mittel (Boot-Modus).'
         ),
     ),
     _ParamSpec(
@@ -566,10 +569,17 @@ _StanceMode = namedtuple('_StanceMode', 'name radial body_height step_height')
 # Kein Routing über mittel nötig (alle Höhen > _SIT_SAFE_MIN_BH). Walking grün @ 0.160,
 # Standup grün @ 0.20 zu allen drei body_height. Envelope am Femur-Rand optimistisch →
 # echte Engine/Sim/HW validieren (test_stance_switch + B.4/B.5 + S6).
+# Block H1: per-Modus step_height (mehr Fuß-Hub fürs Terrain, je Höhe maximal
+# valide) — Gate-validiert (walking_envelope_check: min-margin 0.10 nominal +
+# Leveling-4°-Coverage + S4-Floor 0.03 + engine-check-Transitions, H1.2-Tabelle
+# in H1_step_height_modes_progress.md). Der Tabellenwert ist zugleich der
+# DECKEL für manuelles `param set step_height` im jeweiligen Modus (Reject,
+# _on_param_change) — höhere Werte rissen auf HW IKError+Safety-Freeze
+# (Femur-Wand am Schwung-Apex: bh + sh ≳ −0.02 geht nicht).
 _STANCE_MODES = (
     _StanceMode('tief', 0.160, -0.065, 0.040),
-    _StanceMode('mittel', 0.160, -0.080, 0.040),
-    _StanceMode('hoch', 0.160, -0.100, 0.040),
+    _StanceMode('mittel', 0.160, -0.080, 0.050),
+    _StanceMode('hoch', 0.160, -0.100, 0.080),
 )
 _STANCE_DEFAULT_IDX = 1   # mittel
 # Tiefste body_height, aus der direkt hingesetzt werden kann. leg_changes: alle
@@ -612,6 +622,20 @@ class GaitNode(Node):
         self._pattern = GAIT_PRESETS[pattern_name]
 
         self._step_height = float(self.get_parameter('step_height').value)
+        # H1 — Init-Konsistenz-Check: params_file-Overrides greifen zur
+        # Deklarations-Zeit und laufen NICHT durch _on_param_change — ein
+        # Preset mit step_height über dem Boot-Modus-Deckel (mittel) würde
+        # den Reject umgehen. Hier deckeln + warnen statt später
+        # IKError+Safety-Freeze auf HW.
+        _boot_cap = _STANCE_MODES[_STANCE_DEFAULT_IDX].step_height
+        if self._step_height > _boot_cap:
+            self.get_logger().warn(
+                f'step_height {self._step_height:.3f} über dem Deckel des '
+                f'Boot-Stance-Modus '
+                f'({_STANCE_MODES[_STANCE_DEFAULT_IDX].name} = {_boot_cap}) '
+                f'— auf Deckel gesetzt (H1-Gate-validierte Werte).'
+            )
+            self._step_height = _boot_cap
         self._cycle_time = float(self.get_parameter('cycle_time').value)
         self._tick_rate = float(self.get_parameter('tick_rate').value)
         self._body_height = float(self.get_parameter('body_height').value)
@@ -2668,6 +2692,28 @@ class GaitNode(Node):
                     successful=False,
                     reason=f'slope_clamp_deg must be > 0, got {p.value}',
                 )
+
+        # 1h2. Block H1 — step_height gegen den Deckel des AKTUELLEN
+        # Stance-Modus (Tabellenwert = Gate-validiertes Maximum). Reject
+        # statt späterem IKError+Safety-Freeze auf HW (Femur-Wand am
+        # Schwung-Apex). Kleinere Werte sind immer erlaubt; der Stance-
+        # Switch selbst setzt sh direkt aus der Tabelle (kein Callback).
+        # Wer radial/body_height manuell verstellt, verlässt das validierte
+        # Preset-System — der Deckel bleibt dann Näherung (IKError-Backstop).
+        for p in params:
+            if p.name == 'step_height':
+                cap = _STANCE_MODES[self._stance_idx].step_height
+                if float(p.value) > cap + 1e-9:
+                    mode_name = _STANCE_MODES[self._stance_idx].name
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            f'step_height {p.value} exceeds validated max '
+                            f'{cap} for stance mode {mode_name!r} '
+                            f'(H1 gate; switch to a higher mode for more '
+                            f'step height)'
+                        ),
+                    )
 
         # 1i. TF-2/HW8.7b leveling_mode ∈ {horizontal, terrain, auto}.
         for p in params:

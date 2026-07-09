@@ -18,18 +18,35 @@
 
 ## 0. Offline-Datenlage (walking_envelope_check, echte URDF-Limits)
 
-Grenze überall: Schwung-Apex (`body_height + step_height`) ≤ ~−0.02 (Femur-Wand). Gemessen
-(Szenario `all`, step_length 0.05 **und** 0.12):
+> ⚠️ **KORRIGIERT in H1.2:** die ursprüngliche Vor-Plan-Tabelle war durch einen
+> Auslese-Fehler verfälscht (`grep|tail`-Einzeiler übersah RED in sidestep/diagonal — die
+> ❌-Szenario-Zeilen enthalten das Wort „RED" nicht). Ab hier: **exit-code-basierte** Messung
+> mit dem H1.1-Gate (min-margin 0.10 nominal + Leveling-4°-Coverage + S4-Floor). Wichtigste
+> Korrekturen: (1) Schrittweite 0.12 ist NICHT frei kombinierbar (nur mittel @ sh ≤ 0.05);
+> (2) hoch/0.10 fällt an der Apex-Marge (0.067 rad); (3) der eigentliche Blocker der
+> Radius-Bruch-Zellen ist der **S4-Slip-Probe-Floor** (Reach bei bh−cliff_depth), nicht der Apex.
 
-| Modus | body_height | radial | sh 0.04 | 0.06 | 0.08 | 0.09 | 0.10 |
-|---|---|---|---|---|---|---|---|
-| tief | −0.065 | 0.160 | ✓ | ❌ | ❌ | — | — |
-| mittel | −0.080 | 0.160 | ✓ | ✓ | ❌ | — | — |
-| hoch | −0.100 | 0.160 | ✓ | ✓ | ✓ | ✓ | ❌ |
-| hoch | −0.100 | **0.170** | — | — | — | ✓ | ✓ |
-| hoch | −0.100 | **0.180** | — | — | — | ✓ | ✓ |
+Gate-geprüfte Matrix (step_length 0.05, `--min-margin 0.10 --leveling-deg 4.0 --s4-floor 0.03`;
+worst-Marge über alle 4 Szenarien):
 
-(step_length 0.12 = Aggressiv-Schrittweite ändert daran nichts — alle ✓-Zellen bleiben GREEN.)
+| Zelle | worst-Marge nominal | S4-Floor 0.03 | Lev-Coverage (min) | Verdikt |
+|---|---|---|---|---|
+| tief 0.160/−0.065/**0.04** (heute) | 0.142 (sidestep/femur) | ✓ | 92.5 % | ✅ Referenz |
+| mittel 0.160/−0.080/0.04 (heute) | 0.258 | ✓ | 100 % | ✅ Referenz |
+| hoch 0.160/−0.100/0.04 (heute) | 0.258 | ✓ | 98.0 % | ✅ Referenz |
+| mittel 0.160/−0.080/**0.05** | 0.218 (sidestep/femur) | ✓ | 100 % | ✅ komfortabel |
+| mittel 0.160/−0.080/**0.06** | **0.098** (sidestep/femur) | ✓ | 80.3 % | ❌ 2 mrad unter Schwelle |
+| hoch 0.160/−0.100/**0.08** | 0.108 (sidestep/femur) | ✓ | 84.3 % | ✅ knapp über Schwelle |
+| hoch 0.170/−0.100/**0.09** | 0.157 (sidestep/femur) | ❌ (✓ mit cliff 0.02) | 97 % @ cliff 0.02 | ✅ **nur mit cliff_depth 0.02** |
+| hoch 0.170/−0.100/0.10 | **0.067** (sidestep/femur) | ❌ | 71–79 % | ❌ Apex-Marge |
+| hoch 0.180/−0.100/0.09–0.10 | 0.224–0.276 | ❌ auch @ cliff 0.02 | 81–92 % | ❌ Floor-Reach |
+
+**Schrittweite** ist Teil der Envelope (Korrektur!): 0.12 nur mittel @ sh ≤ 0.05 GREEN; die
+Tempo-Presets (H2) brauchen daher eine **per-Zelle validierte max-Schrittweite**
+(`_find_max_step_length` existiert).
+
+**engine-check (Transitions, alle GREEN @ min-margin 0.10):** mittel↔hoch@0.170-Switch
+(Radius-Wechsel), hoch-Kandidat Start/Richtungswechsel/Stopp/Sitdown/Reposition, tief↔mittel.
 
 ⚠️ **Bekannte Falle — Ursache jetzt Code-verifiziert:** `walking_envelope_check` nutzt zwar
 schon die **echte `GaitEngine`** (`check_envelope`: `set_command` + `compute_joint_angles`),

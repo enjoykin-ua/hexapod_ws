@@ -82,6 +82,15 @@
   `joy_to_twist.py` — L2/R2 ohne R1 → cycle_stance.
 - **Modi/Werte ändern:** nur die `_STANCE_MODES`-Tabelle (offline-validiert!). Default-Boot-Pose =
   Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`-Param-Defaults.
+  **Block H1 — per-Modus `step_height` (tief 0.04 / mittel 0.05 / hoch 0.08):** der Tabellenwert
+  ist zugleich **Deckel** für `param set step_height` im jeweiligen Modus (Reject; Boot-Override
+  via params_file wird im Init gedeckelt+WARN — der umgeht den Set-Callback). Werte-Änderung nur
+  nach neuem **Gate-Durchlauf**: `walking_envelope_check check --min-margin 0.10 --leveling-deg 4.0
+  --s4-floor 0.03 --scenario all` (Margen-Schwelle NUR nominal; Leveling-Ecken = Coverage-Metrik,
+  Fallback degradiert sanft) **+ `engine-check`** (Transitions: Start/Richtungswechsel/Stopp/
+  Stance-Switch/Sitdown — schließt die „steady-state-only"-Lücke). Datenlage/Verworfenes (10 cm =
+  Apex-Marge; radial 0.17/0.18 = S4-Floor-Reach): `project_finalization/H1_step_height_modes_*`.
+  ⚠️ Tool-Ausgaben IMMER exit-code-basiert auswerten (H1.2-Lehre: `grep|tail` übersah RED-Szenarien).
 - **Fallen:** (1) **leg_changes/S5+S6: einheitlicher WALK-Radius 0.160 über alle Höhen** (tief −0.065 /
   mittel −0.080 / hoch −0.100). Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort reiten die Vorderbeine
   an der Femur-(−90°)-Wand → IKError/Schleifen), sondern am **breiten `standup_radial` 0.20**

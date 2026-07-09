@@ -96,8 +96,8 @@
 
 | # | Stage | Status | Notiz |
 |---|---|---|---|
-| H1 | **Schritthöhen-Modi** (per-Höhe validierte step_height + radial) | 🟡 Plan (§4-Freigabe offen) | Ziel: tief 0.04 (bleibt) / mittel 0.06 / **hoch 0.10 @ radial 0.17–0.18** (per-Modus-Radius, User-ok; Fallback-Treppe im Plan). Deckel = Reject. Tool-Erweiterung `engine-check` (echte Engine, schließt die „envelope-Tool zu optimistisch"-Lücke) + `apex_meter` (reale Apex-Höhe auf HW). Plan/Progress: `H1_step_height_modes_*`. |
-| H2 | **Tempo-Presets** (aggressiv/schnell/mittel/langsam) | ⚪ nach H1 | Gleiche Schrittweite (0.12), nur `cycle_time`-Stufen (~1.5/2.0/2.6/3.3) + `joy_to_twist`-Scales — envelope-frei (Hülle ist geschwindigkeitsunabhängig), nur HW-Check „aggressiv". Umschalten: `ros2 param load` im Stand (existiert); Teleop-Taste = E3-Komfort. |
+| H1 | **Schritthöhen-Modi** (per-Höhe validierte step_height) | 🟡 Code fertig, Sim/HW offen | **Final (Gate-validiert + User-Entscheid): tief 0.04 / mittel 0.05 / hoch 0.08 — Einheits-Radius 0.160 bleibt** (9–10 cm datenbasiert verworfen: Apex-Marge bzw. S4-Floor-Reach; Fallback-Treppe griff). Deckel = Reject (+ Init-Deckelung von Boot-Overrides). Tool: Margen-Report/`--min-margin`/`--leveling-deg`-Coverage/`--s4-floor` + `engine-check` (Transitions) + `apex_meter`. Suite 440/43 grün. **Offen: H1.4 Sim-Smoke + H1.5/6 HW (Apex-Messung)** — `H1_step_height_modes_test_commands.md`. |
+| H2 | **Tempo-Presets + sl-Deckel** (aggressiv/schnell/mittel/langsam) | 🟡 **Plan fertig (§4-Freigabe der Entscheide erteilt) → Implementierung im nächsten Chat** | **Self-contained Handoff-Plan: [`H2_speed_presets_plan.md`](H2_speed_presets_plan.md)** (§7 = Einstiegs-Anker). Kern: `step_length_max` wird Tabellenwert pro Stance-Modus (**tief 0.06 / mittel 0.09 / hoch 0.05**, Gate-validiert; heutiger out-of-reach-Befund = fehlender Deckel) + 4 Tempo-Stufen NUR über `cycle_time`+Scales (envelope-frei; Start 1.5/2.0/2.6/3.3, Sim-Tuning) · D-Pad ↑/↓ umgewidmet C3→Tempo · inkl. H1-🟡-Fix (Param-Server-Sync nach Switch). Progress: `H2_speed_presets_progress.md`. |
 
 ---
 

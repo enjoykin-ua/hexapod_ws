@@ -5,8 +5,11 @@ STATE_STANCE_SWITCH fährt per Tripod-Reposition radial UND body_height
 gleichzeitig vom Ist- zum Ziel-Modus (kleiner switch_step_height → Apex unter
 Femur-Wand). Nur aus STANDING; cmd_vel ignoriert. Endet im Ziel-Modus → STANDING.
 
-3 validierte Modi (leg_changes S4): hoch (-0.13/0.13), mittel (-0.10/0.145),
-tief (-0.07/0.16), alle step_height 0.04. Pure-Python (pytest, kein rclpy).
+3 validierte Modi (leg_changes S5/S6 + Block H1): Einheits-Radius 0.160,
+hoch (−0.100, sh 0.08), mittel (−0.080, sh 0.05), tief (−0.065, sh 0.04) —
+die per-Modus-step_heights sind H1-Gate-validiert (H1_step_height_modes_
+progress.md); die Werte hier spiegeln die _STANCE_MODES-Tabelle im gait_node
+(Sync-Pin: test_step_height_modes_node.py). Pure-Python (pytest, kein rclpy).
 """
 
 from hexapod_gait.gait_engine import GaitEngine
@@ -21,11 +24,11 @@ _URDF = JointLimits(
     femur_lower=-1.57, femur_upper=1.57,
     tibia_lower=-0.28, tibia_upper=2.50,
 )
-# (radial, body_height, step_height) je Modus — mit Femur-Marge gewählt
-# (real-engine-validiert, NICHT am Min-Radial-Rand). leg_changes S4.
-HOCH = (0.13, -0.13, 0.04)
-MITTEL = (0.145, -0.10, 0.04)
-TIEF = (0.16, -0.07, 0.04)
+# (radial, body_height, step_height) je Modus = die ECHTEN _STANCE_MODES-
+# Werte (Block H1: per-Modus step_height, Gate-validiert).
+HOCH = (0.160, -0.100, 0.08)
+MITTEL = (0.160, -0.080, 0.05)
+TIEF = (0.160, -0.065, 0.04)
 _SWITCH_DUR = 2.0
 
 
@@ -33,9 +36,9 @@ def _engine(mode=MITTEL) -> GaitEngine:
     radial, bh, sh = mode
     return GaitEngine(
         pattern=_TRIPOD, step_height=sh, cycle_time=2.0,
-        radial_distance=radial, body_height=bh, step_length_max=0.03,
+        radial_distance=radial, body_height=bh, step_length_max=0.05,
         joint_limits={leg.name: _URDF for leg in HEXAPOD.legs},
-        standup_radial_distance=0.17, reposition_cycle_time=2.0,
+        standup_radial_distance=0.20, reposition_cycle_time=2.0,
     )
 
 
@@ -69,7 +72,7 @@ def test_switch_rejected_when_not_standing():
 def test_switch_validates_duration():
     engine = _engine()
     with pytest.raises(ValueError):
-        engine.start_stance_switch(0.0, 0.13, -0.13, 0.04, 0.0)
+        engine.start_stance_switch(0.0, HOCH[0], HOCH[1], HOCH[2], 0.0)
 
 
 # ----- Pfad in-limit + Zielzustand für alle Übergänge ------------------
@@ -130,7 +133,7 @@ def test_mode_walks_all_directions_no_ikerror(mode):
     radial, bh, sh = mode
     engine = GaitEngine(
         pattern=_TRIPOD, step_height=sh, cycle_time=2.0,
-        radial_distance=radial, body_height=bh, step_length_max=0.03,
+        radial_distance=radial, body_height=bh, step_length_max=0.05,
         joint_limits={leg.name: _URDF for leg in HEXAPOD.legs},
         standup_radial_distance=radial, reposition_cycle_time=2.0,
     )
@@ -155,8 +158,8 @@ def test_mode_walks_all_directions_no_ikerror(mode):
 
 def test_body_height_monotonic_to_target():
     """body_height-Rampe ist monoton von from → to (kein Über-/Unterschwingen)."""
-    engine = _engine(MITTEL)   # -0.100
-    _switch(engine, HOCH)      # -0.140 (tiefer)
+    engine = _engine(MITTEL)   # -0.080
+    _switch(engine, HOCH)      # -0.100 (tiefer)
     # leg_2 z (≈ body_height der Stützphase) sollte monoton fallen.
     from hexapod_kinematics import leg_fk
     prev = None

@@ -184,3 +184,112 @@ def test_recommend_optimize_step_height_picks_best(joint_limits):
     assert rec is not None
     # The optimized step_height must come from the sweep range
     assert 0.010 - 1e-6 <= rec.step_height <= 0.040 + 1e-6
+
+
+# ---------------------------------------------------------------------------
+# H1.1 — Margen-Report / --min-margin / --leveling-deg / --s4-floor
+# ---------------------------------------------------------------------------
+
+# Heutiger mittel-Modus (validiert): der Referenzpunkt aller H1.1-Tests.
+_MID = dict(radial_distance=0.160, body_height=-0.080,
+            step_length_max=0.05, step_height=0.04)
+
+
+def test_margin_report_present_and_positive(joint_limits):
+    """GREEN-Lauf liefert min_margins für alle 3 Joint-Typen, alle > 0."""
+    gp = wec.GaitParams(**_MID)
+    r = wec.check_envelope(gp, joint_limits, scenario='forward')
+    assert r.ok
+    assert set(r.min_margins.keys()) == {'coxa', 'femur', 'tibia'}
+    for m in r.min_margins.values():
+        assert m > 0.0
+    assert r.worst_margin is not None
+    assert r.worst_margin['margin'] == min(r.min_margins.values())
+
+
+def test_min_margin_threshold_rejects_thin_green(joint_limits):
+    """Der Optimismus-Fix: eine in-limit-Config wird RED, wenn die Marge
+    unter der Schwelle liegt (absurde Schwelle erzwingt den Pfad)."""
+    gp = wec.GaitParams(**_MID)
+    r = wec.check_envelope(
+        gp, joint_limits, scenario='forward', min_margin=1.0)
+    assert not r.ok
+    assert r.first_failure['reason'] == 'margin_below_threshold'
+
+
+def test_known_red_cell_detected(joint_limits):
+    """Detektionskraft: tief (−0.065) mit sh 0.08 ist die bekannte RED-Zelle
+    (Femur-Wand, User-HW-Befund) — muss RED bleiben."""
+    gp = wec.GaitParams(
+        radial_distance=0.160, body_height=-0.065,
+        step_length_max=0.05, step_height=0.08)
+    r = wec.check_envelope(gp, joint_limits, scenario='forward')
+    assert not r.ok
+    assert r.first_failure['reason'] in ('joint_limit', 'out_of_reach')
+
+
+def test_leveling_deg_reports_coverage_not_hard_fail(joint_limits):
+    """Leveling-Ecken sind eine Coverage-Metrik, KEIN Hard-Fail (der Engine-
+    Fallback degradiert real sanft; schon der heutige tief-Modus schafft die
+    4°-Voll-Ecken am Apex nicht). Die nominale Marge bleibt davon unberührt
+    (Entkopplung von der min_margin-Schwelle)."""
+    gp = wec.GaitParams(**_MID)
+    base = wec.check_envelope(gp, joint_limits, scenario='forward')
+    lev = wec.check_envelope(
+        gp, joint_limits, scenario='forward', leveling_deg=4.0)
+    assert lev.ok, f'mid-mode with 4° leveling unexpectedly RED: ' \
+                   f'{lev.first_failure}'
+    assert lev.lev_coverage is not None
+    assert 0.0 < lev.lev_coverage <= 1.0
+    assert lev.lev_min_margins is not None
+    # Nominal-Margen sind von den Ecken entkoppelt (Schwelle = nominal only).
+    assert min(lev.min_margins.values()) == pytest.approx(
+        min(base.min_margins.values()))
+    assert base.lev_coverage is None  # ohne leveling_deg kein Coverage-Feld
+
+
+def test_s4_floor_uses_real_probe_path(joint_limits):
+    """s4_floor aktiviert den echten S4-2-Probe-Pfad: moderat (0.02) bleibt
+    GREEN mit kleinerer Marge; absurd tief (0.15) wird RED."""
+    gp = wec.GaitParams(**_MID)
+    base = wec.check_envelope(gp, joint_limits, scenario='forward')
+    ok_floor = wec.check_envelope(
+        gp, joint_limits, scenario='forward', s4_floor=0.02)
+    assert ok_floor.ok
+    assert min(ok_floor.min_margins.values()) <= \
+        min(base.min_margins.values())
+    red_floor = wec.check_envelope(
+        gp, joint_limits, scenario='forward', s4_floor=0.15)
+    assert not red_floor.ok
+
+
+# ---------------------------------------------------------------------------
+# H1.1 — engine_transition_check (Transition-Coverage)
+# ---------------------------------------------------------------------------
+
+
+def test_engine_check_green_for_current_modes(joint_limits):
+    """Kalibrier-Anker: die heutige validierte Konfiguration (mittel, inkl.
+    Switch nach hoch @ Einheits-Radius) muss das neue Gate mit der
+    0.10-rad-Schwelle passieren — sonst wäre die Schwelle falsch."""
+    gp = wec.GaitParams(**_MID)
+    r = wec.engine_transition_check(
+        gp, joint_limits, min_margin=0.10,
+        switch_to=(0.160, -0.100, 0.04), ticks_per_cycle=50)
+    assert r.ok, f'current modes fail the new gate: {r.first_failure}'
+    assert r.scenario == 'transitions'
+    # Sequenz-Margen getrennt ausgewiesen (Sitdown fährt bewusst grenznah).
+    assert r.seq_min_margins is not None
+    assert min(r.seq_min_margins.values()) < min(r.min_margins.values())
+
+
+def test_engine_check_detects_bad_target_mode(joint_limits):
+    """Ein Switch in einen ungültigen Zielmodus (tief + sh 0.08 = Femur-Wand)
+    muss im 'C:walk_target_mode'-Teil auffliegen."""
+    gp = wec.GaitParams(**_MID)
+    r = wec.engine_transition_check(
+        gp, joint_limits, min_margin=0.0,
+        switch_to=(0.160, -0.065, 0.08), ticks_per_cycle=50)
+    assert not r.ok
+    reasons = {f['reason'] for f in r.failures}
+    assert reasons & {'joint_limit', 'out_of_reach'}

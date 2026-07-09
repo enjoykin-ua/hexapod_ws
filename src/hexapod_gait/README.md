@@ -519,7 +519,7 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `default_angular_z` | `0.0` | Fallback Drehung (rad/s) |
 | `cmd_vel_timeout` | `0.5` | Sekunden ohne cmd_vel → Fallback auf Defaults |
 | `cycle_time` | `2.0` | Sekunden pro Tripod-Cycle (1 s Swing + 1 s Stance) |
-| `step_height` | `0.03` | Schwung-Höhe (m über Stand-Pose) |
+| `step_height` | `0.05` | Schwung-Höhe (m über Stand-Pose). **H1: gedeckelt auf den step_height des aktuellen Stance-Modus** (tief 0.04 / mittel 0.05 / hoch 0.08 — Gate-validiert, `_STANCE_MODES`); darüber → Reject. L2/R2-Stance-Switch setzt den Modus-Wert automatisch (nur valide Kombinationen durchschaltbar); Boot-Override über dem Deckel wird im Init gedeckelt (WARN). Physik: Apex `body_height + step_height` ≤ ~−0.02 (Femur-Wand) |
 | `body_height` | `-0.052` | Stand-Pose Foot-Z (m, Bein-Frame) |
 | `radial_distance` | `0.27` | Stand-Pose Foot-X (m, Bein-Frame) |
 | `tick_rate` | `50.0` | Engine-Loop-Rate (Hz) |

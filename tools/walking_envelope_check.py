@@ -163,7 +163,15 @@ import yaml
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_node import parse_joint_limits_from_urdf
 from hexapod_gait.gait_patterns import GAIT_PRESETS
-from hexapod_kinematics import HEXAPOD, IKError, JointLimits
+from hexapod_kinematics import (
+    base_to_leg_frame,
+    HEXAPOD,
+    IKError,
+    JointLimits,
+    leg_ik,
+    leg_to_base_frame,
+    rotate_xy,
+)
 
 
 # Default workspace paths — adjust if the script is moved.
@@ -209,6 +217,93 @@ class CheckResult:
     failures: list[dict]  # one entry per failing tick
     first_failure: dict | None
     scenario: str = 'forward'  # which cmd_vel scenario was simulated
+    # H1.1 — Margen-Report: minimaler Abstand zum URDF-Limit über den ganzen
+    # Lauf, pro Joint-Typ (rad). None = alter Aufrufer ohne Margen-Tracking.
+    min_margins: dict[str, float] | None = None
+    worst_margin: dict | None = None  # {'joint','leg','margin','tick'}
+    # engine-check: Margen der Sequenz-Phasen (Sitdown/Switch) — NUR
+    # informativ; die min_margin-Schwelle gilt für die Walk-Phasen (die
+    # Sequenzen fahren bewusst grenznah und sind HW-bewährt, z. B. Sitdown-
+    # Flatten Femur ~0.07 rad — sie werden auf IKError geprüft, nicht auf Marge).
+    seq_min_margins: dict[str, float] | None = None
+    # check: Margen der Leveling-Ecken — informativ; die min_margin-Schwelle
+    # gilt für den NOMINALEN Pfad. Begründung: der Engine-Fallback degradiert
+    # bei knappen Ecken sanft (weniger Leveling), das ist kein Freeze-Risiko —
+    # die Ecken müssen nur in-limit sein (sonst failure 'leveling_corner').
+    lev_min_margins: dict[str, float] | None = None
+    # Anteil der (Tick × Ecke)-Prüfungen, die in-limit sind (1.0 = volle
+    # Leveling-Amplitude überall fallback-frei anwendbar). Kein Hard-Fail:
+    # schon der heutige validierte tief-Modus schafft die 4°-Voll-Ecken am
+    # Swing-Apex nicht (3a-Befund „combined ~2°, Apex bindet") — dafür
+    # existiert der Engine-Degradations-Fallback. Die Coverage dient dem
+    # VERGLEICH neuer Zellen gegen die heutigen.
+    lev_coverage: float | None = None
+
+
+_JOINT_TYPES = ('coxa', 'femur', 'tibia')
+
+
+class _MarginTracker:
+    """Min-Abstand jedes Joint-Typs zum URDF-Limit über einen Lauf (H1.1)."""
+
+    def __init__(self, joint_limits: dict[str, JointLimits]):
+        self._limits = joint_limits
+        self.min_margins = {j: math.inf for j in _JOINT_TYPES}
+        self.worst: dict | None = None
+
+    def update(self, angles: dict, tick: int, tag: str = '') -> None:
+        """Gelenkwinkel eines Ticks einpflegen (alle 6 Beine × 3 Joints)."""
+        for leg_name, a in angles.items():
+            lim = self._limits.get(leg_name)
+            if lim is None:
+                continue
+            bounds = (
+                ('coxa', a[0], lim.coxa_lower, lim.coxa_upper),
+                ('femur', a[1], lim.femur_lower, lim.femur_upper),
+                ('tibia', a[2], lim.tibia_lower, lim.tibia_upper),
+            )
+            for joint, val, lo, hi in bounds:
+                margin = min(val - lo, hi - val)
+                if margin < self.min_margins[joint]:
+                    self.min_margins[joint] = margin
+                    if self.worst is None or margin < self.worst['margin']:
+                        self.worst = {
+                            'joint': joint, 'leg': leg_name,
+                            'margin': margin, 'tick': tick, 'phase': tag,
+                        }
+
+    @property
+    def overall(self) -> float:
+        return min(self.min_margins.values())
+
+
+def _leveling_corner_offsets(leveling_deg: float) -> list[tuple[float, float]]:
+    """8 Worst-Case-(roll,pitch)-Ecken für eine gegebene Leveling-Amplitude."""
+    d = math.radians(leveling_deg)
+    dd = d / math.sqrt(2.0)
+    return [
+        (+d, 0.0), (-d, 0.0), (0.0, +d), (0.0, -d),
+        (+dd, +dd), (+dd, -dd), (-dd, +dd), (-dd, -dd),
+    ]
+
+
+def _leveled_ik_fallback_free(
+    targets: dict, roll: float, pitch: float,
+    joint_limits: dict[str, JointLimits],
+) -> dict:
+    """
+    Exakt der Engine-Stellpfad ``_leveled_ik_at`` — aber OHNE den Degradations-
+    Fallback von ``_compute_leveled_ik`` (der skaliert die Korrektur bei IKError
+    still herunter → ein Check darüber wäre blind). Wirft IKError, wenn die
+    volle Rotation nicht in-limit geht.
+    """
+    angles = {}
+    for leg in HEXAPOD.legs:
+        base_pt = leg_to_base_frame(targets[leg.name], leg)
+        rot = rotate_xy(base_pt, roll, pitch)
+        leg_pt = base_to_leg_frame(rot, leg)
+        angles[leg.name] = leg_ik(*leg_pt, leg, joint_limits.get(leg.name))
+    return angles
 
 
 # cmd_vel scenarios that stress different parts of the IK envelope.
@@ -253,7 +348,10 @@ def check_envelope(
     gait_params: GaitParams,
     joint_limits: dict[str, JointLimits],
     scenario: str = 'forward',
-    ticks_per_cycle: int = 50,
+    ticks_per_cycle: int = 100,
+    min_margin: float = 0.0,
+    leveling_deg: float = 0.0,
+    s4_floor: float = 0.0,
 ) -> CheckResult:
     """
     Simulate one full gait cycle with a given cmd_vel scenario and
@@ -263,6 +361,20 @@ def check_envelope(
               stress different parts of the IK envelope; pick "forward"
               for the classic vorwärts-walking check or iterate over all
               scenarios via check_envelope_all_scenarios().
+
+    H1.1 — die Anti-Optimismus-Erweiterungen (Defaults = altes Verhalten):
+    ticks_per_cycle: jetzt 100 (= reale tick_rate 50 Hz × cycle 2 s).
+    min_margin:  GREEN nur, wenn ALLE Joints über den ganzen Lauf mindestens
+                 diesen Abstand (rad) zum URDF-Limit halten. 0.0 = nur
+                 in-limit (altes, binäres Verhalten). Faustregel Femur-Rand:
+                 0.10–0.15 rad.
+    leveling_deg: > 0 prüft zusätzlich pro Tick die 8 Worst-Case-Leveling-
+                 Ecken (±deg roll/pitch + Diagonalen) **fallback-frei** —
+                 der Engine-Degradations-Fallback würde still herunterskalieren
+                 und den Check blenden. 4.0 = Walking-Clamp.
+    s4_floor:    > 0 aktiviert den ECHTEN adaptiven Touchdown-Pfad (S4-2) mit
+                 dieser max_extra_depth und ohne Kontakte → jeder Stance-Fuß
+                 probt bis body_height − s4_floor (der reale Terrain-Worst-Case).
     """
     if gait_params.gait_pattern not in GAIT_PRESETS:
         raise ValueError(
@@ -282,6 +394,11 @@ def check_envelope(
         step_length_max=gait_params.step_length_max,
         joint_limits=joint_limits,
     )
+    # H1.1: S4-Worst-Case — echter adaptiver Touchdown-Pfad, keine Kontakte
+    # gesetzt → jeder Stance-Fuß probt im Suchfenster bis body_height − s4_floor.
+    if s4_floor > 0.0:
+        engine.adaptive_touchdown_enable = True
+        engine.touchdown_max_extra_depth = s4_floor
 
     # Translate scenario into a cmd_vel triple. linear_max already
     # accounts for swing_duty + cycle_time. For yaw we scale omega so the
@@ -309,6 +426,14 @@ def check_envelope(
     }
     failures: list[dict] = []
 
+    margins = _MarginTracker(joint_limits)
+    lev_margins = _MarginTracker(joint_limits)
+    lev_offsets = (
+        _leveling_corner_offsets(leveling_deg) if leveling_deg > 0.0 else []
+    )
+    lev_checked = 0
+    lev_ok = 0
+
     for tick in range(n_ticks + 1):
         t = tick * dt
         engine.set_command(cmd_v_x, cmd_v_y, cmd_omega_z, t)
@@ -323,6 +448,7 @@ def check_envelope(
                 'message': msg,
             })
             continue
+        margins.update(angles, tick)
         for leg in HEXAPOD.legs:
             a = angles[leg.name]
             for i in range(3):
@@ -330,6 +456,37 @@ def check_envelope(
                     per_leg_min[leg.name][i] = a[i]
                 if a[i] > per_leg_max[leg.name][i]:
                     per_leg_max[leg.name][i] = a[i]
+
+        # H1.1: Worst-Case-Leveling-Ecken auf DENSELBEN Fuß-Targets,
+        # fallback-frei (siehe _leveled_ik_fallback_free-Docstring).
+        for roll, pitch in lev_offsets:
+            targets = engine.compute_foot_targets(t)
+            lev_checked += 1
+            try:
+                lev_angles = _leveled_ik_fallback_free(
+                    targets, roll, pitch, joint_limits)
+            except IKError:
+                # KEIN failure: der Engine-Fallback degradiert hier sanft
+                # (weniger Leveling); die Ecke zählt nur gegen die Coverage.
+                continue
+            lev_ok += 1
+            lev_margins.update(lev_angles, tick, tag='leveling')
+
+    # H1.1: Margen-Schwelle — Unterschreitung ist ein eigener Failure-Grund
+    # (ok bleibt "len(failures) == 0", Report zeigt Ort + Wert).
+    if min_margin > 0.0 and margins.overall < min_margin:
+        w = margins.worst or {}
+        failures.append({
+            'tick': w.get('tick', -1),
+            'time': -1.0,
+            'reason': 'margin_below_threshold',
+            'message': (
+                f'min joint margin {margins.overall:.4f} rad '
+                f'({w.get("joint", "?")} {w.get("leg", "?")}'
+                f'{" @" + w["phase"] if w.get("phase") else ""}) '
+                f'< required {min_margin:.4f} rad'
+            ),
+        })
 
     return CheckResult(
         ok=(len(failures) == 0),
@@ -339,18 +496,224 @@ def check_envelope(
         failures=failures,
         first_failure=failures[0] if failures else None,
         scenario=scenario,
+        min_margins=dict(margins.min_margins),
+        worst_margin=margins.worst,
+        lev_min_margins=(
+            dict(lev_margins.min_margins) if lev_offsets else None),
+        lev_coverage=(lev_ok / lev_checked if lev_checked else None),
     )
 
 
 def check_envelope_all_scenarios(
     gait_params: GaitParams,
     joint_limits: dict[str, JointLimits],
+    **check_kwargs,
 ) -> dict[str, CheckResult]:
     """Run check_envelope for every CMD_VEL_SCENARIOS entry. Returns dict."""
     return {
-        name: check_envelope(gait_params, joint_limits, scenario=name)
+        name: check_envelope(
+            gait_params, joint_limits, scenario=name, **check_kwargs)
         for name in CMD_VEL_SCENARIOS
     }
+
+
+# ---------------------------------------------------------------------------
+# H1.1 — engine-check: Transition-Coverage auf der echten Engine
+# ---------------------------------------------------------------------------
+
+def engine_transition_check(
+    gait_params: GaitParams,
+    joint_limits: dict[str, JointLimits],
+    min_margin: float = 0.10,
+    s4_floor: float = 0.0,
+    switch_to: tuple[float, float, float] | None = None,
+    switch_step_height: float = 0.025,
+    ticks_per_cycle: int = 100,
+) -> CheckResult:
+    """
+    Die Übergänge prüfen, die ``check_envelope`` (steady-state) nicht sieht —
+    dort trat der dokumentierte Stance-Modi-Fehler auf („Tool GREEN, echter
+    Engine-Pfad fehlert"). Phasen:
+
+    A) WALKING-Start bei mehreren Phasenlagen (mid-cycle-Einstieg),
+    B) Richtungswechsel mitten im Lauf (forward→sidestep→yaw→diagonal ohne
+       Stopp) + STOPPING-Settle bis STANDING,
+    C) Stance-Switch hin + Lauf im Zielmodus + zurück (``switch_to`` =
+       (radial, body_height, step_height); prüft den Radius-Wechsel!),
+    D) Sitdown-Kette (Reposition→Lower→Flatten→SAT) + der Post-Standup-
+       Reposition-Pfad (standup_radial → radial). Der kartesische Standup
+       selbst ist modus-unabhängig (immer standup_radial + power_on-Pose)
+       und bleibt beim ``standup_envelope_check``.
+
+    Margen werden über ALLE Phasen getrackt; ``min_margin`` (Default 0.10 rad
+    — dieses Gate ist neu, keine Back-Compat-Last) gilt wie in check_envelope.
+    ``s4_floor`` wirkt in den WALKING-Phasen (echter S4-Probe-Pfad).
+    """
+    dt = gait_params.cycle_time / ticks_per_cycle
+    cy = ticks_per_cycle
+    failures: list[dict] = []
+    margins = _MarginTracker(joint_limits)          # Walk-Phasen (Schwelle)
+    seq_margins = _MarginTracker(joint_limits)      # Sequenzen (informativ)
+
+    def _is_sequence_tag(tag: str) -> bool:
+        return tag.startswith('D:') or tag.startswith('C:switch')
+
+    def new_engine() -> GaitEngine:
+        e = GaitEngine(
+            pattern=GAIT_PRESETS[gait_params.gait_pattern],
+            step_height=gait_params.step_height,
+            cycle_time=gait_params.cycle_time,
+            radial_distance=gait_params.radial_distance,
+            body_height=gait_params.body_height,
+            step_length_max=gait_params.step_length_max,
+            joint_limits=joint_limits,
+        )
+        if s4_floor > 0.0:
+            e.adaptive_touchdown_enable = True
+            e.touchdown_max_extra_depth = s4_floor
+        return e
+
+    def run(engine: GaitEngine, t0: float, n: int, tag: str,
+            cmd: tuple[float, float, float] | None = None) -> float:
+        """n Ticks fahren; cmd (falls gesetzt) jeden Tick anlegen. Returns t."""
+        t = t0
+        for _ in range(n):
+            if cmd is not None:
+                engine.set_command(cmd[0], cmd[1], cmd[2], t)
+            try:
+                angles = engine.compute_joint_angles(t)
+            except IKError as exc:
+                failures.append({
+                    'tick': int(t / dt), 'time': t,
+                    'reason': 'joint_limit' if 'joint limit' in str(exc)
+                    else 'out_of_reach',
+                    'message': f'[{tag}] {exc}',
+                })
+            else:
+                tracker = seq_margins if _is_sequence_tag(tag) else margins
+                tracker.update(angles, int(t / dt), tag=tag)
+            t += dt
+        return t
+
+    def settle_to_standing(engine: GaitEngine, t0: float, tag: str) -> float:
+        """cmd=0 anlegen und bis STANDING ticken (cap 3 Zyklen)."""
+        t = run(engine, t0, 1, tag, cmd=(0.0, 0.0, 0.0))
+        cap = 3 * cy
+        while engine.state != GaitEngine.STATE_STANDING and cap > 0:
+            t = run(engine, t, 1, tag)
+            cap -= 1
+        if engine.state != GaitEngine.STATE_STANDING:
+            failures.append({
+                'tick': int(t / dt), 'time': t,
+                'reason': 'no_settle',
+                'message': f'[{tag}] engine never settled to STANDING '
+                           f'(state={engine.state})',
+            })
+        return t
+
+    def fwd(engine: GaitEngine) -> tuple[float, float, float]:
+        lm = engine.linear_max
+        return (lm, 0.0, 0.0)
+
+    # --- Phase A: WALKING-Start bei mehreren Phasenlagen --------------------
+    for frac in (0.0, 0.13, 0.37, 0.61, 0.87):
+        e = new_engine()
+        t = run(e, 0.0, max(1, int(frac * cy)), 'A:standing')  # STANDING-Vorlauf
+        t = run(e, t, 2 * cy, f'A:start@{frac:.2f}', cmd=fwd(e))
+        settle_to_standing(e, t, f'A:settle@{frac:.2f}')
+
+    # --- Phase B: Richtungswechsel mitten im Lauf ---------------------------
+    e = new_engine()
+    lm = e.linear_max
+    max_mount_radius = 0.105
+    t = run(e, 0.0, int(1.5 * cy), 'B:forward', cmd=(lm, 0.0, 0.0))
+    t = run(e, t, cy, 'B:sidestep', cmd=(0.0, lm, 0.0))
+    t = run(e, t, cy, 'B:yaw', cmd=(0.0, 0.0, lm / max_mount_radius))
+    t = run(e, t, cy, 'B:diagonal', cmd=(0.7071 * lm, 0.7071 * lm, 0.0))
+    settle_to_standing(e, t, 'B:settle')
+
+    # --- Phase C: Stance-Switch hin / Lauf im Zielmodus / zurück ------------
+    if switch_to is not None:
+        r2, bh2, sh2 = switch_to
+        e = new_engine()
+        t = run(e, 0.0, 5, 'C:standing')
+        if not e.start_stance_switch(t, r2, bh2, sh2, duration=3.0,
+                                     switch_step_height=switch_step_height):
+            failures.append({'tick': 0, 'time': t, 'reason': 'switch_refused',
+                             'message': '[C] start_stance_switch returned '
+                                        'False (state != STANDING?)'})
+        cap = int(3.0 / dt) + 2 * cy
+        while e.state != GaitEngine.STATE_STANDING and cap > 0:
+            t = run(e, t, 1, 'C:switch_to')
+            cap -= 1
+        t = run(e, t, 2 * cy, 'C:walk_target_mode', cmd=fwd(e))
+        t = settle_to_standing(e, t, 'C:settle_target')
+        e.start_stance_switch(
+            t, gait_params.radial_distance, gait_params.body_height,
+            gait_params.step_height, duration=3.0,
+            switch_step_height=switch_step_height)
+        cap = int(3.0 / dt) + 2 * cy
+        while e.state != GaitEngine.STATE_STANDING and cap > 0:
+            t = run(e, t, 1, 'C:switch_back')
+            cap -= 1
+
+    # --- Phase D: Sitdown-Kette + Post-Standup-Reposition -------------------
+    e = new_engine()
+    t = run(e, 0.0, 5, 'D:standing')
+    if e.start_sitdown(t, lower_duration=2.0, flatten_duration=2.0):
+        cap = int((e.reposition_cycle_time + 2.0 + 2.0) / dt) + 2 * cy
+        while e.state != GaitEngine.STATE_SAT and cap > 0:
+            t = run(e, t, 1, 'D:sitdown')
+            cap -= 1
+        if e.state != GaitEngine.STATE_SAT:
+            failures.append({'tick': int(t / dt), 'time': t,
+                             'reason': 'no_sat',
+                             'message': f'[D] sitdown never reached SAT '
+                                        f'(state={e.state})'})
+    else:
+        failures.append({'tick': 0, 'time': t, 'reason': 'sitdown_refused',
+                         'message': '[D] start_sitdown returned False'})
+    # Post-Standup-Pfad: Reposition standup_radial → Modus-radial.
+    e = new_engine()
+    t = run(e, 0.0, 5, 'D:standing2')
+    e.start_reposition(t)   # Defaults: standup_radial → radial_distance
+    cap = int(e.reposition_cycle_time / dt) + 2 * cy
+    while e.state != GaitEngine.STATE_STANDING and cap > 0:
+        t = run(e, t, 1, 'D:reposition')
+        cap -= 1
+
+    if min_margin > 0.0 and margins.overall < min_margin:
+        w = margins.worst or {}
+        failures.append({
+            'tick': w.get('tick', -1), 'time': -1.0,
+            'reason': 'margin_below_threshold',
+            'message': (
+                f'min joint margin {margins.overall:.4f} rad '
+                f'({w.get("joint", "?")} {w.get("leg", "?")} '
+                f'@{w.get("phase", "?")}) < required {min_margin:.4f} rad'
+            ),
+        })
+
+    empty = {leg.name: (0.0, 0.0, 0.0) for leg in HEXAPOD.legs}
+    return CheckResult(
+        ok=(len(failures) == 0),
+        linear_max=GaitEngine(
+            pattern=GAIT_PRESETS[gait_params.gait_pattern],
+            step_height=gait_params.step_height,
+            cycle_time=gait_params.cycle_time,
+            radial_distance=gait_params.radial_distance,
+            body_height=gait_params.body_height,
+            step_length_max=gait_params.step_length_max,
+            joint_limits=joint_limits,
+        ).linear_max,
+        per_leg_min=empty, per_leg_max=empty,
+        failures=failures,
+        first_failure=failures[0] if failures else None,
+        scenario='transitions',
+        min_margins=dict(margins.min_margins),
+        worst_margin=margins.worst,
+        seq_min_margins=dict(seq_margins.min_margins),
+    )
 
 
 def format_check_result(
@@ -371,6 +734,10 @@ def format_check_result(
     lines.append(f'linear_max: {result.linear_max:.4f} m/s '
                  f'(scenario={result.scenario})')
     lines.append('')
+    if result.scenario == 'transitions':
+        # engine-check: per-leg-Hülle nicht getrackt (Margen-Report unten
+        # ist die Aussage) — Block überspringen.
+        return _format_check_tail(result, lines)
     lines.append('Per-leg rad min .. max (3 sig fig), '
                  'limits and reserve to closer side:')
     lines.append(
@@ -398,6 +765,49 @@ def format_check_result(
                 f'{lo:+7.3f} {hi:+7.3f}   {tightest:+.3f}{marker}'
             )
     lines.append('')
+    return _format_check_tail(result, lines)
+
+
+def _format_check_tail(result: CheckResult, lines: list[str]) -> str:
+    """Gemeinsamer Report-Schluss: Margen-Sektion (H1.1) + Result-Zeile."""
+    if result.min_margins is not None:
+        parts = []
+        for joint in _JOINT_TYPES:
+            m = result.min_margins[joint]
+            m_s = f'{m:.3f}' if math.isfinite(m) else 'n/a'
+            parts.append(f'{joint} {m_s}')
+        lines.append('min joint margins [rad]: ' + ' | '.join(parts))
+        if result.worst_margin:
+            w = result.worst_margin
+            deg = math.degrees(w['margin'])
+            lines.append(
+                f'  tightest: {w["joint"]} @ {w["leg"]} '
+                f'(tick {w["tick"]}{", " + w["phase"] if w.get("phase") else ""}'
+                f') = {w["margin"]:.4f} rad ({deg:.1f}°)')
+        if result.lev_min_margins is not None:
+            parts = []
+            for joint in _JOINT_TYPES:
+                m = result.lev_min_margins[joint]
+                m_s = f'{m:.3f}' if math.isfinite(m) else 'n/a'
+                parts.append(f'{joint} {m_s}')
+            cov = (
+                f'{result.lev_coverage * 100.0:.1f}%'
+                if result.lev_coverage is not None else 'n/a')
+            lines.append(
+                f'leveling corners: coverage {cov} in-limit '
+                '(kein Gate — Fallback degradiert sanft); margins [rad]: '
+                + ' | '.join(parts))
+        if result.seq_min_margins is not None:
+            parts = []
+            for joint in _JOINT_TYPES:
+                m = result.seq_min_margins[joint]
+                m_s = f'{m:.3f}' if math.isfinite(m) else 'n/a'
+                parts.append(f'{joint} {m_s}')
+            lines.append(
+                'sequence margins [rad] (informativ, ohne Schwelle — '
+                'Sitdown/Switch fahren bewusst grenznah): '
+                + ' | '.join(parts))
+        lines.append('')
 
     if result.ok:
         lines.append('Result: ✓ GREEN — all 6 legs within IK + joint limits '
@@ -709,6 +1119,26 @@ def format_sweep_result(rows: list[SweepRow], template: GaitParams) -> str:
 # CLI
 # ---------------------------------------------------------------------------
 
+def _add_h1_args(p: argparse.ArgumentParser, min_margin_default: float) -> None:
+    """H1.1-Optionen (Margen-Schwelle, Leveling-Ecken, S4-Floor)."""
+    p.add_argument(
+        '--min-margin', type=float, default=min_margin_default,
+        help='GREEN nur, wenn alle Joints mindestens diesen Abstand (rad) '
+             'zum URDF-Limit halten. 0.0 = nur in-limit (binär). '
+             f'Faustregel Femur-Rand: 0.10-0.15. Default: {min_margin_default}.')
+    p.add_argument(
+        '--leveling-deg', type=float, default=0.0,
+        help='Zusätzlich die 8 Worst-Case-Leveling-Ecken (±deg roll/pitch + '
+             'Diagonalen) fallback-frei prüfen. 4.0 = Walking-Clamp. '
+             'Default: 0.0 (aus).')
+    p.add_argument(
+        '--s4-floor', type=float, default=0.0,
+        help='Adaptiven Touchdown-Probe-Floor mitprüfen: echter S4-2-Pfad '
+             'mit dieser max_extra_depth, ohne Kontakte -> Stance-Füße proben '
+             'bis body_height - s4_floor. Default: 0.0 (aus).')
+    p.add_argument('--ticks-per-cycle', type=int, default=100)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description='Walking-Envelope-Check Tool (offline IK simulation).',
@@ -740,6 +1170,31 @@ def main() -> int:
         help='cmd_vel scenario to simulate. "all" runs all 4 '
              '(forward, sidestep, yaw, diagonal) and reports each. '
              'Default: all (most thorough).')
+    _add_h1_args(p_check, min_margin_default=0.0)
+
+    # Mode D (H1.1): engine-check — Transition-Coverage auf der echten Engine
+    p_eng = sub.add_parser(
+        'engine-check',
+        help='Transition-Check auf der echten GaitEngine: WALKING-Start bei '
+             'mehreren Phasenlagen, Richtungswechsel im Lauf, STOPPING-Settle, '
+             'optional Stance-Switch (--switch-to) + Sitdown/Reposition. '
+             'Schließt die "steady-state-only"-Lücke von check. '
+             'GREEN erst ab --min-margin (Default 0.10 rad).')
+    add_urdf_arg(p_eng)
+    p_eng.add_argument('--params-file', type=Path)
+    p_eng.add_argument('--radial', type=float)
+    p_eng.add_argument('--body-height', type=float)
+    p_eng.add_argument('--step-length', type=float)
+    p_eng.add_argument('--step-height', type=float)
+    p_eng.add_argument('--cycle-time', type=float, default=2.0)
+    p_eng.add_argument('--gait-pattern', type=str, default='tripod')
+    p_eng.add_argument(
+        '--switch-to', type=str, default='',
+        help='Ziel-Stance-Modus als "radial,body_height,step_height" '
+             '(z. B. "0.18,-0.100,0.10") — prüft Stance-Switch hin, Lauf im '
+             'Zielmodus und Switch zurück (inkl. Radius-Wechsel).')
+    p_eng.add_argument('--switch-step-height', type=float, default=0.025)
+    _add_h1_args(p_eng, min_margin_default=0.10)
 
     # Mode B: sweep
     p_sweep = sub.add_parser('sweep', help='Height-sweep — find optimal '
@@ -789,32 +1244,40 @@ def main() -> int:
     args = parser.parse_args()
     joint_limits = load_joint_limits(args.urdf)
 
-    if args.cmd == 'check':
-        # Resolve gait params: --params-file XOR CLI args.
+    def resolve_gait_params(cmd_name: str) -> GaitParams:
+        """--params-file XOR die vier CLI-Werte (check + engine-check)."""
         if args.params_file:
-            gp = GaitParams.from_yaml(args.params_file)
-        else:
-            missing = [name for name, val in [
-                ('--radial', args.radial),
-                ('--body-height', args.body_height),
-                ('--step-length', args.step_length),
-                ('--step-height', args.step_height),
-            ] if val is None]
-            if missing:
-                parser.error(
-                    'check: provide --params-file OR all of: '
-                    + ', '.join(missing))
-            gp = GaitParams(
-                radial_distance=args.radial,
-                body_height=args.body_height,
-                step_length_max=args.step_length,
-                step_height=args.step_height,
-                cycle_time=args.cycle_time,
-                gait_pattern=args.gait_pattern,
-            )
+            return GaitParams.from_yaml(args.params_file)
+        missing = [name for name, val in [
+            ('--radial', args.radial),
+            ('--body-height', args.body_height),
+            ('--step-length', args.step_length),
+            ('--step-height', args.step_height),
+        ] if val is None]
+        if missing:
+            parser.error(
+                f'{cmd_name}: provide --params-file OR all of: '
+                + ', '.join(missing))
+        return GaitParams(
+            radial_distance=args.radial,
+            body_height=args.body_height,
+            step_length_max=args.step_length,
+            step_height=args.step_height,
+            cycle_time=args.cycle_time,
+            gait_pattern=args.gait_pattern,
+        )
 
+    if args.cmd == 'check':
+        gp = resolve_gait_params('check')
+        h1_kwargs = dict(
+            ticks_per_cycle=args.ticks_per_cycle,
+            min_margin=args.min_margin,
+            leveling_deg=args.leveling_deg,
+            s4_floor=args.s4_floor,
+        )
         if args.scenario == 'all':
-            results = check_envelope_all_scenarios(gp, joint_limits)
+            results = check_envelope_all_scenarios(
+                gp, joint_limits, **h1_kwargs)
             print(format_check_result(results['forward'], gp, joint_limits))
             print('')
             print('=== All cmd_vel scenarios ===')
@@ -828,8 +1291,39 @@ def main() -> int:
                     print(f'  {name:9} ❌ {f["reason"]} '
                           f'(t={f["time"]:.2f}s): {f["message"][:90]}...')
             return 0 if all_green else 1
-        result = check_envelope(gp, joint_limits, scenario=args.scenario)
+        result = check_envelope(
+            gp, joint_limits, scenario=args.scenario, **h1_kwargs)
         print(format_check_result(result, gp, joint_limits))
+        return 0 if result.ok else 1
+
+    if args.cmd == 'engine-check':
+        gp = resolve_gait_params('engine-check')
+        switch_to = None
+        if args.switch_to:
+            try:
+                parts = [float(x) for x in args.switch_to.split(',')]
+                if len(parts) != 3:
+                    raise ValueError
+                switch_to = (parts[0], parts[1], parts[2])
+            except ValueError:
+                parser.error(
+                    '--switch-to expects "radial,body_height,step_height" '
+                    f'(got {args.switch_to!r})')
+        result = engine_transition_check(
+            gp, joint_limits,
+            min_margin=args.min_margin,
+            s4_floor=args.s4_floor,
+            switch_to=switch_to,
+            switch_step_height=args.switch_step_height,
+            ticks_per_cycle=args.ticks_per_cycle,
+        )
+        print(format_check_result(result, gp, joint_limits))
+        if not result.ok:
+            reasons = {}
+            for f in result.failures:
+                reasons[f['reason']] = reasons.get(f['reason'], 0) + 1
+            print('  failure reasons: ' + ', '.join(
+                f'{k}×{v}' for k, v in sorted(reasons.items())))
         return 0 if result.ok else 1
 
     if args.cmd == 'sweep':
