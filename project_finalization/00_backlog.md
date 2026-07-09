@@ -25,7 +25,7 @@
 | A2 | **Pose-Optimierung gegen Hitze** | ⏸️ | Mit A1 die last-minimale/-gleichmäßige Pose festziehen. Pausiert (keine Extrempunkte gesehen). |
 | A3 | **Tibia-Längen-/Geometrie-Studie** | ⏸️ | Nur falls Hitze später doch kritisch (HW-TABU, erst A1-Modell rechnen). |
 | A4 | **Selbst-Kollisions-Check (Weg B)** | ⏸️ | Bewusst OHNE (Weg A, Tibia hart freigeschaltet). Nachrüsten bei Balance/Terrain/Body-Pose. Plan: `docs_raspi/phase_13_stage_1_collision_check_plan.md`. |
-| A5 | **IMU-Integration → Balance** | ⏸️ | **⏸️ Pausiert nach TF-2 (Sim-fertig)** (Branch `imu_balance`) → [`imu_balance/`](imu_balance/00_imu_balance_plan.md). **Stufe 0/1/2/3a + Terrain-Following TF-1** (passiv folgen + slope-Tip) · **TF-2** (aktiv: roll→0, pitch folgt Hang, Gyro-Dämpfung) 🟢 **Sim-fertig** (651 Tests). `/imu/data`, `BalanceController`(+Gyro-D)/`TipMonitor`/`SlopeEstimator` (ROS-frei), Rotations-Stellpfad. **Befund:** sichtbarer Mehrwert erst auf HW (Sim ohne Servo-Nachgiebigkeit); Nicht-Tripod-Wackeln nur begrenzt dämpfbar (reaktiv); Knick/unebener Weg = Stufe 4 (Fußkontakte). **Rückkehr** nach Stufe 4 + HW — Wiedereinstieg grob vorgeplant: [`terrain_following_plan.md` §7](imu_balance/stage_3_terrain_following_plan.md) (P0 HW-Val · TF-3 Schwerpunkt/Schlupf · TF-Quer · Gang-Stab. · Auto-Tuning). |
+| A5 | **IMU-Integration → Balance** | ⏸️ (St. 8 pausiert) | Branch `imu_balance` → [`imu_balance/`](imu_balance/00_imu_balance_plan.md). **Stufen 0–7 🟢** (Kipp-Erkennung, Leveling, TF-1/2, Stufe 4 Fußkontakt-Sim, Stufe 5 HW-Taster, Stufe 6 HW-IMU, Stufe 7 Regler v2 HW-verifiziert in `hw_balance.yaml`). **Stufe 8 (Fußkontakt-Closed-Loop HW) ⏸️ TEILWEISE:** HW8.0 ✅ · HW8.7b `leveling_mode auto` ✅ · HW8.8a `hw_terrain.yaml`-Komplett-Preset (3-Terminal-Bringup) ✅; **offen: HW8.2a–8.6 + 8.9** ([Progress](imu_balance/imu_balance_progress.md)). **Pausiert zugunsten Block H** (User-Entscheid 2026-07); Rückkehr möglich. TF-Wiedereinstieg: [`terrain_following_plan.md` §7](imu_balance/stage_3_terrain_following_plan.md). |
 
 ## Block B — Lokomotion-Kern  ⬅ ALS NÄCHSTES
 | # | Stage | Status | Notiz |
@@ -83,6 +83,21 @@
 | F4 | **hexapod_supervisor (neues Paket) + Guard** | 🟢 | Node + 3-Schicht-OS-Guard (DEV_HOSTS hart, `enable_os_shutdown`, Hostname). Arm/Flanke, K2-Retry, Backstop 12 s, Complete-Race-Fix. 15 Tests + Dev-Smoke + STANDING-Volltest (7,04 s, reason=complete) grün. Smoke/Test fanden Hostname-Typo + Race + zu-knappen Backstop. `F4_*`. |
 | F5 | **Integration + Pi-Deployment** | 🟡 | **F5a (jetzt, Dev):** supervisor.yaml + Einhängung in real.launch.py (Auto-Start, eine Config überall, Guard entscheidet per Host). **F5b (später, Pi):** pi_hostname + sudoers + Branch/Build + End-to-End — gekoppelt an Block D1 (ROS2-auf-Pi). Plan: `F5_integration_plan.md`. |
 | F6 | **Pi-Update Ablaufplan (Runbook)** | 🟡 | Branch-Wechsel `leg_changes` + Subset-Rebuild (`--packages-skip hexapod_gazebo hexapod_sensors`) + F5b-Scharfschalten am Pi (`hexapod-pi`). Cal-Recheck geparkt (Bein 3). `F6_pi_update_checklist.md`. |
+
+## Block G — Velocity-Ramping (sanfte Start/Stop)
+| # | Stage | Status | Notiz |
+|---|---|---|---|
+| G | **cmd_vel-Ramping im gait_node** | (Status siehe Plan) | Sanftes Hoch-/Runterrampen der Geschwindigkeit (Start ~1 s / Brems ~0,5 s, alle Achsen). Plan: [`G_velocity_ramping_plan.md`](G_velocity_ramping_plan.md). _(Eintrag nachgetragen — Block lief bisher ohne Backlog-Zeile.)_ |
+
+## Block H — Lauf-Envelope-Ausbau (Schritthöhen-Modi + Tempo-Presets)  🟡 AKTIV
+> Motivation: echtes Terrain (draußen) braucht mehr Fuß-Hub + wählbares Tempo — als **nur-valide
+> durchschaltbare Presets** (Kopplung über die `_STANCE_MODES`-Tabelle bzw. Preset-YAMLs statt
+> Freiform-Tuning). Offline-Datenlage + Entscheide: [`H1_step_height_modes_plan.md`](H1_step_height_modes_plan.md) §0.
+
+| # | Stage | Status | Notiz |
+|---|---|---|---|
+| H1 | **Schritthöhen-Modi** (per-Höhe validierte step_height + radial) | 🟡 Plan (§4-Freigabe offen) | Ziel: tief 0.04 (bleibt) / mittel 0.06 / **hoch 0.10 @ radial 0.17–0.18** (per-Modus-Radius, User-ok; Fallback-Treppe im Plan). Deckel = Reject. Tool-Erweiterung `engine-check` (echte Engine, schließt die „envelope-Tool zu optimistisch"-Lücke) + `apex_meter` (reale Apex-Höhe auf HW). Plan/Progress: `H1_step_height_modes_*`. |
+| H2 | **Tempo-Presets** (aggressiv/schnell/mittel/langsam) | ⚪ nach H1 | Gleiche Schrittweite (0.12), nur `cycle_time`-Stufen (~1.5/2.0/2.6/3.3) + `joy_to_twist`-Scales — envelope-frei (Hülle ist geschwindigkeitsunabhängig), nur HW-Check „aggressiv". Umschalten: `ros2 param load` im Stand (existiert); Teleop-Taste = E3-Komfort. |
 
 ---
 

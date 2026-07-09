@@ -11,14 +11,15 @@
 
 ## Stand & nächster Schritt (Übergabe)
 
-> **🧭 AKTUELL: Stufe 8 (Fußkontakt-Closed-Loop auf HW) 🟡 in Arbeit** — bringt S4-2/4/5/7 (bisher
-> nur Sim) auf die echte HW; Sensor-Kette (Stufe 5) + Regler-Code stehen → überwiegend HW-Verifikation
-> + Timing-Tuning, **kein neuer Code** (nur `hw_terrain.yaml` am Ende + evtl. HW8.7-Integrations-Fix).
-> Plan: [`stage_8_hw_foot_closed_loop_plan.md`](stage_8_hw_foot_closed_loop_plan.md) · Test-Doku:
+> **🧭 AKTUELL: Stufe 8 ⏸️ PAUSIERT (User-Entscheid 2026-07) — weiter geht es in Block H**
+> ([`../H1_step_height_modes_plan.md`](../H1_step_height_modes_plan.md), Schritthöhen-Modi).
+> **Stufe-8-Stand beim Pausieren:** HW8.0 ✅ (Sensor-Kette, User-Vorab-Verify) · HW8.7 vorab
+> bespielt („läuft vorerst gut", formaler Durchgang offen) · **HW8.7b `leveling_mode auto` ✅
+> implementiert** (431/43 Tests) · **HW8.8a ✅** `hw_terrain.yaml`-Komplett-Preset + 3-Terminal-
+> Bringup (rclpy-Smoke PASS). **Offen: HW8.2a/2b(+8.1), HW8.3–8.6, HW8.9** — Checkliste unten,
+> Test-Doku ist self-contained für den Wiedereinstieg:
 > [`stage_8_hw_foot_closed_loop_test_commands.md`](stage_8_hw_foot_closed_loop_test_commands.md).
-> **HW8.0 ✅** (User-Vorab-Verify); als Nächstes **HW8.2a** (Touchdown aufgebockt, Probe ohne Boden).
-> _(Davor: Stufe 7 Regler v2 🟢 KOMPLETT + HW-verifiziert, Konfig in `hw_balance.yaml`; der frühere
-> „nächste Schritt" IP3.3-auf-v2 [Terrain-Following im Laufen] läuft faktisch in HW8.7 mit bzw. danach.)_
+> _(Davor: Stufe 7 Regler v2 🟢 KOMPLETT + HW-verifiziert, Konfig in `hw_balance.yaml`.)_
 > **User committet selbst.**
 >
 > _(Historie unten: Stufe 4 Terrain-adaptiv war der vorherige aktive Punkt.)_
