@@ -43,15 +43,19 @@ joy_to_twist:
     # auf true setzen, sobald eine stabile Show-Pose existiert.
     show_enabled: false
 
-    # --- D-Pad (C2: Gangart + Schrittweite) ---
+    # --- D-Pad (C2: Gangart · H2: Tempo-Presets) ---
     axis_dpad_x: 6        # ←/→ : Gangart vorige/nächste (rechts=next)
-    axis_dpad_y: 7        # ↑/↓ : Schrittweite größer/kleiner
+    axis_dpad_y: 7        # ↑/↓ : Tempo-Preset schneller/langsamer (H2;
+                          # ersetzt das C3-Schrittweiten-Binding)
     sign_dpad_x: 1.0      # bei verkehrter Richtung -1.0
-    sign_dpad_y: 1.0      # +1: ↑ liefert +1.0 → größere Schrittweite
+    sign_dpad_y: 1.0      # +1: ↑ liefert +1.0 → schnelleres Tempo
     dpad_threshold: 0.5
     dpad_lockout_sec: 0.3 # Debounce gegen Doppel-Trigger (HAT-Flackern)
 
     # --- Skalen (matchen Engine-Limits) ---
+    # H2: MÜSSEN dem "schnell"-Eintrag der _TEMPO_MODES-Tabelle
+    # (joy_to_twist.py) entsprechen — Boot-Tempo = schnell, der erste
+    # D-Pad-↑/↓-Druck bleibt dadurch sprungfrei.
     linear_x_scale: 0.05  # m/s max vor/zurück (bei Voll-Stick)
     linear_y_scale: 0.05  # m/s max seitwärts
     angular_z_scale: 0.46 # rad/s, ~omega_max

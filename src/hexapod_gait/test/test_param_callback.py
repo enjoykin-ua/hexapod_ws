@@ -109,9 +109,9 @@ def test_param_set_cycle_time_updates_engine_linear_max(node):
     assert result[0].successful
     assert node._engine.cycle_time == pytest.approx(4.0)
     # stance_duration = 4.0 * 0.5 = 2.0 → linear_max = step_length_max/2.0.
-    # Node-Default step_length_max = 0.050 (leg_changes S5) → 0.025.
+    # Node-Default step_length_max = 0.080 (H2: Boot = mittel) → 0.040.
     assert node._engine.stance_duration == pytest.approx(2.0)
-    assert node._engine.linear_max == pytest.approx(0.025)
+    assert node._engine.linear_max == pytest.approx(0.040)
 
 
 def test_param_set_tick_rate_restarts_timer(node):

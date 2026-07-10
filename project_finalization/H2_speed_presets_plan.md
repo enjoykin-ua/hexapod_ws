@@ -1,8 +1,12 @@
 # H2 — Tempo-Presets + Schrittweiten-Deckel (per-Modus step_length_max)
 
-> **Status: 🟡 Plan (§4) — vom User freigegebene Entscheide unten; Implementierung im
-> nächsten Chat.** §7 ist der **Handoff-Anker** (Lese-Reihenfolge, exakte Befehle, Muster) —
-> dieser Plan ist bewusst self-contained für einen frischen Kontext.
+> **Status: 🟡 H2.1–H2.4 + H2.7 umgesetzt — offen: H2.5 Sim-Tuning + H2.6 HW.**
+> Stand + Abweichungen: [`H2_speed_presets_progress.md`](H2_speed_presets_progress.md) ·
+> Sim/HW-Doku: [`H2_speed_presets_test_commands.md`](H2_speed_presets_test_commands.md).
+> ⚠️ **KORRIGIERT in H2.1:** der §0-Wert **mittel sl 0.09** stammte aus dem steady-state-Gate
+> und fiel im **engine-check** (Transitions) `B:diagonal` am S4-Probe-Floor (out-of-reach
+> d=0.1953 > 0.194) → **finaler mittel-Deckel 0.08** (0.085 GREEN aber nur ~1 mm Reach-Rest;
+> konservativ nach H1-Präzedenz). Messreihe im Progress-File.
 >
 > **Block H (Lauf-Envelope-Ausbau), Nachfolger von H1.** Branch `imu_balance`.
 > Arbeitsweise CLAUDE.md §4 (Progress-Checkliste = Done-Vertrag, abhaken in

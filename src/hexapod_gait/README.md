@@ -513,12 +513,12 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | Parameter | Default | Bedeutung |
 |---|---|---|
 | `gait_pattern` | `'tripod'` | Preset aus `GAIT_PRESETS`: tripod, single_leg_1..6 |
-| `step_length_max` | `0.05` | Max Schritt-Länge (m) — definiert `linear_max = step_length_max / stance_duration` |
+| `step_length_max` | `0.08` | Max Schritt-Länge (m) — definiert `linear_max = step_length_max / stance_duration`. **H2: gedeckelt auf den step_length_max des aktuellen Stance-Modus** (tief 0.06 / mittel 0.08 / hoch 0.05 — Gate-validiert inkl. engine-check-Transitions, `_STANCE_MODES`); darüber → Reject. Stance-Switch setzt den Modus-Wert automatisch; Boot-Override über dem Deckel wird im Init gedeckelt (WARN). Nach dem Switch zieht der Node die vier gekoppelten Params (radial/body_height/step_height/step_length_max) **deferred** (erst wieder in STANDING) am Param-Server nach — `ros2 param get` zeigt damit die echten Modus-Werte |
 | `default_linear_x` | `0.0` | Fallback Vorwärts (m/s) wenn keine cmd_vel ankommt |
 | `default_linear_y` | `0.0` | Fallback Seitwärts (m/s) |
 | `default_angular_z` | `0.0` | Fallback Drehung (rad/s) |
 | `cmd_vel_timeout` | `0.5` | Sekunden ohne cmd_vel → Fallback auf Defaults |
-| `cycle_time` | `2.0` | Sekunden pro Tripod-Cycle (1 s Swing + 1 s Stance) |
+| `cycle_time` | `2.0` | Sekunden pro Tripod-Cycle (1 s Swing + 1 s Stance). standing_only. **H2: Ziel der Teleop-Tempo-Presets** (D-Pad ↑/↓ setzt `cycle_time` hier via Param-Client; die `_TEMPO_MODES`-Tabelle + joy-Scales leben im Teleop — der standing_only-Guard hier ist der EINE Tempo-Guard) |
 | `step_height` | `0.05` | Schwung-Höhe (m über Stand-Pose). **H1: gedeckelt auf den step_height des aktuellen Stance-Modus** (tief 0.04 / mittel 0.05 / hoch 0.08 — Gate-validiert, `_STANCE_MODES`); darüber → Reject. L2/R2-Stance-Switch setzt den Modus-Wert automatisch (nur valide Kombinationen durchschaltbar); Boot-Override über dem Deckel wird im Init gedeckelt (WARN). Physik: Apex `body_height + step_height` ≤ ~−0.02 (Femur-Wand) |
 | `body_height` | `-0.052` | Stand-Pose Foot-Z (m, Bein-Frame) |
 | `radial_distance` | `0.27` | Stand-Pose Foot-X (m, Bein-Frame) |

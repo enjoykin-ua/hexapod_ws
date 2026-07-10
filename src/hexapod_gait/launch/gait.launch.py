@@ -39,10 +39,11 @@ def generate_launch_description() -> LaunchDescription:
 
     step_height_arg = DeclareLaunchArgument(
         'step_height',
-        default_value='0.040',
+        default_value='0.050',
         description=(
-            'Schwung-Höhe in m über Stand-Pose. Default 0.040 (= Stance-Modi, '
-            'kurze Tibia).'
+            'Schwung-Höhe in m über Stand-Pose. Default 0.050 = Stance-Modus '
+            '"mittel" (Boot-Konvention, H1); per-Modus-Deckel im gait_node '
+            '(tief 0.04 / mittel 0.05 / hoch 0.08).'
         ),
     )
 
@@ -95,13 +96,15 @@ def generate_launch_description() -> LaunchDescription:
 
     step_length_max_arg = DeclareLaunchArgument(
         'step_length_max',
-        default_value='0.050',
+        default_value='0.080',
         description=(
             'Obere Schranke für Schritt-Länge in m. Aus '
             'step_length_max + cycle_time leitet Engine den maximalen '
             'cmd_vel.linear.x ab: linear_max = step_length_max / '
-            'stance_duration. leg_changes: Default 0.050 → linear_max = '
-            '0.05 m/s bei cycle_time=2 (envelope-grün @ radial 0.160).'
+            'stance_duration. H2: Default 0.080 = Stance-Modus "mittel" '
+            '(Boot-Konvention); per-Modus-Deckel im gait_node (tief 0.06 / '
+            'mittel 0.08 / hoch 0.05, Gate-validiert). Das Stick-Tempo '
+            'begrenzen weiterhin die joy-Scales (Tempo-Presets, Teleop).'
         ),
     )
 

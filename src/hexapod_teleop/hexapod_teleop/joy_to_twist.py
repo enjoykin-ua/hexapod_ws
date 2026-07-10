@@ -17,21 +17,56 @@ Mapping (PS4 USB):
 - Triangle (Druck) = Sit/Stand-Toggle  → /hexapod_sit_stand_toggle
 - Circle (lang)    = Shutdown          → /hexapod_shutdown
 - Cross  (lang)    = Show-Pose-HOOK    → (Stub/Log, Verhalten kommt mit Block B4)
-- D-Pad ist in C1+ NICHT belegt (Gangart/Schrittweite folgen in C2).
+- D-Pad ←/→ (C2)   = Gangart prev/next → /hexapod_cycle_gait
+- D-Pad ↑/↓ (H2)   = Tempo-Preset schneller/langsamer (_TEMPO_MODES: cycle_time
+  am gait_node via AsyncParameterClient + eigene joy-Scales; ersetzt das
+  C3-Schrittweiten-Binding — /hexapod_adjust_step_length bleibt als Service).
 
 Alle Indizes/Skalen/Schwellen sind YAML-Parameter (``config/ps4_usb.yaml``) →
 BT/PS5 nur anderes YAML, gleicher Code.
 """
 
+from collections import namedtuple
 import time
 
 from geometry_msgs.msg import Twist
 from rcl_interfaces.msg import SetParametersResult
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rclpy.parameter_client import AsyncParameterClient
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Float64, Float64MultiArray
 from std_srvs.srv import SetBool, Trigger
+
+
+# Block H2 — Tempo-Presets. Tempo = NUR cycle_time (gait_node) + joy-Scales
+# (cmd-Limits hier) — envelope-frei bewiesen (die Bein-Hülle hängt an
+# Schrittweite/Hub/Höhe/Radius, nicht am Tempo; H2-Plan §0). Die Tabelle lebt
+# im Teleop (UX-Besitzer der Scales); der standing_only-Guard für cycle_time
+# lebt als DIE eine Wahrheit im gait_node (Ablehnung → keine Scale-Änderung).
+# Reihenfolge aufsteigendes Tempo; D-Pad ↑ = Index+1 (schneller), geklemmt.
+# Boot-Index "schnell" = EXAKT die heutigen YAML-Scales → der erste D-Pad-
+# Druck erzeugt keinen Verhaltens-Sprung. "aggressiv" = User-erprobt (die
+# Scales sind cmd-Limits; die Engine clampt zusätzlich proportional auf
+# linear_max = step_length_max/stance — 0.17 > linear_max ⇒ WARN+clamp, ok).
+# Startwerte — finale Werte nach Sim-Tuning H2.5 nachziehen (Muster
+# hw_balance: Code trägt Startwerte, Tuning-Ergebnis wird nachgezogen).
+_TempoMode = namedtuple(
+    '_TempoMode',
+    'name cycle_time linear_x_scale linear_y_scale angular_z_scale')
+_TEMPO_MODES = (
+    _TempoMode('langsam', 3.3, 0.03, 0.03, 0.28),
+    _TempoMode('mittel', 2.6, 0.04, 0.04, 0.35),
+    _TempoMode('schnell', 2.0, 0.05, 0.05, 0.46),
+    _TempoMode('aggressiv', 1.5, 0.17, 0.13, 1.2),
+)
+_TEMPO_DEFAULT_IDX = 2   # schnell (= Boot: cycle_time-Default 2.0 + YAML-Scales)
+
+# Antwort-Timeout für den cycle_time-Request: bleibt die Future so lange ohne
+# Antwort (gait_node zwischen ready-Check und Antwort weg), wird der nächste
+# D-Pad-Druck wieder zugelassen (sonst wäre der Tempo-Cycle dauerhaft blockiert).
+_TEMPO_REQUEST_TIMEOUT_S = 2.0
 
 
 class JoyToTwist(Node):
@@ -66,9 +101,9 @@ class JoyToTwist(Node):
         self.declare_parameter('trigger_threshold', 0.5)
         self.declare_parameter('longpress_sec', 0.8)
 
-        # --- D-Pad (C2: Gangart + Schrittweite) ---
+        # --- D-Pad (C2: Gangart · H2: Tempo-Presets) ---
         self.declare_parameter('axis_dpad_x', 6)   # ←/→ : Gangart prev/next
-        self.declare_parameter('axis_dpad_y', 7)   # ↑/↓ : Schrittweite +/-
+        self.declare_parameter('axis_dpad_y', 7)   # ↑/↓ : Tempo schneller/langsamer
         self.declare_parameter('sign_dpad_x', 1.0)
         self.declare_parameter('sign_dpad_y', 1.0)
         self.declare_parameter('dpad_threshold', 0.5)
@@ -180,9 +215,16 @@ class JoyToTwist(Node):
         self._cycle_gait_client = self.create_client(
             SetBool, '/hexapod_cycle_gait'
         )
-        self._step_length_client = self.create_client(
-            SetBool, '/hexapod_adjust_step_length'
-        )
+        # Block H2 — Tempo-Presets: cycle_time wird als Parameter am gait_node
+        # gesetzt (AsyncParameterClient = die Param-Service-Clients zu
+        # /gait_node/set_parameters etc.). Der gait-seitige standing_only-
+        # Validator ist der EINE Guard: Ablehnung → keine lokale Scale-Änderung.
+        # (Das frühere D-Pad-↑/↓-Binding /hexapod_adjust_step_length ist damit
+        # umgewidmet; der gait-Service selbst bleibt bestehen.)
+        self._gait_param_client = AsyncParameterClient(self, 'gait_node')
+        self._tempo_idx = _TEMPO_DEFAULT_IDX
+        self._tempo_request_pending = False
+        self._tempo_request_time = 0.0
         # Block B4 — Show-Pose-Toggle (Cross lang).
         self._show_toggle_client = self.create_client(
             Trigger, '/hexapod_show_toggle'
@@ -194,7 +236,6 @@ class JoyToTwist(Node):
         self._toggle_logged = False
         self._shutdown_logged = False
         self._cycle_gait_logged = False
-        self._adjust_step_length_logged = False
         self._show_toggle_logged = False
         self._cycle_stance_logged = False
 
@@ -407,7 +448,8 @@ class JoyToTwist(Node):
         ):
             self._show_pose_hook()
 
-        # 4) D-Pad-Intents (C2): ←/→ Gangart, ↑/↓ Schrittweite (Rising-Edge).
+        # 4) D-Pad-Intents: ←/→ Gangart (C2), ↑/↓ Tempo-Preset (H2, ersetzt
+        # das C3-Schrittweiten-Binding). Rising-Edge.
         dx = self._axis(msg, self._axis_dpad_x) * self._sign_dpad_x
         dy = self._axis(msg, self._axis_dpad_y) * self._sign_dpad_y
         cur_x = self._dpad_dir(dx)
@@ -422,13 +464,99 @@ class JoyToTwist(Node):
             self._dpad_x_last_fire = now
         if (cur_y != 0 and self._dpad_y_prev == 0
                 and now - self._dpad_y_last_fire >= self._dpad_lockout_sec):
-            # hoch (cur_y>0) = größere Schrittweite; runter = kleinere.
-            self._call_setbool(
-                self._step_length_client, cur_y > 0, 'adjust_step_length'
-            )
+            # hoch (cur_y>0) = schneller; runter = langsamer.
+            self._cycle_tempo(cur_y > 0, now)
             self._dpad_y_last_fire = now
         self._dpad_x_prev = cur_x
         self._dpad_y_prev = cur_y
+
+    # ---------- Block H2 — Tempo-Presets (D-Pad ↑/↓) ----------
+
+    def _cycle_tempo(self, faster: bool, now: float) -> None:
+        """
+        Tempo-Index cyclen (geklemmt, kein Wrap) — Zwei-Schritt-Protokoll.
+
+        (1) ``cycle_time`` am gait_node setzen (AsyncParameterClient-Future).
+        Der gait-seitige standing_only-Guard ist die EINE Wahrheit: lehnt er
+        ab (nicht STANDING) oder bleibt die Antwort aus, ändert sich lokal
+        NICHTS (kein halber Tempo-Wechsel). (2) Erst im done-Callback bei
+        Erfolg die eigenen Scales aus der Tabelle setzen (durch die
+        validate-then-apply-Live-Mechanik, Param-Server bleibt konsistent).
+        """
+        if self._tempo_request_pending:
+            if now - self._tempo_request_time < _TEMPO_REQUEST_TIMEOUT_S:
+                self.get_logger().warn(
+                    'Tempo-Wechsel läuft noch (Antwort ausstehend) — ignoriert.',
+                    throttle_duration_sec=2.0,
+                )
+                return
+            # Timeout: gait_node antwortet nicht (weg zwischen ready-Check
+            # und Antwort) → Lock lösen, nichts wurde geändert.
+            self._tempo_request_pending = False
+            self.get_logger().warn(
+                'Tempo-Request-Timeout (gait_node antwortet nicht) — '
+                'Scales unverändert.',
+            )
+        step = 1 if faster else -1
+        new_idx = max(0, min(len(_TEMPO_MODES) - 1, self._tempo_idx + step))
+        if new_idx == self._tempo_idx:
+            self.get_logger().info(
+                f'Tempo bereits am {"schnellsten" if faster else "langsamsten"}'
+                f' ({_TEMPO_MODES[self._tempo_idx].name})'
+            )
+            return
+        if not self._gait_param_client.services_are_ready():
+            self.get_logger().warn(
+                'Tempo-Wechsel: gait_node-Param-Services nicht verfügbar — '
+                'ignoriert (läuft gait_node?).',
+                throttle_duration_sec=2.0,
+            )
+            return
+        mode = _TEMPO_MODES[new_idx]
+        self._tempo_request_pending = True
+        self._tempo_request_time = now
+        future = self._gait_param_client.set_parameters([
+            Parameter('cycle_time', Parameter.Type.DOUBLE, mode.cycle_time),
+        ])
+        future.add_done_callback(
+            lambda fut: self._on_tempo_response(fut, new_idx)
+        )
+
+    def _on_tempo_response(self, future, new_idx: int) -> None:
+        """Antwort des gait_node auf den cycle_time-Set auswerten (Schritt 2)."""
+        self._tempo_request_pending = False
+        mode = _TEMPO_MODES[new_idx]
+        exc = future.exception()
+        if exc is not None:
+            self.get_logger().warn(
+                f'Tempo-Wechsel fehlgeschlagen (Service-Fehler: {exc}) — '
+                'Scales unverändert.'
+            )
+            return
+        result = future.result().results[0]
+        if not result.successful:
+            # Typisch: standing_only-Reject (nicht STANDING).
+            self.get_logger().warn(
+                f'Tempo nur im Stand — gait_node lehnt ab: {result.reason}',
+                throttle_duration_sec=2.0,
+            )
+            return
+        # cycle_time ist gesetzt → jetzt die eigenen Scales (validate-then-
+        # apply über den TLS-Callback, hält den eigenen Param-Server synchron).
+        self._tempo_idx = new_idx
+        self.set_parameters([
+            Parameter('linear_x_scale', Parameter.Type.DOUBLE,
+                      mode.linear_x_scale),
+            Parameter('linear_y_scale', Parameter.Type.DOUBLE,
+                      mode.linear_y_scale),
+            Parameter('angular_z_scale', Parameter.Type.DOUBLE,
+                      mode.angular_z_scale),
+        ])
+        self.get_logger().info(
+            f'Tempo -> {mode.name} (cycle_time={mode.cycle_time}, scales='
+            f'{mode.linear_x_scale}/{mode.linear_y_scale}/'
+            f'{mode.angular_z_scale})'
+        )
 
     def _adjust_body_height(self, sign: int) -> None:
         """Ändere das Höhen-Ziel um sign*step, clampe lokal, publishe."""

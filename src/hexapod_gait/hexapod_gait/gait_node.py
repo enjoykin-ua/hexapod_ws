@@ -54,6 +54,7 @@ from rcl_interfaces.msg import (
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import (
     DurabilityPolicy,
     qos_profile_sensor_data,
@@ -274,13 +275,14 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_max', default=0.050,
+        name='step_length_max', default=0.080,
         fp_range=(0.01, 0.15, 0.001),
         description=(
             'Max Stride pro Cycle (m). Begrenzt linear_max = '
-            'step_length_max / stance_duration. leg_changes: Default 0.050 '
-            '(max-leg-speed 0.05 m/s @ cycle 2.0) — envelope-grün bis ~0.08 '
-            '@ radial 0.160, mit Marge gewählt. Live-Update wirkt sofort.'
+            'step_length_max / stance_duration. Live-Update wirkt sofort. '
+            'H2: gedeckelt auf den step_length_max des aktuellen Stance-'
+            'Modus (tief 0.06 / mittel 0.08 / hoch 0.05 — Gate-validiert '
+            'inkl. engine-check-Transitions); Default = mittel (Boot-Modus).'
         ),
     ),
     _ParamSpec(
@@ -423,12 +425,15 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_intent_max', default=0.070,
+        name='step_length_intent_max', default=0.080,
         fp_range=(0.01, 0.15, 0.001),
         description=(
             'Block C2: obere Clamp-Grenze für den Schrittweiten-Trim (m). '
-            'leg_changes: 0.070 — envelope-grün @ radial 0.160 (bis ~0.08, mit '
-            'Marge zur Femur-Wand). D-Pad-↑ bis hierher.'
+            'H2: 0.080 = mittel-Modus-Deckel (Gate-validiert; sonst würde '
+            'ein "größer"-Intent den Boot-Wert 0.080 auf die alte Grenze '
+            '0.070 SENKEN). Der Handler clampt zusätzlich auf den Deckel '
+            'des aktuellen Stance-Modus. Kein Teleop-Binding mehr (D-Pad '
+            '↑/↓ = Tempo-Cycle); Service bleibt rückwärtskompatibel.'
         ),
     ),
     # Phase 13 Stage 1 — Stance-Modus-Wechsel.
@@ -559,7 +564,8 @@ _GAIT_CYCLE_ORDER = ('tripod', 'wave', 'tetrapod', 'ripple')
 # aufsteigende Körperhöhe: Index 0 = tief (geduckt), 2 = hoch. /hexapod_cycle_stance
 # data=True → höher (Index+1), False → tiefer (Index-1), geklemmt (kein Wrap).
 # "mittel" (Index 1) ist die Standup-/Boot-Basis.
-_StanceMode = namedtuple('_StanceMode', 'name radial body_height step_height')
+_StanceMode = namedtuple(
+    '_StanceMode', 'name radial body_height step_height step_length_max')
 # leg_changes (S5/S6, kürzere Beine, reach 0.074..0.194): einheitlicher WALK-
 # Radius 0.160 für alle Höhen. Das Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort
 # reiten die Vorderbeine an der Femur-(-90°)-Wand → Schleifen), sondern am breiten
@@ -576,10 +582,18 @@ _StanceMode = namedtuple('_StanceMode', 'name radial body_height step_height')
 # DECKEL für manuelles `param set step_height` im jeweiligen Modus (Reject,
 # _on_param_change) — höhere Werte rissen auf HW IKError+Safety-Freeze
 # (Femur-Wand am Schwung-Apex: bh + sh ≳ −0.02 geht nicht).
+# Block H2: per-Modus step_length_max (Hub und Schrittweite teilen die Bein-
+# Hülle: hoch = Terrain-Modus mit kurzen Schritten, mittel = Speed-Modus).
+# Gleiches Deckel-Prinzip (Reject in _on_param_change); der Stance-Switch
+# setzt sl gekoppelt mit. Gate: steady-state-check (H1.2) + engine-check-
+# Transitions (H2.1) — dort fiel mittel 0.09 (§0-Kandidat) im B:diagonal-
+# Richtungswechsel am S4-Probe-Floor out-of-reach (d=0.1953 > 0.194);
+# 0.08 GREEN mit Marge (femur 0.159), 0.085 nur knapp (Reach-Rest ~1 mm).
+# hoch sl > 0.05 = der User-Sim-Befund out-of-reach-IKError (H2-Plan §0).
 _STANCE_MODES = (
-    _StanceMode('tief', 0.160, -0.065, 0.040),
-    _StanceMode('mittel', 0.160, -0.080, 0.050),
-    _StanceMode('hoch', 0.160, -0.100, 0.080),
+    _StanceMode('tief', 0.160, -0.065, 0.040, 0.060),
+    _StanceMode('mittel', 0.160, -0.080, 0.050, 0.080),
+    _StanceMode('hoch', 0.160, -0.100, 0.080, 0.050),
 )
 _STANCE_DEFAULT_IDX = 1   # mittel
 # Tiefste body_height, aus der direkt hingesetzt werden kann. leg_changes: alle
@@ -655,6 +669,18 @@ class GaitNode(Node):
         self._step_length_max = float(
             self.get_parameter('step_length_max').value
         )
+        # H2 — Init-Konsistenz-Check wie bei step_height: params_file-
+        # Overrides umgehen den Set-Callback → hier auf den Boot-Modus-
+        # Deckel (mittel) deckeln + warnen statt out-of-reach-IKError.
+        _boot_sl_cap = _STANCE_MODES[_STANCE_DEFAULT_IDX].step_length_max
+        if self._step_length_max > _boot_sl_cap:
+            self.get_logger().warn(
+                f'step_length_max {self._step_length_max:.3f} über dem '
+                f'Deckel des Boot-Stance-Modus '
+                f'({_STANCE_MODES[_STANCE_DEFAULT_IDX].name} = {_boot_sl_cap}) '
+                f'— auf Deckel gesetzt (H2-Gate-validierte Werte).'
+            )
+            self._step_length_max = _boot_sl_cap
         self._default_linear_x = float(
             self.get_parameter('default_linear_x').value
         )
@@ -752,6 +778,11 @@ class GaitNode(Node):
         # Hinsetzen aus "hoch" (-0.140) routet erst auf mittel: Flag = Hinsetzen
         # nachholen, sobald der Stance-Switch fertig ist (STANDING).
         self._pending_sitdown = False
+        # H2 (H1-🟡-Fix) — Param-Server-Sync nach Stance-Switch: body_height/
+        # radial_distance sind standing_only, ein set_parameters direkt in
+        # _do_stance_switch würde vom EIGENEN Validator rejected (State =
+        # STANCE_SWITCH). Flag hier, Ausführung im _tick sobald STANDING.
+        self._pending_stance_param_sync = False
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
@@ -1543,6 +1574,12 @@ class GaitNode(Node):
                 )
                 self._joint_states_timeout_logged = True
             return
+
+        # H2 — deferred Param-Server-Sync nach Stance-Switch. VOR dem
+        # _pending_sitdown-Check: beide feuern bei STANDING; startet erst
+        # das Hinsetzen, wäre der Node nie wieder STANDING (→ SAT) und der
+        # Param-Server bliebe bis zum nächsten Aufstehen stale.
+        self._maybe_sync_stance_params()
 
         # Stage 1 — verzögertes Hinsetzen: wenn aus "hoch" geroutet wurde, ist
         # der Stance-Switch auf mittel jetzt fertig (STANDING) → Hinsetzen jetzt.
@@ -2340,6 +2377,11 @@ class GaitNode(Node):
             self._step_length_intent_min,
             min(self._step_length_intent_max, new),
         )
+        # H2 — zusätzlich Modus-Deckel: der Handler schreibt _step_length_max
+        # am _on_param_change-Validator (1h3) vorbei und würde den Gate-
+        # validierten Deckel sonst umgehen (z. B. hoch: intent_max 0.08 >
+        # Modus-Deckel 0.05 → out-of-reach beim Misch-Kommando).
+        new = min(new, _STANCE_MODES[self._stance_idx].step_length_max)
         self._step_length_max = new
         self._engine.step_length_max = new
         response.success = True
@@ -2476,7 +2518,9 @@ class GaitNode(Node):
         Engine-Stance-Switch zu ``_STANCE_MODES[new_idx]`` starten + Node-State.
 
         Nur sinnvoll aus STANDING (Engine prüft). Bei Erfolg: ``_stance_idx`` +
-        Node-Member (radial/body_height/step_height) auf den Ziel-Modus.
+        Node-Member (radial/body_height/step_height/step_length_max) auf den
+        Ziel-Modus; der Param-Server wird deferred nachgezogen (Flag →
+        ``_maybe_sync_stance_params`` im ``_tick`` bei STANDING).
         """
         mode = _STANCE_MODES[new_idx]
         now = time.monotonic()
@@ -2494,7 +2538,46 @@ class GaitNode(Node):
             self._radial_distance = mode.radial
             self._body_height = mode.body_height
             self._step_height = mode.step_height
+            # H2 — sl gekoppelt mit (Engine sofort: im STANCE_SWITCH wird
+            # cmd_vel eh ignoriert, linear_max ist erst beim Walken relevant).
+            self._step_length_max = mode.step_length_max
+            self._engine.step_length_max = mode.step_length_max
+            self._pending_stance_param_sync = True
         return ok
+
+    def _maybe_sync_stance_params(self) -> None:
+        """
+        H2 (H1-🟡-Fix): Param-Server nach Stance-Switch-ABSCHLUSS nachziehen.
+
+        ``_do_stance_switch`` setzt Node-Member + Engine am Param-Server
+        vorbei → ``ros2 param get`` zeigte danach die alten Werte. Direkt im
+        Switch geht der Sync nicht: ``body_height``/``radial_distance`` sind
+        standing_only, der eigene Validator würde im STANCE_SWITCH rejecten.
+        Daher deferred: hier (aus ``_tick``) erst bei STANDING ausführen.
+        ``set_parameters_atomically`` läuft durch ``_on_param_change`` —
+        ``_stance_idx`` ist da schon aktuell, also passieren die
+        Deckel-Validatoren; ``_apply_param`` re-settet Member/Engine
+        idempotent auf dieselben Werte.
+        """
+        if not self._pending_stance_param_sync:
+            return
+        if self._engine.state != GaitEngine.STATE_STANDING:
+            return
+        self._pending_stance_param_sync = False
+        mode = _STANCE_MODES[self._stance_idx]
+        result = self.set_parameters_atomically([
+            Parameter('radial_distance', Parameter.Type.DOUBLE, mode.radial),
+            Parameter('body_height', Parameter.Type.DOUBLE, mode.body_height),
+            Parameter('step_height', Parameter.Type.DOUBLE, mode.step_height),
+            Parameter('step_length_max', Parameter.Type.DOUBLE,
+                      mode.step_length_max),
+        ])
+        if not result.successful:
+            # Darf nach Design nicht passieren (Werte = validierte Tabelle,
+            # State = STANDING) — wenn doch, sichtbar machen statt still.
+            self.get_logger().warn(
+                f'stance param sync fehlgeschlagen: {result.reason}'
+            )
 
     def _do_relay_off_and_latch(self) -> None:
         """Relay öffnen (Servos stromlos) + terminalen Shutdown-Latch setzen."""
@@ -2712,6 +2795,29 @@ class GaitNode(Node):
                             f'{cap} for stance mode {mode_name!r} '
                             f'(H1 gate; switch to a higher mode for more '
                             f'step height)'
+                        ),
+                    )
+
+        # 1h3. Block H2 — step_length_max gegen den Deckel des AKTUELLEN
+        # Stance-Modus (Gate-validierte max-Schrittweite je Zelle: steady-
+        # state-check H1.2 + engine-check-Transitions H2.1 — Hub und
+        # Schrittweite teilen die Bein-Hülle). Reject statt out-of-reach-
+        # IKError+Freeze beim Misch-Kommando (User-Sim-Befund hoch+0.12).
+        # Semantik identisch zu 1h2 (kleinere Werte immer erlaubt; Switch
+        # setzt sl direkt aus der Tabelle; wer radial/body_height manuell
+        # verstellt, verlässt das Preset-System → IKError-Backstop).
+        for p in params:
+            if p.name == 'step_length_max':
+                cap = _STANCE_MODES[self._stance_idx].step_length_max
+                if float(p.value) > cap + 1e-9:
+                    mode_name = _STANCE_MODES[self._stance_idx].name
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            f'step_length_max {p.value} exceeds validated '
+                            f'max {cap} for stance mode {mode_name!r} '
+                            f'(H2 gate; switch to a mode with a higher cap '
+                            f'for longer strides)'
                         ),
                     )
 

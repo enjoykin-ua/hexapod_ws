@@ -63,8 +63,19 @@
   der Startwert). Wer eine neue *live*-Tuning-Größe ergänzt, muss sie in `_on_param_change` (validate +
   apply) eintragen — sonst wirkt der `param set` nicht (das war der ursprüngliche Bug: alle Scales nur
   beim Start gelesen). **Plan/Tests:** `project_finalization/imu_balance/teleop_live_scales_plan.md`.
+- **Tempo-Presets (H2):** D-Pad ↑/↓ cyclet `_TEMPO_MODES` (`joy_to_twist.py`: name, cycle_time,
+  3 Scales; **umgewidmet** vom C3-Schrittweiten-Adjust — `/hexapod_adjust_step_length` bleibt als
+  Service ohne Teleop-Binding). Zwei-Schritt: erst `cycle_time` am **gait_node** via
+  `AsyncParameterClient`-Future (dessen standing_only-Guard = der EINE Tempo-Guard), NUR bei Erfolg
+  die eigenen Scales (via TLS-set_parameters → Param-Server synchron). Ablehnung/Exception/abwesend/
+  Timeout (2-s-Lock) ⇒ lokal NICHTS ändern. ⚠️ Fallen: (1) **Boot-Eintrag „schnell" == YAML-Scales
+  halten** (ps4_usb+bt; sonst springt der erste D-Pad-Druck — per Test gepinnt: `test_tempo_presets`).
+  (2) Tabellen-Werte ändern = nur Tempo (envelope-frei), aber **Scales > linear_max** heißt
+  Engine-Clamp-WARN (aggressiv: bewusst). (3) Werte nach Sim-Tuning (H2.5) in Tabelle UND YAML-
+  Kommentar nachziehen. **Doku:** `project_finalization/H2_speed_presets_*`.
 - **Validieren:** `colcon test hexapod_teleop` (`test_live_scales` — live-Update je Param, negativ/Range
-  abgelehnt, struktureller Param kein Crash, atomarer Reject).
+  abgelehnt, struktureller Param kein Crash, atomarer Reject; `test_tempo_presets` — Tabellen-Pin,
+  Sprungfrei-Invariante, Reject-/Timeout-Pfade ändern nichts).
 
 ### Standup / Reposition / Zwei-Phasen-Logik
 - **Wo:** `gait_engine.py` (States `CARTESIAN_STANDUP`/`REPOSITION`, `start_*`, `_compute_*`).
@@ -81,15 +92,23 @@
   `start_stance_switch`, `_stance_switch_foot` (gekoppelte Tripod-Reposition radial+body_height).
   `joy_to_twist.py` — L2/R2 ohne R1 → cycle_stance.
 - **Modi/Werte ändern:** nur die `_STANCE_MODES`-Tabelle (offline-validiert!). Default-Boot-Pose =
-  Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`-Param-Defaults.
-  **Block H1 — per-Modus `step_height` (tief 0.04 / mittel 0.05 / hoch 0.08):** der Tabellenwert
-  ist zugleich **Deckel** für `param set step_height` im jeweiligen Modus (Reject; Boot-Override
-  via params_file wird im Init gedeckelt+WARN — der umgeht den Set-Callback). Werte-Änderung nur
+  Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`/`step_length_max`-Param-
+  Defaults (⚠️ `gait.launch.py`-Arg-Defaults sind eine ZWEITE Default-Quelle — mitziehen, H2-Befund).
+  **Block H1 — per-Modus `step_height` (tief 0.04 / mittel 0.05 / hoch 0.08) · Block H2 — per-Modus
+  `step_length_max` (tief 0.06 / mittel 0.08 / hoch 0.05):** der Tabellenwert ist zugleich **Deckel**
+  für `param set step_height`/`step_length_max` im jeweiligen Modus (Reject; Boot-Override
+  via params_file wird im Init gedeckelt+WARN — der umgeht den Set-Callback). Der Switch setzt beide
+  gekoppelt; danach zieht `_maybe_sync_stance_params` (im `_tick`) den **Param-Server deferred** nach
+  (erst wieder bei STANDING — body_height/radial sind standing_only, ein Sync im STANCE_SWITCH würde
+  selbst-rejected). `/hexapod_adjust_step_length` clampt zusätzlich auf den Modus-Deckel (der
+  Intent-Handler schreibt am Validator vorbei). Werte-Änderung nur
   nach neuem **Gate-Durchlauf**: `walking_envelope_check check --min-margin 0.10 --leveling-deg 4.0
   --s4-floor 0.03 --scenario all` (Margen-Schwelle NUR nominal; Leveling-Ecken = Coverage-Metrik,
   Fallback degradiert sanft) **+ `engine-check`** (Transitions: Start/Richtungswechsel/Stopp/
-  Stance-Switch/Sitdown — schließt die „steady-state-only"-Lücke). Datenlage/Verworfenes (10 cm =
-  Apex-Marge; radial 0.17/0.18 = S4-Floor-Reach): `project_finalization/H1_step_height_modes_*`.
+  Stance-Switch/Sitdown — schließt die „steady-state-only"-Lücke; H2.1-Lehre: **mittel sl 0.09 war
+  steady-state-GREEN, fiel aber im engine-check `B:diagonal` am S4-Floor** → beide Gates Pflicht).
+  Datenlage/Verworfenes (10 cm = Apex-Marge; radial 0.17/0.18 = S4-Floor-Reach; sl 0.09 =
+  B:diagonal-Reach): `project_finalization/H1_step_height_modes_*` + `H2_speed_presets_*`.
   ⚠️ Tool-Ausgaben IMMER exit-code-basiert auswerten (H1.2-Lehre: `grep|tail` übersah RED-Szenarien).
 - **Fallen:** (1) **leg_changes/S5+S6: einheitlicher WALK-Radius 0.160 über alle Höhen** (tief −0.065 /
   mittel −0.080 / hoch −0.100). Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort reiten die Vorderbeine

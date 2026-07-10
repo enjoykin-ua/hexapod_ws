@@ -190,18 +190,25 @@ def test_dpad_left_cycles_gait_prev(node):
     assert node._cycle_gait_client.last is False
 
 
-def test_dpad_up_step_bigger(node):
-    """D-Pad hoch (raw +1) → adjust_step_length größer (data=True)."""
-    node._step_length_client = _FakeClient(ready=True)
+def test_dpad_up_cycles_tempo_faster(node):
+    """
+    D-Pad hoch (raw +1) → Tempo-Cycle schneller (H2, ersetzt C3-Binding).
+
+    Detail-Verhalten (Tabelle, Reject, Timeout) in test_tempo_presets.py —
+    hier nur das _on_joy-Binding: hoch = faster (Index+1).
+    """
+    calls = []
+    node._cycle_tempo = lambda faster, now: calls.append(faster)
     node._on_joy(_joy(dpad_y=1.0))
-    assert node._step_length_client.last is True
+    assert calls == [True]
 
 
-def test_dpad_down_step_smaller(node):
-    """D-Pad runter (raw -1) → adjust_step_length kleiner (data=False)."""
-    node._step_length_client = _FakeClient(ready=True)
+def test_dpad_down_cycles_tempo_slower(node):
+    """D-Pad runter (raw -1) → Tempo-Cycle langsamer (data=False-Analogon)."""
+    calls = []
+    node._cycle_tempo = lambda faster, now: calls.append(faster)
     node._on_joy(_joy(dpad_y=-1.0))
-    assert node._step_length_client.last is False
+    assert calls == [False]
 
 
 def test_dpad_hold_no_refire(node):
