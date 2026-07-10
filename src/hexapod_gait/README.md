@@ -547,8 +547,8 @@ erhalten, nur langsamer. Engine loggt `cmd_vel clamped`-Warning
 | `stand_conform_rate` | `0.02` | S4-7: Absenk-Rate im Stand (m/s, >0) |
 | `slip_detection_enable` | `false` | S4-4: Slip/Kontaktverlust → Freeze an/aus (Opt-in) |
 | `cliff_depth` | `0.03` | S4-4: Grenze folgbares Terrain ↔ Abgrund (m unter `body_height`; > = Freeze) |
-| `slip_debounce_ticks` | `8` | S4-4: Ticks ohne Halt bis Freeze (muss > contact_timeout ≈5) |
-| `slip_min_lost_legs` | `1` | S4-4: gleichzeitig haltlose Stütz-Beine bis Freeze (∈[1,6]) |
+| `slip_debounce_ticks` | `8` | S4-4: Ticks ohne Halt bis Freeze (muss > contact_timeout ≈5). Sim-Default, geeicht auf cycle 2.0 — `hw_terrain.yaml` fährt **14** (H2.6: aggressiv/cycle 1.5 sonst False-Positive; Pin: `test_hw_terrain_preset`) |
+| `slip_min_lost_legs` | `1` | S4-4: gleichzeitig haltlose Stütz-Beine bis Freeze (∈[1,6]). `hw_terrain.yaml` fährt **2** (H2.6; Tradeoff: Kanten-Schutz erst ab 2 Beinen, Tip+IKError = Backstop) |
 | `slip_grace_stance_phase` | `0.6` | S4-4: Stance-Phase-Grace (darunter no-contact nicht gewertet) |
 | `sensor_plausibility_enable` | `false` | S4-5: Sensor-Fault-Plausibilität an/aus (Opt-in; flaggt+maskiert, kein Freeze) |
 | `sensor_apex_band_low` | `0.3` | S4-5: untere Schwung-Apex-Band-Grenze (< = past contact_timeout-Nachhall) |

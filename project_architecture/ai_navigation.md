@@ -304,7 +304,12 @@
   `python3 tools/stand_conform_envelope_check.py` (tief/mittel/hoch GREEN, Floor hoch −0.140).
   **HW-Arbeitspreset:** `config/presets/hw_terrain.yaml` (Stufe 8) schaltet alle S4-Enables +
   Leveling `auto` beim Launch scharf (`params_file:=`, 3-Terminal-Bringup HW8.8a) — Code-Defaults
-  bleiben false; HW-getunte S4-Werte dort nachziehen (HW8.8).
+  bleiben false; HW-getunte S4-Werte dort nachziehen (HW8.8). **Erste HW-Tuning-Werte (H2.6):**
+  `slip_debounce_ticks 14` + `slip_min_lost_legs 2` — die Sim-Defaults (8/1, geeicht auf cycle 2.0)
+  feuerten bei Tempo aggressiv (cycle 1.5) False-Positive-Freezes (Kontakt-Lag wird größerer
+  Phasen-Anteil + Servo-Lag/Wackeln). Tradeoff: Kanten-Schutz erst ab 2 Beinen (Tip+IKError =
+  Backstop). Werte-Pin: `test_hw_terrain_preset.py` (pinnt auch Validator-Range-Konformität —
+  params_file umgeht den Set-Callback!).
 - **Fallen:** (1) **Körper-Anker NICHT aufgeben** — der Erst-Entwurf (Freeze an Kontakthöhe, auch
   über `body_height`) war closed-loop-instabil (Drift). Option A hält den Anker bei `body_height`
   und senkt **nur nach unten**. (2) **`probe_start` > Kontakt-Lag in Stance-Phasen** (bei

@@ -72,11 +72,19 @@
     touchdown_search_end_stance_phase: 0.6
     touchdown_max_extra_depth: 0.02
 
-    # --- S4-4 Slip/Kante -> Freeze (WALKING) — Sim-Defaults, HW8.4-Tuning hier -
+    # --- S4-4 Slip/Kante -> Freeze (WALKING) — HW-getunt (H2.6) ----------------
+    # H2.6-Befund: die Sim-Defaults (debounce 8 / min_lost 1, geeicht auf
+    # cycle 2.0) feuerten bei Tempo "aggressiv" (cycle 1.5) False-Positive
+    # ("Stuetz-Verlust 1 Bein"): fester Kontakt-Lag = groesserer Phasen-Anteil
+    # + Servo-Lag + Open-Loop-Wackeln entlasten ein Stuetz-Bein kurzzeitig.
+    # Daher: erst 2 gleichzeitig haltlose Beine freezen, 0.28 s Toleranz.
+    # ⚠️ Tradeoff: einzelnes Bein ueber einer Kante freezt NICHT mehr sofort
+    # (Kanten-Schutz greift erst ab 2 Beinen); Tip-Monitor + IKError bleiben
+    # Backstop. Werte-Pin: test_hw_terrain_preset.py.
     slip_detection_enable: true
     cliff_depth: 0.03
-    slip_debounce_ticks: 8
-    slip_min_lost_legs: 1
+    slip_debounce_ticks: 14
+    slip_min_lost_legs: 2
     slip_grace_stance_phase: 0.6
 
     # --- S4-5 Sensor-Plausibilitaet -> maskieren (WALKING) ---------------------
