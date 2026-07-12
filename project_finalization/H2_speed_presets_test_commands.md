@@ -193,6 +193,10 @@ ros2 launch hexapod_gait gait.launch.py use_sim_time:=false \
 # ── Terminal 3 (Pi): Teleop ──
 cd ~/hexapod_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt
+
+
+ros2 param set /gait_node step_height 0.08     # ERWARTET: Set parameter failed (mittel-Deckel 0.05)
+
 ```
 
 **Ablauf:**

@@ -36,7 +36,10 @@ Sicherheits-/State-Logik lebt an EINER Stelle.
 Daraus folgt:
 - **Sit/Stand:** Teleop ruft **einen** Toggle-Intent; `gait_node` löst nach State auf.
 - **Gangart-Wechsel:** Teleop ruft „nächste Gangart"-Intent; `gait_node` cyclet + prüft STANDING.
-- **Schrittweite:** Teleop ruft „größer/kleiner"-Intent; `gait_node` clampt.
+- **Tempo (H2, ersetzt das frühere Schrittweiten-Binding):** Teleop cyclet die Tempo-Presets
+  (`_TEMPO_MODES`) — `cycle_time` via Param-Client an den `gait_node` (dessen standing_only-Guard
+  entscheidet), Scales lokal. Der Schrittweiten-Service `/hexapod_adjust_step_length` bleibt
+  (ohne Controller-Taste); `step_length_max` ist seit H2 pro Stance-Modus gedeckelt.
 - **Höhe:** bleibt das bestehende `/cmd_body_height`-Topic (gait_node clampt + ignoriert ≠STANDING).
 - **Fahren:** `/cmd_vel` (Engine clampt/State-gated). **Shutdown:** bestehender B1-Service.
 
@@ -57,23 +60,28 @@ Daraus folgt:
 | **Show: L-Stick / R-Stick** (mit R1) | Vorderbeine **leg_6 / leg_1** bewegen: X=seitwärts, Y=hoch/runter | nur in SHOW_ACTIVE; `/cmd_show`; geclampt auf URDF-Limits | B4 |
 | **Show: L2 / R2** (mit R1) | **Tibia-Reach** leg_6 / leg_1 (Bein strecken, Tibia fährt auf) | nur in SHOW_ACTIVE; `/cmd_show` radial | B4.11 |
 | **D-Pad ←/→** | **Gangart** durchschalten (tripod→wave→tetrapod→ripple) | Intent `/hexapod_cycle_gait`; nur STANDING | C2 |
-| **D-Pad ↑/↓** | **Schrittweite** (`step_length_max`) größer/kleiner | Intent; gait_node clampt; ändert Stride + Top-Speed | C2 |
+| **D-Pad ↑/↓** | **Tempo-Preset** schneller/langsamer (langsam·mittel·schnell·aggressiv) | H2 (umgewidmet von Schrittweite): `cycle_time` am gait_node + joy-Scales; nur STANDING (gait-Guard) | H2 |
 | Rechter Stick Y | im Show = **leg_1 hoch/runter** (s. Zeile „Show: R-Stick"); sonst frei | `axis_ry` | B4 |
 | **□ Square** | reserviert (z.B. Gangart-Reset auf tripod) | — | später |
 
-**Tempo:** Dosierung über Stick-Auslenkung (analog) + L1=langsam; „weiter/schneller laufen" über
-Schrittweite (D-Pad ↑/↓). Keine separate Tempo-Stufe nötig (User 2026-06-03).
+**Tempo:** Dosierung über Stick-Auslenkung (analog) + L1=langsam; die **Stufe** über die
+Tempo-Presets (D-Pad ↑/↓). _(Historie: „keine separate Tempo-Stufe nötig" (User 2026-06-03)
+wurde in Block H2 revidiert — 4 Presets über cycle_time + Scales, envelope-frei;
+Doku: [`H2_speed_presets_plan.md`](H2_speed_presets_plan.md).)_
 
 ### 1a. Einstellungen, die man verstellen kann (Referenz)
 
 **Stance-Modi (Höhen)** — fest validierte Posen, per L2/R2 (ohne R1) umgeschaltet. Werte real-engine-
-validiert (Plan [`stance_modes_plan.md`](stance_modes_plan.md)):
+validiert (Plan [`stance_modes_plan.md`](stance_modes_plan.md)); seit **H1/H2** trägt jeder Modus
+zusätzlich per-Modus-`step_height` + `step_length_max` (Tabellenwert = Deckel, darüber Reject —
+Gate-Doku: [`H1_step_height_modes_progress.md`](H1_step_height_modes_progress.md) +
+[`H2_speed_presets_progress.md`](H2_speed_presets_progress.md)):
 
-| Modus | body_height | radial | step_height | Hinweis |
-|---|---|---|---|---|
-| **hoch** | −0.100 m | 0.160 m | 0.040 m | direkt aufstehbar (einheitl. Radius) |
-| **mittel** | −0.080 m | 0.160 m | 0.040 m | **Boot-/Standup-Basis** |
-| **tief** | −0.065 m | 0.160 m | 0.040 m | geduckt |
+| Modus | body_height | radial | step_height (H1) | step_length_max (H2) | Hinweis |
+|---|---|---|---|---|---|
+| **hoch** | −0.100 m | 0.160 m | 0.080 m | 0.050 m | Terrain-Modus (hoher Schwung, kurze Schritte) |
+| **mittel** | −0.080 m | 0.160 m | 0.050 m | 0.080 m | **Boot-/Standup-Basis**, Speed-Modus |
+| **tief** | −0.065 m | 0.160 m | 0.040 m | 0.060 m | geduckt |
 
 > **leg_changes/S5+S6 (kürzere Beine):** einheitlicher WALK-Radius 0.160 über alle
 > Höhen. Das Aufstehen/Hinsetzen läuft am breiten `standup_radial` **0.20**
@@ -84,9 +92,10 @@ validiert (Plan [`stance_modes_plan.md`](stance_modes_plan.md)):
 
 | Parameter | Eingabe | Bereich | Schritt | Wirkung |
 |---|---|---|---|---|
-| Stance-Modus | **L2 / R2** (ohne R1) | tief · mittel · hoch | 1 Stufe (clamp) | nur Höhe (Walk-radial einheitlich 0.160; Aufstehen/Hinsetzen breit @ 0.20 + Reposition) |
+| Stance-Modus | **L2 / R2** (ohne R1) | tief · mittel · hoch | 1 Stufe (clamp) | Höhe + gekoppelte sh/sl aus der Tabelle (Walk-radial einheitlich 0.160; Aufstehen/Hinsetzen breit @ 0.20 + Reposition) |
 | Gangart | **D-Pad ←/→** | tripod · wave · tetrapod · ripple | 1 Stufe (cyclt) | nur in STANDING |
-| Schrittweite `step_length_max` | **D-Pad ↑/↓** | **0.030 – 0.070 m** (Start 0.050) | **0.010 m** | max. Tempo = step_length / stance_dur; Stride skaliert stufenlos mit Stick |
+| Tempo-Preset (H2) | **D-Pad ↑/↓** | langsam · mittel · schnell (Boot) · aggressiv | 1 Stufe (clamp) | cycle_time (gait) + Scales (teleop); nur STANDING; Werte: `_TEMPO_MODES` in `joy_to_twist.py` |
+| Schrittweite `step_length_max` | Service `/hexapod_adjust_step_length` (keine Taste mehr) | 0.030 m – **Modus-Deckel** (tief 0.06 / mittel 0.08 / hoch 0.05) | 0.010 m | max. Tempo = step_length / stance_dur; Stride skaliert stufenlos mit Stick |
 | Fahr-Tempo | L-Stick / R-Stick X (+ **L1** langsam) | 0 … Max | analog | dosiert; clamp bei > max-leg-speed (Log-WARN ist normal) |
 
 > Tieferes Tuning (Show-Skalen, Dauern, Switch-step_height usw.) per `ros2 param set /gait_node …` —
