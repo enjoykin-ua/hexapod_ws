@@ -16,7 +16,8 @@
 
 | Version | Was |
 |---|---|
-| **v0.1** (aktuell) | Gerüst. Bestandsaufnahme der wiederverwendbaren ROS-Schnittstellen + Platzhalter für die neu zu bauenden. Noch nichts implementiert. |
+| **v0.1** | Gerüst. Bestandsaufnahme der wiederverwendbaren ROS-Schnittstellen + Platzhalter für die neu zu bauenden. Noch nichts implementiert. |
+| **v0.2** (aktuell) | §1 festgezurrt: konkrete Kishi-V2→PS4-`/joy`-Index-Tabelle (Achsen + Buttons + Transforms) aus dem Phase-1-Deliverable (gemessen am S22+) **+ 2 Kishi-Extra-Slots (L4/R4 = `buttons[13]`/`[14]`), damit alle physischen Tasten erfasst und ROS-seitig später bindbar sind.** Vorzeichen-Endverifikation via `ros2 topic echo /joy` = Phase 2. |
 
 ---
 
@@ -45,11 +46,72 @@ Die App publisht `sensor_msgs/Joy` auf **`/joy`**, normalisiert auf das **PS4-La
 | `axes[]` | PS4-Achsen-Reihenfolge (Sticks + D-Pad als Achsen) |
 | `buttons[]` | PS4-Button-Reihenfolge |
 
-**Verbindliches Layout:** die exakten Achsen-/Button-Indizes = die aus
-[`ps4_usb.yaml`](../../src/hexapod_teleop/config/ps4_usb.yaml) (`axis_*`, `*_button`,
-`axis_dpad_x/y`). Die App muss die **Kishi-Rohindizes** (in Phase 1 ermittelt) auf **diese
-PS4-Indizes** abbilden. → Wird in **Phase 2** als konkrete Index-Tabelle hier eingetragen
-`[TBD-Phase 2]`.
+**Verbindliches Layout (festgezurrt v0.2, Phase-1-Deliverable):** Die App misst die Kishi-Roh-
+Eingaben über Android `InputManager` und emittiert `sensor_msgs/Joy` mit den **8 PS4-Achsen +
+13 PS4-Buttons** (Indizes exakt wie in
+[`ps4_usb.yaml`](../../src/hexapod_teleop/config/ps4_usb.yaml)) **plus 2 Kishi-Extra-Slots
+(L4/R4, `buttons[13]`/`[14]`)**, damit **alle** physischen Kishi-Tasten erfasst und ROS-seitig
+später bindbar sind (ohne App-Änderung). Gemessen am S22+ (Kishi V2, Vendor `0x1532` /
+Product `0x071b`).
+
+**Achsen `axes[]`:**
+
+| Idx | PS4-Rolle | Kishi (Android) | App-Transform |
+|---|---|---|---|
+| 0 | `axis_lx` linker Stick X | `AXIS_X` | `−AXIS_X` |
+| 1 | `axis_ly` linker Stick Y | `AXIS_Y` | `−AXIS_Y` |
+| 2 | `axis_l2` L2 (idle +1 / gedrückt −1) | `AXIS_LTRIGGER` (0..1) | `1 − 2·LTRIGGER` |
+| 3 | `axis_rx` rechter Stick X | `AXIS_Z` | `−AXIS_Z` |
+| 4 | `axis_ry` rechter Stick Y (Show) | `AXIS_RZ` | `−AXIS_RZ` |
+| 5 | `axis_r2` R2 | `AXIS_RTRIGGER` (0..1) | `1 − 2·RTRIGGER` |
+| 6 | `axis_dpad_x` D-Pad ←/→ | `AXIS_HAT_X` (−1/0/+1) | `AXIS_HAT_X` (Vorzeichen P2) |
+| 7 | `axis_dpad_y` D-Pad ↑/↓ | `AXIS_HAT_Y` (−1/0/+1) | `AXIS_HAT_Y` (Vorzeichen P2) |
+
+**Buttons `buttons[]` (positionsbasiert, nicht labelbasiert):**
+
+| Idx | PS4 | Funktion (`joy_to_twist`) | Kishi-Keycode (Position) |
+|---|---|---|---|
+| 0 | Cross | Show-Toggle¹ | `KEYCODE_BUTTON_A` (unten) |
+| 1 | Circle | Shutdown (lang) | `KEYCODE_BUTTON_B` (rechts) |
+| 2 | Triangle | Sit/Stand-Toggle | `KEYCODE_BUTTON_Y` (oben) |
+| 3 | Square | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_X` (links) |
+| 4 | L1 | Slow/präzise | `KEYCODE_BUTTON_L1` |
+| 5 | R1 | **Dead-Man** | `KEYCODE_BUTTON_R1` |
+| 6 | L2 | — (Höhe via `axes[2]`) | `KEYCODE_BUTTON_L2` |
+| 7 | R2 | — (via `axes[5]`) | `KEYCODE_BUTTON_R2` |
+| 8 | Share | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_SELECT` |
+| 9 | Options | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_START` |
+| 10 | PS/Guide | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_MODE` |
+| 11 | L3 | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_THUMBL` (linker Stick-Klick) |
+| 12 | R3 | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_THUMBR` (rechter Stick-Klick) |
+| 13 | *(Kishi-Extra)* | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_C` = **L4** |
+| 14 | *(Kishi-Extra)* | — (unbelegt, ROS bindet später) | `KEYCODE_BUTTON_Z` = **R4** |
+
+**Erfasst vs. konsumiert:** `joy_to_twist` **konsumiert** aktuell Achsen 0–7 und Buttons
+**0, 1, 2, 4, 5**. **Alle übrigen physischen Kishi-Tasten werden trotzdem gesendet**, nur noch
+nicht konsumiert → jederzeit ROS-seitig bindbar **ohne App-Änderung**: Square=`3`, L2/R2=`6`/`7`,
+Share/Options/Home=`8`/`9`/`10`, L3/R3=`11`/`12`, L4/R4=`13`/`14`. Damit trägt **jeder** Slot eine
+echte Kishi-Taste (keine leeren Slots). Alle Slots müssen im Array existieren, sonst Index-Fehler.
+
+**Regeln:**
+- **Sticks negiert** (Kishi hoch/links = −1, PS4-`/joy` erwartet +1).
+- **Trigger `1 − 2·t` jeden Frame** (auch idle → +1), sonst steht L2/R2 beim Start
+  fälschlich „gedrückt". Kishi meldet Trigger doppelt (`AXIS_BRAKE`/`AXIS_GAS`) → **ignorieren**,
+  nur `LTRIGGER`/`RTRIGGER`.
+- **Keine App-Deadzone** — `joy_to_twist` filtert (`deadzone 0.10`), App publisht roh ([D3]).
+- **Positionsbasierte Face-Buttons:** Kishi ist Xbox-beschriftet (A unten / B rechts / X links /
+  Y oben); Zuordnung nach **physischer Position** → Kishi-Y = Triangle (idx 2), Kishi-A = Cross (idx 0).
+- ¹ Cross/Show ist roboterseitig aktuell inert (`show_enabled: false` in `ps4_usb.yaml`) —
+  Mapping bleibt korrekt für später.
+- **Kishi-Extra-Buttons:** L4/R4 = `KEYCODE_BUTTON_C` / `_Z` (nativ HID lesbar, entgegen der
+  Web-Vorcheck-Annahme) → **gesendet in `buttons[13]`/`[14]`**, aktuell von `joy_to_twist`
+  unkonsumiert, ROS-seitig jederzeit bindbar **ohne App-Änderung**. Konsumenten, die 13/14
+  lesen, müssen deren Fehlen tolerieren (PS4-Fallback [NF7] hat sie nicht). Screenshot-Taste
+  = Android-System-Taste → out of scope.
+
+**Phase-2-Verifikation (offen, via `ros2 topic echo /joy`; Fallback = `sign_*`-Params):**
+(1) Stick-Vorzeichen (Erwartung: alle vier negiert), (2) D-Pad-Vorzeichen `HAT_X/Y` (ggf.
+`sign_dpad_x/y`), (3) Trigger idle = +1 (kein Fehl-Stance beim Start).
 
 > Damit sind Fahren/Drehen/Dead-Man/Slow/Sit-Stand/Stance/Gait/Tempo/Show automatisch
 > abgedeckt (alles hängt an `/joy` → `joy_to_twist`).
@@ -147,8 +209,8 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 
 ## 7. Offene Interface-Fragen (bei Phasen-Bau zu klären)
 
-1. **`/joy`-Index-Tabelle** Kishi-Roh → PS4-Layout (Phase 1 liefert die Roh-Indizes, Phase 2
-   fixiert die Abbildung).
+1. **`/joy`-Index-Tabelle** Kishi-Roh → PS4-Layout — **erledigt (v0.2, §1)**. Offen bleibt nur
+   die Vorzeichen-Endverifikation via `ros2 topic echo /joy` in Phase 2.
 2. **rosbridge-Auth/Port** — Default 9090, unauth; für Hotspot ok.
 3. **Status-Topic-Format** — ein Custom-Msg-Typ vs. `DiagnosticArray` vs. JSON-String.
    Custom-Msg ist sauberer, aber ein neues Message-Paket; JSON-String pragmatischer für die
