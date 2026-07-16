@@ -175,8 +175,13 @@ Phase 3 (Bringup-/Shutdown-Lifecycle, ROS-Seite):
 
 **Aufgabe Phase 3:** Connect-/Start-Screen + Lifecycle-Buttons. Interface = `interface_contract.md`.
 - **Verbinden:** WebSocket zur Always-On-Schicht (`ws://<host>:9090`); Reconnect-tauglich (NF8).
-- **`/hexapod/bringup_running`** (latched Bool) subscriben → Screen zeigt „Stack: an/aus".
-  ⚠️ latched über rosbridge mit **`reliable` + `transient_local`** lesen ([[project_latched_topic_qos_reliable]]).
+- **Stack-State anzeigen:** verlässliche Primärquelle = **`/hexapod_bringup_status`** (Trigger)
+  **pollen** — beim Connect + nach jedem Start/Stop; `message` = `running (pid=…)`/`stopped`.
+  **Optionaler Live-Push:** `/hexapod/bringup_running` (latched Bool) subscriben — **funktioniert**
+  über rosbridge 2.7.0 (Contract §7.4 geklärt, kein ROS-Change). Deterministisch mit explizitem
+  `qos` im subscribe-Frame: `"qos":{"history":"keep_last","depth":1,"durability":"transient_local","reliability":"reliable"}`
+  → gelatchter Wert kommt sofort. Primärquelle bleibt trotzdem das Status-Polling (null Timing-/
+  Latch-Risiko); der Live-Push ist die Kür.
 - **Buttons → Services** (`call_service`, `std_srvs/Trigger` = leere Request):
   „Hexapod starten" → `/hexapod_bringup_start` · „stoppen" → `/hexapod_bringup_stop` ·
   „Aufstehen" → `/hexapod_stand_up` · „Hinsetzen" → `/hexapod_sit_down`.

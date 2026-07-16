@@ -20,7 +20,8 @@
 | **v0.2** | §1 festgezurrt: konkrete Kishi-V2→PS4-`/joy`-Index-Tabelle (Achsen + Buttons + Transforms) aus dem Phase-1-Deliverable (gemessen am S22+) **+ 2 Kishi-Extra-Slots (L4/R4 = `buttons[13]`/`[14]`), damit alle physischen Tasten erfasst und ROS-seitig später bindbar sind.** Vorzeichen-Endverifikation via `ros2 topic echo /joy` = Phase 2. |
 | **v0.3** | §0 gepinnt (Phase-2-Live-Test): `/joy`-QoS = **RELIABLE Pflicht** (`joy_to_twist` subscribt RELIABLE → BEST_EFFORT wäre inkompatibel), Durability egal; Zwei-Modi-Adressierung (Sim `Desktop-IP`, real `Pi-IP`), Port 9090 + Netz-Erreichbarkeit vom Handy verifiziert. |
 | **v0.4** | §1 D-Pad-Vorzeichen verifiziert (echte App): D-Pad-Y invertiert → App negiert `AXIS_HAT_Y` (`axes[7]`). Fix app-seitig, NICHT `sign_dpad_y` (PS4-Fallback bleibt korrekt). Rest der Achsen/Buttons bestätigt. |
-| **v0.5** (aktuell) | Phase 3 (Lifecycle) festgezurrt: 4 Launcher-Services `/hexapod_bringup_start`/`_stop`/`_status`/`/hexapod_pi_shutdown` (§2a) + latched `/hexapod/bringup_running` (§3), alle `std_srvs/Trigger`. Bauch-Start (`auto_standup_on_start:=false`) → Aufstehen per `/hexapod_stand_up`. §6/§7 Phase-3-Punkte erledigt. |
+| **v0.5** | Phase 3 (Lifecycle) festgezurrt: 4 Launcher-Services `/hexapod_bringup_start`/`_stop`/`_status`/`/hexapod_pi_shutdown` (§2a) + latched `/hexapod/bringup_running` (§3), alle `std_srvs/Trigger`. Bauch-Start (`auto_standup_on_start:=false`) → Aufstehen per `/hexapod_stand_up`. §6/§7 Phase-3-Punkte erledigt. |
+| **v0.6** (aktuell) | §7.4 geklärt (aus rosbridge-2.7.0-Quellcode): latched Topics kommen über rosbridge zur App — Auto-QoS-Match an `transient_local`-Publisher, deterministisch via explizitem `qos`-subscribe-Frame. **Kein ROS-Change.** Betrifft nur den **optionalen** Live-Push von `/hexapod/bringup_running` (Primärquelle bleibt `bringup_status`-Polling). |
 
 ---
 
@@ -187,8 +188,9 @@ Vom `bringup_launcher` (Always-On-Schicht in `hexapod_supervisor`, neben rosbrid
 | `/cmd_show` | `std_msgs/Float64MultiArray[6]` | App → Roboter | Show-Pose-Offsets (falls On-Screen) |
 
 > ⚠️ **Latched Topics** (`shutdown_request/complete`, **`bringup_running`**) brauchen beim
-> Lesen `reliable + transient_local` QoS ([[project_latched_topic_qos_reliable]]) — rosbridge/
-> App-Subscribe entsprechend konfigurieren.
+> Lesen `reliable + transient_local` QoS ([[project_latched_topic_qos_reliable]]). Über
+> rosbridge kommt der gelatchte Wert an — **rosbridge 2.7.0 auto-matcht** die QoS, deterministisch
+> per explizitem `qos`-Feld im subscribe-Frame (Details + Frame-Beispiel: §7.4).
 
 ---
 
@@ -244,8 +246,17 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 3. **Status-Topic-Format** — ein Custom-Msg-Typ vs. `DiagnosticArray` vs. JSON-String.
    Custom-Msg ist sauberer, aber ein neues Message-Paket; JSON-String pragmatischer für die
    App. In Phase 5 entscheiden.
-4. **Latched/QoS über rosbridge** — verifizieren, dass `transient_local` sauber durch
-   rosbridge zur App kommt.
+4. **Latched/QoS über rosbridge** — **geklärt (v0.6, aus rosbridge-2.7.0-Quellcode; kein
+   ROS-Change nötig).** rosbridge **auto-matcht** die Subscriber-QoS an einen
+   `transient_local`-Publisher (`subscribers.py::_get_default_qos_profile`: findet es einen
+   TRANSIENT_LOCAL-Publisher, subscribed es selbst TRANSIENT_LOCAL+RELIABLE) → der **gelatchte
+   Wert kommt beim (späten) Subscribe sofort**, sofern der Publisher schon existiert (bei uns:
+   `bringup_launcher` always-on ⇒ immer gegeben). Die QoS wird pro Topic **einmalig beim ersten
+   Subscriber** fixiert (Timing-Abhängigkeit nur im Auto-Modus). **Deterministisch + empfohlen:**
+   explizites `qos` im subscribe-Frame:
+   `{"op":"subscribe","topic":"/hexapod/bringup_running","type":"std_msgs/msg/Bool","qos":{"history":"keep_last","depth":1,"durability":"transient_local","reliability":"reliable"}}`
+   (`subscribe.py` liest das `qos`-Feld → `qos_extraction.extract_qos_profile`). Empirische
+   Bestätigung folgt in der ersten Integration.
 5. **Bringup-Lifecycle-Rückmeldung** — **erledigt (v0.5)**: `bringup_start/stop` liefern
    Trigger-`success`+`message` (synchron), der laufende Zustand kommt zusätzlich als latched
    `/hexapod/bringup_running` (Bool) für den Connect-Screen. „Roboter steht" (vs. nur „Stack
