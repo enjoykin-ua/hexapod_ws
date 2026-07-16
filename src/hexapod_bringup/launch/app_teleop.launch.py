@@ -29,7 +29,7 @@ Danach publisht die Android-App (oder ``tools/joy_ws_test_client.py``)
 
     ros2 launch hexapod_bringup app_teleop.launch.py
 
-Args:
+Argumente:
     controller     Controller-Profil (Default ps4_usb) — bestimmt das
                    /joy-Layout, gegen das joy_to_twist normalisiert.
     port           rosbridge-Port (Default 9090).

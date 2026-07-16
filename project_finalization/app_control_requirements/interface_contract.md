@@ -19,7 +19,8 @@
 | **v0.1** | Gerüst. Bestandsaufnahme der wiederverwendbaren ROS-Schnittstellen + Platzhalter für die neu zu bauenden. Noch nichts implementiert. |
 | **v0.2** | §1 festgezurrt: konkrete Kishi-V2→PS4-`/joy`-Index-Tabelle (Achsen + Buttons + Transforms) aus dem Phase-1-Deliverable (gemessen am S22+) **+ 2 Kishi-Extra-Slots (L4/R4 = `buttons[13]`/`[14]`), damit alle physischen Tasten erfasst und ROS-seitig später bindbar sind.** Vorzeichen-Endverifikation via `ros2 topic echo /joy` = Phase 2. |
 | **v0.3** | §0 gepinnt (Phase-2-Live-Test): `/joy`-QoS = **RELIABLE Pflicht** (`joy_to_twist` subscribt RELIABLE → BEST_EFFORT wäre inkompatibel), Durability egal; Zwei-Modi-Adressierung (Sim `Desktop-IP`, real `Pi-IP`), Port 9090 + Netz-Erreichbarkeit vom Handy verifiziert. |
-| **v0.4** (aktuell) | §1 D-Pad-Vorzeichen verifiziert (echte App): D-Pad-Y invertiert → App negiert `AXIS_HAT_Y` (`axes[7]`). Fix app-seitig, NICHT `sign_dpad_y` (PS4-Fallback bleibt korrekt). Rest der Achsen/Buttons bestätigt. |
+| **v0.4** | §1 D-Pad-Vorzeichen verifiziert (echte App): D-Pad-Y invertiert → App negiert `AXIS_HAT_Y` (`axes[7]`). Fix app-seitig, NICHT `sign_dpad_y` (PS4-Fallback bleibt korrekt). Rest der Achsen/Buttons bestätigt. |
+| **v0.5** (aktuell) | Phase 3 (Lifecycle) festgezurrt: 4 Launcher-Services `/hexapod_bringup_start`/`_stop`/`_status`/`/hexapod_pi_shutdown` (§2a) + latched `/hexapod/bringup_running` (§3), alle `std_srvs/Trigger`. Bauch-Start (`auto_standup_on_start:=false`) → Aufstehen per `/hexapod_stand_up`. §6/§7 Phase-3-Punkte erledigt. |
 
 ---
 
@@ -152,6 +153,23 @@ Alle über rosbridge `call_service` aufrufbar. Verifiziert gegen `gait_node.py` 
 > die Trigger. Stance/Gait/Tempo laufen **primär über `/joy`** (Controller), die direkten
 > Services sind für On-Screen-Buttons optional.
 
+### 2a. Launcher-Services (Block I Phase 3, neu) — `[N Ph.3]`
+
+Vom `bringup_launcher` (Always-On-Schicht in `hexapod_supervisor`, neben rosbridge +
+`shutdown_supervisor`). Alle `std_srvs/Trigger` (leerer Request), über rosbridge `call_service`.
+
+| Service | Typ | Wirkung |
+|---|---|---|
+| `/hexapod_bringup_start` | `std_srvs/Trigger` | schweren Stack starten (Gazebo/HW + gait + `joy_to_twist(app)`); **idempotent** (läuft schon → `success`). Roboter kommt **auf dem Bauch** hoch (SAT, `auto_standup_on_start:=false`) → danach `/hexapod_stand_up`. |
+| `/hexapod_bringup_stop` | `std_srvs/Trigger` | Stack sauber stoppen (SIGINT→TERM→KILL, keine Zombies); rosbridge lebt weiter. |
+| `/hexapod_bringup_status` | `std_srvs/Trigger` | `message` = `running (pid=…)` / `stopped`. |
+| `/hexapod_pi_shutdown` | `std_srvs/Trigger` | **Pi ausschalten** — Stack läuft: kontrolliertes Hinsetzen (Block-F-Kette via internem `/hexapod_request_shutdown`) + guarded Poweroff; idle: direkter guarded Poweroff. **Dev-Host = nur Dry-Run** (dreifacher Guard). App zeigt **Bestätigungs-Dialog**. |
+
+> **App-Lifecycle-Flow:** Verbinden → `/hexapod/bringup_running` + `/hexapod_bringup_status`
+> lesen → „Hexapod starten" (`bringup_start`) → „Aufstehen" (`/hexapod_stand_up`) → fahren →
+> „Hinsetzen" (`/hexapod_sit_down`) → „stoppen" (`bringup_stop`) → „Pi ausschalten" (Bestätigung
+> → `pi_shutdown`).
+
 ---
 
 ## 3. Bestehende Topics (Reuse) — `[E]`
@@ -164,11 +182,12 @@ Alle über rosbridge `call_service` aufrufbar. Verifiziert gegen `gait_node.py` 
 | `/foot_contacts` | `std_msgs/Float64MultiArray` | Roboter → App | 6× 0/1 Fußkontakt |
 | `/hexapod/shutdown_request` | `std_msgs/Bool` (latched, `transient_local`) | Roboter → App | HW-Shutdown-Schalter gedrückt |
 | `/hexapod/shutdown_complete` | `std_msgs/Bool` (latched) | Roboter → App | Shutdown-Sequenz fertig |
+| `/hexapod/bringup_running` | `std_msgs/Bool` (latched, `transient_local`) | Roboter → App | läuft der schwere Stack? (Connect-/Start-Screen) `[N Ph.3]` |
 | `/cmd_body_height` | (Float) | App → Roboter | Körperhöhe (On-Screen-Slider) |
 | `/cmd_show` | `std_msgs/Float64MultiArray[6]` | App → Roboter | Show-Pose-Offsets (falls On-Screen) |
 
-> ⚠️ **Latched Topics** (`shutdown_request/complete`) brauchen beim Lesen
-> `reliable + transient_local` QoS ([[project_latched_topic_qos_reliable]]) — rosbridge/
+> ⚠️ **Latched Topics** (`shutdown_request/complete`, **`bringup_running`**) brauchen beim
+> Lesen `reliable + transient_local` QoS ([[project_latched_topic_qos_reliable]]) — rosbridge/
 > App-Subscribe entsprechend konfigurieren.
 
 ---
@@ -205,9 +224,8 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 
 | Schnittstelle | Zweck | Phase |
 |---|---|---|
-| Launcher: `bringup_start` / `bringup_stop` | schweren Gait-/HW-Stack starten/stoppen | `[TBD-Phase 3]` |
-| Launcher: `shutdown` | Pi herunterfahren (mit Guard, Block F) | `[TBD-Phase 3]` |
-| Launcher: Status (läuft der Stack?) | für den Connect-/Start-Screen | `[TBD-Phase 3]` |
+| Launcher: `bringup_start`/`_stop`/`_status` | schweren Stack starten/stoppen/Status | **✅ erledigt (v0.5, §2a)** |
+| Launcher: `pi_shutdown` + `/hexapod/bringup_running` | Pi ausschalten (guarded) + Stack-State | **✅ erledigt (v0.5, §2a/§3)** |
 | **Status-Topic** (`hexapod_status`) | kompakt: State, Stance-Modus, Gangart, Tempo, Safety-State, (Batterie) fürs Overlay | `[TBD-Phase 5]` |
 | Recovery-Service | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | `[TBD-Phase 6]` |
 | Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | `[TBD-Phase 7]` |
@@ -228,5 +246,7 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
    App. In Phase 5 entscheiden.
 4. **Latched/QoS über rosbridge** — verifizieren, dass `transient_local` sauber durch
    rosbridge zur App kommt.
-5. **Bringup-Lifecycle-Rückmeldung** — wie meldet der Launcher „Stack läuft / gestartet /
-   Fehler" an die App (Service-Response vs. Status-Topic).
+5. **Bringup-Lifecycle-Rückmeldung** — **erledigt (v0.5)**: `bringup_start/stop` liefern
+   Trigger-`success`+`message` (synchron), der laufende Zustand kommt zusätzlich als latched
+   `/hexapod/bringup_running` (Bool) für den Connect-Screen. „Roboter steht" (vs. nur „Stack
+   läuft") kommt später über das Status-Topic (Phase 5).

@@ -1,0 +1,17 @@
+# Block I Phase 3 — bringup_launcher-Config für die ECHTE HARDWARE (Raspberry Pi).
+#
+# Wird von always_on.launch.py mode:=real geladen. Der Launcher startet auf
+# /hexapod_bringup_start den HW-On-Demand-Stack (bringup_ondemand mode:=real).
+#
+# ⚠️ HW-Netz-Stage (Pi-Port): auf echter HW noch nicht end-to-end getestet.
+#
+# Für den scharfen Pi-Poweroff: pi_hostname auf die `hostname`-Ausgabe des Pi
+# setzen (der EINE Wert, analog supervisor.yaml). Solange leer → nur Dry-Run.
+bringup_launcher:
+  ros__parameters:
+    bringup_launch_pkg: hexapod_bringup
+    bringup_launch_file: bringup_ondemand.launch.py
+    bringup_launch_args: ["mode:=real"]
+    enable_os_shutdown: true
+    pi_hostname: ''                   # AUF DEM PI: hostname eintragen
+    shutdown_command: 'sudo shutdown -h now'

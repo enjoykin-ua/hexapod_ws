@@ -15,7 +15,7 @@
 | `hexapod_hardware` | C++ | `ros2_control`-SystemInterface-Plugin ↔ Servo2040; `calibration.cpp` (rad↔pulse); `config/servo_mapping.yaml` (Puls-Cal je Pin); publisht auf HW die 6 `/leg_<n>/foot_contact` aus GET_INPUTS (A5 St.5) + `/hexapod/shutdown_request`. |
 | `hexapod_sensors` | Python/URDF | **IMU real** (A5 Stufe 0): `imu_monitor` (`/imu/data`→roll/pitch, `/imu/monitor`, world→base_link-tf); Foot-Contact-Publisher. IMU-xacro in `hexapod_description` (`hexapod.imu.xacro`). |
 | `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `worlds/empty_imu.sdf` (+ `slope.sdf.xacro`, A5 Stufe 2), `sim.launch.py` (Gazebo-Seite). |
-| `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). **Block I:** `rosbridge.launch.py` (rosbridge_websocket+rosapi :9090), `app_teleop.launch.py` (rosbridge + `joy_to_twist` app-Modus), `systemd/hexapod_rosbridge.service` (Pi-Always-On-Artefakt). |
+| `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). **Block I:** `rosbridge.launch.py` (rosbridge_websocket+rosapi :9090), `app_teleop.launch.py` (rosbridge + `joy_to_twist` app-Modus); **Ph.3:** `always_on.launch.py` (rosbridge+supervisor+bringup_launcher, ab Boot), `bringup_ondemand.launch.py` (on-demand Walk+Teleop, mode sim/real, Bauch-Start), `systemd/hexapod_always_on.service`. |
 
 ## 2. Node-Graph
 
@@ -77,5 +77,6 @@
 | Teleop (PS4 USB) | `ros2 launch hexapod_teleop joy_teleop.launch.py` |
 | **App-Teleop (Block I)** | `ros2 launch hexapod_bringup app_teleop.launch.py` (rosbridge :9090 + `joy_to_twist` app-Modus) |
 | rosbridge allein | `ros2 launch hexapod_bringup rosbridge.launch.py` |
+| **Always-On (Block I Ph.3)** | `ros2 launch hexapod_bringup always_on.launch.py` (rosbridge + supervisor + `bringup_launcher`; App startet den schweren Stack on demand via `/hexapod_bringup_start`) |
 | Reachability-Viz | `ros2 launch hexapod_gait reachability_viz.launch.py` |
 | Modell-Anzeige (RViz + Slider) | `ros2 launch hexapod_description display.launch.py` |

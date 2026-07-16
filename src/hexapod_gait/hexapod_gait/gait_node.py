@@ -702,6 +702,15 @@ class GaitNode(Node):
         self._auto_standup_duration = float(
             self.get_parameter('auto_standup_duration').value
         )
+        # Block I Phase 3 — Bauch-Start. Bei false KEIN Auto-Standup: der Roboter
+        # bleibt beim Boot in SAT (Spawn-/Bauch-Pose) und steht erst per
+        # /hexapod_stand_up (App-Button) auf (sicherer On-Demand-Default, D7).
+        # Default true = bisheriges Verhalten unverändert. Boot-only (im Hot-Path
+        # gilt der Startwert; der Ramp-Trigger ist ein Einmal-Ereignis).
+        self.declare_parameter('auto_standup_on_start', True)
+        self._auto_standup_on_start = bool(
+            self.get_parameter('auto_standup_on_start').value
+        )
         # Phase 13 Stage 0.7 — Aufsteh-Modus + cartesian-Parameter.
         self._standup_mode = str(
             self.get_parameter('standup_mode').value
@@ -1440,6 +1449,17 @@ class GaitNode(Node):
             self._spawn_joints = start_joints
 
         if self._ramp_triggered:
+            return
+
+        # Block I Phase 3 — Bauch-Start: kein Auto-Standup. Engine hält die
+        # Spawn-Pose in SAT; /hexapod_stand_up (App-Button) rampt später hoch.
+        if not self._auto_standup_on_start:
+            self._engine.hold_sat_at(start_joints)
+            self._ramp_triggered = True
+            self.get_logger().info(
+                'auto_standup_on_start=false — halte Bauch-Pose (SAT), '
+                'warte auf /hexapod_stand_up.'
+            )
             return
 
         # Alle 18 Joints da → Aufstehen triggern. Stage 0.7: Modus-Switch

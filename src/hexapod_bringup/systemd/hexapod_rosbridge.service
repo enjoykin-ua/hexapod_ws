@@ -1,5 +1,9 @@
 # Block I — rosbridge Always-On (D7 Stufe 1) — ARTEFAKT / TEMPLATE
 #
+# ▶ ABGELÖST durch hexapod_always_on.service (Phase 3): die Always-On-Schicht
+#   umfasst jetzt rosbridge + shutdown_supervisor + bringup_launcher. Diese Unit
+#   startet nur rosbridge und bleibt als minimaler Fallback erhalten.
+#
 # Zweck: rosbridge_websocket startet ab Boot auf dem Raspberry Pi, sodass die
 # Android-App sich jederzeit verbinden kann (die App startet dann den schweren
 # Gait-/HW-Stack on demand über den Launcher-Node — Block I Phase 3).

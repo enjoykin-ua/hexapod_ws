@@ -1691,6 +1691,23 @@ class GaitEngine:
             leg.name: self._rest_angles(leg.name) for leg in HEXAPOD.legs
         }
 
+    def hold_sat_at(self, rest_joints: dict[str, JointAngles]) -> None:
+        """
+        Boot-Bauch-Halten (Block I Phase 3, ``auto_standup_on_start=false``).
+
+        Setzt die Engine **direkt** in ``STATE_SAT`` und hält die übergebene
+        (Spawn-/Boot-)Pose je Bein — ohne vorher je gestanden zu haben. Der
+        Roboter bleibt auf dem Bauch, bis ``/hexapod_stand_up`` (App-Button) ihn
+        hochrampt (start-pose-agnostisch aus SAT, identisch zum Auto-Standup, nur
+        getriggert). ``rest_joints`` = ``{leg_name: (coxa, femur, tibia)}`` = die
+        aktuelle vollständige Joint-Pose. Reuse der SAT-Hold-Maschinerie
+        (``_sitdown_rest_joints`` → ``_compute_sat_angles``); es wird keine
+        Sitdown-Sequenz gefahren (nichts zum Absenken — schon auf dem Bauch).
+        """
+        self._sitdown_rest_joints = dict(rest_joints)
+        self._state = self.STATE_SAT
+        self._prev_state = self.STATE_SAT
+
     # ----- Block B4: Show-Pose (Free-Leg) — Hinstellen + statisches Halten -----
 
     def start_show_enter(

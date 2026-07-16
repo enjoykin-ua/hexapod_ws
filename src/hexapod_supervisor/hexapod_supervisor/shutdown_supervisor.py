@@ -66,6 +66,14 @@ class ShutdownSupervisor(Node):
             Bool, '/hexapod/shutdown_complete', self._on_complete,
             _latched_qos())
 
+        # Block I Phase 3 — expliziter Shutdown-Trigger (App/bringup_launcher).
+        # Startet die Kette DIREKT, ohne die Latched-Topic-Baseline-Semantik von
+        # _on_request (die die erste latched-Nachricht als Startwert behandelt und
+        # deshalb einen App-Request, der die erste Nachricht auf dem Topic wäre,
+        # verschlucken würde). Der HW-Schalter-Pfad (_on_request) bleibt unberührt.
+        self.create_service(
+            Trigger, '/hexapod_request_shutdown', self._on_request_shutdown)
+
         self.get_logger().info(
             'shutdown_supervisor up: enable_os_shutdown=%s, pi_hostname=%r'
             % (self.get_parameter('enable_os_shutdown').value,
@@ -85,6 +93,18 @@ class ShutdownSupervisor(Node):
         self._last_request = msg.data
         if rising and self._state == self.STATE_IDLE:
             self._begin_shutdown()
+
+    def _on_request_shutdown(self, request, response):
+        """Explicit shutdown trigger (App/launcher) — bypasses the latched baseline."""
+        if self._state != self.STATE_IDLE:
+            response.success = True
+            response.message = (
+                'shutdown already in progress (state=%s)' % self._state)
+            return response
+        self._begin_shutdown()
+        response.success = True
+        response.message = 'controlled shutdown started'
+        return response
 
     def _begin_shutdown(self):
         """Enter SHUTTING_DOWN and start retrying ``/hexapod_shutdown``."""

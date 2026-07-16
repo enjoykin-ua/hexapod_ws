@@ -26,7 +26,7 @@ Router (Sim) UND Handy-Hotspot (real HW) identisch (D2/D4).
 Aufruf (Sim, neben einem laufenden ``*_walk``-Bringup):
     ros2 launch hexapod_bringup rosbridge.launch.py
 
-Args:
+Argumente:
     port           WebSocket-Port (Default 9090 = interface_contract.md §0).
     address        Bind-Adresse ('' = alle Interfaces; im Feld ggf. auf die
                    Hotspot-IP einschränken).

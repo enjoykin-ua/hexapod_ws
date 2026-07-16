@@ -57,9 +57,16 @@
   (versioniert). Ändert sich Topic/Service/QoS/`/joy`-Layout → **dort** Version hochzählen +
   Changelog-Zeile; die Android-App (eigenes Repo `~/AndroidStudioProjects/hexapod_app`, eigene
   CLAUDE.md) zieht nach. **Nie in die App kopieren.** [[project_block_i_app_repo]]
-- **ROS-Dateien:** `hexapod_bringup/launch/{rosbridge,app_teleop}.launch.py`,
+- **ROS-Dateien:** `hexapod_bringup/launch/{rosbridge,app_teleop,always_on,bringup_ondemand}.launch.py`,
   `hexapod_teleop/launch/joy_teleop.launch.py` (`joy_source:=controller|app`),
-  `tools/joy_ws_test_client.py` (App-Ersatz-Publisher), `hexapod_bringup/systemd/hexapod_rosbridge.service`.
+  `hexapod_supervisor/bringup_launcher.py` (+ `config/launcher.{sim,real}.yaml`),
+  `tools/joy_ws_test_client.py` (App-Ersatz-Publisher), `hexapod_bringup/systemd/hexapod_always_on.service`.
+- **Lifecycle (Ph.3):** die App startet/stoppt den schweren Stack on demand über den
+  `bringup_launcher` (Always-On-Schicht, Services `/hexapod_bringup_start`/`_stop`/`_status`,
+  `/hexapod_pi_shutdown` + latched `/hexapod/bringup_running`). Der On-Demand-Stack setzt
+  **`auto_standup_on_start:=false`** (gait_node-Param) → Roboter kommt auf dem **Bauch** hoch
+  (SAT), steht erst per `/hexapod_stand_up`. Pi-Shutdown ist dreifach geguarded
+  (`os_shutdown.guarded_shutdown`, Dev-Host = Dry-Run).
 - **Falle:** die App muss `/joy` mit **RELIABLE** advertisen (`joy_to_twist` subscribt RELIABLE →
   BEST_EFFORT kommt nicht an). Controller-Eigenheiten (z.B. D-Pad-Y-Vorzeichen) werden **in der App**
   korrigiert, NICHT via `sign_*` in `ps4_usb.yaml` (sonst PS4-Fallback [NF7] verkehrt).

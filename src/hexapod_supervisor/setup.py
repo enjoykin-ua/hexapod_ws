@@ -37,6 +37,8 @@ setup(
         'console_scripts': [
             'shutdown_supervisor = '
             'hexapod_supervisor.shutdown_supervisor:main',
+            'bringup_launcher = '
+            'hexapod_supervisor.bringup_launcher:main',
         ],
     },
 )

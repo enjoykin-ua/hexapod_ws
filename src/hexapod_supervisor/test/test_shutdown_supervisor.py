@@ -126,3 +126,20 @@ def test_backstop_finishes_with_relay_off(node):
         node._relay_client.call_async.assert_called_once()
         gs.assert_called_once()
     assert node._state == ShutdownSupervisor.STATE_DONE
+
+
+def test_request_shutdown_service_begins_from_idle(node):
+    """Block I Ph.3: /hexapod_request_shutdown aus IDLE startet die Kette direkt."""
+    node._begin_shutdown = MagicMock()
+    resp = node._on_request_shutdown(MagicMock(), _response(False))
+    node._begin_shutdown.assert_called_once()
+    assert resp.success
+
+
+def test_request_shutdown_service_idempotent(node):
+    """Aus Nicht-IDLE ist der Service idempotent (kein zweites _begin_shutdown)."""
+    node._state = ShutdownSupervisor.STATE_SHUTTING_DOWN
+    node._begin_shutdown = MagicMock()
+    resp = node._on_request_shutdown(MagicMock(), _response(False))
+    node._begin_shutdown.assert_not_called()
+    assert resp.success

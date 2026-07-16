@@ -67,6 +67,8 @@ def _delayed_gait(context, *args, **kwargs):
             'leveling_enable': LaunchConfiguration('leveling_enable').perform(
                 context),
             'gait_pattern': LaunchConfiguration('gait_pattern').perform(context),
+            'auto_standup_on_start': LaunchConfiguration(
+                'auto_standup_on_start').perform(context),
         }.items(),
     )
     return [TimerAction(period=delay, actions=[gait_include])]
@@ -116,6 +118,14 @@ def generate_launch_description() -> LaunchDescription:
             description=(
                 'Wartezeit (s) vor gait_node-Start, bis Gazebo + Spawn + '
                 'Controller hochgekommen sind. Bei langsamem Kaltstart erhöhen.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'auto_standup_on_start', default_value='true',
+            description=(
+                'true (Default) = Auto-Standup wie bisher. false = Roboter '
+                'bleibt auf dem Bauch (SAT), Aufstehen per /hexapod_stand_up '
+                '(Block I Phase 3; bringup_ondemand setzt false).'
             ),
         ),
         ramp_include,

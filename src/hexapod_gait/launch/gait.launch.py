@@ -227,6 +227,20 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Block I Phase 3 — Bauch-Start (On-Demand-Lifecycle). Default true =
+    # Auto-Standup wie bisher. false = Roboter bleibt beim Boot auf dem Bauch
+    # (SAT), steht erst per /hexapod_stand_up (App-Button) auf. Der
+    # bringup_ondemand-Launch setzt false.
+    auto_standup_on_start_arg = DeclareLaunchArgument(
+        'auto_standup_on_start',
+        default_value='true',
+        description=(
+            'true (Default) = Auto-Standup beim ersten /joint_states (bisher). '
+            'false = Boot in SAT (Bauch-/Spawn-Pose halten), Aufstehen nur per '
+            '/hexapod_stand_up (Block I Phase 3, sicherer On-Demand-Default).'
+        ),
+    )
+
     def setup_gait_node(context, *args, **kwargs):
         """
         Build Node-Aktion mit conditional params_file-Loading.
@@ -287,6 +301,9 @@ def generate_launch_description() -> LaunchDescription:
             'leveling_enable': (
                 LaunchConfiguration('leveling_enable').perform(context).lower()
                 == 'true'),
+            'auto_standup_on_start': (
+                LaunchConfiguration('auto_standup_on_start')
+                .perform(context).lower() == 'true'),
             'robot_description': urdf_xml,
         }
 
@@ -323,6 +340,7 @@ def generate_launch_description() -> LaunchDescription:
         body_height_max_arg,
         use_sim_time_arg,
         leveling_enable_arg,
+        auto_standup_on_start_arg,
         params_file_arg,
         robot_description_file_arg,
         OpaqueFunction(function=setup_gait_node),

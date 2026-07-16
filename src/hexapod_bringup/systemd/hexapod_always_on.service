@@ -1,0 +1,44 @@
+# Block I Phase 3 — Always-On-Schicht (D7 Stufe 1) — ARTEFAKT / TEMPLATE
+#
+# Startet ab Boot auf dem Raspberry Pi: rosbridge + shutdown_supervisor +
+# bringup_launcher. Danach kann die App verbinden und den schweren Gait-/HW-Stack
+# on demand starten (/hexapod_bringup_start) sowie den Pi kontrolliert ausschalten.
+# Ersetzt das Phase-2-Artefakt hexapod_rosbridge.service (das nur rosbridge startete).
+#
+# ────────────────────────────────────────────────────────────────────────────
+# ⚠️  NICHT auf dem Dev-Host (enjoykin-ubutu) scharf schalten!  ⚠️
+#     Auf dem Desktop läuft die Always-On-Schicht per manuellem Launch
+#     (ros2 launch hexapod_bringup always_on.launch.py). Der Pi-Poweroff ist
+#     ohnehin dreifach geguarded (Dev = nur Dry-Run), aber ein systemd-Auto-Start
+#     auf dem Dev-Host ist unerwünscht. Diese Unit ist ein Artefakt für den Pi
+#     (HW-Netz-Stage, mode:=real, use_sim_time:=false).
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Installation AUF DEM PI (User-Unit, kein root nötig):
+#   mkdir -p ~/.config/systemd/user
+#   cp $(ros2 pkg prefix hexapod_bringup)/share/hexapod_bringup/systemd/\
+#      hexapod_always_on.service ~/.config/systemd/user/
+#   # ExecStart unten an den echten Workspace-Pfad anpassen.
+#   # In launcher.real.yaml + supervisor.yaml: pi_hostname = `hostname` setzen.
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now hexapod_always_on.service
+#   loginctl enable-linger $USER          # startet die User-Unit ohne Login (Boot)
+#
+# Status/Logs:  systemctl --user status hexapod_always_on
+#               journalctl --user -u hexapod_always_on -f
+
+[Unit]
+Description=Hexapod always-on layer (Block I: rosbridge + supervisor + bringup_launcher)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Pfade an die Pi-Installation anpassen (ROS-Distro + Workspace-Overlay).
+# mode:=real -> HW-Stack, use_sim_time:=false (auf echter HW kein /clock).
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && source %h/hexapod_ws/install/setup.bash && exec ros2 launch hexapod_bringup always_on.launch.py mode:=real'
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

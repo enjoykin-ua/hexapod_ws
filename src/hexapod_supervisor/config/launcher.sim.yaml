@@ -1,0 +1,16 @@
+# Block I Phase 3 — bringup_launcher-Config für die SIMULATION (Desktop).
+#
+# Wird von always_on.launch.py mode:=sim geladen. Der Launcher startet auf
+# /hexapod_bringup_start den Gazebo-On-Demand-Stack (bringup_ondemand mode:=sim).
+#
+# Shutdown-Guard identisch zu supervisor.yaml: enable_os_shutdown: true ist auf
+# dem Dev-Host sicher, weil der Poweroff ZUSÄTZLICH über den Hostname-Mismatch
+# (host != pi_hostname) UND den harten DEV_HOSTS-Block gesperrt ist → nur Dry-Run.
+bringup_launcher:
+  ros__parameters:
+    bringup_launch_pkg: hexapod_bringup
+    bringup_launch_file: bringup_ondemand.launch.py
+    bringup_launch_args: ["mode:=sim"]
+    enable_os_shutdown: true
+    pi_hostname: ''                   # leer → matcht keinen Host → Dev nie Poweroff
+    shutdown_command: 'sudo shutdown -h now'
