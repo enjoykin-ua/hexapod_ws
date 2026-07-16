@@ -157,8 +157,9 @@ Fassung. Handoff = „lies den Contract + diesen Abschnitt", nichts aus dem Chat
 - **`/joy` advertisen mit `reliability: reliable`** — **PFLICHT** (§0). BEST_EFFORT ⇒
   `joy_to_twist` bekommt nichts (QoS-inkompatibel).
 - **Publizieren:** `sensor_msgs/Joy`, **~30 Hz stetig** (auch bei neutral — NF1), volle Länge
-  (**8 Achsen, 15 Buttons**) mit den Kishi→PS4-Transforms aus **§1**: Sticks negiert, Trigger
-  `1−2t` (idle→+1), positionsbasierte Face-Buttons, Dead-Man = `buttons[5]` (R1).
+  (**8 Achsen, 15 Buttons**) mit den Kishi→PS4-Transforms aus **§1**: Sticks negiert, **D-Pad-Y
+  negiert** (`−AXIS_HAT_Y`, v0.4 — sonst Tempo invertiert), Trigger `1−2t` (idle→+1),
+  positionsbasierte Face-Buttons, Dead-Man = `buttons[5]` (R1).
 - **Referenz-Implementierung (exaktes Nachrichten-Format):**
   [`tools/joy_ws_test_client.py`](../../tools/joy_ws_test_client.py) — funktionierender
   rosbridge-`/joy`-Publisher (advertise → publish-Schleife, Idle-Trigger, Dead-Man). In Kotlin

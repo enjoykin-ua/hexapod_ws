@@ -15,7 +15,7 @@ Phase 2 (Steuer-Grundstrecke, ROS-Seite):
 - [x] P2.7 systemd-Unit-Artefakt hexapod_rosbridge.service geschrieben + dokumentiert (Pi-Always-On; Dev NICHT enabled)
 - [x] P2.8 Contract §0 gepinnt (Adresse/Port/QoS -> v0.3): /joy = RELIABLE Pflicht
 - [x] P2.9 Self-Review-Tabelle + Doku (hexapod_bringup README rosbridge-Abschnitt, test_commands final)
-- [ ] P2.10 [Integration, User+App] End-to-End Handy -> Desktop-rosbridge -> Sim; Vorzeichen-Verifikation (Contract §1)
+- [x] P2.10 [Integration] echte App bewegt Sim-Roboter + Höhe end-to-end; Vorzeichen verifiziert (nur D-Pad-Y invertiert -> App negiert AXIS_HAT_Y, Contract v0.4; Rest ok)
 ```
 
 ## Stand — ROS-Seite fertig (Sim-verifiziert), nur P2.10 (App-Integration) offen
@@ -25,9 +25,10 @@ Phase 2 (Steuer-Grundstrecke, ROS-Seite):
 T2.1 rosbridge up · T2.2 Roboter fährt vorwärts · T2.3 eine /joy-Quelle · T2.4 QoS kompatibel ·
 T2.5 NF1-Stopp · T2.6 Handy erreicht `:9090` · Gegentest (--no-deadman) = keine Fahrt.
 
-**Offen:** nur **P2.10** — End-to-End mit der **echten Android-App** (Vorzeichen-Endverifikation
-der Achsen/Buttons via `ros2 topic echo /joy`). Läuft über die Android-Session (baut den
-WebSocket-/joy-Client gegen Contract v0.3) + User-Integration.
+**Phase 2 komplett** (Sim). Die echte Android-App bewegt den Roboter + verstellt die Höhe
+end-to-end. Vorzeichen-Verifikation: alle Richtungen korrekt **außer D-Pad-Y (Tempo)** — war
+invertiert, Fix = **App negiert `AXIS_HAT_Y`** (Contract v0.4, app-seitig damit PS4-Fallback
+korrekt bleibt). Diese eine Zeile zieht die Android-Session noch nach; kein ROS-Change nötig.
 
 ## Self-Review (P2.9)
 

@@ -52,6 +52,20 @@
   Eintrag in `GAIT_PRESETS`. Tripod-Gruppen-Konvention: {1,3,5}/{2,4,6}.
 - **Validieren:** Engine-/Walking-Tests, Envelope, Sim.
 
+### App-Steuerung / rosbridge / Contract ändern (Block I — Handy-Teleop)
+- **Naht = Single Source:** `project_finalization/app_control_requirements/interface_contract.md`
+  (versioniert). Ändert sich Topic/Service/QoS/`/joy`-Layout → **dort** Version hochzählen +
+  Changelog-Zeile; die Android-App (eigenes Repo `~/AndroidStudioProjects/hexapod_app`, eigene
+  CLAUDE.md) zieht nach. **Nie in die App kopieren.** [[project_block_i_app_repo]]
+- **ROS-Dateien:** `hexapod_bringup/launch/{rosbridge,app_teleop}.launch.py`,
+  `hexapod_teleop/launch/joy_teleop.launch.py` (`joy_source:=controller|app`),
+  `tools/joy_ws_test_client.py` (App-Ersatz-Publisher), `hexapod_bringup/systemd/hexapod_rosbridge.service`.
+- **Falle:** die App muss `/joy` mit **RELIABLE** advertisen (`joy_to_twist` subscribt RELIABLE →
+  BEST_EFFORT kommt nicht an). Controller-Eigenheiten (z.B. D-Pad-Y-Vorzeichen) werden **in der App**
+  korrigiert, NICHT via `sign_*` in `ps4_usb.yaml` (sonst PS4-Fallback [NF7] verkehrt).
+- **Validieren:** `app_teleop.launch.py` + Sim-Walk → `joy_ws_test_client.py` → Roboter fährt; kein
+  Doppel-`/joy` (app-Modus lässt `joy_node` weg). Phasen-Doku: `.../phase_2_control_baseline_*`.
+
 ### Teleop-Mapping / neue Controller-Funktion
 - **Dateien:** `hexapod_teleop/config/ps4_usb.yaml` (Indizes/Skalen) · `joy_to_twist.py` (Logik).
 - **Falle:** `joy_to_twist` publisht beim Start **einmalig** `/cmd_body_height = body_height_init`

@@ -18,7 +18,8 @@
 |---|---|
 | **v0.1** | Gerüst. Bestandsaufnahme der wiederverwendbaren ROS-Schnittstellen + Platzhalter für die neu zu bauenden. Noch nichts implementiert. |
 | **v0.2** | §1 festgezurrt: konkrete Kishi-V2→PS4-`/joy`-Index-Tabelle (Achsen + Buttons + Transforms) aus dem Phase-1-Deliverable (gemessen am S22+) **+ 2 Kishi-Extra-Slots (L4/R4 = `buttons[13]`/`[14]`), damit alle physischen Tasten erfasst und ROS-seitig später bindbar sind.** Vorzeichen-Endverifikation via `ros2 topic echo /joy` = Phase 2. |
-| **v0.3** (aktuell) | §0 gepinnt (Phase-2-Live-Test): `/joy`-QoS = **RELIABLE Pflicht** (`joy_to_twist` subscribt RELIABLE → BEST_EFFORT wäre inkompatibel), Durability egal; Zwei-Modi-Adressierung (Sim `Desktop-IP`, real `Pi-IP`), Port 9090 + Netz-Erreichbarkeit vom Handy verifiziert. |
+| **v0.3** | §0 gepinnt (Phase-2-Live-Test): `/joy`-QoS = **RELIABLE Pflicht** (`joy_to_twist` subscribt RELIABLE → BEST_EFFORT wäre inkompatibel), Durability egal; Zwei-Modi-Adressierung (Sim `Desktop-IP`, real `Pi-IP`), Port 9090 + Netz-Erreichbarkeit vom Handy verifiziert. |
+| **v0.4** (aktuell) | §1 D-Pad-Vorzeichen verifiziert (echte App): D-Pad-Y invertiert → App negiert `AXIS_HAT_Y` (`axes[7]`). Fix app-seitig, NICHT `sign_dpad_y` (PS4-Fallback bleibt korrekt). Rest der Achsen/Buttons bestätigt. |
 
 ---
 
@@ -73,8 +74,8 @@ Product `0x071b`).
 | 3 | `axis_rx` rechter Stick X | `AXIS_Z` | `−AXIS_Z` |
 | 4 | `axis_ry` rechter Stick Y (Show) | `AXIS_RZ` | `−AXIS_RZ` |
 | 5 | `axis_r2` R2 | `AXIS_RTRIGGER` (0..1) | `1 − 2·RTRIGGER` |
-| 6 | `axis_dpad_x` D-Pad ←/→ | `AXIS_HAT_X` (−1/0/+1) | `AXIS_HAT_X` (Vorzeichen P2) |
-| 7 | `axis_dpad_y` D-Pad ↑/↓ | `AXIS_HAT_Y` (−1/0/+1) | `AXIS_HAT_Y` (Vorzeichen P2) |
+| 6 | `axis_dpad_x` D-Pad ←/→ | `AXIS_HAT_X` (−1/0/+1) | `AXIS_HAT_X` (P2 ok: Gangart wechselt) |
+| 7 | `axis_dpad_y` D-Pad ↑/↓ | `AXIS_HAT_Y` (−1/0/+1) | **`−AXIS_HAT_Y`** (P2: Kishi hoch=−1, PS4 erwartet +1=schneller) |
 
 **Buttons `buttons[]` (positionsbasiert, nicht labelbasiert):**
 
@@ -118,9 +119,10 @@ echte Kishi-Taste (keine leeren Slots). Alle Slots müssen im Array existieren, 
   lesen, müssen deren Fehlen tolerieren (PS4-Fallback [NF7] hat sie nicht). Screenshot-Taste
   = Android-System-Taste → out of scope.
 
-**Phase-2-Verifikation (offen, via `ros2 topic echo /joy`; Fallback = `sign_*`-Params):**
-(1) Stick-Vorzeichen (Erwartung: alle vier negiert), (2) D-Pad-Vorzeichen `HAT_X/Y` (ggf.
-`sign_dpad_x/y`), (3) Trigger idle = +1 (kein Fehl-Stance beim Start).
+**Phase-2-Verifikation (erledigt, echte App + Sim):** (1) Stick-Vorzeichen ok (alle vier
+negiert) · (2) D-Pad-X ok (pass-through) · (3) Trigger idle = +1 ok · (4) **D-Pad-Y war
+invertiert → App negiert `AXIS_HAT_Y`** (Fix in der App, NICHT `sign_dpad_y`, damit der
+PS4-Fallback [NF7] korrekt bleibt). Bewegen + Höhe + Stance end-to-end verifiziert.
 
 > Damit sind Fahren/Drehen/Dead-Man/Slow/Sit-Stand/Stance/Gait/Tempo/Show automatisch
 > abgedeckt (alles hängt an `/joy` → `joy_to_twist`).

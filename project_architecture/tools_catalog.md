@@ -23,6 +23,7 @@
 |---|---|
 | `tools/hexapod-shell-aliases.sh` | Opt-in Aliases: `hexapod-save-walking-params`, `hexapod-load-walking-preset`, `hexapod-save-cal`, … Bei Cal-/Preset-Workflow darauf verweisen. ([[project_phase11_convenience_aliases]]) |
 | `tools/apex_meter.py` (H1) | Realer Fuß-Hub aus `/joint_states` (FK, max−min z je Bein, Rolling-Fenster) — misst, wie viel vom kommandierten `step_height` auf HW ankommt (Servo-Lag + Stützbein-Einfedern). Read-only, Sim+HW. |
+| `tools/joy_ws_test_client.py` (Block I) | Publisht `sensor_msgs/Joy` über **rosbridge** (WebSocket) als **Handy-Ersatz** — testet die Kette rosbridge→`/joy`→`joy_to_twist`→gait→Sim ohne die App. `--host --forward --turn --duration --no-deadman`. Braucht `python3-websocket` + laufende `app_teleop.launch.py`. |
 | `hexapod_gait/config/presets/*.yaml` | Gespeicherte Gait-Configs, alle envelope-validiert für die kurzen Beine (leg_changes/S5): `sim_walk` (kanonisch + Test-Anker), `defensive_walk` (langsam-sicher), `demo_walk`, `aggressive_walk`, `hw_balance` (HW-verifizierte Leveling-Gains v2, Tuning-Preset, A5 St.7), `hw_terrain` (fahrbereites HW-Komplett-Preset: Leveling `auto` + alle S4-Fußkontakt-Enables, 3-Terminal-Bringup, A5 St.8). Laden via `params_file:=`. |
 
 > **Pflege:** Neues Tool? Hier eintragen + in [`ai_navigation.md`](ai_navigation.md) §3 verlinken.

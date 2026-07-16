@@ -11,11 +11,11 @@
 | `hexapod_control` | yaml | Controller-Configs: `controllers.yaml` (Sim), `controllers.real.yaml` (HW). |
 | `hexapod_kinematics` | Python | IK/FK (`leg_ik`, `leg_fk`), Geometrie (`geometry.py`: `rotate_z`, `rotate_xy`, base↔leg-Frame) + Limits (`config.py`), `JointLimits`, `HEXAPOD`. |
 | `hexapod_gait` | Python | `gait_node` (Knoten), `gait_engine` (State-Machine + Body-Leveling-Stellpfad + S4 adaptiver Touchdown/Stand), `gait_patterns`, `trajectory_gen`, `tip_monitor` (A5 St.1), `balance_controller` (A5 St.2), `reachability_viz`, `torque_viz`, `foot_contact_viz` (A5 St.5, Fuß-Marker); `gait.launch.py`, `stand.launch.py`; `config/presets/`. |
-| `hexapod_teleop` | Python | `joy_to_twist` (Joy→cmd_vel/cmd_body_height; Tempo-Scales `linear_x/y_scale`/`angular_z_scale`/`slow_factor`/`deadzone` **live-tunbar** via `param set`), `config/ps4_usb.yaml`, `joy_teleop.launch.py`. |
+| `hexapod_teleop` | Python | `joy_to_twist` (Joy→cmd_vel/cmd_body_height; Tempo-Scales `linear_x/y_scale`/`angular_z_scale`/`slow_factor`/`deadzone` **live-tunbar** via `param set`), `config/ps4_usb.yaml`, `joy_teleop.launch.py`. **Block I:** `joy_teleop.launch.py` hat `joy_source:=controller\|app` — `app` = nur `joy_to_twist`, die Android-App publisht `/joy` über rosbridge (kein `joy_node`, NF7: genau 1 Quelle). |
 | `hexapod_hardware` | C++ | `ros2_control`-SystemInterface-Plugin ↔ Servo2040; `calibration.cpp` (rad↔pulse); `config/servo_mapping.yaml` (Puls-Cal je Pin); publisht auf HW die 6 `/leg_<n>/foot_contact` aus GET_INPUTS (A5 St.5) + `/hexapod/shutdown_request`. |
 | `hexapod_sensors` | Python/URDF | **IMU real** (A5 Stufe 0): `imu_monitor` (`/imu/data`→roll/pitch, `/imu/monitor`, world→base_link-tf); Foot-Contact-Publisher. IMU-xacro in `hexapod_description` (`hexapod.imu.xacro`). |
 | `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `worlds/empty_imu.sdf` (+ `slope.sdf.xacro`, A5 Stufe 2), `sim.launch.py` (Gazebo-Seite). |
-| `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). |
+| `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). **Block I:** `rosbridge.launch.py` (rosbridge_websocket+rosapi :9090), `app_teleop.launch.py` (rosbridge + `joy_to_twist` app-Modus), `systemd/hexapod_rosbridge.service` (Pi-Always-On-Artefakt). |
 
 ## 2. Node-Graph
 
@@ -42,7 +42,7 @@
 | `/cmd_body_height` | Float64 | teleop → gait_node | absolute Stand-Höhe (nur STANDING) |
 | `/leg_<n>_controller/joint_trajectory` | JointTrajectory | gait_node → JTC | Soll-Joint-Winkel/Bein |
 | `/joint_states` | JointState | broadcaster → gait_node, rsp | Ist-Joint-Winkel |
-| `/joy` | Joy | joy_node → joy_to_twist | Achsen/Buttons |
+| `/joy` | Joy | joy_node **oder** App→rosbridge → joy_to_twist | Achsen/Buttons (PS4-Layout). **Block I:** App publisht `/joy` (**RELIABLE** Pflicht) über rosbridge statt joy_node. Naht/Mapping: `project_finalization/app_control_requirements/interface_contract.md` |
 | `/robot_description` | String | rsp/launch | URDF-XML (Limit-Quelle fürs Plugin + gait) |
 | `/hexapod_safety_freeze` | Trigger (srv) | gait_node → hardware | Hard-Stop-Anforderung |
 | `/imu/data` | Imu | sensors/sim → gait_node | Orientierung/Gyro → Kipp-Erkennung (A5 St.1) + Body-Leveling (A5 St.2, `leveling_enable`, nur STANDING). Sensor-QoS best_effort. ⚠️ gz-IMU **spawn-referenziert** → Sim flach spawnen. **HW-Quelle** = eigener `bno055_imu`-Node (Stufe 6, geplant), Sim = gz-Sensor+Bridge |
@@ -75,5 +75,7 @@
 | HW (controller_manager + Plugin) | `ros2 launch hexapod_bringup real.launch.py initial_pose:=power_on_mid` |
 | Gait (Aufstehen→Reposition→Walk) | `ros2 launch hexapod_gait gait.launch.py robot_description_file:=… params_file:=…` |
 | Teleop (PS4 USB) | `ros2 launch hexapod_teleop joy_teleop.launch.py` |
+| **App-Teleop (Block I)** | `ros2 launch hexapod_bringup app_teleop.launch.py` (rosbridge :9090 + `joy_to_twist` app-Modus) |
+| rosbridge allein | `ros2 launch hexapod_bringup rosbridge.launch.py` |
 | Reachability-Viz | `ros2 launch hexapod_gait reachability_viz.launch.py` |
 | Modell-Anzeige (RViz + Slider) | `ros2 launch hexapod_description display.launch.py` |
