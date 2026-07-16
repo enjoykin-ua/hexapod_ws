@@ -89,9 +89,18 @@ A sich nicht bewährt (feste IP, weniger Handy-Last).
 - **Gemeinsamer Router** — braucht Infrastruktur, für untethered-Feldbetrieb unpraktisch.
 
 **Konsequenzen:** Pi bekommt eine **feste IP** im Hotspot-Range (in der App hinterlegt).
-Prüfen: kann das Alt-Handy den Hotspot **ohne SIM** aktivieren (manche Androids grauen es
-aus). Ein Handy macht Hotspot + App + Video → Last/Wärme/Akku (Alt-Handy: egal; Kishi-
-Ladeport hilft). Reichweite ~10–30 m Freifeld.
+Reichweite ~10–30 m Freifeld.
+
+**Zwei Netz-Modi, code-identisch:** Der Steuer-Weg (rosbridge/WebSocket, Unicast-TCP) ist
+transport-agnostisch → **Sim** (Handy + Dev-PC am Router, App → `Desktop-IP:9090`) und **Real
+HW** (Handy-Hotspot, Pi tritt bei, App → `Pi-IP:9090`) nutzen **denselben** App-/`/joy`-Code.
+Die Umstellung auf die Hotspot-Variante ist deshalb eine **eigene, abtrennbare HW-Netz-Stage**
+beim Pi-Port (nur Netz-Konfiguration: Pi joint Hotspot via nmcli/netplan bzw. Pi-AP Variante B,
+rosbridge-systemd scharf, feste Pi-IP) — **kein** neuer Steuer-Code.
+
+**Risiken (geklärt):** Hotspot **ohne SIM** am S22+ **funktioniert** (verifiziert, nicht
+ausgegraut) → Variante A trägt. Handy macht Hotspot + App + Video → Last/Wärme/Akku ist
+**unkritisch** (Handy hält länger durch als der Hexapod; Kishi-Ladeport hilft zusätzlich).
 
 ---
 

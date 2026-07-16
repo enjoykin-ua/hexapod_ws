@@ -23,6 +23,11 @@
   <exec_depend>joint_trajectory_controller</exec_depend>
   <exec_depend>hexapod_sensors</exec_depend>
 
+  <!-- Block I Phase 2: rosbridge-Aufnahmeschicht + app-Teleop (joy_source:=app) -->
+  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>rosapi</exec_depend>
+  <exec_depend>hexapod_teleop</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>launch_testing_ament_cmake</test_depend>

@@ -6,19 +6,28 @@ gewünschten Controller-Konfiguration aus ``config/<controller>.yaml``.
 
 Aufruf:
 - ``ros2 launch hexapod_teleop joy_teleop.launch.py``
-  (Default: PS4 via USB)
+  (Default: PS4 via USB — ``joy_source:=controller``)
 - ``ros2 launch hexapod_teleop joy_teleop.launch.py controller:=ps4_bt``
   (Stufe B, BT)
+- ``ros2 launch hexapod_teleop joy_teleop.launch.py joy_source:=app use_sim_time:=true``
+  (Block I Phase 2: kein joy_node — die Android-App publisht /joy über
+  rosbridge; siehe hexapod_bringup/launch/app_teleop.launch.py)
 
-Voraussetzung: PS4-Controller per USB angeschlossen, ``/dev/input/js0``
-vorhanden. Roboter sollte schon laufen (Sim + Stand + Gait), dieser
-Knoten erzeugt nur ``/cmd_vel`` + ``/cmd_body_height``.
+Voraussetzung (controller-Modus): PS4-Controller per USB angeschlossen,
+``/dev/input/js0`` vorhanden. Roboter sollte schon laufen (Sim + Stand +
+Gait), dieser Knoten erzeugt nur ``/cmd_vel`` + ``/cmd_body_height``.
 """
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.conditions import IfCondition
+from launch.substitutions import (
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -53,12 +62,38 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Block I Phase 2: Wer ist die /joy-Quelle?
+    #   controller (Default, unverändert) = joy_node (PS4-USB) + joy_to_twist.
+    #   app = NUR joy_to_twist; /joy kommt von der Android-App über rosbridge.
+    # NF7: immer genau EINE Quelle (kein Doppel-Publisher).
+    joy_source_arg = DeclareLaunchArgument(
+        'joy_source',
+        default_value='controller',
+        description=(
+            'controller = joy_node (PS4-USB) + joy_to_twist (unverändert). '
+            'app = nur joy_to_twist; die App publisht /joy über rosbridge '
+            '(kein joy_node). NF7: genau eine /joy-Quelle.'
+        ),
+    )
+
+    # In der Sim braucht joy_to_twist /clock (Long-Press-Timing). Bei echtem
+    # USB-Controller ohne Sim = false (Wall-Clock). app_teleop.launch.py setzt true.
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description=(
+            'true in der Sim (joy_to_twist gegen /clock), false bei echtem '
+            'USB-Controller. Vom Komfort-Launch app_teleop auf true gesetzt.'
+        ),
+    )
+
     config_path = PathJoinSubstitution([
         FindPackageShare('hexapod_teleop'),
         'config',
         [LaunchConfiguration('controller'), '.yaml'],
     ])
 
+    # joy_node nur im controller-Modus (im app-Modus ist die App die Quelle).
     joy_node = Node(
         package='joy',
         executable='joy_node',
@@ -69,6 +104,9 @@ def generate_launch_description() -> LaunchDescription:
             'autorepeat_rate': LaunchConfiguration('autorepeat_rate'),
             'deadzone': 0.05,
         }],
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration('joy_source'), "' == 'controller'",
+        ])),
     )
 
     joy_to_twist_node = Node(
@@ -77,13 +115,19 @@ def generate_launch_description() -> LaunchDescription:
         name='joy_to_twist',
         output='screen',
         emulate_tty=True,
-        parameters=[config_path],
+        parameters=[
+            config_path,
+            {'use_sim_time': ParameterValue(
+                LaunchConfiguration('use_sim_time'), value_type=bool)},
+        ],
     )
 
     return LaunchDescription([
         controller_arg,
         joy_device_id_arg,
         autorepeat_rate_arg,
+        joy_source_arg,
+        use_sim_time_arg,
         joy_node,
         joy_to_twist_node,
     ])

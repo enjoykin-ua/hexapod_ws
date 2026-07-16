@@ -3,7 +3,7 @@ project(hexapod_bringup)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY launch config
+install(DIRECTORY launch config systemd
   DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)

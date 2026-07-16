@@ -21,6 +21,41 @@ launch/
 > Args: `slope_deg`, `gait_pattern` (tripod|wave|tetrapod|ripple), `leveling_enable`,
 > `gait_delay` (Wartezeit bis gait_node-Start, bei langsamem Kaltstart erhöhen).
 
+## Block I — App-Steuerung über rosbridge (Phase 2)
+
+Für die Handy-/Kishi-Steuerung ([`project_finalization/app_control_requirements/`](../../project_finalization/app_control_requirements/00_overview.md))
+publisht die Android-App `sensor_msgs/Joy` über **rosbridge** (WebSocket + JSON) statt über
+einen lokalen `joy_node`. Die bestehende `joy_to_twist`-Kette läuft dabei **unverändert** (D3).
+
+```
+launch/
+├── rosbridge.launch.py   # rosbridge_websocket + rosapi (:9090) — die App<->ROS-Naht (D2)
+└── app_teleop.launch.py  # Komfort: rosbridge + joy_to_twist(app-Modus) in EINEM Aufruf
+systemd/
+└── hexapod_rosbridge.service  # Pi-Always-On-Artefakt (D7) — auf dem Dev-Host NICHT scharf schalten
+```
+
+**Konzept — wer publisht `/joy`?** Neuer Arg `joy_source` in `hexapod_teleop/joy_teleop.launch.py`:
+- `controller` (Default): `joy_node` (PS4-USB) + `joy_to_twist` — wie bisher (NF7-Fallback).
+- `app`: **nur** `joy_to_twist`; die App ist die alleinige `/joy`-Quelle über rosbridge.
+  **NF7:** immer genau eine Quelle (kein Doppel-Publisher → sonst Zucken).
+
+**Sim-Test (ohne Handy):** `tools/joy_ws_test_client.py` publisht `/joy` über rosbridge
+(App-Ersatz). Ablauf:
+```bash
+# Terminal 1: Sim-Walk (flach), Roboter steht auf
+ros2 launch hexapod_bringup ramp_walk.launch.py slope_deg:=0.0
+# Terminal 2: rosbridge + app-Teleop
+ros2 launch hexapod_bringup app_teleop.launch.py
+# Terminal 3: /joy senden -> Roboter fährt
+python3 tools/joy_ws_test_client.py --host 127.0.0.1 --duration 5 --forward 0.6
+```
+Voll-Anleitung: [`phase_2_control_baseline_test_commands.md`](../../project_finalization/app_control_requirements/phase_2_control_baseline_test_commands.md).
+
+> **rosbridge = Unicast-TCP** → kein DDS-Multicast-Problem; funktioniert über Router (Sim)
+> **und** Handy-Hotspot (real HW) **identisch** (D2/D4). Der `use_sim_time`-Arg ist der einzige
+> Unterschied: `true` in der Sim (gegen `/clock`), `false` auf dem Pi.
+
 ## Zweck
 
 Ab Phase 4 ist dieses Paket der **Standard-Launcher für die Sim**

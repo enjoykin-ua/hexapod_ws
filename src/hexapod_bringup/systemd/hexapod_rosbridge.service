@@ -1,0 +1,39 @@
+# Block I — rosbridge Always-On (D7 Stufe 1) — ARTEFAKT / TEMPLATE
+#
+# Zweck: rosbridge_websocket startet ab Boot auf dem Raspberry Pi, sodass die
+# Android-App sich jederzeit verbinden kann (die App startet dann den schweren
+# Gait-/HW-Stack on demand über den Launcher-Node — Block I Phase 3).
+#
+# ────────────────────────────────────────────────────────────────────────────
+# ⚠️  NICHT auf dem Dev-Host (enjoykin-ubuntu) scharf schalten!  ⚠️
+#     Auf dem Desktop läuft rosbridge in Phase 2 ausschließlich per manuellem
+#     Launch (ros2 launch hexapod_bringup app_teleop.launch.py). Diese Unit ist
+#     ein Artefakt für die spätere HW-Netz-Stage (Pi-Port, use_sim_time:=false).
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Installation AUF DEM PI (User-Unit, kein root nötig):
+#   mkdir -p ~/.config/systemd/user
+#   cp $(ros2 pkg prefix hexapod_bringup)/share/hexapod_bringup/systemd/\
+#      hexapod_rosbridge.service ~/.config/systemd/user/
+#   # ExecStart unten ggf. an den echten Workspace-Pfad anpassen.
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now hexapod_rosbridge.service
+#   loginctl enable-linger $USER          # startet die User-Unit ohne Login (Boot)
+#
+# Status/Logs:  systemctl --user status hexapod_rosbridge   |   journalctl --user -u hexapod_rosbridge -f
+
+[Unit]
+Description=Hexapod rosbridge (Block I always-on App<->ROS seam)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Pfade an die Pi-Installation anpassen (ROS-Distro + Workspace-Overlay).
+# use_sim_time:=false, weil auf echter HW kein /clock läuft.
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && source %h/hexapod_ws/install/setup.bash && exec ros2 launch hexapod_bringup rosbridge.launch.py use_sim_time:=false'
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

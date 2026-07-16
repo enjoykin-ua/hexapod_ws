@@ -17,18 +17,27 @@
 | Version | Was |
 |---|---|
 | **v0.1** | Gerüst. Bestandsaufnahme der wiederverwendbaren ROS-Schnittstellen + Platzhalter für die neu zu bauenden. Noch nichts implementiert. |
-| **v0.2** (aktuell) | §1 festgezurrt: konkrete Kishi-V2→PS4-`/joy`-Index-Tabelle (Achsen + Buttons + Transforms) aus dem Phase-1-Deliverable (gemessen am S22+) **+ 2 Kishi-Extra-Slots (L4/R4 = `buttons[13]`/`[14]`), damit alle physischen Tasten erfasst und ROS-seitig später bindbar sind.** Vorzeichen-Endverifikation via `ros2 topic echo /joy` = Phase 2. |
+| **v0.2** | §1 festgezurrt: konkrete Kishi-V2→PS4-`/joy`-Index-Tabelle (Achsen + Buttons + Transforms) aus dem Phase-1-Deliverable (gemessen am S22+) **+ 2 Kishi-Extra-Slots (L4/R4 = `buttons[13]`/`[14]`), damit alle physischen Tasten erfasst und ROS-seitig später bindbar sind.** Vorzeichen-Endverifikation via `ros2 topic echo /joy` = Phase 2. |
+| **v0.3** (aktuell) | §0 gepinnt (Phase-2-Live-Test): `/joy`-QoS = **RELIABLE Pflicht** (`joy_to_twist` subscribt RELIABLE → BEST_EFFORT wäre inkompatibel), Durability egal; Zwei-Modi-Adressierung (Sim `Desktop-IP`, real `Pi-IP`), Port 9090 + Netz-Erreichbarkeit vom Handy verifiziert. |
 
 ---
 
 ## 0. Transport
 
-- **Kanal 1 (Steuerung/Status):** WebSocket → `rosbridge_server` (Standard-Port **9090**),
+- **Kanal 1 (Steuerung/Status):** WebSocket → `rosbridge_server` (Port **9090**, verifiziert),
   JSON. App-Client: `OkHttp`-WebSocket + rosbridge-Protokoll (`op: publish/subscribe/
   call_service`), analog roslibjs.
 - **Kanal 2 (Video):** eigener Stream-Server (MJPEG/RTSP/WebRTC), **nicht** hier — nur ein
   Verweis unter §5.
-- **Adressierung:** feste Pi-IP im Hotspot-Range ([D4](decisions.md)) + Port 9090.
+- **Adressierung (zwei Modi, code-identisch, [D4](decisions.md)):**
+  - **Sim:** `Desktop-IP:9090` (Dev-PC + Handy am Router).
+  - **Real HW:** feste `Pi-IP:9090` im Hotspot-Range.
+  - rosbridge bindet `0.0.0.0` → vom Handy übers Netz erreichbar (Phase-2-T2.6 verifiziert).
+- **`/joy`-QoS (Pflicht):** Die App muss `/joy` mit **Reliability = RELIABLE** advertisen —
+  `joy_to_twist` subscribt RELIABLE, ein BEST_EFFORT-Publisher wäre **inkompatibel** (kommt
+  nicht an). Durability egal (Subscriber VOLATILE → TRANSIENT_LOCAL oder VOLATILE beide ok).
+  Der rosbridge-Advertise-Default liefert das bereits (RELIABLE + TRANSIENT_LOCAL, in Phase 2
+  verifiziert).
 
 ---
 
