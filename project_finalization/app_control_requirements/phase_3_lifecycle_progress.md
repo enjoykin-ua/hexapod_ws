@@ -19,7 +19,7 @@ Phase 3 (Bringup-/Shutdown-Lifecycle, ROS-Seite):
 - [x] P3.10 Contract: 4 Launcher-Services + /hexapod/bringup_running festgezurrt (§2a/§3), v0.5
 - [x] P3.11 Live-Sim-Test T3.1-T3.8 gruen (test_commands) — T3.6-Bug gefunden+gefixt, Runde 2 alle gruen
 - [x] P3.12 Self-Review + Doku (supervisor README, architecture-Nachzug, §5-App-Brief)
-- [ ] P3.13 [Integration, User+App] Connect-/Start-Screen + Start/Stop/Stand/Sit/Shutdown-Buttons
+- [x] P3.13 [Integration, User+App] End-to-End via App verifiziert: Start/Aufstehen/Fahren/Hinsetzen/Stop/Neustart + Pi-Shutdown (Dev-Dry-Run korrekt); Status-Poll (Option A) ok
 ```
 
 ## Stand — ROS-Seite implementiert + getestet, Live-Sim + App offen
