@@ -16,6 +16,7 @@
 | `hexapod_sensors` | Python/URDF | **IMU real** (A5 Stufe 0): `imu_monitor` (`/imu/data`→roll/pitch, `/imu/monitor`, world→base_link-tf); Foot-Contact-Publisher. IMU-xacro in `hexapod_description` (`hexapod.imu.xacro`). |
 | `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `worlds/empty_imu.sdf` (+ `slope.sdf.xacro`, A5 Stufe 2), `sim.launch.py` (Gazebo-Seite). |
 | `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). **Block I:** `rosbridge.launch.py` (rosbridge_websocket+rosapi :9090), `app_teleop.launch.py` (rosbridge + `joy_to_twist` app-Modus); **Ph.3:** `always_on.launch.py` (rosbridge+supervisor+bringup_launcher, ab Boot), `bringup_ondemand.launch.py` (on-demand Walk+Teleop, mode sim/real, Bauch-Start), `systemd/hexapod_always_on.service`. |
+| `hexapod_supervisor` | Python | **Block F/I — Lifecycle.** `shutdown_supervisor` (lauscht HW-Schalter `/hexapod/shutdown_request` → kontrolliertes Hinsetzen via `/hexapod_shutdown` → `/hexapod/shutdown_complete` → guarded OS-Poweroff; `os_shutdown.guarded_shutdown` mit **3-fach-Guard**: Dev-Host-Hardblock + `enable_os_shutdown` + `pi_hostname`). **Ph.3:** `bringup_launcher` (startet/stoppt den On-Demand-Stack als Subprozess-Gruppe, `SIGINT→TERM→KILL`, keine Zombies; 4 Trigger-Services + latched `/hexapod/bringup_running`; guarded `/hexapod_pi_shutdown`) + expliziter `/hexapod_request_shutdown`-Service. `config/{supervisor,launcher.sim,launcher.real}.yaml`. |
 
 ## 2. Node-Graph
 
@@ -33,7 +34,8 @@
 - **Subscribes:** `/cmd_vel` (`geometry_msgs/Twist`), `/cmd_body_height` (`std_msgs/Float64`), `/joint_states` (`sensor_msgs/JointState`, für Ramp-Start).
 - **Publishes:** 6× `/leg_<n>_controller/joint_trajectory` (`trajectory_msgs/JointTrajectory`, je 1 Punkt/Tick, Position-only, `time_from_start = tfs_factor/tick_rate`).
 - **Service-Client:** `/hexapod_safety_freeze` (`std_srvs/Trigger`) — bei IKError feuert er den Freeze (HW-Plugin-seitiger Hard-Stop).
-- **State-Machine (`gait_engine`):** `STARTUP_RAMP` / `CARTESIAN_STANDUP` / `REPOSITION` / `STANDING` / `WALKING` / `STOPPING`. cmd_vel wird in allen Nicht-STANDING/WALKING-Aufsteh-/Reposition-States **ignoriert**.
+- **State-Machine (`gait_engine`):** `STARTUP_RAMP` / `CARTESIAN_STANDUP` / `REPOSITION` / `STANDING` / `WALKING` / `STOPPING` / `SAT` (+ Sitdown-/Show-States). cmd_vel wird in allen Nicht-STANDING/WALKING-Aufsteh-/Reposition-States **ignoriert**.
+- **Bauch-Start (Block I Ph.3):** Param `auto_standup_on_start` (Default `true` = Auto-Standup beim ersten `/joint_states`, unverändert). `false` → `gait_engine.hold_sat_at(spawn)`: bleibt in **SAT** (Bauch-/Spawn-Pose), Aufstehen nur per `/hexapod_stand_up` (sicherer On-Demand-Default, [D7]).
 
 ## 4. Topic-/Service-Übersicht (was wird ausgetauscht)
 | Topic/Service | Typ | Von → Nach | Inhalt |
@@ -47,6 +49,10 @@
 | `/hexapod_safety_freeze` | Trigger (srv) | gait_node → hardware | Hard-Stop-Anforderung |
 | `/imu/data` | Imu | sensors/sim → gait_node | Orientierung/Gyro → Kipp-Erkennung (A5 St.1) + Body-Leveling (A5 St.2, `leveling_enable`, nur STANDING). Sensor-QoS best_effort. ⚠️ gz-IMU **spawn-referenziert** → Sim flach spawnen. **HW-Quelle** = eigener `bno055_imu`-Node (Stufe 6, geplant), Sim = gz-Sensor+Bridge |
 | `/leg_<n>/foot_contact` | Bool | sensors/HW-Plugin → gait_node | Fuß-Bodenkontakt/Bein → S4 (adaptiver Touchdown/Stand, Plausibilität). **Sim-Quelle** = `foot_contact_publisher` (aus gz-Contact); **HW-Quelle** (A5 Stufe 5 🟢) = `hexapod_hardware`-Plugin aus Servo2040 GET_INPUTS. gait_node cacht + Live-Guard 0.5 s |
+| `/hexapod_bringup_start` / `_stop` / `_status` | Trigger (srv) | App → `bringup_launcher` | On-Demand-Stack starten/stoppen/Status (Block I Ph.3) |
+| `/hexapod_pi_shutdown` | Trigger (srv) | App → `bringup_launcher` | Pi ausschalten, guarded (Stack läuft → Block-F-Kette; idle → direkter Poweroff; **Dev = Dry-Run**) |
+| `/hexapod/bringup_running` | Bool (latched) | `bringup_launcher` → App | läuft der schwere Stack? (Connect-/Start-Screen) |
+| `/hexapod_request_shutdown` | Trigger (srv) | `bringup_launcher` → `shutdown_supervisor` | expliziter Shutdown-Trigger (umgeht die Latched-Topic-Baseline von `/hexapod/shutdown_request`) |
 
 ## 5. Hardware-Kette (HW-Pfad)
 ```

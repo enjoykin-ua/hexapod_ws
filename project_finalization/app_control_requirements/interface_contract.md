@@ -21,7 +21,8 @@
 | **v0.3** | §0 gepinnt (Phase-2-Live-Test): `/joy`-QoS = **RELIABLE Pflicht** (`joy_to_twist` subscribt RELIABLE → BEST_EFFORT wäre inkompatibel), Durability egal; Zwei-Modi-Adressierung (Sim `Desktop-IP`, real `Pi-IP`), Port 9090 + Netz-Erreichbarkeit vom Handy verifiziert. |
 | **v0.4** | §1 D-Pad-Vorzeichen verifiziert (echte App): D-Pad-Y invertiert → App negiert `AXIS_HAT_Y` (`axes[7]`). Fix app-seitig, NICHT `sign_dpad_y` (PS4-Fallback bleibt korrekt). Rest der Achsen/Buttons bestätigt. |
 | **v0.5** | Phase 3 (Lifecycle) festgezurrt: 4 Launcher-Services `/hexapod_bringup_start`/`_stop`/`_status`/`/hexapod_pi_shutdown` (§2a) + latched `/hexapod/bringup_running` (§3), alle `std_srvs/Trigger`. Bauch-Start (`auto_standup_on_start:=false`) → Aufstehen per `/hexapod_stand_up`. §6/§7 Phase-3-Punkte erledigt. |
-| **v0.6** (aktuell) | §7.4 geklärt (aus rosbridge-2.7.0-Quellcode): latched Topics kommen über rosbridge zur App — Auto-QoS-Match an `transient_local`-Publisher, deterministisch via explizitem `qos`-subscribe-Frame. **Kein ROS-Change.** Betrifft nur den **optionalen** Live-Push von `/hexapod/bringup_running` (Primärquelle bleibt `bringup_status`-Polling). |
+| **v0.6** | §7.4 geklärt (aus rosbridge-2.7.0-Quellcode): latched Topics kommen über rosbridge zur App — Auto-QoS-Match an `transient_local`-Publisher, deterministisch via explizitem `qos`-subscribe-Frame. **Kein ROS-Change.** Betrifft nur den **optionalen** Live-Push von `/hexapod/bringup_running` (Primärquelle bleibt `bringup_status`-Polling). |
+| **v0.7** (aktuell) | §5 (Video) festgezurrt für Phase 4: MJPEG via `web_video_server` :8080, `/camera/image_raw`, URL-Schema, 16:9 ~720p@15 + center-crop, `camera_enable` reserviert (Pi). §6 ergänzt: `/hexapod/alerts` (WARN+ aus `/rosout`), Set-Stance-direkt, Status-Publisher-Felder (verfügbare Tempos; Batterie gestrichen) — alle `[TBD-Phase 5]`. |
 
 ---
 
@@ -210,13 +211,19 @@ On-Screen-Toggles/Slider setzen `gait_node`-Parameter. Beispiele (vollständige 
 
 ---
 
-## 5. Video (Kanal 2, separat) — `[TBD-Phase 4]`
+## 5. Video (Kanal 2, separat) — festgezurrt v0.7 (Phase 4)
 
-**Nicht rosbridge.** Ein Stream-Server auf dem Pi (Kandidaten: MJPEG als Erstwurf, später
-RTSP/H.264 oder WebRTC). Festzulegen in Phase 4:
-- Protokoll + Port + URL-Schema
-- Steuerung Kamera an/aus (rosbridge-Service ODER Stream-Server-Endpoint)
-- Auflösung/FPS/Codec
+**Nicht rosbridge** — eigener HTTP-Stream-Server.
+
+| Feld | Wert |
+|---|---|
+| **Protokoll (Erstwurf)** | **MJPEG** über `web_video_server` (`ros-jazzy-web-video-server`, Stock-Paket). Latenz ~100–300 ms (NF4-Erstwurf); Upgrade RTSP/H.264/WebRTC später. |
+| **Port** | **8080** (getrennt von rosbridge 9090). |
+| **Image-Topic** | **`/camera/image_raw`** (`sensor_msgs/Image`). |
+| **Bildquelle** | Sim = Gazebo-Kamera-Sensor (vorne oben am Body, geradeaus); **real** = Raspi-Cam v1.3 (Pi, Phase 7) → **gleiches Topic**, Stream-Server + App **unverändert**. |
+| **URL-Schema** | `http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg` (Snapshot: `.../snapshot?topic=...`). `<host>` wie §0 (Sim `Desktop-IP` / real `Pi-IP`). |
+| **Auflösung/FPS** | 16:9, ~1280×720 @ ~15 fps (Sim; final justierbar). App zeigt **center-crop-to-fill** (Phone 19,5:9 → kein schwarzer Balken, minimaler Beschnitt; späterer In-App-Zoom optional). |
+| **Kamera an/aus** | **Phase 4 app-seitig** (App fordert Stream an / stoppt ihn). ROS-Node-Start/Stop (Strom/Wärme) = **Pi/Phase 7** — `camera_enable`-Service/Param **reserviert** (§6). |
 
 ---
 
@@ -228,7 +235,10 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 |---|---|---|
 | Launcher: `bringup_start`/`_stop`/`_status` | schweren Stack starten/stoppen/Status | **✅ erledigt (v0.5, §2a)** |
 | Launcher: `pi_shutdown` + `/hexapod/bringup_running` | Pi ausschalten (guarded) + Stack-State | **✅ erledigt (v0.5, §2a/§3)** |
-| **Status-Topic** (`hexapod_status`) | kompakt: State, Stance-Modus, Gangart, Tempo, Safety-State, (Batterie) fürs Overlay | `[TBD-Phase 5]` |
+| **Status-Topic** (`hexapod_status`) | kompakt: State, Stance-Modus, Gangart, Tempo, **verfügbare Tempo-Presets**, Safety-State fürs Overlay (Batterie gestrichen) | `[TBD-Phase 5]` |
+| **Alerts** (`/hexapod/alerts`) | WARN/ERROR/FATAL aus `/rosout` republished → Fehler-/Warn-Liste in der App (+ „kopieren") | `[TBD-Phase 5]` |
+| **Set-Stance direkt** | Stance-Modus **direkt** wählen (Touch-Dropdown), zusätzlich zum Cycle `/hexapod_cycle_stance` (L2/R2) | `[TBD-Phase 5]` |
+| **Kamera an/aus** (`camera_enable`) | Kamera-Node am Pi starten/stoppen (Strom/Wärme); in Sim app-seitig | `[TBD-Phase 7]` |
 | Recovery-Service | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | `[TBD-Phase 6]` |
 | Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | `[TBD-Phase 7]` |
 
