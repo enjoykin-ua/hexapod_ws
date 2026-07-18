@@ -14,11 +14,11 @@ Phase 4 (Video-Vollbild + UI-Shell):
 - [x] P4.4 web_video_server (:8080) serviert MJPEG; Desktop+Handy-Browser sehen das Bild (T4.2/T4.3)   [✅ Live: Desktop+Handy]
 - [x] P4.5 Kamera+Bridge+web_video_server in den On-Demand-Sim-Stack eingehaengt (enable_camera:=true)
 - [x] P4.6 Contract §5 festgezurrt (Protokoll/Port/URL/Topic/Aufloesung/on-off), Version-Bump  [v0.7 mit Plan; v0.8 = Host+Verfügbarkeit für App-Bau]
-- [ ] P4.7 [App] Fahr-Screen: Vollbild-Video (MJPEG, center-crop-fill) + Center-Toggle (Nichts/Kamera)  [Android-Session]
-- [ ] P4.8 [App] Kamera-an/aus + Navigation Fahr-Screen <-> Lifecycle-Screen                 [Android-Session]
-- [ ] P4.9 [App] alle Overlay-Slots positioniert (leer/Label) gemaess §5-Slot-Vertrag; Menue+Alerts-Buttons oeffnen leere Views  [Android-Session]
+- [x] P4.7 [App] Fahr-Screen: Vollbild-Video (MJPEG, center-crop-fill) + Center-Toggle (Nichts/Kamera)  [✅ Android-Session]
+- [x] P4.8 [App] Kamera-an/aus + Navigation Fahr-Screen <-> Lifecycle-Screen                 [✅ Android-Session]
+- [x] P4.9 [App] alle Overlay-Slots positioniert (leer/Label) gemaess §5-Slot-Vertrag; Menue+Alerts-Buttons oeffnen leere Views  [✅ Android-Session]
 - [x] P4.10 Self-Review + Doku (README, architecture-Nachzug, test_commands)
-- [ ] P4.11 [Integration, User+App] End-to-End: Handy sieht Gazebo-Video im Fahr-Screen (T4.4-T4.7)  [User + Android-Session]
+- [x] P4.11 [Integration, User+App] End-to-End: Handy sieht Gazebo-Video im Fahr-Screen (T4.4-T4.7)  [✅ User+App, end-to-end verifiziert]
 ```
 
 ## Stand — ROS-Seite implementiert + statisch verifiziert, Live-Pipeline + App offen
@@ -61,8 +61,10 @@ Phase 4 (Video-Vollbild + UI-Shell):
   Image-Topic zählt); relevant für spätere Cam-Kalibrierung.
 - 🟡 **`horizontal_fov` 1.089 rad (~62°)** — Default; nach dem ersten Live-Blick justierbar.
 
-**ROS-Seite abgeschlossen.** **Offen (nicht ROS):** P4.7–P4.9 App-Shell (Android-Session gegen
-Plan §5) · P4.11 End-to-End Handy-im-Fahr-Screen (User + App).
+**✅ PHASE 4 KOMPLETT** — ROS-Seite + App-Shell (Android-Session) + End-to-End-Integration
+(T4.4–T4.7) vom User verifiziert: Handy zeigt das Gazebo-Video vollflächig im Fahr-Screen,
+Center-Toggle + Kamera-an/aus + Overlay-Slots + Navigation funktionieren. Nächste ROS-Arbeit =
+**Phase 5** (Status-Publisher + Alerts + Set-Stance → füllt die in P4 positionierten leeren Slots).
 
 ### Live-Test-Befund (User) — Video-Pipeline verifiziert
 

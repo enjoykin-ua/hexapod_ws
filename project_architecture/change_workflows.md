@@ -22,6 +22,14 @@ Vorbild end-to-end: `docs_raspi/phase_13_stage_1_tibia_unlock_plan.md`.
 ## Geometrie ändern (Bein-Länge / Body-Maße)
 ⚠️ Großer Rattenschwanz — siehe [`ai_navigation.md`](ai_navigation.md) §1 „Geometrie". Modell-Rechnung +
 explizite Freigabe vor Umbau (Reichweite, Re-Cal, Presets, Posen alle neu).
+- **Body-Maße auch Kamera-relevant:** der Kamera-Mount in `hexapod.camera.xacro` folgt
+  `body_length/2` (cam_x) + `body_height/2` (cam_z) → bei geänderten Body-Maßen wandert die
+  Kamera automatisch mit (korrekt); nach dem Umbau den Sim-Blickwinkel einmal gegenchecken.
+
+## Kamera / Video ändern (Block I Ph.4)
+Voll-Workflow in [`ai_navigation.md`](ai_navigation.md) „Kamera / Video-Pipeline ändern": xacro
+(`hexapod.camera.xacro`) + `bridge_camera.yaml` + `web_video_server` in `sim.launch.py`; Welt braucht
+`gz-sim-sensors-system`. Nach xacro-Umbau: Parse + Sim-Spawn + Walking-Smoke ([[feedback_urdf_refactor_full_smoke]]).
 
 ## Gait-Parameter / neue Lauf-Pose
 1. `walking_envelope_check sweep/recommend` → validierte (radial/step/height)-Werte.
@@ -35,3 +43,6 @@ explizite Freigabe vor Umbau (Reichweite, Re-Cal, Presets, Posen alle neu).
 ## Sim ↔ HW umschalten
 `hexapod_bringup sim.launch.py` vs `real.launch.py`; HW braucht `use_sim_time:=false`
 (kein /clock) — siehe [[project_phase13_gait_launch_sim_time_default]].
+- **Kamera-Quelle wechselt mit:** in Sim = gz-Kamera-Sensor (`use_sim`-guarded) + Bridge; auf HW
+  (`use_sim=false`) liefert die Raspi-Cam v1.3 `/camera/image_raw` direkt (Phase 7). `camera_link`
+  bleibt beidseitig als tf-Frame; Stream-Server (`web_video_server`) + App unverändert.

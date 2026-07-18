@@ -7,7 +7,7 @@
 ## 1. ROS2-Pakete (`src/`)
 | Paket | Sprache | Inhalt |
 |---|---|---|
-| `hexapod_description` | xacro/URDF | Roboter-Modell, Meshes, Joint-Limits, ros2_control-Tags, `display.launch.py`. |
+| `hexapod_description` | xacro/URDF | Roboter-Modell, Meshes, Joint-Limits, ros2_control-Tags, `display.launch.py`. Sensor-xacros: `hexapod.imu.xacro`, `hexapod.foot_contact.xacro`, **`hexapod.camera.xacro`** (Block I Ph.4: `enable_camera`, gz-Kamera-Sensor `/camera/sim` → Video, camera_link tf-Frame auch auf HW). |
 | `hexapod_control` | yaml | Controller-Configs: `controllers.yaml` (Sim), `controllers.real.yaml` (HW). |
 | `hexapod_kinematics` | Python | IK/FK (`leg_ik`, `leg_fk`), Geometrie (`geometry.py`: `rotate_z`, `rotate_xy`, base↔leg-Frame) + Limits (`config.py`), `JointLimits`, `HEXAPOD`. |
 | `hexapod_gait` | Python | `gait_node` (Knoten), `gait_engine` (State-Machine + Body-Leveling-Stellpfad + S4 adaptiver Touchdown/Stand), `gait_patterns`, `trajectory_gen`, `tip_monitor` (A5 St.1), `balance_controller` (A5 St.2), `reachability_viz`, `torque_viz`, `foot_contact_viz` (A5 St.5, Fuß-Marker); `gait.launch.py`, `stand.launch.py`; `config/presets/`. |
@@ -15,7 +15,7 @@
 | `hexapod_hardware` | C++ | `ros2_control`-SystemInterface-Plugin ↔ Servo2040; `calibration.cpp` (rad↔pulse); `config/servo_mapping.yaml` (Puls-Cal je Pin); publisht auf HW die 6 `/leg_<n>/foot_contact` aus GET_INPUTS (A5 St.5) + `/hexapod/shutdown_request`. |
 | `hexapod_sensors` | Python/URDF | **IMU real** (A5 Stufe 0): `imu_monitor` (`/imu/data`→roll/pitch, `/imu/monitor`, world→base_link-tf); Foot-Contact-Publisher. IMU-xacro in `hexapod_description` (`hexapod.imu.xacro`). |
 | `hexapod_gazebo` | xacro/launch | Sim-Welt, Sim-Plugins, `worlds/empty_imu.sdf` (+ `slope.sdf.xacro`, A5 Stufe 2), `sim.launch.py` (Gazebo-Seite). **Ph.4:** `worlds/empty_imu.sdf` + `ramp.sdf.xacro` tragen zusätzlich `gz-sim-sensors-system` (Kamera-Rendering). |
-| `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). **Block I:** `rosbridge.launch.py` (rosbridge_websocket+rosapi :9090), `app_teleop.launch.py` (rosbridge + `joy_to_twist` app-Modus); **Ph.3:** `always_on.launch.py` (rosbridge+supervisor+bringup_launcher, ab Boot), `bringup_ondemand.launch.py` (on-demand Walk+Teleop, mode sim/real, Bauch-Start), `systemd/hexapod_always_on.service`. |
+| `hexapod_bringup` | launch | `sim.launch.py` (Gazebo+control+RViz), `real.launch.py` (HW: rsp + controller_manager + spawner). **Block I:** `rosbridge.launch.py` (rosbridge_websocket+rosapi :9090), `app_teleop.launch.py` (rosbridge + `joy_to_twist` app-Modus); **Ph.3:** `always_on.launch.py` (rosbridge+supervisor+bringup_launcher, ab Boot), `bringup_ondemand.launch.py` (on-demand Walk+Teleop, mode sim/real, Bauch-Start), `systemd/hexapod_always_on.service`. **Ph.4:** `config/bridge_camera.yaml` + `web_video_server`-Node (:8080 MJPEG) in `sim.launch.py` (`enable_camera`, Default true) = Video-Kanal (Kanal 2, nicht rosbridge). |
 | `hexapod_supervisor` | Python | **Block F/I — Lifecycle.** `shutdown_supervisor` (lauscht HW-Schalter `/hexapod/shutdown_request` → kontrolliertes Hinsetzen via `/hexapod_shutdown` → `/hexapod/shutdown_complete` → guarded OS-Poweroff; `os_shutdown.guarded_shutdown` mit **3-fach-Guard**: Dev-Host-Hardblock + `enable_os_shutdown` + `pi_hostname`). **Ph.3:** `bringup_launcher` (startet/stoppt den On-Demand-Stack als Subprozess-Gruppe, `SIGINT→TERM→KILL`, keine Zombies; 4 Trigger-Services + latched `/hexapod/bringup_running`; guarded `/hexapod_pi_shutdown`) + expliziter `/hexapod_request_shutdown`-Service. `config/{supervisor,launcher.sim,launcher.real}.yaml`. |
 
 ## 2. Node-Graph
@@ -78,7 +78,7 @@
 ## 7. Launch-Einstiegspunkte
 | Zweck | Befehl |
 |---|---|
-| Sim (Gazebo + control + RViz) | `ros2 launch hexapod_bringup sim.launch.py` |
+| Sim (Gazebo + control + RViz) | `ros2 launch hexapod_bringup sim.launch.py` (**Ph.4:** inkl. Kamera + `web_video_server` :8080, `enable_camera:=true` Default; Video-URL `http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg`) |
 | HW (controller_manager + Plugin) | `ros2 launch hexapod_bringup real.launch.py initial_pose:=power_on_mid` |
 | Gait (Aufstehen→Reposition→Walk) | `ros2 launch hexapod_gait gait.launch.py robot_description_file:=… params_file:=…` |
 | Teleop (PS4 USB) | `ros2 launch hexapod_teleop joy_teleop.launch.py` |
