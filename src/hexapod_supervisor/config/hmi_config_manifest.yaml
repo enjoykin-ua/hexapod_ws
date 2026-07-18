@@ -1,0 +1,89 @@
+# HMI-Config-Manifest (Block I Phase 5) — Single Source für die App.
+#
+# Der hmi_status-Node (Always-On-Schicht) lädt diese Datei und publiziert sie als
+# JSON gelatcht:
+#   capabilities -> /hexapod/capabilities   (Enums für Dropdowns)
+#   manifest     -> /hexapod/config_manifest (die verstellbaren Params)
+#
+# Die App rendert das Config-Panel GENERISCH daraus (Gruppen, Slider ±/Eintipp,
+# Toggles, Dropdowns) und liest/setzt die Werte über die nativen rosbridge-
+# Parameter-Services (get_parameters/set_parameters). Werte werden live über
+# _on_param_change der Ziel-Nodes angewandt (atomarer validate-then-apply →
+# liefert reason bei Reject; die App zeigt ihn).
+#
+# Feld-Semantik pro param:
+#   node/param  : Ziel für get/set_parameters (rosbridge)
+#   group       : Abschnitts-Überschrift in der App
+#   label       : Anzeigename
+#   hint        : 1-2 Wörter: was größer/kleiner bewirkt
+#   widget      : slider | toggle | dropdown
+#   type        : double | int | bool | string
+#   default/min/max/step : für slider (min/max = APP-SICHERE Grenzen, dürfen
+#                 enger als das Hard-Limit sein)
+#   unit        : optionale Einheit (Anzeige)
+#   options     : für dropdown
+#   gating      : "standing" -> Slider disabled ausserhalb STATE_STANDING
+#                 (State aus /hexapod/status)
+#   dynamic_cap : Name eines /hexapod/status-Feldes -> App klemmt max auf
+#                 min(manifest.max, status[dynamic_cap])
+#   advanced    : true -> in der App standardmässig EINGEKLAPPT
+#
+# ⚠️ min/max/step sind ein VORSCHLAG (Phase-5-Plan §4.4) — beim ersten Live-Blick
+#    justierbar. Die Hard-Limits/Deckel bleiben serverseitig (_on_param_change).
+
+capabilities:
+  gaits: [tripod, wave, tetrapod, ripple]
+  stance_modes: [tief, mittel, hoch]
+  tempo_presets: [langsam, mittel, schnell, aggressiv]
+
+manifest:
+  version: 1
+  params:
+    # ---------------- Lauf / Gang (gait_node) ----------------
+    - {node: /gait_node, param: cycle_time, group: "Lauf / Gang", label: "Schrittdauer", hint: "kleiner = schneller", widget: slider, type: double, default: 2.0, min: 1.0, max: 4.0, step: 0.1, unit: s, gating: standing}
+    - {node: /gait_node, param: step_length_max, group: "Lauf / Gang", label: "Schrittweite", hint: "größer = weiter", widget: slider, type: double, default: 0.080, min: 0.02, max: 0.12, step: 0.005, unit: m, dynamic_cap: step_length_cap}
+    - {node: /gait_node, param: step_height, group: "Lauf / Gang", label: "Fuß-Hub", hint: "größer = höher", widget: slider, type: double, default: 0.050, min: 0.01, max: 0.09, step: 0.005, unit: m, dynamic_cap: step_height_cap}
+
+    # ---------------- Teleop / Tempo (joy_to_twist) ----------------
+    - {node: /joy_to_twist, param: linear_x_scale, group: "Teleop / Tempo", label: "Vorwärts-Tempo", hint: "größer = schneller", widget: slider, type: double, default: 0.05, min: 0.0, max: 0.25, step: 0.01, unit: "m/s"}
+    - {node: /joy_to_twist, param: linear_y_scale, group: "Teleop / Tempo", label: "Seitwärts-Tempo", hint: "größer = schneller", widget: slider, type: double, default: 0.05, min: 0.0, max: 0.20, step: 0.01, unit: "m/s"}
+    - {node: /joy_to_twist, param: angular_z_scale, group: "Teleop / Tempo", label: "Dreh-Tempo", hint: "größer = schneller", widget: slider, type: double, default: 0.46, min: 0.0, max: 1.5, step: 0.05, unit: "rad/s"}
+    - {node: /joy_to_twist, param: slow_factor, group: "Teleop / Tempo", label: "L1-Präzision", hint: "kleiner = feiner", widget: slider, type: double, default: 0.5, min: 0.1, max: 1.0, step: 0.05}
+    - {node: /joy_to_twist, param: deadzone, group: "Teleop / Tempo", label: "Stick-Totzone", hint: "größer = träger", widget: slider, type: double, default: 0.10, min: 0.0, max: 0.30, step: 0.01}
+
+    # ---------------- Sensorik / Terrain (gait_node, Toggles) ----------------
+    - {node: /gait_node, param: leveling_enable, group: "Sensorik / Terrain", label: "IMU-Balance", hint: "Körper hält Balance", widget: toggle, type: bool, default: false}
+    - {node: /gait_node, param: adaptive_touchdown_enable, group: "Sensorik / Terrain", label: "Adaptiver Touchdown", hint: "Fuß reicht nach Terrain", widget: toggle, type: bool, default: false}
+    - {node: /gait_node, param: slip_detection_enable, group: "Sensorik / Terrain", label: "Kanten-Freeze", hint: "Stop an Abgrund", widget: toggle, type: bool, default: false}
+    - {node: /gait_node, param: sensor_plausibility_enable, group: "Sensorik / Terrain", label: "Sensor-Fail-Safe", hint: "fängt Taster-Fehler", widget: toggle, type: bool, default: false}
+    - {node: /gait_node, param: tip_detection_enable, group: "Sensorik / Terrain", label: "Kipp-Erkennung", hint: "Freeze bei Kippen", widget: toggle, type: bool, default: true}
+
+    # ---------------- IMU / Balance (gait_node) ----------------
+    - {node: /gait_node, param: leveling_mode, group: "IMU / Balance", label: "Balance-Modus", hint: "Boden folgen / waagerecht / auto", widget: dropdown, type: string, default: terrain, options: [terrain, horizontal, auto]}
+    - {node: /gait_node, param: leveling_max_angle_deg, group: "IMU / Balance", label: "Max Ausgleich Stand", hint: "größer = mehr Ausgleich", widget: slider, type: double, default: 10.0, min: 0.0, max: 20.0, step: 1.0, unit: "°"}
+    - {node: /gait_node, param: leveling_max_angle_walking_deg, group: "IMU / Balance", label: "Max Ausgleich Lauf", hint: "größer = mehr Ausgleich", widget: slider, type: double, default: 4.0, min: 0.0, max: 15.0, step: 1.0, unit: "°"}
+    - {node: /gait_node, param: tip_angle_warn_deg_roll, group: "IMU / Balance", label: "Kipp-Warn Roll", hint: "kleiner = früher warnen", widget: slider, type: double, default: 15.0, min: 5.0, max: 40.0, step: 1.0, unit: "°"}
+    - {node: /gait_node, param: tip_angle_warn_deg_pitch, group: "IMU / Balance", label: "Kipp-Warn Pitch", hint: "kleiner = früher warnen", widget: slider, type: double, default: 15.0, min: 5.0, max: 40.0, step: 1.0, unit: "°"}
+    - {node: /gait_node, param: tip_angle_crit_deg_roll, group: "IMU / Balance", label: "Kipp-Krit Roll", hint: "kleiner = früher Freeze", widget: slider, type: double, default: 25.0, min: 10.0, max: 60.0, step: 1.0, unit: "°"}
+    - {node: /gait_node, param: tip_angle_crit_deg_pitch, group: "IMU / Balance", label: "Kipp-Krit Pitch", hint: "kleiner = früher Freeze", widget: slider, type: double, default: 25.0, min: 10.0, max: 60.0, step: 1.0, unit: "°"}
+    - {node: /gait_node, param: tip_rate_crit_dps, group: "IMU / Balance", label: "Kipp-Rate Krit", hint: "kleiner = früher Freeze", widget: slider, type: double, default: 80.0, min: 20.0, max: 200.0, step: 5.0, unit: "°/s"}
+    - {node: /gait_node, param: slope_estimate_tau_s, group: "IMU / Balance", label: "Hang-Filter", hint: "größer = träger/glatter", widget: slider, type: double, default: 0.5, min: 0.0, max: 3.0, step: 0.1, unit: s}
+    - {node: /gait_node, param: slope_clamp_deg, group: "IMU / Balance", label: "Hang-Begrenzung", hint: "max erkannter Hang", widget: slider, type: double, default: 40.0, min: 10.0, max: 60.0, step: 1.0, unit: "°"}
+
+    # ---------------- IMU / Balance — Erweitert (16 Regler-Gains, eingeklappt) ----------------
+    - {node: /gait_node, param: leveling_kp_roll, group: "IMU / Balance — Erweitert", label: "Kp Roll", hint: "P-Stärke (zu hoch = Pendeln)", widget: slider, type: double, default: 0.4, min: 0.0, max: 2.0, step: 0.05, advanced: true}
+    - {node: /gait_node, param: leveling_kp_pitch, group: "IMU / Balance — Erweitert", label: "Kp Pitch", hint: "P-Stärke (zu hoch = Pendeln)", widget: slider, type: double, default: 0.4, min: 0.0, max: 2.0, step: 0.05, advanced: true}
+    - {node: /gait_node, param: leveling_ki_roll, group: "IMU / Balance — Erweitert", label: "Ki Roll", hint: "I-Anteil (zu hoch = Aufschwingen)", widget: slider, type: double, default: 0.1, min: 0.0, max: 1.0, step: 0.02, advanced: true}
+    - {node: /gait_node, param: leveling_ki_pitch, group: "IMU / Balance — Erweitert", label: "Ki Pitch", hint: "I-Anteil (zu hoch = Aufschwingen)", widget: slider, type: double, default: 0.1, min: 0.0, max: 1.0, step: 0.02, advanced: true}
+    - {node: /gait_node, param: leveling_kd_roll, group: "IMU / Balance — Erweitert", label: "Kd Roll", hint: "D-Dämpfung", widget: slider, type: double, default: 0.03, min: 0.0, max: 0.5, step: 0.01, advanced: true}
+    - {node: /gait_node, param: leveling_kd_pitch, group: "IMU / Balance — Erweitert", label: "Kd Pitch", hint: "D-Dämpfung", widget: slider, type: double, default: 0.03, min: 0.0, max: 0.5, step: 0.01, advanced: true}
+    - {node: /gait_node, param: leveling_deadband_inner_deg_roll, group: "IMU / Balance — Erweitert", label: "Totband innen Roll", hint: "Ruhe unter X°", widget: slider, type: double, default: 1.5, min: 0.0, max: 5.0, step: 0.1, unit: "°", advanced: true}
+    - {node: /gait_node, param: leveling_deadband_inner_deg_pitch, group: "IMU / Balance — Erweitert", label: "Totband innen Pitch", hint: "Ruhe unter X°", widget: slider, type: double, default: 1.5, min: 0.0, max: 5.0, step: 0.1, unit: "°", advanced: true}
+    - {node: /gait_node, param: leveling_deadband_outer_deg_roll, group: "IMU / Balance — Erweitert", label: "Totband außen Roll", hint: "Hysterese-Schwelle", widget: slider, type: double, default: 1.5, min: 0.0, max: 5.0, step: 0.1, unit: "°", advanced: true}
+    - {node: /gait_node, param: leveling_deadband_outer_deg_pitch, group: "IMU / Balance — Erweitert", label: "Totband außen Pitch", hint: "Hysterese-Schwelle", widget: slider, type: double, default: 1.5, min: 0.0, max: 5.0, step: 0.1, unit: "°", advanced: true}
+    - {node: /gait_node, param: leveling_slew_max_dps_roll, group: "IMU / Balance — Erweitert", label: "Stell-Tempo Roll", hint: "max Korrektur-Geschw.", widget: slider, type: double, default: 8.0, min: 1.0, max: 30.0, step: 0.5, unit: "°/s", advanced: true}
+    - {node: /gait_node, param: leveling_slew_max_dps_pitch, group: "IMU / Balance — Erweitert", label: "Stell-Tempo Pitch", hint: "max Korrektur-Geschw.", widget: slider, type: double, default: 8.0, min: 1.0, max: 30.0, step: 0.5, unit: "°/s", advanced: true}
+    - {node: /gait_node, param: leveling_tau_fast_s_roll, group: "IMU / Balance — Erweitert", label: "Tiefpass schnell Roll", hint: "Rausch-Glättung", widget: slider, type: double, default: 0.0, min: 0.0, max: 1.0, step: 0.02, unit: s, advanced: true}
+    - {node: /gait_node, param: leveling_tau_fast_s_pitch, group: "IMU / Balance — Erweitert", label: "Tiefpass schnell Pitch", hint: "Rausch-Glättung", widget: slider, type: double, default: 0.0, min: 0.0, max: 1.0, step: 0.02, unit: s, advanced: true}
+    - {node: /gait_node, param: leveling_tau_slow_s_roll, group: "IMU / Balance — Erweitert", label: "Tiefpass langsam Roll", hint: "Drift-Schätzung", widget: slider, type: double, default: 0.0, min: 0.0, max: 3.0, step: 0.05, unit: s, advanced: true}
+    - {node: /gait_node, param: leveling_tau_slow_s_pitch, group: "IMU / Balance — Erweitert", label: "Tiefpass langsam Pitch", hint: "Drift-Schätzung", widget: slider, type: double, default: 0.0, min: 0.0, max: 3.0, step: 0.05, unit: s, advanced: true}

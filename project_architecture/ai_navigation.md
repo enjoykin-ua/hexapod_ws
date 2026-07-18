@@ -94,6 +94,34 @@
   Walking-Smoke, nicht nur Build. Live: `ros2 topic hz /camera/image_raw` (~15 Hz) + Browser Desktop/Handy.
   Doku: `.../phase_4_video_shell_{plan,progress,test_commands}.md`.
 
+### Status-Overlay / Config-Panel ändern (Block I Phase 5 — App-Anzeige + Params)
+- **Naht = Contract §6a** (`interface_contract.md`, v0.9): fünf JSON-String-Topics + native Param-Services.
+- **Fünf Topics:** `/hexapod/status` (gait_node, 5 Hz, State/Stance/Gangart/Safety/Tip + dyn. H1/H2-Caps)
+  · `/hexapod/tempo` (joy_to_twist, latched) · `/hexapod/capabilities` + `/hexapod/config_manifest`
+  (`hmi_status`, latched) · `/hexapod/alerts` (`hmi_status`, aus `/rosout` WARN+, latched N=50).
+- **ROS-Dateien:** `hexapod_gait/gait_node.py` (`_publish_status`, 5-Hz-Timer in der Tick-CB-Gruppe;
+  `_tip_level`/`_safety_frozen` gecacht) · `hexapod_teleop/joy_to_twist.py` (`_publish_tempo`) ·
+  `hexapod_supervisor/hmi_status.py` (Always-On-Node) + `config/hmi_config_manifest.yaml` (**die
+  Whitelist**) + `always_on.launch.py`-Wiring.
+- **Config-Panel = Manifest + native Param-Services:** die App rendert Slider/Toggles/Dropdowns
+  **generisch** aus `/hexapod/config_manifest`; verstellt Werte über `/<node>/set_parameters`
+  (rosbridge). **Min/max/step/Label/Hint** stehen im **Manifest** (nicht in ParameterDescriptors) →
+  neuen Param freigeben = eine Manifest-Zeile in `hmi_config_manifest.yaml` (kein Code). Ein Test
+  (`test_hmi_status.py`) prüft, dass **jeder Manifest-Param real im Ziel-Node deklariert** ist
+  (Drift-Schutz) — bei Umbenennung/Entfernen eines Params das Manifest nachziehen.
+- **Fallen:** (1) `standing_only`-Params (z.B. `cycle_time`, `gait_pattern`) werden außerhalb STANDING
+  **rejected** → Manifest-`gating:"standing"`, App disabled den Slider anhand `status.state`. (2)
+  `step_height`/`step_length_max` sind **stance-gedeckelt** (H1/H2) → der effektive max kommt live als
+  `status.step_height_cap`/`step_length_cap` (Manifest-`dynamic_cap`). (3) `set_parameters`-Reject
+  liefert `reason` → App zeigt ihn. (4) Overlay-Werte kommen aus **zwei** Quellen (gait_node-Status +
+  joy_to_twist-Tempo) — die App merged. (5) 3D-Viz braucht **kein** Status-Topic, sondern
+  `/joint_states` + URDF.
+- **Set-Stance direkt** = App cyclet `/hexapod_cycle_stance` (`SetBool`) zum Ziel-Index (aus
+  `status.stance_idx`) — kein neues Interface.
+- **Validieren:** `test_hmi_status.py` (Manifest-Struktur + Drift + Alert-Format) + Live
+  (`phase_5_status_config_test_commands.md`): status ~5 Hz, Caps folgen Stance, Param-Set live +
+  Reject-Pfade, WARN in `/hexapod/alerts`.
+
 ### Teleop-Mapping / neue Controller-Funktion
 - **Dateien:** `hexapod_teleop/config/ps4_usb.yaml` (Indizes/Skalen) · `joy_to_twist.py` (Logik).
 - **Falle:** `joy_to_twist` publisht beim Start **einmalig** `/cmd_body_height = body_height_init`

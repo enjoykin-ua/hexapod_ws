@@ -75,7 +75,16 @@ def _setup(context, *args, **kwargs):
         output='screen',
         parameters=[launcher_cfg],
     )
-    return [rosbridge, supervisor, launcher]
+    # Block I Phase 5 — HMI-Glue (Capabilities/Config-Manifest/Alerts) in der
+    # Always-On-Schicht → Config-Panel + Dropdowns schon beim App-Connect befüllt.
+    hmi_status = Node(
+        package='hexapod_supervisor',
+        executable='hmi_status',
+        name='hmi_status',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time == 'true'}],
+    )
+    return [rosbridge, supervisor, launcher, hmi_status]
 
 
 def generate_launch_description() -> LaunchDescription:

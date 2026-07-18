@@ -39,6 +39,8 @@ setup(
             'hexapod_supervisor.shutdown_supervisor:main',
             'bringup_launcher = '
             'hexapod_supervisor.bringup_launcher:main',
+            'hmi_status = '
+            'hexapod_supervisor.hmi_status:main',
         ],
     },
 )

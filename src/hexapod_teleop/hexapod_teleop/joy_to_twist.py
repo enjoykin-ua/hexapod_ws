@@ -27,6 +27,7 @@ BT/PS5 nur anderes YAML, gleicher Code.
 """
 
 from collections import namedtuple
+import json
 import time
 
 from geometry_msgs.msg import Twist
@@ -35,8 +36,9 @@ import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.parameter_client import AsyncParameterClient
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Joy
-from std_msgs.msg import Float64, Float64MultiArray
+from std_msgs.msg import Float64, Float64MultiArray, String
 from std_srvs.srv import SetBool, Trigger
 
 
@@ -204,6 +206,13 @@ class JoyToTwist(Node):
         self._cmd_show_pub = self.create_publisher(
             Float64MultiArray, '/cmd_show', 10
         )
+        # Block I Phase 5 — aktives Tempo-Preset fürs App-Overlay (JSON, latched
+        # → ein spät verbindender App-Subscriber bekommt sofort den Ist-Wert).
+        self._tempo_pub = self.create_publisher(
+            String, '/hexapod/tempo',
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE),
+        )
 
         # Intent-Service-Clients (reines UI → call_async, kein Warten).
         self._toggle_client = self.create_client(
@@ -262,6 +271,9 @@ class JoyToTwist(Node):
         # TLS — Tempo-Params live-tunbar (sonst nur beim Start gelesen). Wie der
         # gait_node: validate-then-apply. Nur die Tuning-Werte, nicht die Struktur.
         self.add_on_set_parameters_callback(self._on_param_change)
+
+        # Block I Phase 5 — initiales Tempo-Preset latchen (Overlay-Startwert).
+        self._publish_tempo()
 
     def _on_param_change(self, params):
         """
@@ -557,6 +569,8 @@ class JoyToTwist(Node):
             f'{mode.linear_x_scale}/{mode.linear_y_scale}/'
             f'{mode.angular_z_scale})'
         )
+        # Block I Phase 5 — geändertes Tempo-Preset fürs Overlay latchen.
+        self._publish_tempo()
 
     def _adjust_body_height(self, sign: int) -> None:
         """Ändere das Höhen-Ziel um sign*step, clampe lokal, publishe."""
@@ -575,6 +589,25 @@ class JoyToTwist(Node):
         msg = Float64()
         msg.data = self._target_body_height
         self._body_height_pub.publish(msg)
+
+    def _publish_tempo(self) -> None:
+        """
+        Block I Phase 5 — aktives Tempo-Preset + Live-Scales fürs Overlay (JSON).
+
+        Latched auf ``/hexapod/tempo``; publiziert beim Start + nach jedem
+        Tempo-Wechsel (``_on_tempo_response``). Die Scales sind die aktuell
+        wirksamen (``self._*_scale``) — ein Tempo-Preset setzt sie, ein manueller
+        Config-Panel-Param-Set ebenfalls (dann liest die App selbst nach).
+        Contract §6 (Phase 5).
+        """
+        payload = {
+            'tempo': _TEMPO_MODES[self._tempo_idx].name,
+            'tempo_idx': self._tempo_idx,
+            'linear_x_scale': self._linear_x_scale,
+            'linear_y_scale': self._linear_y_scale,
+            'angular_z_scale': self._angular_z_scale,
+        }
+        self._tempo_pub.publish(String(data=json.dumps(payload)))
 
     def _dpad_dir(self, value: float) -> int:
         """Diskrete D-Pad-Richtung: +1 / -1 / 0 anhand der Schwelle."""

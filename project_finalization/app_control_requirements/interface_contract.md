@@ -23,7 +23,8 @@
 | **v0.5** | Phase 3 (Lifecycle) festgezurrt: 4 Launcher-Services `/hexapod_bringup_start`/`_stop`/`_status`/`/hexapod_pi_shutdown` (§2a) + latched `/hexapod/bringup_running` (§3), alle `std_srvs/Trigger`. Bauch-Start (`auto_standup_on_start:=false`) → Aufstehen per `/hexapod_stand_up`. §6/§7 Phase-3-Punkte erledigt. |
 | **v0.6** | §7.4 geklärt (aus rosbridge-2.7.0-Quellcode): latched Topics kommen über rosbridge zur App — Auto-QoS-Match an `transient_local`-Publisher, deterministisch via explizitem `qos`-subscribe-Frame. **Kein ROS-Change.** Betrifft nur den **optionalen** Live-Push von `/hexapod/bringup_running` (Primärquelle bleibt `bringup_status`-Polling). |
 | **v0.7** | §5 (Video) festgezurrt für Phase 4: MJPEG via `web_video_server` :8080, `/camera/image_raw`, URL-Schema, 16:9 ~720p@15 + center-crop, `camera_enable` reserviert (Pi). §6 ergänzt: `/hexapod/alerts` (WARN+ aus `/rosout`), Set-Stance-direkt, Status-Publisher-Felder (verfügbare Tempos; Batterie gestrichen) — alle `[TBD-Phase 5]`. |
-| **v0.8** (aktuell) | §5 präzisiert nach Phase-4-**ROS-Live-Verifikation**: **Host** = gleiche IP wie rosbridge (§0), nur Port 8080; **Verfügbarkeit** = Stream-Server läuft **im On-Demand-Stack** → Port 8080 erst **nach `/hexapod_bringup_start`** offen, App koppelt die Kamera-View an `/hexapod/bringup_running`; live gemessen **~11 Hz** (Render-Jitter, v1-ok). **Kein ROS-Change, kein neues Interface** — Klarstellung für den App-Bau (P4.7–P4.9). |
+| **v0.8** | §5 präzisiert nach Phase-4-**ROS-Live-Verifikation**: **Host** = gleiche IP wie rosbridge (§0), nur Port 8080; **Verfügbarkeit** = Stream-Server läuft **im On-Demand-Stack** → Port 8080 erst **nach `/hexapod_bringup_start`** offen, App koppelt die Kamera-View an `/hexapod/bringup_running`; live gemessen **~11 Hz** (Render-Jitter, v1-ok). **Kein ROS-Change, kein neues Interface** — Klarstellung für den App-Bau (P4.7–P4.9). |
+| **v0.9** (aktuell) | §6a festgezurrt für Phase 5 (**ROS-Seite live-verifiziert**): Status/Config/Alerts als **JSON-String** (`std_msgs/String`) — `/hexapod/status` (5 Hz, gait_node, State/Stance/Gangart/Safety/Tip + dyn. H1/H2-Caps), `/hexapod/tempo` (latched, joy_to_twist), `/hexapod/capabilities` + `/hexapod/config_manifest` (latched, Always-On `hmi_status`, 39 Params), `/hexapod/alerts` (latched Historie 50, WARN+ aus `/rosout`). **Set-Stance direkt** = App cyclet `/hexapod_cycle_stance` (kein neues Interface). Config-Panel = natives rosbridge get/set_parameters + Manifest. §7.3 damit geschlossen. |
 
 ---
 
@@ -238,16 +239,77 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 |---|---|---|
 | Launcher: `bringup_start`/`_stop`/`_status` | schweren Stack starten/stoppen/Status | **✅ erledigt (v0.5, §2a)** |
 | Launcher: `pi_shutdown` + `/hexapod/bringup_running` | Pi ausschalten (guarded) + Stack-State | **✅ erledigt (v0.5, §2a/§3)** |
-| **Status-Topic** (`hexapod_status`) | kompakt: State, Stance-Modus, Gangart, Tempo, **verfügbare Tempo-Presets**, Safety-State fürs Overlay (Batterie gestrichen) | `[TBD-Phase 5]` |
-| **Alerts** (`/hexapod/alerts`) | WARN/ERROR/FATAL aus `/rosout` republished → Fehler-/Warn-Liste in der App (+ „kopieren") | `[TBD-Phase 5]` |
-| **Set-Stance direkt** | Stance-Modus **direkt** wählen (Touch-Dropdown), zusätzlich zum Cycle `/hexapod_cycle_stance` (L2/R2) | `[TBD-Phase 5]` |
+| **Status/Capabilities/Manifest/Alerts** | Overlay-Live-Daten + Config-Panel-Naht | **✅ erledigt (v0.9, §6a)** |
+| **Set-Stance direkt** | Stance-Modus direkt wählen (Touch-Dropdown) | **✅ erledigt (v0.9, §6a)** — App cyclet `/hexapod_cycle_stance` zum Ziel |
 | **Kamera an/aus** (`camera_enable`) | Kamera-Node am Pi starten/stoppen (Strom/Wärme); in Sim app-seitig | `[TBD-Phase 7]` |
 | Recovery-Service | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | `[TBD-Phase 6]` |
 | Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | `[TBD-Phase 7]` |
 
-> **Design-Hinweis Status-Topic:** heute liegt z. B. der Stance-Modus nur als `_stance_idx`
-> **intern** im gait_node (nicht publiziert). Das Overlay braucht ein **kompaktes, eigenes
-> Status-Topic** — die zentrale neue ROS-Arbeit für die Anzeige.
+---
+
+## 6a. Status / Config / Alerts (Block I Phase 5) — festgezurrt v0.9
+
+**Alle vier Topics = `std_msgs/String` mit JSON-Payload** (einziger Consumer = App über rosbridge,
+dort ohnehin JSON; kein neues Message-Paket, [D-neu]). Feld-Formen ROS-seitig **live-verifiziert**.
+
+**`/hexapod/status`** — Live-Zustand fürs Overlay. Quelle **`gait_node`** (nur im laufenden Stack),
+**~5 Hz**, nicht latched.
+```json
+{"state":"STANDING","stance_idx":1,"stance":"mittel","gait":"tripod",
+ "safety_frozen":false,"tip":"none","step_height_cap":0.05,"step_length_cap":0.08}
+```
+| Feld | Typ | Werte |
+|---|---|---|
+| `state` | string | `STARTUP_RAMP`/`CARTESIAN_STANDUP`/`REPOSITION`/`STANDING`/`WALKING`/`STOPPING`/`SAT`/Sitdown-/Show-States |
+| `stance_idx` / `stance` | int / string | 0/1/2 · `tief`/`mittel`/`hoch` |
+| `gait` | string | `tripod`/`wave`/`tetrapod`/`ripple` |
+| `safety_frozen` | bool | true nach Safety-Freeze (bis Stack-Neustart; Recovery = Phase 6) |
+| `tip` | string | `none`/`warn`/`crit` |
+| `step_height_cap` / `step_length_cap` | float | **dynamischer H1/H2-Cap des aktuellen Stance** → App klemmt die Slider auf `min(manifest.max, cap)` |
+
+**`/hexapod/tempo`** — aktives Tempo-Preset. Quelle **`joy_to_twist`**, **latched** (transient_local).
+```json
+{"tempo":"schnell","tempo_idx":2,"linear_x_scale":0.05,"linear_y_scale":0.05,"angular_z_scale":0.46}
+```
+
+**`/hexapod/capabilities`** — statische Enums für die Dropdowns. Quelle **`hmi_status`** (Always-On),
+**latched**.
+```json
+{"gaits":["tripod","wave","tetrapod","ripple"],"stance_modes":["tief","mittel","hoch"],
+ "tempo_presets":["langsam","mittel","schnell","aggressiv"]}
+```
+
+**`/hexapod/config_manifest`** — die kuratierte Whitelist der verstellbaren Params (Config-Panel).
+Quelle **`hmi_status`** (Always-On), **latched**. Die App rendert das Panel **generisch**; get/set der
+Werte über die **nativen rosbridge-Parameter-Services** (`/<node>/get_parameters` /`set_parameters`).
+```json
+{"version":1,"params":[
+  {"node":"/gait_node","param":"step_height","group":"Lauf / Gang","label":"Fuß-Hub",
+   "hint":"größer = höher","widget":"slider","type":"double","default":0.05,"min":0.01,
+   "max":0.09,"step":0.005,"unit":"m","dynamic_cap":"step_height_cap"}, … ]}
+```
+Feld je Param: `node`,`param`,`group`,`label`,`hint`,`widget`(`slider`/`toggle`/`dropdown`),`type`,
+`default`; slider zusätzlich `min`/`max`/`step`(+`unit`); dropdown `options`; optional `gating:"standing"`
+(App disabled außerhalb STANDING), `dynamic_cap:"<status-feld>"`, `advanced:true` (eingeklappt). v1 =
+**39 Params** (23 sichtbar + 16 Balance-Gains advanced).
+> **App-Pflichten:** (1) `gating:"standing"` → Slider aus wenn `status.state != STANDING`; (2)
+> `dynamic_cap` → max auf `status[cap]` klemmen; (3) `set_parameters`-Antwort `successful=false` →
+> `reason`-String als Fehler zeigen (der gait_node liefert Klartext, z.B. Cap-/Standing-Reject).
+
+**`/hexapod/alerts`** — WARN/ERROR/FATAL aus `/rosout`. Quelle **`hmi_status`** (Always-On), **latched
+mit Historie** (Default 50, `alerts_history`-Param) → späte Subscriber bekommen die letzten N. Ein
+Alert pro Nachricht:
+```json
+{"stamp":1784399508.45,"level":"WARN","name":"gait_node","msg":"…"}
+```
+
+**Set-Stance direkt** — **kein neues ROS-Interface**: die App liest `status.stance_idx` und ruft das
+bestehende **`/hexapod_cycle_stance`** (`std_srvs/SetBool`, `data=true` höher / `false` tiefer) so oft,
+bis der Ziel-Index erreicht ist (standing_only bleibt serverseitig geprüft).
+
+> **Verfügbarkeit:** `capabilities`/`config_manifest`/`alerts` laufen in der **Always-On-Schicht**
+> (`hmi_status`) → schon **beim App-Connect** da, vor dem On-Demand-Stack. `status`/`tempo` kommen aus
+> dem Stack (gait_node/joy_to_twist) → erst nach `bringup_start`.
 
 ---
 
@@ -256,9 +318,11 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 1. **`/joy`-Index-Tabelle** Kishi-Roh → PS4-Layout — **erledigt (v0.2, §1)**. Offen bleibt nur
    die Vorzeichen-Endverifikation via `ros2 topic echo /joy` in Phase 2.
 2. **rosbridge-Auth/Port** — Default 9090, unauth; für Hotspot ok.
-3. **Status-Topic-Format** — ein Custom-Msg-Typ vs. `DiagnosticArray` vs. JSON-String.
-   Custom-Msg ist sauberer, aber ein neues Message-Paket; JSON-String pragmatischer für die
-   App. In Phase 5 entscheiden.
+3. **Status-Topic-Format** — **entschieden (v0.9): JSON-String** (`std_msgs/String`). Einziger
+   Consumer = App über rosbridge (dort ohnehin JSON), kein neues Message-Paket, leicht erweiterbar.
+   Config/min-max lebt im Parameter-System (Manifest + native Param-Services), 3D-Viz an
+   `/joint_states` — die drei Kanäle sind getrennt (§6a). Upgrade auf Custom-`.msg` möglich, falls
+   je ein ROS-nativer Consumer dazukommt.
 4. **Latched/QoS über rosbridge** — **geklärt (v0.6, aus rosbridge-2.7.0-Quellcode; kein
    ROS-Change nötig).** rosbridge **auto-matcht** die Subscriber-QoS an einen
    `transient_local`-Publisher (`subscribers.py::_get_default_qos_profile`: findet es einen

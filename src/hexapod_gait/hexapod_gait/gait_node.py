@@ -24,6 +24,7 @@ linear zwischen Goals → smooth Bewegung.
 
 from collections import namedtuple
 from dataclasses import dataclass
+import json
 import math
 import time
 import xml.etree.ElementTree as ET
@@ -62,7 +63,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import Imu, JointState
-from std_msgs.msg import Bool, Float64, Float64MultiArray
+from std_msgs.msg import Bool, Float64, Float64MultiArray, String
 from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -959,6 +960,9 @@ class GaitNode(Node):
         self._imu_gyro_roll = 0.0  # TF-2: signierte Achsen-Drehraten (rad/s)
         self._imu_gyro_pitch = 0.0
         self._tip_crit_fired = False
+        # Block I Phase 5 — fürs Status-Topic gecachte Live-Zustände.
+        self._tip_level = TIP_NONE
+        self._safety_frozen = False
         self._imu_sub = self.create_subscription(
             Imu, '/imu/data', self._on_imu, qos_profile_sensor_data,
         )
@@ -1072,6 +1076,10 @@ class GaitNode(Node):
         }
         self._foot_contacts_pub = self.create_publisher(
             Float64MultiArray, '/foot_contacts', 10,
+        )
+        # Block I Phase 5 — kompaktes Status-Topic fürs App-Overlay (JSON-String).
+        self._status_pub = self.create_publisher(
+            String, '/hexapod/status', 10,
         )
         self._last_contact_log_t = time.monotonic()
         # S4-1 Mess-Zusatz (a): tatsächliche Sim-Gelenkstellung → FK-Fuß-z von
@@ -1245,6 +1253,13 @@ class GaitNode(Node):
             1.0 / self._tick_rate,
             self._tick,
             callback_group=self._cb_group,
+        )
+        # Block I Phase 5 — Status-Publish (5 Hz, eigener Timer, entkoppelt vom
+        # Gait-Tick, damit es auch in SAT/STANDING läuft und die Rate unabhängig
+        # von tick_rate ist). Gleiche MutuallyExclusive-Gruppe wie der Tick →
+        # kein Race auf die gelesenen Member. Overlay-Latenz <= 200 ms.
+        self._status_timer = self.create_timer(
+            0.2, self._publish_status, callback_group=self._cb_group,
         )
 
         # Block B1 — Hinsetz-/Abschalt-Services. In derselben
@@ -1635,6 +1650,7 @@ class GaitNode(Node):
         # WARN: Befehl auf 0 → Roboter stoppt/settelt. CRIT (Winkel/Rate):
         # Safety-Freeze (einmalig, gelatcht) + diesen Tick nicht publishen.
         tip = self._update_tip()
+        self._tip_level = tip
         if tip == TIP_CRIT:
             if not self._tip_crit_fired:
                 self.get_logger().error(
@@ -1744,6 +1760,10 @@ class GaitNode(Node):
         plugin), we log once and continue. The local stop is sufficient
         in sim — there's no servo to slam in any case.
         """
+        # Block I Phase 5 — fürs Overlay merken, dass ein Freeze ausgelöst
+        # wurde (auch wenn der Service unerreichbar ist: der lokale Stop greift).
+        # Bleibt gesetzt bis Node-Neustart (Recovery/Reset = Phase 6).
+        self._safety_frozen = True
         if not self._safety_freeze_client.service_is_ready():
             if not self._safety_freeze_logged_unreachable:
                 self.get_logger().error(
@@ -1757,6 +1777,30 @@ class GaitNode(Node):
         # call_async returns a Future we deliberately ignore — the
         # plugin will process the Trigger request on its own executor.
         self._safety_freeze_client.call_async(Trigger.Request())
+
+    def _publish_status(self) -> None:
+        """
+        Block I Phase 5 — kompaktes Status-Topic fürs App-Overlay (JSON).
+
+        Publisht ~5 Hz einen JSON-String auf ``/hexapod/status`` mit dem Live-
+        Zustand, den das Overlay braucht: State/Stance/Gangart/Safety/Tip + die
+        **dynamischen H1/H2-Caps** des AKTUELLEN Stance-Modus (die App klemmt die
+        ``step_height``/``step_length_max``-Slider auf ``min(manifest_max, cap)``).
+        Reiner Read der Member; läuft in der MutuallyExclusive-Gruppe des Ticks
+        (kein Race). Contract §6 (Phase 5).
+        """
+        stance = _STANCE_MODES[self._stance_idx]
+        payload = {
+            'state': self._engine.state,
+            'stance_idx': self._stance_idx,
+            'stance': stance.name,
+            'gait': self._pattern.name,
+            'safety_frozen': self._safety_frozen,
+            'tip': self._tip_level,
+            'step_height_cap': stance.step_height,
+            'step_length_cap': stance.step_length_max,
+        }
+        self._status_pub.publish(String(data=json.dumps(payload)))
 
     def _update_leveling(self) -> None:
         """
