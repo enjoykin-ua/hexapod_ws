@@ -65,6 +65,24 @@ ros2 launch hexapod_gazebo sim.launch.py world:='-s empty.sdf'
 4. **Bridge `ros_gz_bridge/parameter_bridge`** mit `config/bridge.yaml` —
    Phase 3: nur `/clock` (`GZ_TO_ROS`).
 
+## Welten & Sensor-Systeme (`worlds/`)
+
+Ein gz-Sensor rendert/publisht nur, wenn die **Welt** das passende System-Plugin lädt
+(`empty.sdf` allein reicht nicht):
+
+| Sensor-Typ | benötigtes Welt-Plugin | Welten mit dem Plugin |
+|---|---|---|
+| `imu` (A5 St.0) | `gz-sim-imu-system` | `empty_imu.sdf`, `ramp.sdf.xacro`, `slope.sdf.xacro` |
+| `contact` (Foot) | `gz-sim-contact-system` | dieselben (+ eingebaut in `empty.sdf`) |
+| **`camera` (Ph.4)** | **`gz-sim-sensors-system`** (ogre2) | **`empty_imu.sdf`, `ramp.sdf.xacro`** |
+
+> **Block I Phase 4:** Die Kamera (`hexapod.camera.xacro`) rendert nur mit
+> `gz-sim-sensors-system`. Ergänzt in `empty_imu.sdf` (direkter `sim.launch.py`-Default) **und**
+> `ramp.sdf.xacro` (die vom On-Demand-Sim-Stack via `ramp.launch.py` WIRKLICH geladene Welt).
+> Braucht ogre2-Rendering (Desktop-GPU) — der Pi baut kein Gazebo. Wer eine neue Kamera-Welt
+> anlegt (`step/trench/rubicon/…`), muss dieses Plugin dort ebenfalls ergänzen. Video-Kette +
+> Bridge + `web_video_server` liegen in `hexapod_bringup` (siehe dessen README).
+
 ## Reibungs- und Kontaktwerte (Foot-Kugeln)
 
 Die Reibung liegt **nicht** in diesem Paket, sondern in

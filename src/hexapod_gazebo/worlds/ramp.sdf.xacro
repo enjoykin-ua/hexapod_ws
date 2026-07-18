@@ -41,6 +41,13 @@
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
     <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <!-- Block I Phase 4: noetig, damit <sensor type="camera"> rendert/publisht.
+         Diese Welt ist die vom On-Demand-Sim-Stack WIRKLICH geladene (ramp_walk
+         -> ramp.launch.py expandiert dieses xacro als world:=<tempfile>), daher
+         muss das Sensors-System HIER stehen — nicht nur in empty_imu.sdf. -->
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>

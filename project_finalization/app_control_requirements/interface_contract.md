@@ -22,7 +22,8 @@
 | **v0.4** | §1 D-Pad-Vorzeichen verifiziert (echte App): D-Pad-Y invertiert → App negiert `AXIS_HAT_Y` (`axes[7]`). Fix app-seitig, NICHT `sign_dpad_y` (PS4-Fallback bleibt korrekt). Rest der Achsen/Buttons bestätigt. |
 | **v0.5** | Phase 3 (Lifecycle) festgezurrt: 4 Launcher-Services `/hexapod_bringup_start`/`_stop`/`_status`/`/hexapod_pi_shutdown` (§2a) + latched `/hexapod/bringup_running` (§3), alle `std_srvs/Trigger`. Bauch-Start (`auto_standup_on_start:=false`) → Aufstehen per `/hexapod_stand_up`. §6/§7 Phase-3-Punkte erledigt. |
 | **v0.6** | §7.4 geklärt (aus rosbridge-2.7.0-Quellcode): latched Topics kommen über rosbridge zur App — Auto-QoS-Match an `transient_local`-Publisher, deterministisch via explizitem `qos`-subscribe-Frame. **Kein ROS-Change.** Betrifft nur den **optionalen** Live-Push von `/hexapod/bringup_running` (Primärquelle bleibt `bringup_status`-Polling). |
-| **v0.7** (aktuell) | §5 (Video) festgezurrt für Phase 4: MJPEG via `web_video_server` :8080, `/camera/image_raw`, URL-Schema, 16:9 ~720p@15 + center-crop, `camera_enable` reserviert (Pi). §6 ergänzt: `/hexapod/alerts` (WARN+ aus `/rosout`), Set-Stance-direkt, Status-Publisher-Felder (verfügbare Tempos; Batterie gestrichen) — alle `[TBD-Phase 5]`. |
+| **v0.7** | §5 (Video) festgezurrt für Phase 4: MJPEG via `web_video_server` :8080, `/camera/image_raw`, URL-Schema, 16:9 ~720p@15 + center-crop, `camera_enable` reserviert (Pi). §6 ergänzt: `/hexapod/alerts` (WARN+ aus `/rosout`), Set-Stance-direkt, Status-Publisher-Felder (verfügbare Tempos; Batterie gestrichen) — alle `[TBD-Phase 5]`. |
+| **v0.8** (aktuell) | §5 präzisiert nach Phase-4-**ROS-Live-Verifikation**: **Host** = gleiche IP wie rosbridge (§0), nur Port 8080; **Verfügbarkeit** = Stream-Server läuft **im On-Demand-Stack** → Port 8080 erst **nach `/hexapod_bringup_start`** offen, App koppelt die Kamera-View an `/hexapod/bringup_running`; live gemessen **~11 Hz** (Render-Jitter, v1-ok). **Kein ROS-Change, kein neues Interface** — Klarstellung für den App-Bau (P4.7–P4.9). |
 
 ---
 
@@ -211,7 +212,7 @@ On-Screen-Toggles/Slider setzen `gait_node`-Parameter. Beispiele (vollständige 
 
 ---
 
-## 5. Video (Kanal 2, separat) — festgezurrt v0.7 (Phase 4)
+## 5. Video (Kanal 2, separat) — festgezurrt v0.7, präzisiert v0.8 (Phase 4, ROS-Seite live-verifiziert)
 
 **Nicht rosbridge** — eigener HTTP-Stream-Server.
 
@@ -219,11 +220,13 @@ On-Screen-Toggles/Slider setzen `gait_node`-Parameter. Beispiele (vollständige 
 |---|---|
 | **Protokoll (Erstwurf)** | **MJPEG** über `web_video_server` (`ros-jazzy-web-video-server`, Stock-Paket). Latenz ~100–300 ms (NF4-Erstwurf); Upgrade RTSP/H.264/WebRTC später. |
 | **Port** | **8080** (getrennt von rosbridge 9090). |
+| **Host** | **Gleiche IP wie rosbridge** (§0), **nur Port 8080** statt 9090 (Sim `Desktop-IP:8080` / real `Pi-IP:8080`). Die App leitet die Video-URL aus derselben Host-Eingabe ab wie die WebSocket-URL. |
 | **Image-Topic** | **`/camera/image_raw`** (`sensor_msgs/Image`). |
 | **Bildquelle** | Sim = Gazebo-Kamera-Sensor (vorne oben am Body, geradeaus); **real** = Raspi-Cam v1.3 (Pi, Phase 7) → **gleiches Topic**, Stream-Server + App **unverändert**. |
-| **URL-Schema** | `http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg` (Snapshot: `.../snapshot?topic=...`). `<host>` wie §0 (Sim `Desktop-IP` / real `Pi-IP`). |
-| **Auflösung/FPS** | 16:9, ~1280×720 @ ~15 fps (Sim; final justierbar). App zeigt **center-crop-to-fill** (Phone 19,5:9 → kein schwarzer Balken, minimaler Beschnitt; späterer In-App-Zoom optional). |
-| **Kamera an/aus** | **Phase 4 app-seitig** (App fordert Stream an / stoppt ihn). ROS-Node-Start/Stop (Strom/Wärme) = **Pi/Phase 7** — `camera_enable`-Service/Param **reserviert** (§6). |
+| **URL-Schema** | `http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg` (Snapshot gestrichen). Das ist die **rohe** MJPEG-URL (`multipart/x-mixed-replace`), die die App direkt lädt — **live gegen den Server verifiziert**. Die Index-Seite `http://<host>:8080/` (Topic-Liste, `stream_viewer`) ist nur ein HTML-Wrapper zum manuellen Testen. |
+| **Auflösung/FPS** | 16:9, 1280×720, Sensor `update_rate` 15; **live gemessen ~11 Hz** (Render-Jitter der gz-Sensors unter Last; für v1 „folgbar", NF4-ok, final justierbar). App zeigt **center-crop-to-fill** (Phone 19,5:9 → kein schwarzer Balken, minimaler Beschnitt; späterer In-App-Zoom optional). |
+| **Verfügbarkeit** | Der Stream-Server (`web_video_server`) läuft **im On-Demand-Stack** (`sim.launch.py`, kommt mit `bringup_start`) → Port 8080 ist **erst nach `/hexapod_bringup_start`** offen (davor Connection-refused). **App: Kamera-View an `/hexapod/bringup_running` koppeln** — keinen Stream laden/anzeigen, solange `false` (sonst Fehlbild/Timeout beim Connect). |
+| **Kamera an/aus** | **Phase 4 app-seitig** (App fordert Stream an / stoppt ihn = MJPEG-URL laden/entladen). ROS-Node-Start/Stop (Strom/Wärme) = **Pi/Phase 7** — `camera_enable`-Service/Param **reserviert** (§6). |
 
 ---
 

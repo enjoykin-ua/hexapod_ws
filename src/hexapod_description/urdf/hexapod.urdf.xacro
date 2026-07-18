@@ -12,6 +12,13 @@
        gz-IMU-Sensor-Block ist zusätzlich use_sim-geguarded (nur Sim). -->
   <xacro:arg name="enable_imu" default="true"/>
 
+  <!-- Block I Phase 4: Toggle für die Kamera (Video-Vollbild). Default true; bei
+       false kein camera_link/Sensor. camera_link bleibt sonst immer als tf-Frame
+       (auch auf HW = Raspi-Cam-Naht, Phase 7); der gz-Kamera-Sensor-Block ist
+       zusätzlich use_sim-geguarded (nur Sim). Bridge + web_video_server starten
+       im Launch nur bei enable_camera:=true. -->
+  <xacro:arg name="enable_camera" default="true"/>
+
   <!-- Phase 9 Stufe F: Sim/HW-Switch + Hardware-Parameter.
        Diese drei Args sind die "öffentliche Schnittstelle" des URDF-
        Moduls für Phase 9. Konsumiert werden sie in
@@ -151,6 +158,11 @@
   <!-- ===== IMU (Block A5 Stufe 0, conditional) ===== -->
   <xacro:if value="$(arg enable_imu)">
     <xacro:include filename="hexapod.imu.xacro"/>
+  </xacro:if>
+
+  <!-- ===== Kamera (Block I Phase 4, conditional) ===== -->
+  <xacro:if value="$(arg enable_camera)">
+    <xacro:include filename="hexapod.camera.xacro"/>
   </xacro:if>
 
 </robot>

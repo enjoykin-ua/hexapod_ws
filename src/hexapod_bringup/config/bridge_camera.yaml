@@ -1,0 +1,29 @@
+# ros_gz_bridge config für die Kamera (Block I Phase 4).
+#
+# Conditional in sim.launch.py geladen wenn enable_camera:=true.
+# Mappt den Gazebo-Kamera-Sensor-Output auf /camera/image_raw (+ camera_info),
+# das der web_video_server (:8080) als MJPEG serviert.
+#
+# Pipeline:
+#   gz.msgs.Image (auf /camera/sim) -> bridge ->
+#     sensor_msgs/Image (auf /camera/image_raw) -> web_video_server -> App
+#
+# Der gz_topic_name kommt aus dem <topic>-Element in
+# hexapod_description/urdf/hexapod.camera.xacro.
+#
+# ⚠️ camera_info: gz publisht den CameraInfo-Topic konventionell als
+# <image-topic>/camera_info, also /camera/sim/camera_info. Beim ersten Live-Lauf
+# mit `gz topic -l | grep camera` gegenchecken (Verifizierungs-Punkt Plan §8).
+# Für den MJPEG-Stream (T4.1–T4.3) ist camera_info NICHT nötig — nur relevant für
+# spätere Cam-Kalibrierung/Intrinsics (reale Raspi-Cam, Phase 7).
+
+- ros_topic_name: /camera/image_raw
+  gz_topic_name: /camera/sim
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+- ros_topic_name: /camera/camera_info
+  gz_topic_name: /camera/sim/camera_info
+  ros_type_name: sensor_msgs/msg/CameraInfo
+  gz_type_name: gz.msgs.CameraInfo
+  direction: GZ_TO_ROS

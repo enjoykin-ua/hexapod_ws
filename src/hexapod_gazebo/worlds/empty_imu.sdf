@@ -39,6 +39,16 @@
       filename="gz-sim-imu-system"
       name="gz::sim::systems::Imu">
     </plugin>
+    <!-- Block I Phase 4: nötig, damit <sensor type="camera"> rendert/publisht.
+         Für den DIREKTEN sim.launch.py-Aufruf (Default-Welt). Der On-Demand-
+         Stack lädt stattdessen ramp.sdf.xacro (dort separat ergänzt). Braucht
+         ogre2-Rendering — auf dem Dev-Desktop (GPU) unkritisch; der Pi baut
+         kein Gazebo. -->
+    <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>

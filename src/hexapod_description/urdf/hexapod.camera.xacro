@@ -1,0 +1,76 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    Kamera (Block I Phase 4 — Video-Vollbild). Muster: hexapod.imu.xacro
+    (strukturell 1:1 analog).
+
+    - camera_link + camera_joint existieren IMMER (tf-Frame, auch auf HW).
+    - Der gz-Kamera-Sensor-Block ist use_sim-geguarded (nur Sim). Auf HW liefert
+      die Raspi-Cam v1.3 /camera/image_raw direkt (Phase 7) -> gleiches Topic,
+      Stream-Server + App unveraendert.
+    - Toggle via xacro-arg enable_camera (conditional include in hexapod.urdf.xacro).
+
+    Sim-Pipeline (spiegelt hexapod.imu.xacro):
+      gz-Kamera-Sensor (Topic /camera/sim) -> ros_gz_bridge -> sensor_msgs/Image
+      auf /camera/image_raw -> web_video_server (:8080, MJPEG) -> App.
+
+    WICHTIG: Der gz-Kamera-Sensor rendert nur, wenn die Welt das
+    gz-sim-sensors-system-Plugin laedt (analog gz-sim-imu-system fuer die IMU).
+    ramp.sdf.xacro (On-Demand-Stack) + empty_imu.sdf (direkter sim.launch.py)
+    haben es dafuer ergaenzt bekommen.
+
+    Mount: vorne oben am Body, geradeaus (wie am echten Hexapod).
+      x = vordere Body-Kante (body_length/2), z = Body-Oberkante (body_height/2).
+      rpy 0 0 0 = Blickrichtung +X. gz-Kamera-Konvention: optische Achse = +X,
+      Bild-Oben = +Z (REP-103 body frame), also aufrechtes Vorwaerts-Bild.
+    Die body_*-Properties stammen aus hexapod_physical_properties.xacro, das im
+    Top-URDF VOR diesem Include expandiert wird -> Properties global sichtbar.
+  -->
+
+  <xacro:property name="cam_x" value="${body_length/2}"/>
+  <xacro:property name="cam_z" value="${body_height/2}"/>
+
+  <!-- camera_link: passiver Sensor-Frame. Kleine Dummy-Inertia, da der Link bei
+       aktivem Sensor NICHT in base_link gelumpt wird (preserve/lumping unten). -->
+  <link name="camera_link">
+    <xacro:box_inertia mass="0.01" x="0.02" y="0.02" z="0.02"/>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="${cam_x} 0 ${cam_z}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- gz-Kamera-Sensor: nur im Sim-Pfad. preserve/lumping am JOINT (sonst lumpt
+       gz den Link in base_link und der Sensor hat keinen Frame), Sensor am LINK. -->
+  <xacro:if value="$(arg use_sim)">
+    <gazebo reference="camera_joint">
+      <preserveFixedJoint>true</preserveFixedJoint>
+      <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
+
+    <gazebo reference="camera_link">
+      <sensor name="camera_sensor" type="camera">
+        <always_on>1</always_on>
+        <update_rate>15</update_rate>
+        <visualize>false</visualize>
+        <topic>/camera/sim</topic>
+        <camera>
+          <horizontal_fov>1.089</horizontal_fov>   <!-- ~62 Grad -->
+          <image>
+            <width>1280</width>
+            <height>720</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>50</far>
+          </clip>
+        </camera>
+      </sensor>
+    </gazebo>
+  </xacro:if>
+
+</robot>

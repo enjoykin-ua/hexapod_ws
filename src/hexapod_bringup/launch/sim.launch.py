@@ -68,6 +68,9 @@ def generate_launch_description() -> LaunchDescription:
     bridge_imu_config = PathJoinSubstitution([
         pkg_hexapod_bringup, 'config', 'bridge_imu.yaml',
     ])
+    bridge_camera_config = PathJoinSubstitution([
+        pkg_hexapod_bringup, 'config', 'bridge_camera.yaml',
+    ])
     worlds_dir = PathJoinSubstitution([pkg_hexapod_gazebo, 'worlds'])
 
     declare_urdf = DeclareLaunchArgument(
@@ -139,6 +142,17 @@ def generate_launch_description() -> LaunchDescription:
             'Sensor, kein /imu/data.'
         ),
     )
+    declare_enable_camera = DeclareLaunchArgument(
+        'enable_camera',
+        default_value='true',
+        description=(
+            'Block I Phase 4: Kamera aktivieren. Bei true: gz-Kamera-Sensor (Sim), '
+            'Kamera-Bridge (/camera/image_raw) und web_video_server (:8080, MJPEG) '
+            'starten. Bei false: kein camera_link/Sensor, kein Video-Kanal. Der '
+            'On-Demand-Sim-Stack (ramp_walk -> ramp.launch.py) reicht dieses Arg '
+            'NICHT durch -> es faellt hier auf true zurueck (gewollt).'
+        ),
+    )
 
     # robot_description: xacro is evaluated at launch time.
     # ParameterValue with value_type=str prevents rclpy from trying to
@@ -150,6 +164,7 @@ def generate_launch_description() -> LaunchDescription:
             'xacro ', LaunchConfiguration('urdf'),
             ' enable_foot_contact:=', LaunchConfiguration('enable_foot_contact'),
             ' enable_imu:=', LaunchConfiguration('enable_imu'),
+            ' enable_camera:=', LaunchConfiguration('enable_camera'),
         ]),
         value_type=str,
     )
@@ -270,6 +285,39 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration('enable_imu')),
     )
 
+    # Kamera-Bridge: gz.msgs.Image (/camera/sim) -> sensor_msgs/Image
+    # (/camera/image_raw) + camera_info. Conditional auf enable_camera
+    # (Block I Phase 4). Muster = imu_bridge mit bridge_camera.yaml.
+    camera_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='ros_gz_camera_bridge',
+        output='screen',
+        parameters=[{
+            'config_file': bridge_camera_config,
+            'use_sim_time': True,
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_camera')),
+    )
+
+    # web_video_server (Stock-Paket ros-jazzy-web-video-server): serviert jedes
+    # Image-Topic als MJPEG unter :8080, address 0.0.0.0 (vom Handy erreichbar).
+    #   http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg
+    # Conditional auf enable_camera. Laeuft im On-Demand-Sim-Stack mit, da das
+    # Image-Topic erst mit Gazebo existiert (Plan §1e). Kein use_sim_time noetig
+    # (reines Re-Encoding, keine Zeit-Semantik).
+    web_video_server = Node(
+        package='web_video_server',
+        executable='web_video_server',
+        name='web_video_server',
+        output='screen',
+        parameters=[{
+            'port': 8080,
+            'address': '0.0.0.0',
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_camera')),
+    )
+
     # --- Controller spawners (each is a one-shot node) ---
     # The spawner loads, configures and activates a controller via the
     # /controller_manager/spawner service, then exits. We chain them via
@@ -329,6 +377,7 @@ def generate_launch_description() -> LaunchDescription:
         declare_spawn_pitch_deg,
         declare_enable_foot_contact,
         declare_enable_imu,
+        declare_enable_camera,
         set_gz_resource_path,
         gz_sim,
         robot_state_publisher,
@@ -338,6 +387,8 @@ def generate_launch_description() -> LaunchDescription:
         foot_contact_publisher,
         imu_bridge,
         imu_monitor,
+        camera_bridge,
+        web_video_server,
         after_spawn_start_jsb,
         after_jsb_start_leg_controllers,
     ])

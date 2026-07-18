@@ -73,6 +73,27 @@
 - **Validieren:** `app_teleop.launch.py` + Sim-Walk → `joy_ws_test_client.py` → Roboter fährt; kein
   Doppel-`/joy` (app-Modus lässt `joy_node` weg). Phasen-Doku: `.../phase_2_control_baseline_*`.
 
+### Kamera / Video-Pipeline ändern (Block I Phase 4 — MJPEG-Vollbild)
+- **Naht = Contract §5** (`interface_contract.md`, v0.7): MJPEG via `web_video_server` :8080,
+  `/camera/image_raw`, URL `http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg`.
+  Ändert sich Port/Topic/Protokoll → dort Version hochzählen.
+- **Kette (Sim):** gz-Kamera-Sensor (`hexapod.camera.xacro`, Topic `/camera/sim`) → `ros_gz_bridge`
+  (`bridge_camera.yaml`) → `/camera/image_raw` → `web_video_server` (:8080, MJPEG) → App.
+- **ROS-Dateien:** `hexapod_description/urdf/hexapod.camera.xacro` (+ `enable_camera`-Arg/Include in
+  `hexapod.urdf.xacro`), `hexapod_bringup/config/bridge_camera.yaml`,
+  `hexapod_bringup/launch/sim.launch.py` (`camera_bridge` + `web_video_server`-Node, conditional
+  `enable_camera`, Default `true`).
+- **⚠️ Welt braucht das `gz-sim-sensors-system`-Plugin** (analog `gz-sim-imu-system`), sonst rendert
+  die Kamera nicht. Ergänzt in `worlds/ramp.sdf.xacro` (die vom **On-Demand-Stack** WIRKLICH geladene
+  Welt: `bringup_ondemand mode:=sim` → `ramp_walk` → `ramp.launch.py` überschreibt die Welt) **und**
+  `worlds/empty_imu.sdf` (direkter `sim.launch.py`-Default). Jede weitere Kamera-Welt braucht es auch.
+- **HW (Phase 7):** `use_sim=false` → kein gz-Sensor; `camera_link` bleibt tf-Frame; die Raspi-Cam v1.3
+  publisht `/camera/image_raw` direkt → Bridge/Stream/App unverändert. ROS-Kamera-an/aus (`camera_enable`)
+  = reserviert (Contract §6), erst Pi.
+- **Validieren:** `feedback_urdf_refactor_full_smoke` — nach dem xacro-Umbau xacro-Parse + Sim-Spawn +
+  Walking-Smoke, nicht nur Build. Live: `ros2 topic hz /camera/image_raw` (~15 Hz) + Browser Desktop/Handy.
+  Doku: `.../phase_4_video_shell_{plan,progress,test_commands}.md`.
+
 ### Teleop-Mapping / neue Controller-Funktion
 - **Dateien:** `hexapod_teleop/config/ps4_usb.yaml` (Indizes/Skalen) · `joy_to_twist.py` (Logik).
 - **Falle:** `joy_to_twist` publisht beim Start **einmalig** `/cmd_body_height = body_height_init`

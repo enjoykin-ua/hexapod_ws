@@ -56,6 +56,32 @@ Voll-Anleitung: [`phase_2_control_baseline_test_commands.md`](../../project_fina
 > **und** Handy-Hotspot (real HW) **identisch** (D2/D4). Der `use_sim_time`-Arg ist der einzige
 > Unterschied: `true` in der Sim (gegen `/clock`), `false` auf dem Pi.
 
+## Block I — Video-Pipeline (Phase 4, Kamera → MJPEG)
+
+Zweiter Kanal **neben** rosbridge (Video ist **nicht** rosbridge — eigener HTTP-Stream-Server,
+Contract §5). Kette in der Sim:
+
+```
+gz-Kamera-Sensor            (hexapod_description/urdf/hexapod.camera.xacro, Topic /camera/sim)
+  → ros_gz_bridge           (config/bridge_camera.yaml)  → /camera/image_raw (sensor_msgs/Image)
+  → web_video_server :8080  (MJPEG)  → Handy/Desktop-Browser
+```
+URL: `http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg` (`<host>` = Desktop-IP in Sim,
+Pi-IP real). `sim.launch.py`-Arg **`enable_camera`** (Default `true`) startet `camera_bridge` +
+`web_video_server` conditional und reicht `enable_camera` an die xacro durch.
+
+> **⚠️ Welt braucht `gz-sim-sensors-system`** (analog `gz-sim-imu-system`), sonst rendert der
+> Kamera-Sensor nicht. Der On-Demand-Stack (`bringup_ondemand mode:=sim` → `ramp_walk` →
+> `ramp.launch.py`) lädt `hexapod_gazebo/worlds/ramp.sdf.xacro` — dort **und** in `empty_imu.sdf`
+> (direkter `sim.launch.py`-Default) ist das Plugin ergänzt. `enable_camera` wird von
+> `ramp.launch.py` **nicht** durchgereicht → fällt korrekt auf den `sim.launch.py`-Default `true` zurück.
+
+> **Runtime-Dependency:** `sudo apt install -y ros-jazzy-web-video-server` (Stock-Paket; kein
+> Build-Dep — ohne Install startet nur der Node nicht). **HW (Phase 7):** `use_sim=false` → kein
+> gz-Sensor; `camera_link` bleibt tf-Frame; die Raspi-Cam v1.3 publisht `/camera/image_raw` direkt.
+
+Test-Anleitung: [`phase_4_video_shell_test_commands.md`](../../project_finalization/app_control_requirements/phase_4_video_shell_test_commands.md).
+
 ## Zweck
 
 Ab Phase 4 ist dieses Paket der **Standard-Launcher für die Sim**
