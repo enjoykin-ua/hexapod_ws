@@ -244,16 +244,25 @@ zeigt das Gazebo-Bild vollflächig.
 ```
 (analog zu `enable_imu` / `hexapod.imu.xacro`, aktuell Z. ~152–154).
 
-### Schritt 3 — Welt mit Sensors-System (`hexapod_gazebo/worlds/empty_cam_imu.sdf`)
-**Muster:** `empty_imu.sdf` kopieren, **den Sensors-System-Plugin ergänzen** (nötig, damit
-`<sensor type="camera">` rendert — analog zum imu-system fürs IMU):
+### Schritt 3 — Sensors-System in die Welt(en), die der On-Demand-Stack WIRKLICH lädt
+⚠️ **Kette geprüft (kritisch!):** `bringup_ondemand mode:=sim → ramp_walk → ramp.launch.py` —
+und **`ramp.launch.py` überschreibt die Welt** mit der zur Laufzeit expandierten
+`hexapod_gazebo/worlds/ramp.sdf.xacro` (slope_deg=0), die es als `world:=<tempfile>` an
+`sim.launch.py` gibt. **Die Default-Welt in `sim.launch.py` greift im On-Demand-Pfad NICHT.**
+`ramp.sdf.xacro` lädt `gz-sim-imu-system` + `gz-sim-contact-system`, aber **NICHT** das
+Sensors-System → die Kamera bliebe stumm.
+
+**Fix — in `hexapod_gazebo/worlds/ramp.sdf.xacro`** (die tatsächlich geladene Welt) den
+Sensors-System-Plugin ergänzen (neben den vorhandenen imu-/contact-Plugins):
 ```xml
 <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
   <render_engine>ogre2</render_engine>
 </plugin>
 ```
-Welt-Name bleibt `"empty"` (damit `/world/empty/...`-Topics stabil bleiben). Behält
-imu-system + contact-system → IMU + Fußkontakt laufen unverändert.
+Für den **direkten** `sim.launch.py`-Aufruf (ohne ramp) dasselbe in `empty_imu.sdf` (bzw. eine
+`empty_cam_imu.sdf`). **Generell: jede Welt, die mit Kamera gefahren wird, braucht das
+Sensors-System** (auch `step/trench/rubicon/slope.sdf.xacro`, falls dort später gefahren wird).
+imu- + contact-system bleiben unverändert.
 
 ### Schritt 4 — Bridge-Config (`hexapod_bringup/config/bridge_camera.yaml`)
 **Muster:** `bridge_imu.yaml`. Neu:
@@ -271,12 +280,15 @@ imu-system + contact-system → IMU + Fußkontakt laufen unverändert.
 ```
 
 ### Schritt 5 — Wiring in `hexapod_bringup/launch/sim.launch.py`
-**Muster:** die `enable_imu` + `imu_bridge`-Behandlung (dort schon vorhanden). Ergänzen:
+**Muster:** die `enable_imu` + `imu_bridge`-Behandlung (dort schon vorhanden). `sim.launch.py`
+**läuft in der Ramp-Kette** (`ramp.launch.py` inkludiert es) → die Nodes hier greifen auch im
+On-Demand-Pfad. Ergänzen:
 1. `declare_enable_camera` (default `'true'`).
-2. Default-Welt auf **`empty_cam_imu.sdf`** (statt `empty_imu.sdf`).
-3. `enable_camera` an den xacro-`Command` durchreichen: `' enable_camera:=', LaunchConfiguration('enable_camera')`.
-4. **camera_bridge**-Node (conditional `IfCondition(enable_camera)`), Muster = `imu_bridge` mit `bridge_camera.yaml`.
-5. **web_video_server**-Node (conditional `enable_camera`):
+2. `enable_camera` an den xacro-`Command` durchreichen: `' enable_camera:=', LaunchConfiguration('enable_camera')`.
+3. **camera_bridge**-Node (conditional `IfCondition(enable_camera)`), Muster = `imu_bridge` mit `bridge_camera.yaml`.
+4. **web_video_server**-Node (conditional `enable_camera`):
+> ⚠️ **KEINE** Default-Welt-Änderung in `sim.launch.py` — die greift im On-Demand-Pfad nicht
+> (ramp überschreibt die Welt). Das Sensors-System kommt aus der **Welt-Datei** (Schritt 3).
 ```python
 Node(package='web_video_server', executable='web_video_server',
      name='web_video_server', output='screen',
