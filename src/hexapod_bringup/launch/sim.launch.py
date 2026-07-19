@@ -323,6 +323,18 @@ def generate_launch_description() -> LaunchDescription:
     # /controller_manager/spawner service, then exits. We chain them via
     # OnProcessExit so each stage only fires once the prerequisite is up.
 
+    # Grosszuegige Timeouts: auf schweren Welten (z.B. Rubicon-Heightmap +
+    # Kamera-Rendering) initialisiert das gz_ros2_control-Hardware-Interface
+    # langsam. Der JSB-Spawner feuert direkt nach dem Spawn -> ohne diese
+    # Timeouts lief die Aktivierung in den Default-5s-Switch-Timeout (JSB blieb
+    # inaktiv -> kein /joint_states -> kein Auto-Standup). --switch-timeout 30
+    # laesst den Spawner auf die Hardware warten; harmlos fuer schnelle Welten
+    # (die aktivieren in <1s, der Timeout wird nie erreicht).
+    _spawner_timeouts = [
+        '--controller-manager-timeout', '60',
+        '--switch-timeout', '30',
+    ]
+
     spawn_jsb = Node(
         package='controller_manager',
         executable='spawner',
@@ -330,6 +342,7 @@ def generate_launch_description() -> LaunchDescription:
         arguments=[
             'joint_state_broadcaster',
             '--controller-manager', '/controller_manager',
+            *_spawner_timeouts,
         ],
         output='screen',
     )
@@ -342,6 +355,7 @@ def generate_launch_description() -> LaunchDescription:
             arguments=[
                 f'leg_{i}_controller',
                 '--controller-manager', '/controller_manager',
+                *_spawner_timeouts,
             ],
             output='screen',
         )

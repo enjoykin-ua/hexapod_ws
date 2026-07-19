@@ -1,0 +1,20 @@
+# Block I — bringup_launcher-Config für die SIMULATION in der RUBICON-Welt.
+#
+# Wird von always_on.launch.py mode:=sim scene:=rubicon geladen. Identisch zu
+# launcher.sim.yaml, nur bringup_launch_args reicht scene:=rubicon durch → der
+# On-Demand-Stack (bringup_ondemand) lädt die Rubicon-Rauhterrain-Welt + Kamera
+# + Terrain-Regelkreise scharf (rubicon_walk + presets/rubicon.yaml).
+#
+# Shutdown-Guard identisch zu launcher.sim.yaml (Dev-Host = nur Dry-Run, dreifach
+# geguarded). Bei Guard-Änderungen BEIDE sim-Configs nachziehen.
+bringup_launcher:
+  ros__parameters:
+    bringup_launch_pkg: hexapod_bringup
+    bringup_launch_file: bringup_ondemand.launch.py
+    # gait_delay:=30 (statt 12): die Rubicon-Heightmap + Kamera lädt langsam →
+    # gait_node erst nach fliessenden /joint_states starten, sonst gibt der
+    # Auto-Standup nach 10s auf (JSB-Aktivierung dauert auf der schweren Welt).
+    bringup_launch_args: ["mode:=sim", "scene:=rubicon", "gait_delay:=30.0"]
+    enable_os_shutdown: true
+    pi_hostname: ''                   # leer → matcht keinen Host → Dev nie Poweroff
+    shutdown_command: 'sudo shutdown -h now'

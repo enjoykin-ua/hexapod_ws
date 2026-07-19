@@ -49,6 +49,8 @@ def _setup(context, *args, **kwargs):
     """Mode-abhängig den passenden Stack zusammenstellen (sim | real)."""
     pkg_bringup = get_package_share_directory('hexapod_bringup')
     ramp_walk_launch = os.path.join(pkg_bringup, 'launch', 'ramp_walk.launch.py')
+    rubicon_walk_launch = os.path.join(
+        pkg_bringup, 'launch', 'rubicon_walk.launch.py')
     real_launch = os.path.join(pkg_bringup, 'launch', 'real.launch.py')
     gait_launch = os.path.join(
         get_package_share_directory('hexapod_gait'), 'launch', 'gait.launch.py')
@@ -62,17 +64,32 @@ def _setup(context, *args, **kwargs):
     mode = LaunchConfiguration('mode').perform(context)
     controller = LaunchConfiguration('controller').perform(context)
     gait_delay = float(LaunchConfiguration('gait_delay').perform(context))
+    scene = LaunchConfiguration('scene').perform(context)
 
     if mode == 'sim':
-        # ramp_walk bringt Gazebo + Spawn + gait (mit eigenem gait_delay-Timer).
-        walk = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(ramp_walk_launch),
-            launch_arguments={
-                'slope_deg': '0.0',
-                'auto_standup_on_start': 'false',
-                'gait_delay': str(gait_delay),
-            }.items(),
-        )
+        # Scene wählt die Sim-Welt (Default flache Rampe). rubicon = Rauhterrain
+        # + Kamera + Terrain-Regelkreise scharf (rubicon_walk lädt das Preset).
+        if scene == 'rubicon':
+            walk = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(rubicon_walk_launch),
+                launch_arguments={
+                    'auto_standup_on_start': 'false',
+                    'gait_delay': str(gait_delay),
+                }.items(),
+            )
+        elif scene in ('ramp', 'flat', ''):
+            # ramp_walk bringt Gazebo + Spawn + gait (mit eigenem gait_delay-Timer).
+            walk = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(ramp_walk_launch),
+                launch_arguments={
+                    'slope_deg': '0.0',
+                    'auto_standup_on_start': 'false',
+                    'gait_delay': str(gait_delay),
+                }.items(),
+            )
+        else:
+            raise RuntimeError(
+                f'bringup_ondemand: unbekannte scene {scene!r} (ramp|rubicon)')
         teleop = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(teleop_launch),
             launch_arguments={
@@ -119,6 +136,13 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             'mode', default_value='sim',
             description='sim = Gazebo (Desktop) | real = HW-Stack (Pi).',
+        ),
+        DeclareLaunchArgument(
+            'scene', default_value='ramp',
+            description=(
+                'Sim-Welt (nur mode:=sim): ramp = flache Rampe (Default) | '
+                'rubicon = Rauhterrain + Kamera + Terrain-Regelkreise scharf.'
+            ),
         ),
         DeclareLaunchArgument(
             'controller', default_value='ps4_usb',

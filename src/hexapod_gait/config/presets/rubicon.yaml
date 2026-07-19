@@ -1,0 +1,38 @@
+# =============================================================================
+# Hexapod gait_node Preset — "Rubicon" (Sim-Rauhterrain, Block I scene:=rubicon)
+# =============================================================================
+#
+# Schaltet die Terrain-Regelkreise ab dem Start SCHARF, damit der Roboter in der
+# Rubicon-Welt (echtes Gelände mit Höhen/Tiefen) laufen kann — OHNE dass man erst
+# in der App etwas einschalten muss. Wird vom rubicon_walk.launch.py als
+# `params_file` an gait.launch.py gereicht.
+#
+# NUR die Enables + leveling_mode. Gains/Schwellen bleiben bewusst auf den
+# Code-Sim-Defaults (nicht die HW-getunten hw_terrain-Werte). Die Code-Defaults
+# bleiben false (opt-in) — scharf wird ausschliesslich hier im Preset.
+#
+# ⚠️ NICHT setzen: use_sim_time / auto_standup_on_start / robot_description —
+# die kommen aus dem Launch; params_file GEWINNT (gait.launch.py Merge-Reihenfolge)
+# und wuerde sie sonst ueberschreiben.
+#
+# ⚠️ SICHERHEIT (CLAUDE.md §9): Regelkreise ab Start scharf — in der Sim
+# unkritisch. Waehrend Aufstehen/Hinsetzen/Reposition sind sie state-gated inaktiv.
+#
+# ⚠️ slip_detection_enable (Kanten-Freeze): kann auf Rubicon-Abhaengen triggern
+# und den Roboter stoppen. Bewusst an (User-Wunsch "alle Sachen"), aber in der
+# App live abschaltbar, falls es beim Laufen stoert.
+
+/gait_node:
+  ros__parameters:
+    # --- IMU / Body-Leveling (Hang folgen / horizontal halten) ----------------
+    leveling_enable: true
+    leveling_mode: auto          # STANDING horizontal, WALKING folgt dem Hang
+
+    # --- Kipp-/Sturz-Erkennung (Safe-State) -----------------------------------
+    tip_detection_enable: true
+
+    # --- S4 Fusskontakt-Closed-Loop (Taster/Contact) --------------------------
+    adaptive_touchdown_enable: true    # Fuesse reichen nach unten bis Bodenkontakt
+    adaptive_stand_enable: true        # Stand passt sich dem Terrain an
+    sensor_plausibility_enable: true   # Sensor-Fehler maskieren (Fail-Safe)
+    slip_detection_enable: true        # Freeze an Kante/Abgrund (s.o. — App-toggelbar)

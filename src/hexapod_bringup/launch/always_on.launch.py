@@ -46,20 +46,37 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+def _launcher_cfg(pkg_supervisor, mode, scene):
+    """
+    Launcher-Config je (mode, scene) wählen.
+
+    Eine scene-spezifische yaml ist zuverlässiger als ein Param-Dict-Override:
+    der spezifische Node-Key (``bringup_launcher:``) schlägt sonst in rcl den
+    Wildcard des Dicts (unabhängig von der Reihenfolge). ``scene:=rubicon`` (nur
+    sim) → ``launcher.sim.rubicon.yaml`` reicht ``scene:=rubicon`` an den
+    On-Demand-Stack durch (Rubicon-Welt + Kamera + Terrain-Regelkreise scharf).
+    """
+    if mode == 'sim' and scene == 'rubicon':
+        name = 'launcher.sim.rubicon.yaml'
+    else:
+        name = f'launcher.{mode}.yaml'
+    return os.path.join(pkg_supervisor, 'config', name)
+
+
 def _setup(context, *args, **kwargs):
     """Always-On-Schicht mode-abhängig bauen (rosbridge + supervisor + launcher)."""
     mode = LaunchConfiguration('mode').perform(context)
     if mode not in ('sim', 'real'):
         raise RuntimeError(f'always_on: unbekannter mode {mode!r} (sim|real)')
     use_sim_time = 'true' if mode == 'sim' else 'false'
+    scene = LaunchConfiguration('scene').perform(context)
 
     pkg_bringup = get_package_share_directory('hexapod_bringup')
     pkg_supervisor = get_package_share_directory('hexapod_supervisor')
     rosbridge_launch = os.path.join(pkg_bringup, 'launch', 'rosbridge.launch.py')
     supervisor_launch = os.path.join(
         pkg_supervisor, 'launch', 'supervisor.launch.py')
-    launcher_cfg = os.path.join(
-        pkg_supervisor, 'config', f'launcher.{mode}.yaml')
+    launcher_cfg = _launcher_cfg(pkg_supervisor, mode, scene)
 
     rosbridge = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(rosbridge_launch),
@@ -92,6 +109,14 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             'mode', default_value='sim',
             description='sim = Desktop/Gazebo | real = Raspberry Pi (HW).',
+        ),
+        DeclareLaunchArgument(
+            'scene', default_value='ramp',
+            description=(
+                'Sim-Welt für den On-Demand-Stack (nur mode:=sim): '
+                'ramp = flache Rampe (Default) | rubicon = Rauhterrain + Kamera '
+                '+ Terrain-Regelkreise scharf.'
+            ),
         ),
         OpaqueFunction(function=_setup),
     ])
