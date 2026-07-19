@@ -1,28 +1,27 @@
 # Aktive Phase
 
-**Aktuell:** **Hardware-Bring-up** — **Phase 12 (Pi-Plattform) ✅ Kern fertig**:
-ROS2-Stack baut + läuft headless am Pi (`hexapod-pi`, Loopback, alle Controller
-active), Provisioning-Skript + Recovery-Pfad stehen, Servo2040 am Pi erkannt
-(`/dev/servo2040`). Als Nächstes: **erster echter HW-Start am Pi**
-(`loopback_mode:=false`, Phase 13 — **aufgebockt**, §9) bzw. **Elektronik** (Phase 8 / D2).
-_(Phase-12-Detail: [`docs_raspi/phase_12_progress.md`](docs_raspi/phase_12_progress.md);
-deferiert: D DDS/RViz, G.2 rsync.)_
-**Davor abgeschlossen (Sim/Bench, 2026-06):** Lokomotion-Kern, Teleop, Lauf-Konfiguration
-(Stance-Modi) und Show-Pose — Details in [`project_finalization/`](project_finalization/00_backlog.md)
-(Blöcke B/C + Stance-Modi + B4).
+**Aktuell:** **Block I — Mobile-Teleop-App** (Handy + Razer Kishi steuert den Roboter).
+**Der Roboter selbst ist FERTIG:** HW + Elektrik (2S LiPo) komplett verdrahtet + in Betrieb, läuft
+**untethered im Gelände** auf der echten Hardware — Gangarten, Stance-Modi, Hang-Lauf auf/ab,
+Stufen hoch/runter, Hinsetzen/Aufstehen, IMU-Balance, alles was der PS4-Controller bedient hat.
+Kamera (Raspi-Cam) + Audio (MAX98357A) sind **verkabelt + hello-world-in-Betrieb**; offen ist deren
+ROS-/App-Integration (Phase 7). **Aktuelle Arbeit = App + Feature-Erweiterungen:** Block-I-App
+Phasen 1–5 fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel), **Phase 6
+(E-Stop + Recovery) als Nächstes**, danach 7 (Audio + echte Cam am Roboter) + 8 (Politur).
+Detail: [`project_finalization/app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md)
+· auch: Rubicon-Scene für den App-Flow, Video-Pipeline, Config-Manifest.
+_(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi/phase_12_progress.md).)_
 
 > **📚 Projekt-Referenz (Architektur, AI-Navigation, Tools):** [`project_architecture/`](project_architecture/00_overview.md)
 > **🗂️ Finalisierungs-Backlog (offene Stages A–E):** [`project_finalization/00_backlog.md`](project_finalization/00_backlog.md)
 > **🕘 Retros, Übergaben, ausführliche Begründungen:** [`PHASE_NOTES.md`](PHASE_NOTES.md)
 
-> **Wo stehen wir — kurz:** Nach den Bench-Phasen (7–11) lief die Arbeit nicht streng linear in
-> „Phase 12/13", sondern aufgrund von Implementierungs-Findings im **Finalisierungs-Block-System**
-> (`project_finalization/`, Blöcke A–E). Dort wurden der **Lokomotion-Kern** (Hinsetzen, Gangarten,
-> Show-Pose), der **Teleop** (USB+BT, Live-Verstellung) und die **Lauf-Konfiguration** (Stance-Modi
-> statt stufenloser Höhe) fertig — alles in Sim, teils aufgebockt. Der Cross-Phase-Thread
-> `servo_real_cal` hat parallel Cal + Safety + HW-Walking-aufgebockt erledigt. **Was bleibt: die
-> echte Hardware-Plattform** — Pi-Portierung (Phase 12) und Elektronik (Phase 8) — und dann der
-> **Voll-Bringup** (Phase 13) auf dem fahrbereiten Roboter.
+> **Wo stehen wir — kurz:** Der **Roboter ist fahrbereit und läuft untethered** (HW + Elektrik +
+> Pi + Lokomotion + IMU-Balance komplett, im Gelände getestet — Gangarten, Stance, Hang auf/ab,
+> Sit/Stand, alles was der PS4-Controller kann). Die frühere „Weg-nach-vorne"-Liste (Pi-Plattform,
+> Elektronik Phase 8, Voll-Bringup Phase 13) ist damit **abgeschlossen**. Die aktuelle Arbeit läuft
+> im **Block I (Mobile-Teleop-App)**: das Handy ersetzt den PS4-Controller und bringt Bildschirm,
+> Video, Status-Overlay, Config-Panel und Lifecycle dazu — Phasen 1–5 fertig, 6–8 offen (s. u.).
 
 ---
 
@@ -45,19 +44,16 @@ deferiert: D DDS/RViz, G.2 rsync.)_
 | # | Name | Datei | Status |
 |---|---|---|---|
 | 7 | Servo2040 Firmware | `docs_raspi/phase_7_servo2040_fw.md` | 🟢 abgeschlossen (2026-05-14) |
-| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | ⏸️ **offen — kommt mit dem HW-Bring-up** (Block D2) |
+| 8 | Strom- & Elektronik-Bench | `docs_raspi/phase_8_electronics_bench.md` | 🟢 abgeschlossen (2S-LiPo-Versorgung + Rails + Absicherung/Kill-Switch verbaut; Roboter läuft mit Akku) |
 | 8b | Sim+HW Visual-Mirror (optional) | `docs_raspi/phase_8b_sim_hw_mirror.md` | ⚪ optional |
 | 9 | ROS2-Plugin `hexapod_hardware` | `docs_raspi/phase_9_hexapod_hardware.md` | 🟢 abgeschlossen (2026-05-16) |
 | 10 | Single-Leg Bring-up + Kalibrierung | `docs_raspi/phase_10_single_leg.md` | 🟢 abgeschlossen (2026-05-19) |
 | 11 | Param-GUI (rqt_reconfigure) | `docs_raspi/phase_11_param_gui.md` | 🟢 abgeschlossen (2026-05-21) |
 
-> **Phase 12/13 — Umstrukturierung:** Phase 13 („Desktop-Pre-Bringup → Voll-Bringup") wurde **nicht
-> als eine lineare Phase** abgearbeitet. **Stage 0** (Boot → Aufstehen → stabil am Boden, inkl.
-> Femur-Umbau + Relay) ist erledigt; die geplante Stage 1 (Lauf-Optimierung) und alles Weitere
-> (Hinsetzen, Gangarten, Show, Teleop, Stance-Modi) liefen im **Finalisierungs-Block-System** unten.
-> **Phase 12 (Pi-Plattform) ✅ Kern abgeschlossen** (Stack baut + läuft am Pi, Loopback;
-> Servo2040 erkannt). **Phase 13** ist das **End-Ziel** (Voll-Bringup auf dem Pi-getriebenen
-> Roboter) — der erste echte HW-Start am Pi (`loopback_mode:=false`, aufgebockt) leitet sie ein.
+> **Phase 12/13 — abgeschlossen:** Phase 12 (Pi-Plattform) + Phase 13 (Voll-Bringup) sind **erreicht** —
+> der Stack läuft am Pi (`loopback_mode:=false`), der Roboter fährt **untethered mit Akku im Gelände**.
+> Die Lokomotions-Features (Gangarten, Stance-Modi, Show, Hang-Lauf, Sit/Stand) sind vom
+> Finalisierungs-Block-System **auf die echte HW übertragen und dort verifiziert**.
 
 ### Finalisierungs-Blöcke (Desktop, `project_finalization/`)
 
@@ -65,11 +61,12 @@ deferiert: D DDS/RViz, G.2 rsync.)_
 
 | Block | Inhalt | Status |
 |---|---|---|
-| **A** Analyse & Optimierung | Torque-/Hitze-Tool (A1 ✅); A2–A4 pausiert; **A5 IMU-Balance** (Branch `imu_balance`): Stufe 0/1/2/3a + **Terrain-Following TF-1/TF-2 🟢 Sim** (⏸️ pausiert, [§7](project_finalization/imu_balance/stage_3_terrain_following_plan.md)) · **Stufe 4 Terrain-adaptiv (Fußkontakte) 🟢 Sim** (S4-1/2/4/5/6/7) · **Stufe 5 HW-Fußkontakte 🟢 Sensor-Kette live-verifiziert** (Taster→FW GET_INPUTS→Plugin-Bool-Topics→RViz) · **Stufe 6 HW-IMU (BNO-055) 🟢 HW** (IP1/IP2) · **Stufe 7 Balance-Regler v2 🟢 HW-verifiziert** (Zwei-Fenster-Hysterese + Dual-Tiefpass + per-Achse; behebt das HW-Pendeln, hält sauber horizontal; Konfig in hw_balance.yaml) — nächster Schritt **IP3.3-auf-v2 Terrain-Following im Laufen**. Closed-loop am laufenden Roboter = späterer Phase-13-Schritt | 🟢 A1 / 🟢 **A5 Stufe 4/5/6 + St.7-Code** / ⏸️ IP3-HW-Tuning |
-| **B** Lokomotion-Kern | Hinsetzen/Shutdown (B1), Gangarten Wave/Tetra/Ripple (B3), **Show-Pose + Tibia-Reach** (B4/B4.11); B2 verworfen, B5 deferiert | 🟢 Sim (HW aufgebockt offen) |
-| **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim (HW offen) |
+| **A** Analyse & Optimierung | Torque-/Hitze-Tool (A1 ✅); A2–A4 pausiert; **A5 IMU-Balance** (Branch `imu_balance`): Stufe 0/1/2/3a + **Terrain-Following TF-1/TF-2 🟢 Sim** (⏸️ pausiert, [§7](project_finalization/imu_balance/stage_3_terrain_following_plan.md)) · **Stufe 4 Terrain-adaptiv (Fußkontakte) 🟢 Sim** (S4-1/2/4/5/6/7) · **Stufe 5 HW-Fußkontakte 🟢 Sensor-Kette live-verifiziert** (Taster→FW GET_INPUTS→Plugin-Bool-Topics→RViz) · **Stufe 6 HW-IMU (BNO-055) 🟢 HW** (IP1/IP2) · **Stufe 7 Balance-Regler v2 🟢 HW-verifiziert** (Zwei-Fenster-Hysterese + Dual-Tiefpass + per-Achse; behebt das HW-Pendeln, hält sauber horizontal; Konfig in hw_balance.yaml). **Balance + Hang-Folgen laufen auf dem echten Roboter** (im Gelände verifiziert); IP3-Feintuning ist optionale Politur. | 🟢 A1 / 🟢 **A5 St.4/5/6/7 HW** / 🟡 IP3-Feintuning |
+| **B** Lokomotion-Kern | Hinsetzen/Shutdown (B1), Gangarten Wave/Tetra/Ripple (B3), **Show-Pose + Tibia-Reach** (B4/B4.11); B2 verworfen, B5 deferiert | 🟢 Sim + **HW** (am echten Roboter) |
+| **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim + **HW** |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |
-| **D** Hardware-Bring-up / Plattform | **D1 Pi-Plattform (=Phase 12)** · **D2 Elektrik 2S LiPo (=Phase 8)** · D3 LVC/Telemetrie · D4 Power-On-Sequenz · D5 untethered | 🟡 **als Nächstes** |
+| **D** Hardware-Bring-up / Plattform | **D1 Pi-Plattform (=Phase 12)** · **D2 Elektrik 2S LiPo (=Phase 8)** · D3 LVC/Telemetrie · D4 Power-On-Sequenz · D5 untethered | 🟢 **abgeschlossen** (Roboter fährt untethered mit Akku) |
+| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio+echte Cam (Ph.7) · Politur (Ph.8) | 🟡 **aktiv** — Ph.1–5 🟢, Ph.6 als Nächstes |
 | **E** Robustheit / später | Safe-State im Lauf (E1), Terrain/Foot-Contact (E2), Preset-Management (E3) | ⚪ später |
 
 ### Cross-Phase-Threads
@@ -91,23 +88,22 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
 
 ## Weg nach vorne (Reihenfolge)
 
-1. **HW aufgebockt:** die neuen Sim-Features (Stance-Modi, Show-Pose, B4.11) einmal aufgebockt → Boden
-   verifizieren (CLAUDE.md §9: Kill-Switch, langsam), bevor sie am Boden laufen.
-2. ✅ **Phase 12 — Pi-Plattform (Block D1):** ROS2 Jazzy arm64, Workspace **ohne** Gazebo gebaut,
-   Loopback grün, Servo2040 am Pi erkannt (`/dev/servo2040`). Provisioning + Recovery dokumentiert.
-   Offen: erster echter HW-Start (`loopback_mode:=false`, → Phase 13, aufgebockt).
-3. **Phase 8 — Elektronik (Block D2):** 2S-LiPo-Versorgung, Servo-Rail vs. Pi-Rail/BEC, Absicherung,
-   Kill-Switch, Strom-/Spannungs-Monitoring. (User macht die Elektrik.)
-4. **D3/D4/D5:** LVC + Batterie-Telemetrie · sichere Power-On-Sequenz (Servos zentrieren beim
-   Einschalten → aufgebockt booten oder Relay-Gate) · Verkabelung untethered + Cal-Drift-Re-Check.
-5. **Block E — Robustheit:** Safe-State bei Overcurrent/Watchdog/Comms-Loss im Lauf.
-6. **Phase 13 — Voll-Bringup (Ziel):** der komplette Stack auf dem fahrbaren, untethered Roboter.
-7. **Optional/mittelfristig:** A5 IMU-Balance — Stufe 0/1/2/3a + Terrain-Following TF-1/TF-2
-   🟢 Sim (IMU, Kipp-Erkennung, Leveling, Hang-folgen + Gyro-Dämpfung). **⏸️ Pausiert nach TF-2**
-   (sichtbarer Mehrwert erst auf HW; Knick/unebener Weg = Stufe 4). **Rückkehr** nach Stufe 4 +
-   HW-Tests — Wiedereinstiegs-Punkte (P0 HW-Validierung · TF-3 Schwerpunkt/Schlupf · TF-Quer ·
-   Gang-Stabilisierung · Auto-Tuning) grob vorgeplant in
-   [`stage_3_terrain_following_plan.md` §7](project_finalization/imu_balance/stage_3_terrain_following_plan.md).
+> Der Roboter (HW/Elektrik/Lokomotion) ist fertig — der Weg nach vorne ist die **Mobile-Teleop-App
+> (Block I)** + Feature-Erweiterungen. Detail: [`app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md).
+
+1. ✅ **Block-I App Phasen 1–5** fertig: Kishi→`/joy`-Mapping, Teleop über rosbridge, Bringup-/
+   Shutdown-Lifecycle, Video-Vollbild (Gazebo-Cam → MJPEG), Status-Overlay + rqt-artiges Config-
+   Panel. App-Seite implementiert. Nebenbei: Rubicon-Scene für den App-Flow (`always_on scene:=rubicon`).
+2. **Phase 6 — Recovery + Not-Halt (als Nächstes):** E-Stop scharf in der App (`/hexapod_safety_freeze`
+   existiert) + **Ein-Klick-Recovery-Service** (Freeze → Joint-Space-Ramp → Stand, [D6]). Am echten
+   Roboter verifizierbar.
+3. **Phase 7 — Audio + echte Kamera am Roboter:** `hexapod_audio`-Node (Sound an/aus + Buttons +
+   Auto-Play) — HW (MAX98357A) hello-world-fertig; **Raspi-Cam** publisht `/camera/image_raw` auf dem
+   Pi (Cam verkabelt) + `camera_enable`. Beides am fertigen Roboter live testen.
+4. **Phase 8 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
+5. **Optionale Politur (jederzeit):** A5 IP3-Feintuning (Terrain-Following im Laufen), Fußtaster-
+   Latenz-Recheck auf HW (aus dem App-Overlay-Test), Show-Pose-Erweiterung, Audio-Knarz-Fix
+   (Stützelko im Finalaufbau).
 
 ---
 
