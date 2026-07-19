@@ -6,8 +6,8 @@
 Stufen hoch/runter, Hinsetzen/Aufstehen, IMU-Balance, alles was der PS4-Controller bedient hat.
 Kamera (Raspi-Cam) + Audio (MAX98357A) sind **verkabelt + hello-world-in-Betrieb**; offen ist deren
 ROS-/App-Integration (Phase 7). **Aktuelle Arbeit = App + Feature-Erweiterungen:** Block-I-App
-Phasen 1–5 fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel), **Phase 6
-(E-Stop + Recovery) als Nächstes**, danach 7 (Audio + echte Cam am Roboter) + 8 (Politur).
+Phasen 1–6 fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel, E-Stop+Recovery —
+Sim-E2E-verifiziert), **Phase 7 (Audio + echte Cam am Roboter) als Nächstes**, danach 8 (Politur).
 Detail: [`project_finalization/app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md)
 · auch: Rubicon-Scene für den App-Flow, Video-Pipeline, Config-Manifest.
 _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi/phase_12_progress.md).)_
@@ -21,7 +21,7 @@ _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi
 > Sit/Stand, alles was der PS4-Controller kann). Die frühere „Weg-nach-vorne"-Liste (Pi-Plattform,
 > Elektronik Phase 8, Voll-Bringup Phase 13) ist damit **abgeschlossen**. Die aktuelle Arbeit läuft
 > im **Block I (Mobile-Teleop-App)**: das Handy ersetzt den PS4-Controller und bringt Bildschirm,
-> Video, Status-Overlay, Config-Panel und Lifecycle dazu — Phasen 1–5 fertig, 6–8 offen (s. u.).
+> Video, Status-Overlay, Config-Panel und Lifecycle dazu — Phasen 1–6 fertig, 7–8 offen (s. u.).
 
 ---
 
@@ -66,7 +66,7 @@ _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi
 | **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim + **HW** |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |
 | **D** Hardware-Bring-up / Plattform | **D1 Pi-Plattform (=Phase 12)** · **D2 Elektrik 2S LiPo (=Phase 8)** · D3 LVC/Telemetrie · D4 Power-On-Sequenz · D5 untethered | 🟢 **abgeschlossen** (Roboter fährt untethered mit Akku) |
-| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio+echte Cam (Ph.7) · Politur (Ph.8) | 🟡 **aktiv** — Ph.1–5 🟢, Ph.6 als Nächstes |
+| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio+echte Cam (Ph.7) · Politur (Ph.8) | 🟡 **aktiv** — Ph.1–6 🟢 (Ph.6 Sim-E2E; HW-T6.8 deferiert), Ph.7 als Nächstes |
 | **E** Robustheit / später | Safe-State im Lauf (E1), Terrain/Foot-Contact (E2), Preset-Management (E3) | ⚪ später |
 
 ### Cross-Phase-Threads
@@ -94,10 +94,11 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
 1. ✅ **Block-I App Phasen 1–5** fertig: Kishi→`/joy`-Mapping, Teleop über rosbridge, Bringup-/
    Shutdown-Lifecycle, Video-Vollbild (Gazebo-Cam → MJPEG), Status-Overlay + rqt-artiges Config-
    Panel. App-Seite implementiert. Nebenbei: Rubicon-Scene für den App-Flow (`always_on scene:=rubicon`).
-2. **Phase 6 — Recovery + Not-Halt (als Nächstes):** E-Stop scharf in der App (`/hexapod_safety_freeze`
-   existiert) + **Ein-Klick-Recovery-Service** (Freeze → Joint-Space-Ramp → Stand, [D6]). Am echten
-   Roboter verifizierbar.
-3. **Phase 7 — Audio + echte Kamera am Roboter:** `hexapod_audio`-Node (Sound an/aus + Buttons +
+2. ✅ **Phase 6 — Recovery + Not-Halt** fertig (Sim-E2E-verifiziert): **`/hexapod_estop`**
+   (latched Freeze, gated den Tick, Sim+HW) + **`/hexapod_recover`** (ursachen-agnostisch: Freeze
+   lösen + Latches/Monitore reset + Joint-Space-Ramp in den Stand, [D6]); App-E-STOP-/Recover-Button.
+   Contract v0.10. **HW-Verifikation T6.8** am echten Roboter deferiert (Defer-Pattern).
+3. **Phase 7 — Audio + echte Kamera am Roboter (als Nächstes):** `hexapod_audio`-Node (Sound an/aus + Buttons +
    Auto-Play) — HW (MAX98357A) hello-world-fertig; **Raspi-Cam** publisht `/camera/image_raw` auf dem
    Pi (Cam verkabelt) + `camera_enable`. Beides am fertigen Roboter live testen.
 4. **Phase 8 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).

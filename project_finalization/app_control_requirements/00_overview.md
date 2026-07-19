@@ -5,9 +5,11 @@
 > Live-Bild** — Steuerung wie beim PS4, plus On-Screen-Konfiguration, Status-Overlay,
 > Kamera-Stream, Sound und Lifecycle (Bringup/Shutdown/Recovery) aus der App.
 >
-> **Status: 🟡 Anforderungs-/Architektur-Phase.** Noch kein Code. Branch: separater
-> Feature-Branch (User entscheidet). Arbeitsweise CLAUDE.md §4 (Plan → Freigabe → Code →
-> Tests → Self-Review), §5 (Agent macht NIE git). Deutsch durchgehend.
+> **Status: 🟡 aktiv — Phasen 1–6 🟢 fertig** (Kishi-Mapping, Teleop, Lifecycle, Video,
+> Status/Config-Panel, **E-Stop + Recovery** — alle Sim-E2E verifiziert, ROS + App; Contract v0.10).
+> **Phase 7 (Audio + echte Cam) als Nächstes**, danach 8 (Politur). Einziger deferierter Punkt:
+> HW-Verifikation T6.8 (E-Stop/Recover am echten Roboter). Arbeitsweise CLAUDE.md §4 (Plan →
+> Freigabe → Code → Tests → Self-Review), §5 (Agent macht NIE git). Deutsch durchgehend.
 
 ---
 

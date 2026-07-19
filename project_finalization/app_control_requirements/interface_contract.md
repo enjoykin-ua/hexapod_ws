@@ -25,7 +25,8 @@
 | **v0.7** | §5 (Video) festgezurrt für Phase 4: MJPEG via `web_video_server` :8080, `/camera/image_raw`, URL-Schema, 16:9 ~720p@15 + center-crop, `camera_enable` reserviert (Pi). §6 ergänzt: `/hexapod/alerts` (WARN+ aus `/rosout`), Set-Stance-direkt, Status-Publisher-Felder (verfügbare Tempos; Batterie gestrichen) — alle `[TBD-Phase 5]`. |
 | **v0.8** | §5 präzisiert nach Phase-4-**ROS-Live-Verifikation**: **Host** = gleiche IP wie rosbridge (§0), nur Port 8080; **Verfügbarkeit** = Stream-Server läuft **im On-Demand-Stack** → Port 8080 erst **nach `/hexapod_bringup_start`** offen, App koppelt die Kamera-View an `/hexapod/bringup_running`; live gemessen **~11 Hz** (Render-Jitter, v1-ok). **Kein ROS-Change, kein neues Interface** — Klarstellung für den App-Bau (P4.7–P4.9). |
 | **v0.9** | §6a festgezurrt für Phase 5 (**ROS-Seite live-verifiziert**): Status/Config/Alerts als **JSON-String** (`std_msgs/String`) — `/hexapod/status` (5 Hz, gait_node, State/Stance/Gangart/Safety/Tip + dyn. H1/H2-Caps), `/hexapod/tempo` (latched, joy_to_twist), `/hexapod/capabilities` + `/hexapod/config_manifest` (latched, Always-On `hmi_status`, 39 Params), `/hexapod/alerts` (latched Historie 50, WARN+ aus `/rosout`). **Set-Stance direkt** = App cyclet `/hexapod_cycle_stance` (kein neues Interface). Config-Panel = natives rosbridge get/set_parameters + Manifest. §7.3 damit geschlossen. |
-| **v0.9.1** (aktuell) | §2/§6a: neuer **`/hexapod_cycle_tempo`** (`std_srvs/SetBool`, Host `joy_to_twist`) — schließt die von der App-Session gemeldete Lücke „kein direkter Tempo-Setz-Weg" (Tempo lief nur über D-Pad). App-Tempo-Dropdown = **cycle-to-target** via `tempo_idx` aus `/hexapod/tempo`, symmetrisch zu Set-Stance. Kein neuer Message-Typ; standing_only serverseitig. |
+| **v0.9.1** | §2/§6a: neuer **`/hexapod_cycle_tempo`** (`std_srvs/SetBool`, Host `joy_to_twist`) — schließt die von der App-Session gemeldete Lücke „kein direkter Tempo-Setz-Weg" (Tempo lief nur über D-Pad). App-Tempo-Dropdown = **cycle-to-target** via `tempo_idx` aus `/hexapod/tempo`, symmetrisch zu Set-Stance. Kein neuer Message-Typ; standing_only serverseitig. |
+| **v0.10** (aktuell) | §2/§6 festgezurrt für Phase 6 (**ROS-Seite implementiert + unit-getestet**): **`/hexapod_estop`** (`std_srvs/Trigger`, **gait_node**) = der App-Not-Halt, wirkt **Sim UND HW** (gated den gait-Tick latched + ruft intern den Plugin-`/hexapod_safety_freeze`); ersetzt `/hexapod_safety_freeze` als App-Ziel (§4.2: neuer Name statt Plugin-Namen spiegeln → keine Zwei-Server-Kollision auf HW). **`/hexapod_recover`** (`std_srvs/Trigger`, gait_node) = Ein-Klick-Recovery ([D6]): Plugin-Freeze lösen + gait-Latches/Monitore reset + **Joint-Space-Ramp** in den Stand (ursachen-agnostisch, kein IK). `safety_frozen` im Status wird jetzt durch Recovery zurückgesetzt (nicht mehr „bis Stack-Neustart"). |
 
 ---
 
@@ -151,13 +152,17 @@ Alle über rosbridge `call_service` aufrufbar. Verifiziert gegen `gait_node.py` 
 | `/hexapod_adjust_step_length` | `std_srvs/SetBool` | `true` größer / `false` kleiner (H2: modus-gedeckelt) |
 | `/hexapod_show_toggle` | `std_srvs/Trigger` | Show-Pose rein/raus |
 | `/hexapod_shutdown` | `std_srvs/Trigger` | Kontrolliertes Hinsetzen + Shutdown-Kette (Block F) |
-| `/hexapod_safety_freeze` | `std_srvs/Trigger` | **NOT-HALT** — Plugin hält letzte PWM |
-| `/hexapod_safety_reset` | `std_srvs/Trigger` | Plugin-Freeze lösen (Teil von Recovery) |
+| `/hexapod_estop` | `std_srvs/Trigger` | **NOT-HALT (App-Ziel, Phase 6)** — gait_node, wirkt **Sim UND HW**: gated den Tick **latched** (kein joint_trajectory-Publish) + ruft intern den Plugin-`/hexapod_safety_freeze` (HW-PWM-Hold). Resumt NICHT von selbst → nur `/hexapod_recover`. `[N Ph.6]` |
+| `/hexapod_recover` | `std_srvs/Trigger` | **RECOVERY (App-Ziel, Phase 6)** — gait_node: Plugin-Freeze lösen + gait-Latches/Monitore reset + **Joint-Space-Ramp** aus der eingefrorenen Pose in den Stand ([D6]), ursachen-agnostisch. `[N Ph.6]` |
+| `/hexapod_safety_freeze` | `std_srvs/Trigger` | Plugin-Not-Halt (nur HW, hält letzte PWM). **Intern** von `/hexapod_estop` gerufen — **nicht** direkt aus der App (wirkt nicht in Sim). |
+| `/hexapod_safety_reset` | `std_srvs/Trigger` | Plugin-Freeze lösen (nur HW). **Intern** von `/hexapod_recover` gerufen. |
 | `/hexapod_relay_set` | (Plugin) | Relay schalten (i. d. R. nicht aus der App) |
 
-> **App-Nutzung:** Not-Halt-Button → `/hexapod_safety_freeze`. Explizit Sit/Stand-Buttons →
-> die Trigger. Stance/Gait/Tempo laufen **primär über `/joy`** (Controller), die direkten
-> Services sind für On-Screen-Buttons optional.
+> **App-Nutzung:** **Not-Halt-Button → `/hexapod_estop`** (NICHT `/hexapod_safety_freeze` —
+> das ist der Plugin-Service, wirkt nur auf HW; `/hexapod_estop` wirkt Sim+HW und triggert den
+> Plugin intern). **Recover-Button → `/hexapod_recover`** (aktiv wenn `status.safety_frozen`).
+> Explizit Sit/Stand-Buttons → die Trigger. Stance/Gait/Tempo laufen **primär über `/joy`**
+> (Controller), die direkten Services sind für On-Screen-Buttons optional.
 
 ### 2a. Launcher-Services (Block I Phase 3, neu) — `[N Ph.3]`
 
@@ -244,7 +249,8 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 | **Status/Capabilities/Manifest/Alerts** | Overlay-Live-Daten + Config-Panel-Naht | **✅ erledigt (v0.9, §6a)** |
 | **Set-Stance direkt** | Stance-Modus direkt wählen (Touch-Dropdown) | **✅ erledigt (v0.9, §6a)** — App cyclet `/hexapod_cycle_stance` zum Ziel |
 | **Kamera an/aus** (`camera_enable`) | Kamera-Node am Pi starten/stoppen (Strom/Wärme); in Sim app-seitig | `[TBD-Phase 7]` |
-| Recovery-Service | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | `[TBD-Phase 6]` |
+| **E-Stop** (`/hexapod_estop`) | App-Not-Halt, latched Freeze Sim+HW | **✅ erledigt (v0.10, §2)** |
+| **Recovery-Service** (`/hexapod_recover`) | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | **✅ erledigt (v0.10, §2)** |
 | Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | `[TBD-Phase 7]` |
 
 ---
@@ -265,7 +271,7 @@ dort ohnehin JSON; kein neues Message-Paket, [D-neu]). Feld-Formen ROS-seitig **
 | `state` | string | `STARTUP_RAMP`/`CARTESIAN_STANDUP`/`REPOSITION`/`STANDING`/`WALKING`/`STOPPING`/`SAT`/Sitdown-/Show-States |
 | `stance_idx` / `stance` | int / string | 0/1/2 · `tief`/`mittel`/`hoch` |
 | `gait` | string | `tripod`/`wave`/`tetrapod`/`ripple` |
-| `safety_frozen` | bool | true nach Safety-Freeze (bis Stack-Neustart; Recovery = Phase 6) |
+| `safety_frozen` | bool | true nach Safety-Freeze/E-Stop; **latched** bis `/hexapod_recover` (Phase 6) |
 | `tip` | string | `none`/`warn`/`crit` |
 | `step_height_cap` / `step_length_cap` | float | **dynamischer H1/H2-Cap des aktuellen Stance** → App klemmt die Slider auf `min(manifest.max, cap)` |
 

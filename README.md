@@ -55,6 +55,9 @@ status overlay and on-screen configuration.
   per-foot adaptive touchdown and adaptive stand on uneven ground, slip/edge detection →
   safety freeze, sensor-fault masking (degrade, don't stop).
 - **Sit / stand / shutdown** as clean sequences (graceful power-off, comms-loss fail-safe).
+- **Emergency stop & one-click recovery:** a latched software **E-stop** (from the app, works in sim
+  and on hardware) freezes the robot in place; one **recovery** ramps it — cause-agnostic,
+  joint-space, no IK — from the frozen pose back to a stand, without restarting the stack.
 - **Free-leg "show" pose:** support on 4 legs, 2 front legs steered freely by joystick (incl. tibia reach).
 - **PS4 teleop:** USB **and** Bluetooth — omnidirectional sticks, dead-man, intent services.
 - **Mobile app (phone + Razer Kishi):** drives the robot over rosbridge (Wi-Fi) — full-screen
@@ -260,6 +263,8 @@ Pi's Wi-Fi hotspot (hardware).
   with live limits, rendered generically from a ROS-published manifest.
 - **Alerts:** live warning / error feed from the robot (`WARN`+ from the ROS log), copyable.
 - **Lifecycle:** start / stop the heavy stack, stand / sit, and guarded shutdown — all from the phone.
+- **Emergency stop & recovery:** a big red **E-STOP** (latched freeze, works in sim and on hardware)
+  and a one-tap **Recover** that ramps the robot from the frozen pose back to standing.
 
 > 📱 **App repository:** [`enjoykin-ua/hexapod_app`](https://github.com/enjoykin-ua/hexapod_app)
 > &nbsp;·&nbsp; ROS-side design + interface docs:
@@ -310,11 +315,13 @@ Pi's Wi-Fi hotspot (hardware).
 
 ## Status
 
-Sim phases (0–6), hardware bench (7, 9–11) and the Pi 5 platform (12) are done — **the robot walks
-on real hardware**: all 18 servos calibrated, IMU body leveling + tip protection and the
-foot-contact pipeline (adaptive touchdown, slip freeze) verified live, stance & speed presets in
-the field. **Next up:** electronics finalization (2S LiPo supply, phase 8), untethered operation,
-then the full bring-up (phase 13). Details: [`PHASE.md`](PHASE.md).
+The robot is **complete and runs untethered in the field** — sim phases (0–6), the hardware bench
+(7–11), the Pi 5 platform and the full bring-up are done: all 18 servos calibrated, IMU body
+leveling + tip protection and the foot-contact pipeline (adaptive touchdown, slip freeze) verified
+live, gaits / stance / speed presets on battery in the field. Current work is the **mobile app
+(Block I)**: controller mapping, teleop, lifecycle, video, status + config panel and
+**emergency-stop + recovery** are done (phases 1–6, sim-verified end-to-end); next up is **audio +
+the on-board camera** (phase 7), then polish (phase 8). Details: [`PHASE.md`](PHASE.md).
 
 ## License
 

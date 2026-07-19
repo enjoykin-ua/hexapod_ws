@@ -31,9 +31,10 @@ Körperlage gegen Kippen — Sicherheitsnetz, bevor Stufe 2 aktiv levelt.
 - **Reaktion:**
   - **WARN** (`tip_angle_warn_deg_{roll,pitch}`, Default 15°): `cmd_vel` → 0, Roboter stoppt/settelt.
   - **CRIT** (`tip_angle_crit_deg_{roll,pitch}` 25° **oder** `tip_rate_crit_dps` 80°/s): einmaliger
-    `/hexapod_safety_freeze` (hart, gelatcht) + dieser Tick publisht nicht. Recovery:
-    State-Wechsel (sit/stand-Service) setzt zurück. **Kein Hinsetzen** (am Hang würde
-    die Sitz-Bewegung selbst kippen).
+    `/hexapod_safety_freeze` (hart, gelatcht) + dieser Tick publisht nicht. **Latched** (Block I
+    Phase 6): der Freeze-Gate im `_tick` (`if self._safety_frozen: return`) hält, bis
+    **`/hexapod_recover`** ihn bewusst löst (nicht mehr condition-based auto-resume). **Kein
+    Hinsetzen** (am Hang würde die Sitz-Bewegung selbst kippen).
 - **State-Gating:** nur in `STANDING`/`WALKING`; beim Aufstehen/Hinsetzen/Reposition/
   Show/Stance-Switch ausgesetzt (Körper kippt dort *gewollt*).
 - **Ohne IMU** (kein `/imu/data`, z.B. `enable_imu:=false`): `TipMonitor` bleibt inaktiv
@@ -608,6 +609,20 @@ STANDING/SAT ──shutdown──► (hinsetzen falls nötig) ──► SAT + Re
 **Relay-Aus** über `/hexapod_relay_set` (`std_srvs/SetBool`, `data=false`) —
 nur im Shutdown; in Sim ohne Plugin übersprungen. **Shutdown ist terminal** (Latch):
 `stand_up` danach abgelehnt bis Relay-On/Reboot.
+
+**E-Stop + Recovery (Block I Phase 6, App-Not-Halt):**
+- `/hexapod_estop` (`std_srvs/Trigger`): setzt `_safety_frozen` (→ Freeze-Gate im `_tick`
+  hält latched) + ruft intern `_trigger_safety_freeze` (Plugin-PWM-Hold auf HW; in Sim guarded
+  skip). Wirkt **Sim UND HW**; resumt nicht von selbst.
+- `/hexapod_recover` (`std_srvs/Trigger`, [D6]): ursachen-agnostisch (jeder State außer
+  shutdown-latched). Löst den Plugin-Freeze (`/hexapod_safety_reset`, guarded), setzt die
+  gait-Latches (`_safety_frozen`/`_tip_crit_fired`/`_slip_freeze_fired`) + die Monitore
+  (`_balance`/`_slope_est`/`_support_monitor`/`_tip_monitor`) zurück und rampt per
+  **`engine.start_ramp`** (Joint-Space-Lerp zweier gültiger Posen → kann kein Limit verletzen,
+  **kein IK, kein Re-Freeze**; **nicht** `start_cartesian_standup`) aus der eingefrorenen
+  Ist-Pose (`_latest_joints`) in den Stand. Dauer = Param `recover_duration` (Default 3.0 s,
+  nicht standing_only). **Grenze:** richtet keine Kipplage auf (Mensch stellt grob aufrecht,
+  dann Recover).
 
 **Comms-Loss-Fail-safe** (opt-in `comms_loss_sitdown_timeout`, Default 0 = aus): bei
 verstummtem `/cmd_vel` (echtes Disconnect; idle-Controller autorepeatet 0) → Auto-

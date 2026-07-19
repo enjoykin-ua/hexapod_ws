@@ -33,7 +33,8 @@
 ## 3. `gait_node` — Schnittstellen
 - **Subscribes:** `/cmd_vel` (`geometry_msgs/Twist`), `/cmd_body_height` (`std_msgs/Float64`), `/joint_states` (`sensor_msgs/JointState`, für Ramp-Start).
 - **Publishes:** 6× `/leg_<n>_controller/joint_trajectory` (`trajectory_msgs/JointTrajectory`, je 1 Punkt/Tick, Position-only, `time_from_start = tfs_factor/tick_rate`).
-- **Service-Client:** `/hexapod_safety_freeze` (`std_srvs/Trigger`) — bei IKError feuert er den Freeze (HW-Plugin-seitiger Hard-Stop).
+- **Service-Client:** `/hexapod_safety_freeze` + `/hexapod_safety_reset` (`std_srvs/Trigger`) — bei IKError/E-Stop feuert er den Plugin-Freeze; Recovery ruft `_reset` (beide guarded: in Sim ohne Plugin skip).
+- **Service-Server (Block I Ph.6):** `/hexapod_estop` (App-Not-Halt → `_safety_frozen` latched + Plugin-Freeze, wirkt Sim+HW) + `/hexapod_recover` (Ein-Klick-Recovery [D6]: Freeze lösen + Latches/Monitore reset + Joint-Space-`start_ramp` in den Stand). **Freeze-Gate:** `if _safety_frozen: return` als erste Tick-Zeile → alle Freezes latched (bis Recover).
 - **State-Machine (`gait_engine`):** `STARTUP_RAMP` / `CARTESIAN_STANDUP` / `REPOSITION` / `STANDING` / `WALKING` / `STOPPING` / `SAT` (+ Sitdown-/Show-States). cmd_vel wird in allen Nicht-STANDING/WALKING-Aufsteh-/Reposition-States **ignoriert**.
 - **Bauch-Start (Block I Ph.3):** Param `auto_standup_on_start` (Default `true` = Auto-Standup beim ersten `/joint_states`, unverändert). `false` → `gait_engine.hold_sat_at(spawn)`: bleibt in **SAT** (Bauch-/Spawn-Pose), Aufstehen nur per `/hexapod_stand_up` (sicherer On-Demand-Default, [D7]).
 
@@ -46,7 +47,9 @@
 | `/joint_states` | JointState | broadcaster → gait_node, rsp | Ist-Joint-Winkel |
 | `/joy` | Joy | joy_node **oder** App→rosbridge → joy_to_twist | Achsen/Buttons (PS4-Layout). **Block I:** App publisht `/joy` (**RELIABLE** Pflicht) über rosbridge statt joy_node. Naht/Mapping: `project_finalization/app_control_requirements/interface_contract.md` |
 | `/robot_description` | String | rsp/launch | URDF-XML (Limit-Quelle fürs Plugin + gait) |
-| `/hexapod_safety_freeze` | Trigger (srv) | gait_node → hardware | Hard-Stop-Anforderung |
+| `/hexapod_safety_freeze` | Trigger (srv) | gait_node → hardware | Hard-Stop-Anforderung (Plugin-PWM-Hold, nur HW) |
+| `/hexapod_estop` | Trigger (srv) | **App** → gait_node | **Not-Halt (Ph.6)**: latched Freeze Sim+HW (gated Tick + ruft Plugin-Freeze intern). Contract §2 |
+| `/hexapod_recover` | Trigger (srv) | **App** → gait_node | **Recovery (Ph.6, [D6])**: Freeze lösen + Reset + Joint-Space-Ramp in den Stand. Contract §2/§6 |
 | `/imu/data` | Imu | sensors/sim → gait_node | Orientierung/Gyro → Kipp-Erkennung (A5 St.1) + Body-Leveling (A5 St.2, `leveling_enable`, nur STANDING). Sensor-QoS best_effort. ⚠️ gz-IMU **spawn-referenziert** → Sim flach spawnen. **HW-Quelle** = eigener `bno055_imu`-Node (Stufe 6, geplant), Sim = gz-Sensor+Bridge |
 | `/leg_<n>/foot_contact` | Bool | sensors/HW-Plugin → gait_node | Fuß-Bodenkontakt/Bein → S4 (adaptiver Touchdown/Stand, Plausibilität). **Sim-Quelle** = `foot_contact_publisher` (aus gz-Contact); **HW-Quelle** (A5 Stufe 5 🟢) = `hexapod_hardware`-Plugin aus Servo2040 GET_INPUTS. gait_node cacht + Live-Guard 0.5 s |
 | `/camera/image_raw` | Image | gz-Kamera→Bridge (Sim) / Raspi-Cam (HW) → **App** | Video-Kanal (Block I Ph.4). Sim: `hexapod.camera.xacro` (Topic `/camera/sim`, 1280×720@15) → `bridge_camera.yaml`. **Nicht rosbridge:** `web_video_server` :8080 serviert es als MJPEG (`http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg`, Contract §5). Welt braucht `gz-sim-sensors-system` (ramp.sdf.xacro/empty_imu.sdf). HW = Raspi-Cam v1.3 (Phase 7), gleiches Topic |

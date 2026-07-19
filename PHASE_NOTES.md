@@ -30,6 +30,39 @@ auf "Pi-Recheck statt Erst-Bringup" angepasst.
 
 ---
 
+## Block-I Phase-6-Retro (E-Stop + Recovery, ✅ ROS+App Sim-E2E, 2026-07-19)
+
+**Ziel:** ein scharfer, latched Not-Halt aus der App + ein Ein-Klick-Recovery, das den Roboter
+ursachen-agnostisch aus jeder eingefrorenen Pose zurück in den Stand bringt — ohne Stack-Neustart ([D6]).
+
+**Was angelegt wurde (ROS-Seite, `hexapod_gait/gait_node.py`):**
+- **Freeze-Gate** `if self._safety_frozen: return` als erste `_tick`-Zeile → latched Freeze (Sim+HW).
+- **`/hexapod_estop`** (Trigger): `_safety_frozen=True` + Plugin-`_trigger_safety_freeze`.
+- **`/hexapod_recover`** (Trigger, [D6]): Plugin-Freeze lösen (`_safety_reset_client`, guarded) +
+  Latches/Monitore reset + `engine.start_ramp` (Joint-Space) in den Stand.
+- Param `recover_duration` (3.0 s, nicht standing_only) + `test_recover.py` (14 Tests, 468/0/0/28).
+- App-Seite (zweite Session, `hexapod_app`): E-STOP-Button (reservierter Slot) + Recover-Button +
+  frozen-Anzeige aus `/hexapod/status.safety_frozen`. Contract **v0.10**.
+
+**Wichtige Design-Entscheidungen:**
+| Entscheidung | Warum |
+|---|---|
+| **§4.1 unified `_safety_frozen`** (statt separatem `_estop_latched`) | ein Latch, ein Reset-Pfad; deckt sich mit dem HW-Plugin (latcht bis `_reset`). Macht die Auto-Freezes (Tip/Slip) bewusst latched. |
+| **§4.2 neuer `/hexapod_estop`** (statt `/hexapod_safety_freeze` spiegeln) | das Plugin besitzt den Namen auf HW schon → Spiegeln gäbe zwei Server auf einem Servicenamen (nicht-det. Routing). |
+| **Recovery = Joint-Space-`start_ramp`** (nicht cartesian) | Lerp zweier gültiger Posen kann kein Limit verletzen → **kein IK, kein Re-Freeze** auf dem Rückweg; während STARTUP_RAMP feuern Tip/Slip ohnehin nicht. |
+
+**Was gut lief:** die zwei §4-Punkte vorab mit dem User geklärt (kein Blind-Implementieren) → die
+Namens-Kollision (§4.2) wäre auf HW sonst erst spät aufgefallen. Der Self-Review-Punkt zur
+konvexen-Kombination-Sicherheit wurde per Engine-Test (near-limit-Startpose, 21 Samples) empirisch
+abgesichert. Der E2E-Test „Freeze **hier** per CLI erzwingen → App zeigt frozen" bewies die
+`/hexapod/status`-Kopplung sauber (nicht nur der App-eigene Button-Tap).
+
+**Offen / deferiert:** **HW-Verifikation T6.8** am echten Roboter (PWM-Hold beim E-Stop + smooth
+Joint-Space-Ramp beim Recover) — Defer-Pattern wie Phase-3-DK4; nachzuholen, wenn der Roboter für
+einen aufgebockten Test bereitsteht. Sim-Seite (ROS + App) ist komplett.
+
+---
+
 ## A5 Stufe 5 — HW-Fußkontakte (🟢 Sensor-Kette live-verifiziert, 2026-07-04)
 
 6 Fuß-Taster am Servo2040, per Firmware `GET_INPUTS` gelesen und vom

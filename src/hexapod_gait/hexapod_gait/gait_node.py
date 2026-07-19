@@ -349,6 +349,18 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
+        name='recover_duration', default=3.0, standing_only=False,
+        fp_range=(1.0, 15.0, 0.1),
+        description=(
+            'Block I Phase 6 [D6]: Dauer der Recovery-Joint-Space-Ramp in s '
+            '(/hexapod_recover). Lerpt aus der eingefrorenen Ist-Pose smooth '
+            'zurueck in den Stand. Eigener Param, entkoppelt von '
+            'auto_standup_duration (Boot-Standup). NICHT standing_only — '
+            'Recovery laeuft ursachen-agnostisch aus jedem State. Live '
+            'justierbar.'
+        ),
+    ),
+    _ParamSpec(
         name='standup_mode', default='cartesian', standing_only=True,
         string_constraint='valid values: cartesian | joint_space',
         description=(
@@ -703,6 +715,10 @@ class GaitNode(Node):
         self._auto_standup_duration = float(
             self.get_parameter('auto_standup_duration').value
         )
+        # Block I Phase 6 [D6] — Recovery-Ramp-Dauer (eigener Param).
+        self._recover_duration = float(
+            self.get_parameter('recover_duration').value
+        )
         # Block I Phase 3 — Bauch-Start. Bei false KEIN Auto-Standup: der Roboter
         # bleibt beim Boot in SAT (Spawn-/Bauch-Pose) und steht erst per
         # /hexapod_stand_up (App-Button) auf (sicherer On-Demand-Default, D7).
@@ -844,6 +860,15 @@ class GaitNode(Node):
         self._safety_freeze_client = self.create_client(
             Trigger, '/hexapod_safety_freeze')
         self._safety_freeze_logged_unreachable = False
+
+        # Block I Phase 6 [D6] — Client für den Plugin-/hexapod_safety_reset.
+        # Recovery ruft ihn (fire-and-forget), um den HW-PWM-Hold zu lösen.
+        # Nur HW (Plugin); in Sim nicht vorhanden → guarded skip wie beim
+        # Freeze-Client (service_is_ready()). Der gait-seitige Reset
+        # (_safety_frozen=False + Ramp) wirkt in Sim UND HW.
+        self._safety_reset_client = self.create_client(
+            Trigger, '/hexapod_safety_reset')
+        self._safety_reset_logged_unreachable = False
 
         # Block B1 — Relay-Client (/hexapod_relay_set, SetBool). data=False
         # öffnet das Relay (Servos stromlos). Gefeuert beim Shutdown, sobald
@@ -1308,6 +1333,23 @@ class GaitNode(Node):
             SetBool, '/hexapod_cycle_stance', self._on_cycle_stance,
             callback_group=self._cb_group,
         )
+        # Block I Phase 6 — App-Not-Halt + Recovery. Beide in derselben
+        # MutuallyExclusiveCallbackGroup wie der Tick → kein Race auf
+        # _safety_frozen / Engine-State / _latest_joints.
+        #  /hexapod_estop:   latched Freeze (Sim+HW), ruft intern den Plugin-
+        #                    Freeze — der App-Not-Halt, wirkt in Sim UND HW
+        #                    (§4.2: neuer Name statt /hexapod_safety_freeze
+        #                    spiegeln → keine Zwei-Server-Kollision auf HW).
+        #  /hexapod_recover: ursachen-agnostischer Reset + Joint-Space-Ramp
+        #                    zurück in den Stand ([D6]).
+        self._estop_srv = self.create_service(
+            Trigger, '/hexapod_estop', self._on_estop,
+            callback_group=self._cb_group,
+        )
+        self._recover_srv = self.create_service(
+            Trigger, '/hexapod_recover', self._on_recover,
+            callback_group=self._cb_group,
+        )
 
         # Phase 11 Stage A — Live-Param-Updates via rqt_reconfigure.
         self.add_on_set_parameters_callback(self._on_param_change)
@@ -1586,6 +1628,16 @@ class GaitNode(Node):
         )
 
     def _tick(self):
+        # Block I Phase 6 — E-Stop / Safety-Freeze-Gate (§4.1 unified, [D6]).
+        # Solange _safety_frozen gesetzt ist: KEINE Trajektorie publishen →
+        # der Roboter hält die letzte Pose (JTC hält lokal, HW-Plugin hält die
+        # PWM). LATCHED: bleibt bis ein bewusster /hexapod_recover den Freeze
+        # löst — ein Not-Halt darf nicht von selbst resumen. Das macht auch die
+        # bisherigen Auto-Freezes (Tip-CRIT / Slip / IK-'joint limit') latched
+        # statt condition-based (gewollt). _publish_status läuft auf eigenem
+        # 5-Hz-Timer weiter → das App-Overlay zeigt safety_frozen weiterhin.
+        if self._safety_frozen:
+            return
         now = time.monotonic()
         t = now - self._t_start
 
@@ -2366,6 +2418,101 @@ class GaitNode(Node):
         self.get_logger().info(
             f'stand_up: SAT → Aufstehen ({self._standup_mode})'
         )
+        return response
+
+    def _on_estop(self, request, response):
+        """
+        ``/hexapod_estop`` (Trigger): App-Not-Halt — latched Freeze (Sim+HW).
+
+        Block I Phase 6 (§4.2). Setzt ``_safety_frozen`` (gated den Tick → der
+        gait hält sofort, kein neuer joint_trajectory-Publish) UND triggert das
+        Plugin-``/hexapod_safety_freeze`` (HW-PWM-Hold; in Sim ohne Plugin
+        skippt der ``service_is_ready()``-Guard in ``_trigger_safety_freeze``).
+        Der Freeze bleibt **latched** bis ``/hexapod_recover`` — ein Not-Halt
+        soll nicht von selbst resumen ([D6]). Wirkt in **Sim UND HW**.
+        """
+        self._safety_frozen = True          # gated den Tick (Freeze-Gate)
+        self._trigger_safety_freeze()       # Plugin-PWM-Hold (HW), guarded skip in Sim
+        self.get_logger().warn(
+            'E-STOP — Roboter eingefroren (latched; /hexapod_recover zum '
+            'Fortfahren)'
+        )
+        response.success = True
+        response.message = 'E-STOP — frozen (recover to resume)'
+        return response
+
+    def _on_recover(self, request, response):
+        """
+        ``/hexapod_recover`` (Trigger): Ein-Klick-Recovery ([D6]).
+
+        Block I Phase 6. **Ursachen-agnostisch** (jeder State außer
+        shutdown-latched): löst den Plugin-Freeze, setzt die gait-Latches +
+        Monitore zurück und rampt per **Joint-Space** aus der eingefrorenen
+        Ist-Pose (``_latest_joints``) in den Stand.
+
+        Bewusst ``start_ramp`` (Joint-Space-Lerp zweier gültiger Posen → kann
+        kein Joint-Limit verletzen, kein IK, kein Re-Freeze), **NICHT**
+        ``start_cartesian_standup`` (nutzt IK → könnte re-freezen) — [D6].
+        Während der Ramp ist der State STARTUP_RAMP → Tip/Slip feuern nicht
+        (nur STANDING/WALKING) → kein Re-Freeze auf dem Rückweg.
+        """
+        if self._shutdown_latched:
+            response.success = False
+            response.message = (
+                'shutdown latched — enable relay / reboot before recover'
+            )
+            return response
+        if len(self._latest_joints) != len(HEXAPOD.legs):
+            response.success = False
+            response.message = 'no complete /joint_states received yet'
+            self.get_logger().warn(f'recover rejected: {response.message}')
+            return response
+
+        # 1) Plugin-Freeze lösen (nur HW; in Sim Service nicht da → guarded
+        #    skip, Muster wie _trigger_safety_freeze). Fire-and-forget.
+        if self._safety_reset_client.service_is_ready():
+            self._safety_reset_client.call_async(Trigger.Request())
+        elif not self._safety_reset_logged_unreachable:
+            self.get_logger().warn(
+                '/hexapod_safety_reset service not available — recover proceeds '
+                'with gait-side reset only (OK in sim; on hardware indicates a '
+                'missing or crashed hexapod_hardware plugin).'
+            )
+            self._safety_reset_logged_unreachable = True
+
+        # 2) gait-Latches + Monitore reset (ursachen-agnostisch → sauberer
+        #    Wiederanlauf ohne Sofort-Re-Freeze).
+        self._safety_frozen = False
+        self._tip_crit_fired = False
+        self._slip_freeze_fired = False
+        self._balance.reset()
+        self._slope_est.reset()
+        self._support_monitor.reset()
+        self._tip_monitor.reset()
+
+        # 3) Joint-Space-Ramp aus der eingefrorenen Ist-Pose in den Stand ([D6]).
+        now = time.monotonic()
+        t = now - self._t_start
+        try:
+            self._engine.start_ramp(
+                self._latest_joints, t, self._recover_duration,
+            )
+        except (ValueError, IKError) as exc:
+            # Ramp-Init fehlgeschlagen (praktisch unerreichbar: duration ist
+            # range-validiert >= 1.0, Stand-Pose per Definition gültig). Freeze
+            # defensiv wieder scharf, damit der Roboter nicht ungeschützt läuft.
+            self._safety_frozen = True
+            response.success = False
+            response.message = f'recover failed: {exc}'
+            self.get_logger().error(response.message)
+            return response
+
+        self.get_logger().info(
+            'recover: Joint-Space-Ramp aus eingefrorener Pose → STANDING '
+            f'({self._recover_duration:.1f} s)'
+        )
+        response.success = True
+        response.message = 'recovering — joint-space ramp to stand'
         return response
 
     def _on_shutdown(self, request, response):
@@ -3319,6 +3466,9 @@ class GaitNode(Node):
             self._rebuild_sensor_health_monitor()
         elif name == 'sensor_fault_inject':
             self._sensor_fault_inject = self._parse_sensor_fault_inject(value)
+        # Block I Phase 6 [D6] — Recovery-Ramp-Dauer live.
+        elif name == 'recover_duration':
+            self._recover_duration = float(value)
 
     def _restart_timer(self) -> None:
         """

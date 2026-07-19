@@ -5,8 +5,10 @@
 > den **Stand** bringt — ohne System-Neustart ([D6]). ROS-Seite = ein Recovery-Service + eine
 > latched Freeze-Gate; App-Seite = E-Stop-Button (scharf) + Recover-Button.
 >
-> **Seite:** ROS + App. **Status: 🟡 Plan.** Self-contained für einen frischen Chat.
-> Contract: [`interface_contract.md`](interface_contract.md) (§2 + §6 `[TBD-Phase 6]`).
+> **Seite:** ROS + App. **Status: 🟢 FINALISIERT (Sim-komplett)** — ROS + App + Sim-E2E verifiziert
+> (Contract v0.10); **einziger deferierter Punkt = HW-T6.8** am echten Roboter. Progress:
+> [`phase_6_estop_recovery_progress.md`](phase_6_estop_recovery_progress.md).
+> Contract: [`interface_contract.md`](interface_contract.md) (§2 + §6, festgezurrt v0.10).
 
 ---
 
@@ -154,16 +156,27 @@ Phase 6 (Recovery + Not-Halt):
 ---
 
 ## 4. Offene Punkte / Risiken (vor Code entscheiden)
-1. **Unified `_safety_frozen`-Latch vs. separates `_estop_latched`.** Der Tick auf `_safety_frozen`
-   zu gaten macht **alle** Freezes (IK/Tip/Slip + E-Stop) latched (bleiben bis Recovery). **Empfehlung:
-   unified** — ein Safety-Freeze SOLL bis zur bewussten Recovery halten ([D6]-Geist); `_safety_frozen`
-   existiert + wird schon im Status publiziert. Risiko: Verhaltensänderung der Auto-Freezes (heute
-   condition-based) → Walking-Regression-Test (T6.9) + Self-Review.
-2. **E-Stop-Service-Name.** `/hexapod_estop` (neu, klar) **vs.** `/hexapod_safety_freeze` in gait_node
-   spiegeln (Contract §2 nennt letzteres schon als App-Not-Halt — aber das ist der Plugin-Service).
-   **Empfehlung:** neuer `/hexapod_estop` im gait_node (der intern das Plugin-`safety_freeze` ruft) →
-   ein App-Ziel, wirkt Sim+HW; Contract §2 entsprechend präzisieren.
-3. **`_recover_duration`** Default (Vorschlag 3.0 s) — Live justierbar.
+
+> **ENTSCHIEDEN (User-Freigabe): §4.1 = unified `_safety_frozen`, §4.2 = neuer `/hexapod_estop`.**
+> Beide Empfehlungen bestätigt. Begründung code-gestützt gegengecheckt (s. u.).
+
+1. **Unified `_safety_frozen`-Latch vs. separates `_estop_latched`.** — **ENTSCHIEDEN: unified.**
+   Der Tick auf `_safety_frozen` gaten macht **alle** Freezes (IK-joint-limit/Tip-CRIT/Slip + E-Stop)
+   latched (bleiben bis Recovery). Ein Safety-Freeze SOLL bis zur bewussten Recovery halten ([D6]-Geist);
+   `_safety_frozen` existiert + wird schon im Status publiziert. **Deckt sich mit dem HW-Plugin**, das
+   `safety_freeze_` ohnehin bis `/hexapod_safety_reset` latcht → heute inkonsistent (Sim-gait resumt bei
+   wegfallender Ursache, HW-Plugin hält weiter). Unified vereinheitlicht das + gibt **einen** Reset-Pfad
+   (Recovery). Risiko: Verhaltensänderung der Auto-Freezes (heute condition-based) → Walking-Regression
+   (T6.9) + Self-Review. **Verifiziert:** normal-Walking setzt `_safety_frozen` nur via
+   `_trigger_safety_freeze` (Tip-CRIT / IK-'joint limit' / Slip) — out-of-reach (Sim) triggert es **nicht**
+   → self-heilt weiterhin (D6-Note).
+2. **E-Stop-Service-Name.** — **ENTSCHIEDEN: neuer `/hexapod_estop` im gait_node** (ruft intern das
+   Plugin-`safety_freeze`) → ein App-Ziel, wirkt Sim+HW. **Entscheidend:** das Plugin besitzt
+   `/hexapod_safety_freeze` auf HW schon; würde der gait_node denselben Namen advertisen, gäbe es auf HW
+   **zwei Server auf einem Servicenamen** → `call_service` routet nicht-deterministisch. Neuer Name
+   vermeidet die Kollision. Contract §2 wird präzisiert (App → `/hexapod_estop`).
+3. **`_recover_duration`** Default (Vorschlag 3.0 s) — Live justierbar. (Eigener Param, unabhängig von
+   `auto_standup_duration`.)
 4. **Recovery-Startpose = Ist-Pose aus `_latest_joints`.** Bei sehr alter/stiller `/joint_states`
    (E-Stop hielt lange) ist die Ist-Pose weiterhin gültig (Roboter hat sich nicht bewegt) → ok.
 

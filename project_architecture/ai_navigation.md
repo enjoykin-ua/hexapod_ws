@@ -135,6 +135,34 @@
   (`phase_5_status_config_test_commands.md`): status ~5 Hz, Caps folgen Stance, Param-Set live +
   Reject-Pfade, WARN in `/hexapod/alerts`.
 
+### E-Stop / Recovery ändern (Block I Phase 6 — App-Not-Halt + Ein-Klick-Recover)
+- **Naht = Contract §2/§6** (`interface_contract.md`, v0.10) + **[D6]** (`decisions.md`).
+- **Zwei gait_node-Services** (`hexapod_gait/gait_node.py`, alle in `_cb_group` = Tick-CB-Gruppe →
+  kein Race): `/hexapod_estop` (`_on_estop`) + `/hexapod_recover` (`_on_recover`).
+- **Freeze-Gate:** erste Zeile in `_tick` = `if self._safety_frozen: return`. **§4.1 unified** — macht
+  **alle** Freezes (E-Stop + Auto-Freezes Tip-CRIT/Slip/IK-'joint limit') **latched** (halten bis
+  Recovery), nicht mehr condition-based. `_publish_status` läuft auf eigenem Timer weiter → Overlay
+  zeigt `safety_frozen`.
+- **E-Stop:** `_safety_frozen=True` + `_trigger_safety_freeze()` (Plugin-PWM-Hold auf HW, guarded skip
+  in Sim). Wirkt **Sim+HW**. **§4.2:** eigener Name statt `/hexapod_safety_freeze` spiegeln (sonst
+  Zwei-Server-Kollision mit dem Plugin auf HW).
+- **Recovery ([D6]):** ursachen-agnostisch (Reject nur bei `_shutdown_latched` / unvollständigem
+  `_latest_joints`). Plugin-Freeze lösen (`_safety_reset_client`, guarded) → Latches
+  (`_safety_frozen`/`_tip_crit_fired`/`_slip_freeze_fired`) + Monitore
+  (`_balance`/`_slope_est`/`_support_monitor`/`_tip_monitor`) reset → **`engine.start_ramp`**
+  (Joint-Space, **nicht** `start_cartesian_standup`) aus `_latest_joints` in den Stand. Param
+  `recover_duration` (Default 3.0 s, **nicht** standing_only). **Warum sicher:** Lerp zweier gültiger
+  Posen → konvexe Kombination pro Gelenk → **kein Limit-Bruch, kein IK, kein Re-Freeze** (während der
+  Ramp = STARTUP_RAMP feuern Tip/Slip ohnehin nicht).
+- **Fallen:** (1) App-Ziel ist `/hexapod_estop`, **nicht** `/hexapod_safety_freeze` (Plugin, nur HW).
+  (2) Recovery richtet **keine Kipplage** auf (Mensch stellt grob aufrecht, dann Recover). (3) Bei
+  weiter schlechten Params freezt er nach dem Loslaufen wieder (Recovery fixt Zustand, nicht Params).
+- **Validieren:** `test_recover.py` (T6.4 Ramp-kein-Limit über 21 Samples · T6.6 Reset-Latches/Monitore
+  · T6.7 Reject-ohne-joints · Freeze-Gate · any-state) + Live
+  (`phase_6_estop_recovery_test_commands.md`): estop → `safety_frozen:true` latched → recover →
+  STARTUP_RAMP→STANDING. **Walking-Regression** (T6.9) beachten — der Gate darf normal-Walking nicht
+  bremsen (setzt `_safety_frozen` nur über die echten Fehler-Pfade).
+
 ### Teleop-Mapping / neue Controller-Funktion
 - **Dateien:** `hexapod_teleop/config/ps4_usb.yaml` (Indizes/Skalen) · `joy_to_twist.py` (Logik).
 - **Falle:** `joy_to_twist` publisht beim Start **einmalig** `/cmd_body_height = body_height_init`
