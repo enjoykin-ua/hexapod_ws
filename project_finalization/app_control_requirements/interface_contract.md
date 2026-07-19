@@ -24,7 +24,8 @@
 | **v0.6** | §7.4 geklärt (aus rosbridge-2.7.0-Quellcode): latched Topics kommen über rosbridge zur App — Auto-QoS-Match an `transient_local`-Publisher, deterministisch via explizitem `qos`-subscribe-Frame. **Kein ROS-Change.** Betrifft nur den **optionalen** Live-Push von `/hexapod/bringup_running` (Primärquelle bleibt `bringup_status`-Polling). |
 | **v0.7** | §5 (Video) festgezurrt für Phase 4: MJPEG via `web_video_server` :8080, `/camera/image_raw`, URL-Schema, 16:9 ~720p@15 + center-crop, `camera_enable` reserviert (Pi). §6 ergänzt: `/hexapod/alerts` (WARN+ aus `/rosout`), Set-Stance-direkt, Status-Publisher-Felder (verfügbare Tempos; Batterie gestrichen) — alle `[TBD-Phase 5]`. |
 | **v0.8** | §5 präzisiert nach Phase-4-**ROS-Live-Verifikation**: **Host** = gleiche IP wie rosbridge (§0), nur Port 8080; **Verfügbarkeit** = Stream-Server läuft **im On-Demand-Stack** → Port 8080 erst **nach `/hexapod_bringup_start`** offen, App koppelt die Kamera-View an `/hexapod/bringup_running`; live gemessen **~11 Hz** (Render-Jitter, v1-ok). **Kein ROS-Change, kein neues Interface** — Klarstellung für den App-Bau (P4.7–P4.9). |
-| **v0.9** (aktuell) | §6a festgezurrt für Phase 5 (**ROS-Seite live-verifiziert**): Status/Config/Alerts als **JSON-String** (`std_msgs/String`) — `/hexapod/status` (5 Hz, gait_node, State/Stance/Gangart/Safety/Tip + dyn. H1/H2-Caps), `/hexapod/tempo` (latched, joy_to_twist), `/hexapod/capabilities` + `/hexapod/config_manifest` (latched, Always-On `hmi_status`, 39 Params), `/hexapod/alerts` (latched Historie 50, WARN+ aus `/rosout`). **Set-Stance direkt** = App cyclet `/hexapod_cycle_stance` (kein neues Interface). Config-Panel = natives rosbridge get/set_parameters + Manifest. §7.3 damit geschlossen. |
+| **v0.9** | §6a festgezurrt für Phase 5 (**ROS-Seite live-verifiziert**): Status/Config/Alerts als **JSON-String** (`std_msgs/String`) — `/hexapod/status` (5 Hz, gait_node, State/Stance/Gangart/Safety/Tip + dyn. H1/H2-Caps), `/hexapod/tempo` (latched, joy_to_twist), `/hexapod/capabilities` + `/hexapod/config_manifest` (latched, Always-On `hmi_status`, 39 Params), `/hexapod/alerts` (latched Historie 50, WARN+ aus `/rosout`). **Set-Stance direkt** = App cyclet `/hexapod_cycle_stance` (kein neues Interface). Config-Panel = natives rosbridge get/set_parameters + Manifest. §7.3 damit geschlossen. |
+| **v0.9.1** (aktuell) | §2/§6a: neuer **`/hexapod_cycle_tempo`** (`std_srvs/SetBool`, Host `joy_to_twist`) — schließt die von der App-Session gemeldete Lücke „kein direkter Tempo-Setz-Weg" (Tempo lief nur über D-Pad). App-Tempo-Dropdown = **cycle-to-target** via `tempo_idx` aus `/hexapod/tempo`, symmetrisch zu Set-Stance. Kein neuer Message-Typ; standing_only serverseitig. |
 
 ---
 
@@ -146,6 +147,7 @@ Alle über rosbridge `call_service` aufrufbar. Verifiziert gegen `gait_node.py` 
 | `/hexapod_stand_up` | `std_srvs/Trigger` | Aufstehen |
 | `/hexapod_cycle_stance` | `std_srvs/SetBool` | `data=true` höher / `false` tiefer (nur STANDING) |
 | `/hexapod_cycle_gait` | `std_srvs/SetBool` | `true` next / `false` prev Gangart |
+| `/hexapod_cycle_tempo` | `std_srvs/SetBool` | `true` schneller / `false` langsamer Tempo-Preset (nur STANDING). **Host = `joy_to_twist`** (Tempo lebt dort). App-Tempo-Dropdown = cycle-to-target via `tempo_idx` aus `/hexapod/tempo`. `[N Ph.5]` |
 | `/hexapod_adjust_step_length` | `std_srvs/SetBool` | `true` größer / `false` kleiner (H2: modus-gedeckelt) |
 | `/hexapod_show_toggle` | `std_srvs/Trigger` | Show-Pose rein/raus |
 | `/hexapod_shutdown` | `std_srvs/Trigger` | Kontrolliertes Hinsetzen + Shutdown-Kette (Block F) |
@@ -306,6 +308,12 @@ Alert pro Nachricht:
 **Set-Stance direkt** — **kein neues ROS-Interface**: die App liest `status.stance_idx` und ruft das
 bestehende **`/hexapod_cycle_stance`** (`std_srvs/SetBool`, `data=true` höher / `false` tiefer) so oft,
 bis der Ziel-Index erreicht ist (standing_only bleibt serverseitig geprüft).
+
+**Set-Tempo direkt** (v0.9.1) — analog: die App liest `tempo.tempo_idx` (aus `/hexapod/tempo`) und
+ruft **`/hexapod_cycle_tempo`** (`std_srvs/SetBool`, `true` schneller / `false` langsamer) bis zum
+Ziel-Index. `success=false` = blockiert (läuft noch / nicht STANDING) → nächsten Schritt erst nach
+`/hexapod/tempo`-Update. Der Tempo-Wechsel ist standing_only (setzt `cycle_time`) → außerhalb STANDING
+lehnt der gait_node ab, `_cycle_tempo` bricht sauber ab.
 
 > **Verfügbarkeit:** `capabilities`/`config_manifest`/`alerts` laufen in der **Always-On-Schicht**
 > (`hmi_status`) → schon **beim App-Connect** da, vor dem On-Demand-Stack. `status`/`tempo` kommen aus

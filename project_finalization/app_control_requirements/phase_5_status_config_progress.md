@@ -14,6 +14,7 @@ Phase 5 (Status-Overlay + Touch-Parameter-UI):
 - [x] P5.5 [ROS] Whitelist-Params: Drift-Schutz-Test (alle 39 im Code deklariert); Live-Apply/Reject (T5.5-T5.7 ✅ Live)
 - [x] P5.6 [ROS] /hexapod/alerts (WARN+ aus /rosout republished) (T5.8 ✅)
 - [x] P5.7 [ROS] Set-Stance direkt = Weg (b): App cyclet ueber /hexapod_cycle_stance (kein neuer ROS-Code)
+- [x] P5.7b [ROS] /hexapod_cycle_tempo (SetBool) in joy_to_twist -> Tempo-Dropdown-Setz-Weg (App-Feedback); +5 Tests; Contract §2/§6a v0.9.1
 - [x] P5.8 [ROS] Contract §6a festgezurrt (Status/Capabilities/Manifest/Alerts/Tempo Feld-Typen), Version-Bump v0.9
 - [x] P5.9 [ROS] Unit/Lint gruen (902 Tests) + Sim-Regression Walking (T5.10 ✅ Live)
 - [ ] P5.10 [App] Overlay-Slots mit Live-Daten (status/tempo/foot_contacts/imu-monitor)  [Android-Session]
@@ -66,7 +67,16 @@ T5.10 Roboter läuft normal (**kein Regress** durch den 5-Hz-Status-Timer). **RO
 komplett verifiziert.**
 
 **ROS-Seite abgeschlossen.** Contract **v0.9** (§6a) festgezurrt; architecture/ai_navigation nachgezogen.
-**Offen (nicht ROS):** App-Shell **P5.10–P5.13** (Android-Session gegen §6a) · P5.15 End-to-End (User + App).
+
+**Nachtrag (App-Feedback, P5.7b):** die App-Session meldete, dass der Contract keinen direkten
+**Tempo-Setz-Weg** hatte (Tempo lief nur über D-Pad). Fix: neuer **`/hexapod_cycle_tempo`**
+(`SetBool`) in `joy_to_twist`, symmetrisch zu Set-Stance (App cyclet zum Ziel via `tempo_idx` aus
+`/hexapod/tempo`); `_cycle_tempo` liefert jetzt bool (True=Request/Limit, False=blockiert), Service
+mappt auf `success`. Live-Smoke: Service advertised (`std_srvs/SetBool`), ohne gait → `success=false`
+„blockiert". +5 Tests (907 gesamt). Contract **v0.9.1**, Plan §9. **Standing_only** greift serverseitig.
+
+**Offen (nicht ROS):** App-Shell **P5.10–P5.13** (Android-Session gegen §6a; Tempo-Dropdown jetzt
+funktional via `/hexapod_cycle_tempo`) · P5.15 End-to-End (User + App).
 
 ## Self-Review (P5.14)
 

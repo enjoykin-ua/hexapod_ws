@@ -22,6 +22,7 @@ import pytest
 from rcl_interfaces.msg import SetParametersResult
 from rcl_interfaces.srv import SetParameters
 import rclpy
+from std_srvs.srv import SetBool
 import yaml
 
 _CFG = os.path.join(os.path.dirname(__file__), '..', 'config')
@@ -227,3 +228,45 @@ def test_pending_lock_and_timeout_release(node):
     assert len(fake.calls) == 2
     assert node._tempo_idx == _TEMPO_DEFAULT_IDX  # nie eine Antwort → alt
     assert _scales(node) == pytest.approx(before)
+
+
+# ----- Block I Phase 5: /hexapod_cycle_tempo (Tempo-Dropdown-Setz-Weg) ----- #
+
+def test_cycle_tempo_returns_true_when_initiated(node):
+    """Erfolgreicher Cycle gibt True (Request raus, idx folgt der Antwort)."""
+    node._gait_param_client = _FakeParamClient(ready=True, successful=True)
+    assert node._cycle_tempo(True, now=100.0) is True   # schnell → aggressiv
+    assert node._tempo_idx == 3
+
+
+def test_cycle_tempo_returns_true_at_limit(node):
+    """Am Limit ist ein weiterer Cycle ein No-op (True, kein Fehler)."""
+    node._gait_param_client = _FakeParamClient(ready=True, successful=True)
+    node._cycle_tempo(True, now=100.0)                  # → aggressiv (idx 3)
+    assert node._tempo_idx == 3
+    assert node._cycle_tempo(True, now=101.0) is True   # bereits am schnellsten
+    assert node._tempo_idx == 3
+
+
+def test_cycle_tempo_returns_false_when_services_down(node):
+    """gait-Param-Services nicht bereit → blockiert (False)."""
+    node._gait_param_client = _FakeParamClient(ready=False)
+    assert node._cycle_tempo(True, now=100.0) is False
+
+
+def test_cycle_tempo_returns_false_when_pending(node):
+    """Zweiter Cycle während einer laufenden Anfrage → blockiert (False)."""
+    node._gait_param_client = _FakeParamClient(respond=False)
+    assert node._cycle_tempo(True, now=100.0) is True    # erster Request raus
+    assert node._cycle_tempo(True, now=100.5) is False   # pending < Timeout
+
+
+def test_service_cycle_tempo_maps_return_to_success(node):
+    """Der SetBool-Service spiegelt den _cycle_tempo-Return auf success."""
+    node._gait_param_client = _FakeParamClient(ready=True, successful=True)
+    resp = node._on_cycle_tempo(SetBool.Request(data=True), SetBool.Response())
+    assert resp.success is True
+    assert 'schneller' in resp.message
+    node._gait_param_client = _FakeParamClient(ready=False)
+    resp2 = node._on_cycle_tempo(SetBool.Request(data=False), SetBool.Response())
+    assert resp2.success is False

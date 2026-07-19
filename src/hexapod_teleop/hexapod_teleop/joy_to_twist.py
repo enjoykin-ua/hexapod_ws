@@ -242,6 +242,12 @@ class JoyToTwist(Node):
         self._cycle_stance_client = self.create_client(
             SetBool, '/hexapod_cycle_stance'
         )
+        # Block I Phase 5 — Tempo-Setz-Weg für den App-Dropdown: SetBool-Service
+        # (true=schneller / false=langsamer), symmetrisch zu cycle_gait/stance.
+        # Der App-Dropdown macht cycle-to-target via tempo_idx aus /hexapod/tempo.
+        self._cycle_tempo_srv = self.create_service(
+            SetBool, '/hexapod_cycle_tempo', self._on_cycle_tempo
+        )
         self._toggle_logged = False
         self._shutdown_logged = False
         self._cycle_gait_logged = False
@@ -484,7 +490,7 @@ class JoyToTwist(Node):
 
     # ---------- Block H2 — Tempo-Presets (D-Pad ↑/↓) ----------
 
-    def _cycle_tempo(self, faster: bool, now: float) -> None:
+    def _cycle_tempo(self, faster: bool, now: float) -> bool:
         """
         Tempo-Index cyclen (geklemmt, kein Wrap) — Zwei-Schritt-Protokoll.
 
@@ -494,6 +500,11 @@ class JoyToTwist(Node):
         NICHTS (kein halber Tempo-Wechsel). (2) Erst im done-Callback bei
         Erfolg die eigenen Scales aus der Tabelle setzen (durch die
         validate-then-apply-Live-Mechanik, Param-Server bleibt konsistent).
+
+        Return (Block I Phase 5): ``True`` = Request rausgegangen bzw. bereits
+        am Limit (kein Fehler); ``False`` = blockiert (läuft noch / gait-Param-
+        Services nicht bereit). Der D-Pad-Aufrufer ignoriert den Wert; der
+        Service ``/hexapod_cycle_tempo`` mappt ihn auf ``SetBool.success``.
         """
         if self._tempo_request_pending:
             if now - self._tempo_request_time < _TEMPO_REQUEST_TIMEOUT_S:
@@ -501,7 +512,7 @@ class JoyToTwist(Node):
                     'Tempo-Wechsel läuft noch (Antwort ausstehend) — ignoriert.',
                     throttle_duration_sec=2.0,
                 )
-                return
+                return False
             # Timeout: gait_node antwortet nicht (weg zwischen ready-Check
             # und Antwort) → Lock lösen, nichts wurde geändert.
             self._tempo_request_pending = False
@@ -516,14 +527,14 @@ class JoyToTwist(Node):
                 f'Tempo bereits am {"schnellsten" if faster else "langsamsten"}'
                 f' ({_TEMPO_MODES[self._tempo_idx].name})'
             )
-            return
+            return True
         if not self._gait_param_client.services_are_ready():
             self.get_logger().warn(
                 'Tempo-Wechsel: gait_node-Param-Services nicht verfügbar — '
                 'ignoriert (läuft gait_node?).',
                 throttle_duration_sec=2.0,
             )
-            return
+            return False
         mode = _TEMPO_MODES[new_idx]
         self._tempo_request_pending = True
         self._tempo_request_time = now
@@ -533,6 +544,27 @@ class JoyToTwist(Node):
         future.add_done_callback(
             lambda fut: self._on_tempo_response(fut, new_idx)
         )
+        return True
+
+    def _on_cycle_tempo(self, request, response):
+        """
+        Block I Phase 5 — /hexapod_cycle_tempo (SetBool) → ein Tempo-Schritt.
+
+        Wrappt ``_cycle_tempo`` (``data=true`` schneller / ``false`` langsamer).
+        ``success`` = wurde ein Schritt initiiert bzw. sind wir schon am Limit
+        (True) / blockiert (False: läuft noch / Services nicht bereit). Das
+        tatsächliche neue Tempo kommt über ``/hexapod/tempo`` (der App-Dropdown
+        cyclet damit zum Ziel). Standing_only greift serverseitig im gait_node.
+        """
+        ok = self._cycle_tempo(request.data, time.monotonic())
+        direction = 'schneller' if request.data else 'langsamer'
+        response.success = ok
+        response.message = (
+            f'tempo cycle {direction} angefordert (Ergebnis via /hexapod/tempo)'
+            if ok else
+            'tempo cycle blockiert (läuft noch / Param-Services nicht bereit)'
+        )
+        return response
 
     def _on_tempo_response(self, future, new_idx: int) -> None:
         """Antwort des gait_node auf den cycle_time-Set auswerten (Schritt 2)."""

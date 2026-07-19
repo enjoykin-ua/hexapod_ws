@@ -267,3 +267,28 @@ Phase 5 (Status-Overlay + Touch-Parameter-UI):
 
 > **§8 Implementierungs-Leitfaden (file-by-file)** folgt **nach** der Entscheidung der §4-Punkte
 > (Host-Node, Tempo-Quelle, Set-Stance) — dann self-contained mit Snippets wie im Phase-4-Plan.
+
+---
+
+## 9. Nachtrag (App-Feedback) — `/hexapod_cycle_tempo` (Tempo-Dropdown-Setz-Weg)
+
+**Lücke (App-Session gemeldet):** der Contract hatte **keinen** direkten Tempo-Setz-Weg — Tempo
+lief nur über D-Pad (`_on_joy` → `_cycle_tempo`). Ein Tempo-**Dropdown** braucht aber einen
+Setz-Pfad. (Gangart/Stance haben Cycle-Services im gait_node; Tempo wurde nie exponiert, weil es
+Teleop-seitig in `joy_to_twist` liegt.)
+
+**Fix (symmetrisch zu Set-Stance):** neuer **`/hexapod_cycle_tempo`-Service (`std_srvs/SetBool`,
+`data=true` schneller / `false` langsamer)** in **`joy_to_twist`**, Callback ruft das bestehende
+`_cycle_tempo`. Die App macht **cycle-to-target** (liest `tempo_idx` aus `/hexapod/tempo`, ruft
+up/down bis Ziel) — exakt wie der Stance-Dropdown. **Kein neuer Message-Typ**, `/hexapod/tempo`
+bleibt autoritativ (`_cycle_tempo` pflegt `_tempo_idx`), **standing-gated automatisch** (Tempo setzt
+`cycle_time`=standing_only → gait_node rejected außerhalb STANDING → `_cycle_tempo` bricht sauber ab).
+
+- **Logik:** `_cycle_tempo` bekommt einen **bool-Rückgabewert** (True = Request rausgegangen bzw.
+  bereits am Limit / False = blockiert: pending oder gait-Param-Services nicht bereit); der D-Pad-
+  Aufrufer ignoriert ihn, der Service mappt ihn auf `SetBool.Response.success`.
+- **Tests:** `_cycle_tempo`-Return (ready+ok → True + idx+1; am Limit → True/no-op; `ready=False` →
+  False; pending → False) via bestehende `_FakeParamClient`-Harness; Service-Wrapper gibt den
+  Return als `success` zurück. **NICHT getestet:** echte App-cycle-to-target-Schleife (Live/App).
+- **Progress:** `- [ ] P5.7b [ROS] /hexapod_cycle_tempo (SetBool) in joy_to_twist → Tempo-Dropdown-Setz-Weg (cycle-to-target); Test + Contract §2/§6a v0.9.1`
+- **Contract:** §2 neuer Service (wie `cycle_gait`/`cycle_stance`) + §6a-Notiz; Version-Bump v0.9.1.
