@@ -28,7 +28,9 @@
 | **v0.9.1** | §2/§6a: neuer **`/hexapod_cycle_tempo`** (`std_srvs/SetBool`, Host `joy_to_twist`) — schließt die von der App-Session gemeldete Lücke „kein direkter Tempo-Setz-Weg" (Tempo lief nur über D-Pad). App-Tempo-Dropdown = **cycle-to-target** via `tempo_idx` aus `/hexapod/tempo`, symmetrisch zu Set-Stance. Kein neuer Message-Typ; standing_only serverseitig. |
 | **v0.10** | §2/§6 festgezurrt für Phase 6 (**ROS-Seite implementiert + unit-getestet**): **`/hexapod_estop`** (`std_srvs/Trigger`, **gait_node**) = der App-Not-Halt, wirkt **Sim UND HW** (gated den gait-Tick latched + ruft intern den Plugin-`/hexapod_safety_freeze`); ersetzt `/hexapod_safety_freeze` als App-Ziel (§4.2: neuer Name statt Plugin-Namen spiegeln → keine Zwei-Server-Kollision auf HW). **`/hexapod_recover`** (`std_srvs/Trigger`, gait_node) = Ein-Klick-Recovery ([D6]): Plugin-Freeze lösen + gait-Latches/Monitore reset + **Joint-Space-Ramp** in den Stand (ursachen-agnostisch, kein IK). `safety_frozen` im Status wird jetzt durch Recovery zurückgesetzt (nicht mehr „bis Stack-Neustart"). |
 | **v0.11** | §3/§4/§6b festgezurrt für Phase 7A (**ROS-Seite implementiert + unit-getestet**): **`/hexapod/play_sound`** (`std_msgs/String`, App→Roboter) = Soundboard (`sound_01..03`, spielt immer); **`/hexapod/sound_enabled`** (`std_msgs/Bool`, latched, Roboter→App) = Auto-Sound-Mute-Status; Param **`sound_enable`** auf `/hexapod_audio` (App setzt via `set_parameters`). Auto-Sounds bei Aufstehen/Hinsetzen/Höhenwechsel/Freeze (**Recovery stumm**); Sound nur am Roboter-Speaker ([D5]). `/hexapod/audio_cue` = intern (gait_node→hexapod_audio). |
-| **v0.11.1** (aktuell) | §6b für die App-Session präzisiert: **kopierbare rosbridge-Frames** (advertise/publish `play_sound`, `set_parameters` für den BOOL `sound_enable`, latched `subscribe` auf `sound_enabled`) + App-Pflichten (Buttons erst wenn Stack läuft, Toggle spiegelt `sound_enabled`). `sound_enabled` in die §3-Latched-QoS-Note aufgenommen. **Kein Interface-Change** — reine Klarstellung für den Android-Bau. |
+| **v0.11.1** | §6b für die App-Session präzisiert: **kopierbare rosbridge-Frames** (advertise/publish `play_sound`, `set_parameters` für den BOOL `sound_enable`, latched `subscribe` auf `sound_enabled`) + App-Pflichten (Buttons erst wenn Stack läuft, Toggle spiegelt `sound_enabled`). `sound_enabled` in die §3-Latched-QoS-Note aufgenommen. **Kein Interface-Change** — reine Klarstellung für den Android-Bau. |
+| **v0.12** | §5/§6 festgezurrt für Phase 7B (**ROS-Seite + Desktop-E2E verifiziert**): echte **Raspi-Cam (OV5647)** am Pi → `hexapod_camera`-Node (`rpicam-vid` MJPEG → **`CompressedImage`** auf `/camera/image_raw/compressed`). **App-URL Variante A:** `type` je Host — Sim `type=mjpeg` (roh), **HW `type=ros_compressed`** (JPEGs durchgereicht, kein Pi-Decode). Param **`camera_enable`** (rpicam-Subprozess an/aus) + `source:=rpicam\|test` (test = Desktop-E2E). `web_video_server` läuft real via `camera.launch.py`. **App:** einzige Änderung = URL-`type` je Host (P7B.13). |
+| **v0.12.1** (aktuell) | §5 für die App-Session präzisiert (**kein Interface-Change**): explizite **App-Pflicht zur Video-`type`-Wahl** (Sim→`mjpeg` / HW→`ros_compressed`, gekoppelt an das Verbindungs-Profil aus §0 bzw. Auto-Erkennung via `rosapi/topics` auf `/camera/image_raw/compressed`) + kopierbarer **`camera_enable`-Frame** (`/hexapod_camera/set_parameters`, BOOL). FPS-Zeile Sim/HW getrennt. |
 
 ---
 
@@ -227,7 +229,7 @@ On-Screen-Toggles/Slider setzen `gait_node`-Parameter. Beispiele (vollständige 
 
 ---
 
-## 5. Video (Kanal 2, separat) — festgezurrt v0.7, präzisiert v0.8 (Phase 4, ROS-Seite live-verifiziert)
+## 5. Video (Kanal 2, separat) — festgezurrt v0.7, präzisiert v0.8 (Phase 4) + v0.12 (Phase 7B: echte Raspi-Cam)
 
 **Nicht rosbridge** — eigener HTTP-Stream-Server.
 
@@ -236,12 +238,29 @@ On-Screen-Toggles/Slider setzen `gait_node`-Parameter. Beispiele (vollständige 
 | **Protokoll (Erstwurf)** | **MJPEG** über `web_video_server` (`ros-jazzy-web-video-server`, Stock-Paket). Latenz ~100–300 ms (NF4-Erstwurf); Upgrade RTSP/H.264/WebRTC später. |
 | **Port** | **8080** (getrennt von rosbridge 9090). |
 | **Host** | **Gleiche IP wie rosbridge** (§0), **nur Port 8080** statt 9090 (Sim `Desktop-IP:8080` / real `Pi-IP:8080`). Die App leitet die Video-URL aus derselben Host-Eingabe ab wie die WebSocket-URL. |
-| **Image-Topic** | **`/camera/image_raw`** (`sensor_msgs/Image`). |
-| **Bildquelle** | Sim = Gazebo-Kamera-Sensor (vorne oben am Body, geradeaus); **real** = Raspi-Cam v1.3 (Pi, Phase 7) → **gleiches Topic**, Stream-Server + App **unverändert**. |
-| **URL-Schema** | `http://<host>:8080/stream?topic=/camera/image_raw&type=mjpeg` (Snapshot gestrichen). Das ist die **rohe** MJPEG-URL (`multipart/x-mixed-replace`), die die App direkt lädt — **live gegen den Server verifiziert**. Die Index-Seite `http://<host>:8080/` (Topic-Liste, `stream_viewer`) ist nur ein HTML-Wrapper zum manuellen Testen. |
-| **Auflösung/FPS** | 16:9, 1280×720, Sensor `update_rate` 15; **live gemessen ~11 Hz** (Render-Jitter der gz-Sensors unter Last; für v1 „folgbar", NF4-ok, final justierbar). App zeigt **center-crop-to-fill** (Phone 19,5:9 → kein schwarzer Balken, minimaler Beschnitt; späterer In-App-Zoom optional). |
-| **Verfügbarkeit** | Der Stream-Server (`web_video_server`) läuft **im On-Demand-Stack** (`sim.launch.py`, kommt mit `bringup_start`) → Port 8080 ist **erst nach `/hexapod_bringup_start`** offen (davor Connection-refused). **App: Kamera-View an `/hexapod/bringup_running` koppeln** — keinen Stream laden/anzeigen, solange `false` (sonst Fehlbild/Timeout beim Connect). |
-| **Kamera an/aus** | **Phase 4 app-seitig** (App fordert Stream an / stoppt ihn = MJPEG-URL laden/entladen). ROS-Node-Start/Stop (Strom/Wärme) = **Pi/Phase 7** — `camera_enable`-Service/Param **reserviert** (§6). |
+| **Image-Topic** | Topic-**Basis** `/camera/image_raw`. **Sim:** roh (`sensor_msgs/Image`, gz-Bridge). **Real (Phase 7B):** `/camera/image_raw/compressed` (`sensor_msgs/CompressedImage`, JPEG). |
+| **Bildquelle** | Sim = Gazebo-Kamera-Sensor (vorne oben am Body, geradeaus); **real (Phase 7B)** = Raspi-Cam v1.3 / OV5647 am Pi → `hexapod_camera`-Node (`rpicam-vid --codec mjpeg` → `CompressedImage`). Stream-Server + App-Grundgerüst identisch; **nur der URL-`type` unterscheidet sich (Variante A, s. u.)**. |
+| **URL-Schema (Variante A — `type` je Host, Phase 7B)** | Basis `http://<host>:8080/stream?topic=/camera/image_raw&type=<T>`. **Sim-Host (Desktop-IP) → `type=mjpeg`** (rohes Bild, Gazebo). **HW-Host (Pi-IP) → `type=ros_compressed`** (web_video_server reicht die JPEGs durch → **kein Pi-Decode**). Beides `multipart/x-mixed-replace`, die App lädt es direkt. **Desktop-E2E verifiziert** (`type=ros_compressed` gegen den `source:=test`-Node). Die App kennt den Host (Verbinden-Screen) → ein `if` je Modus. |
+| **Auflösung/FPS** | 16:9, 1280×720. **Sim:** `update_rate` 15, live ~11 Hz (gz-Render-Jitter). **HW (7B):** `hexapod_camera`-Param `framerate` (Default 15; Desktop-E2E ~15 Hz gemessen, reale Pi-FPS = T7B.6). App zeigt **center-crop-to-fill** (Phone 19,5:9 → kein schwarzer Balken; späterer In-App-Zoom optional). |
+| **Verfügbarkeit** | `web_video_server` läuft **im On-Demand-Stack** — Sim aus `sim.launch.py`, **real (Phase 7B) aus `camera.launch.py`** (via `bringup_ondemand mode:=real`) → Port 8080 **erst nach `/hexapod_bringup_start`** offen. **App: Kamera-View an `/hexapod/bringup_running` koppeln**. |
+| **Kamera an/aus** | **App-seitig** (Stream-URL laden/entladen, Phase 4) **+ ROS-seitig (Phase 7B):** Param **`camera_enable`** (bool) auf `/hexapod_camera` startet/stoppt den `rpicam-vid`-Subprozess (echter Strom/Wärme-Aus). App-optional als Toggle via `set_parameters` (Muster wie `sound_enable` §6b). §6. |
+
+> **App-Pflicht (Video-`type`-Wahl, Variante A — das ist P7B.13):** Die App muss den Stream-`type`
+> nach ihrem **Verbindungs-Kontext** setzen: **Sim/Dev** (Desktop) → `type=mjpeg`, **echter Roboter**
+> (Pi) → `type=ros_compressed`. **Woher die App weiß, welcher Modus:** ihre Entscheidung — z.B. ein
+> **Sim/HW-Schalter** im Verbinden-Screen bzw. **getrennte Verbindungs-Profile** (Sim-IP vs Pi-IP), an
+> die der `type` gekoppelt ist. **Robuste Auto-Erkennung** (falls kein Modus-Flag vorliegt): per
+> rosbridge die Topic-Liste holen (`rosapi/topics`, `rosapi/srv/Topics`) und **`/camera/image_raw/compressed`
+> vorhanden → `ros_compressed`, sonst → `mjpeg`**. Es gibt **bewusst kein Sim/HW-Signal im Contract**
+> (Variante A) — die App wählt lokal. Das ist die **einzige** App-Änderung für 7B.
+>
+> **`camera_enable` (app-optional) — rosbridge-Frame:**
+> ```jsonc
+> {"op":"call_service","service":"/hexapod_camera/set_parameters",
+>  "type":"rcl_interfaces/srv/SetParameters",
+>  "args":{"parameters":[{"name":"camera_enable","value":{"type":1,"bool_value":false}}]}}
+> ```
+> Startet/stoppt den rpicam-Subprozess (Strom/Wärme). Nicht nötig fürs bloße Video-Anzeigen.
 
 ---
 
@@ -255,7 +274,7 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 | Launcher: `pi_shutdown` + `/hexapod/bringup_running` | Pi ausschalten (guarded) + Stack-State | **✅ erledigt (v0.5, §2a/§3)** |
 | **Status/Capabilities/Manifest/Alerts** | Overlay-Live-Daten + Config-Panel-Naht | **✅ erledigt (v0.9, §6a)** |
 | **Set-Stance direkt** | Stance-Modus direkt wählen (Touch-Dropdown) | **✅ erledigt (v0.9, §6a)** — App cyclet `/hexapod_cycle_stance` zum Ziel |
-| **Kamera an/aus** (`camera_enable`) | Kamera-Node am Pi starten/stoppen (Strom/Wärme); in Sim app-seitig | `[TBD-Phase 7]` |
+| **Kamera an/aus** (`camera_enable`) + echte Raspi-Cam (`/camera/image_raw/compressed`) | OV5647 → CompressedImage; camera_enable = rpicam-Subprozess an/aus | **✅ erledigt (v0.12, §5)** |
 | **E-Stop** (`/hexapod_estop`) | App-Not-Halt, latched Freeze Sim+HW | **✅ erledigt (v0.10, §2)** |
 | **Recovery-Service** (`/hexapod_recover`) | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | **✅ erledigt (v0.10, §2)** |
 | Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | **✅ erledigt (v0.11, §6b)** |

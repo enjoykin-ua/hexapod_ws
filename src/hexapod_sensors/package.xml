@@ -18,6 +18,15 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <!-- Block I Phase 7B — hexapod_camera (rpicam_node) nutzt zur Laufzeit am Pi
+       das System-Binary 'rpicam-vid' (Pi-Fork libcamera + rpicam-apps, aus
+       ~/camera_build/, siehe peripherals_tests/camera_ov5647_v13.md). Bewusst
+       KEIN rosdep-exec_depend (kein Key). source:=test (Desktop) braucht kein
+       rpicam-vid; fehlt es im rpicam-Modus -> einmal ERROR, kein Crash. Der
+       MJPEG-Stream wird vom Stock-Paket web_video_server (:8080) serviert. -->
+  <exec_depend>web_video_server</exec_depend>
   <!-- bno055_imu (Stufe 6/IP1) importiert zur Laufzeit am Pi 'smbus2'. Bewusst
        KEIN rosdep-exec_depend (kein zuverlaessig aufloesbarer Key auf Ubuntu
        24.04). Bereitstellung dokumentiert in

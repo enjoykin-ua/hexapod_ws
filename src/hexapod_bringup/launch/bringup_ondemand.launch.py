@@ -52,6 +52,7 @@ def _setup(context, *args, **kwargs):
     rubicon_walk_launch = os.path.join(
         pkg_bringup, 'launch', 'rubicon_walk.launch.py')
     real_launch = os.path.join(pkg_bringup, 'launch', 'real.launch.py')
+    camera_launch = os.path.join(pkg_bringup, 'launch', 'camera.launch.py')
     gait_launch = os.path.join(
         get_package_share_directory('hexapod_gait'), 'launch', 'gait.launch.py')
     teleop_launch = os.path.join(
@@ -127,7 +128,13 @@ def _setup(context, *args, **kwargs):
                 'use_sim_time': 'false',
             }.items(),
         )
-        return [ctrl, gait, teleop]
+        # Block I Phase 7B — echte Raspi-Cam (OV5647) → /camera/image_raw/compressed
+        # + web_video_server :8080. Sim-Kamera läuft dagegen aus ramp_walk/sim.
+        camera = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(camera_launch),
+            launch_arguments={'source': 'rpicam'}.items(),
+        )
+        return [ctrl, gait, teleop, camera]
 
     raise RuntimeError(f'bringup_ondemand: unbekannter mode {mode!r} (sim|real)')
 

@@ -100,9 +100,16 @@
   die Kamera nicht. Ergänzt in `worlds/ramp.sdf.xacro` (die vom **On-Demand-Stack** WIRKLICH geladene
   Welt: `bringup_ondemand mode:=sim` → `ramp_walk` → `ramp.launch.py` überschreibt die Welt) **und**
   `worlds/empty_imu.sdf` (direkter `sim.launch.py`-Default). Jede weitere Kamera-Welt braucht es auch.
-- **HW (Phase 7):** `use_sim=false` → kein gz-Sensor; `camera_link` bleibt tf-Frame; die Raspi-Cam v1.3
-  publisht `/camera/image_raw` direkt → Bridge/Stream/App unverändert. ROS-Kamera-an/aus (`camera_enable`)
-  = reserviert (Contract §6), erst Pi.
+- **HW-Kamera (Phase 7B, Contract §5 v0.12):** neuer Node **`hexapod_sensors/rpicam_node.py`**
+  (`hexapod_camera`) — OV5647 via `rpicam-vid --codec mjpeg` (Subprozess) → JPEG-Framing (`FFD8…FFD9`)
+  → **`CompressedImage`** auf **`/camera/image_raw/compressed`**. **App-URL Variante A:** `type` je Host
+  — Sim `type=mjpeg` (roh), **HW `type=ros_compressed`** (web_video_server reicht JPEGs durch, kein
+  Pi-Decode). **`source:=rpicam|test`** — `test` publisht `assets/test_pattern.jpg` → Kette am **Desktop**
+  verifizierbar (ohne Pi). **`camera_enable`** (Param) = rpicam-Subprozess an/aus. Launch:
+  `hexapod_bringup/launch/camera.launch.py` (real via `bringup_ondemand mode:=real`); **Sim-Cam bleibt in
+  `sim.launch.py`** (gz-Bridge, roh — unverändert). HW-Setup: `peripherals_tests/camera_ov5647_v13.md`.
+- **Kamera-Weg wählen:** neuer Sound/Filter/Auflösung → Params am `hexapod_camera`-Node; neuer
+  Publisher-Weg (`camera_ros` statt rpicam) = Plan §9 [D-Cam-1] Weg b (Fallback).
 - **Validieren:** `feedback_urdf_refactor_full_smoke` — nach dem xacro-Umbau xacro-Parse + Sim-Spawn +
   Walking-Smoke, nicht nur Build. Live: `ros2 topic hz /camera/image_raw` (~15 Hz) + Browser Desktop/Handy.
   Doku: `.../phase_4_video_shell_{plan,progress,test_commands}.md`.

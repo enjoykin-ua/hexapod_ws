@@ -16,6 +16,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config'),
             glob('config/*.yaml')),
+        (os.path.join('share', package_name, 'assets'),
+            glob('assets/*.jpg')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -34,6 +36,7 @@ setup(
             'hexapod_sensors.foot_contact_publisher:main',
             'imu_monitor = hexapod_sensors.imu_monitor:main',
             'bno055_imu = hexapod_sensors.bno055_imu:main',
+            'hexapod_camera = hexapod_sensors.rpicam_node:main',
         ],
     },
 )

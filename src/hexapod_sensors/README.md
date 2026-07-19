@@ -53,6 +53,38 @@ auf HW unverändert.
 - **smbus2:** wird **lazy** (erst im Node) importiert → Dev-Tests brauchen es nicht.
   Bereitstellung am Pi: `stage_6_hw_imu_test_commands.md` (kein rosdep-Dep, Doku-only).
 
+### `hexapod_camera` (`rpicam_node`, Block I Phase 7B) — **HW-Kamera**
+
+Die echte **Raspberry-Pi-Kamera v1.3 (OV5647)** am Pi → ROS. Publisht die Frames als
+**`sensor_msgs/CompressedImage`** (JPEG) auf **`/camera/image_raw/compressed`** — dieselbe
+Topic-Basis, die in der Sim der Gazebo-Kamera-Sensor **roh** liefert. Der bestehende
+`web_video_server` (:8080) streamt es; die App wählt den Stream-`type` je Host
+(**Variante A**, Contract §5): Sim `type=mjpeg` (roh), **HW `type=ros_compressed`** (JPEGs
+durchgereicht → **kein Pi-Decode**).
+
+- **Quelle (Param `source`):**
+  - `rpicam` (Default, **Pi**): `rpicam-vid --codec mjpeg -o -` als Subprozess; der MJPEG-
+    Bytestrom wird in einzelne JPEGs (`FFD8…FFD9`) zerlegt + publiziert. (Byte-Stuffing `FF00` /
+    Restart-Marker → `FFD9` tritt nur als echtes EOI auf → zuverlässiges Framing.)
+  - `test` (**Desktop**): publisht `assets/test_pattern.jpg` in der `framerate`-Loop → die Kette
+    Node→CompressedImage→web_video_server→Bild ist **ohne Pi** verifizierbar.
+- **Publishes:** `/camera/image_raw/compressed` (`sensor_msgs/CompressedImage`, `format="jpeg"`,
+  `frame_id="camera_link"`).
+- **Parameter:** `source` (`rpicam|test`), `width`/`height` (1280×720), `framerate` (15),
+  `frame_id` (`camera_link`), `test_image` (share/assets), **`camera_enable`** (bool) — startet/stoppt
+  die Quelle **live** (rpicam-Subprozess bzw. test-Timer; Strom/Wärme).
+- **Robustheit:** fehlt `rpicam-vid` (Dev/kein Userland) → einmal ERROR, `_proc=None`, **kein Crash**;
+  Subprozess-Exit → Reader-Thread endet sauber; 4-MB-Sanity-Cap gegen korrupten Strom.
+- **HW-Voraussetzung:** `rpicam-vid` = System-Binary (Pi-Fork `libcamera` + `rpicam-apps`, aus
+  `~/camera_build/`) — Setup in
+  [`project_finalization/peripherals_tests/camera_ov5647_v13.md`](../../project_finalization/peripherals_tests/camera_ov5647_v13.md).
+  **Kein** rosdep-Dep (wie `smbus2`). `source:=test` (Desktop) braucht es nicht.
+- **Launch:** `hexapod_bringup/launch/camera.launch.py` (Node + `web_video_server`); real via
+  `bringup_ondemand mode:=real` (`source:=rpicam`). **Sim-Kamera bleibt** in `sim.launch.py`
+  (gz-Bridge, roh).
+- **Tests:** `test/test_rpicam_node.py` (JPEG-Framing inkl. Split, Publish-Kontrakt, source=test,
+  camera_enable, Robustheit). Desktop-E2E: `phase_7b_camera_test_commands.md`.
+
 ## IMU-Pipeline (Sim)
 
 ```

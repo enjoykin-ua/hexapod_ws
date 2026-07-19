@@ -6,9 +6,10 @@
 > Host (**Variante A**). Dazu ein **`camera_enable`**-Schalter (Kamera-Node an/aus, Strom/Wärme) und
 > ein **`source:=rpicam|test`**-Param, der die Kette schon **am Desktop** verifizierbar macht.
 >
-> **Seite:** primär ROS (Pi), minimale App-Justierung (URL-`type` je Host). **Status: 🟡 Plan
-> (finalisiert, Entscheidungen F1–F4 geklärt).** Self-contained für einen frischen Chat.
-> Contract: [`interface_contract.md`](interface_contract.md) (§5 Video, §6 `camera_enable`).
+> **Seite:** primär ROS (Pi), minimale App-Justierung (URL-`type` je Host). **Status: 🟢 ROS-Seite
+> umgesetzt + Desktop-E2E verifiziert** (Contract v0.12; Progress:
+> [`phase_7b_camera_progress.md`](phase_7b_camera_progress.md)). Offen: Pi-HW + App-URL.
+> Contract: [`interface_contract.md`](interface_contract.md) (§5 Video, §6, festgezurrt v0.12).
 > HW-Hello-World (verifiziert): [`../peripherals_tests/camera_ov5647_v13.md`](../peripherals_tests/camera_ov5647_v13.md).
 
 ---
