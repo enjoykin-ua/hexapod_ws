@@ -26,7 +26,9 @@
 | **v0.8** | §5 präzisiert nach Phase-4-**ROS-Live-Verifikation**: **Host** = gleiche IP wie rosbridge (§0), nur Port 8080; **Verfügbarkeit** = Stream-Server läuft **im On-Demand-Stack** → Port 8080 erst **nach `/hexapod_bringup_start`** offen, App koppelt die Kamera-View an `/hexapod/bringup_running`; live gemessen **~11 Hz** (Render-Jitter, v1-ok). **Kein ROS-Change, kein neues Interface** — Klarstellung für den App-Bau (P4.7–P4.9). |
 | **v0.9** | §6a festgezurrt für Phase 5 (**ROS-Seite live-verifiziert**): Status/Config/Alerts als **JSON-String** (`std_msgs/String`) — `/hexapod/status` (5 Hz, gait_node, State/Stance/Gangart/Safety/Tip + dyn. H1/H2-Caps), `/hexapod/tempo` (latched, joy_to_twist), `/hexapod/capabilities` + `/hexapod/config_manifest` (latched, Always-On `hmi_status`, 39 Params), `/hexapod/alerts` (latched Historie 50, WARN+ aus `/rosout`). **Set-Stance direkt** = App cyclet `/hexapod_cycle_stance` (kein neues Interface). Config-Panel = natives rosbridge get/set_parameters + Manifest. §7.3 damit geschlossen. |
 | **v0.9.1** | §2/§6a: neuer **`/hexapod_cycle_tempo`** (`std_srvs/SetBool`, Host `joy_to_twist`) — schließt die von der App-Session gemeldete Lücke „kein direkter Tempo-Setz-Weg" (Tempo lief nur über D-Pad). App-Tempo-Dropdown = **cycle-to-target** via `tempo_idx` aus `/hexapod/tempo`, symmetrisch zu Set-Stance. Kein neuer Message-Typ; standing_only serverseitig. |
-| **v0.10** (aktuell) | §2/§6 festgezurrt für Phase 6 (**ROS-Seite implementiert + unit-getestet**): **`/hexapod_estop`** (`std_srvs/Trigger`, **gait_node**) = der App-Not-Halt, wirkt **Sim UND HW** (gated den gait-Tick latched + ruft intern den Plugin-`/hexapod_safety_freeze`); ersetzt `/hexapod_safety_freeze` als App-Ziel (§4.2: neuer Name statt Plugin-Namen spiegeln → keine Zwei-Server-Kollision auf HW). **`/hexapod_recover`** (`std_srvs/Trigger`, gait_node) = Ein-Klick-Recovery ([D6]): Plugin-Freeze lösen + gait-Latches/Monitore reset + **Joint-Space-Ramp** in den Stand (ursachen-agnostisch, kein IK). `safety_frozen` im Status wird jetzt durch Recovery zurückgesetzt (nicht mehr „bis Stack-Neustart"). |
+| **v0.10** | §2/§6 festgezurrt für Phase 6 (**ROS-Seite implementiert + unit-getestet**): **`/hexapod_estop`** (`std_srvs/Trigger`, **gait_node**) = der App-Not-Halt, wirkt **Sim UND HW** (gated den gait-Tick latched + ruft intern den Plugin-`/hexapod_safety_freeze`); ersetzt `/hexapod_safety_freeze` als App-Ziel (§4.2: neuer Name statt Plugin-Namen spiegeln → keine Zwei-Server-Kollision auf HW). **`/hexapod_recover`** (`std_srvs/Trigger`, gait_node) = Ein-Klick-Recovery ([D6]): Plugin-Freeze lösen + gait-Latches/Monitore reset + **Joint-Space-Ramp** in den Stand (ursachen-agnostisch, kein IK). `safety_frozen` im Status wird jetzt durch Recovery zurückgesetzt (nicht mehr „bis Stack-Neustart"). |
+| **v0.11** | §3/§4/§6b festgezurrt für Phase 7A (**ROS-Seite implementiert + unit-getestet**): **`/hexapod/play_sound`** (`std_msgs/String`, App→Roboter) = Soundboard (`sound_01..03`, spielt immer); **`/hexapod/sound_enabled`** (`std_msgs/Bool`, latched, Roboter→App) = Auto-Sound-Mute-Status; Param **`sound_enable`** auf `/hexapod_audio` (App setzt via `set_parameters`). Auto-Sounds bei Aufstehen/Hinsetzen/Höhenwechsel/Freeze (**Recovery stumm**); Sound nur am Roboter-Speaker ([D5]). `/hexapod/audio_cue` = intern (gait_node→hexapod_audio). |
+| **v0.11.1** (aktuell) | §6b für die App-Session präzisiert: **kopierbare rosbridge-Frames** (advertise/publish `play_sound`, `set_parameters` für den BOOL `sound_enable`, latched `subscribe` auf `sound_enabled`) + App-Pflichten (Buttons erst wenn Stack läuft, Toggle spiegelt `sound_enabled`). `sound_enabled` in die §3-Latched-QoS-Note aufgenommen. **Kein Interface-Change** — reine Klarstellung für den Android-Bau. |
 
 ---
 
@@ -196,9 +198,12 @@ Vom `bringup_launcher` (Always-On-Schicht in `hexapod_supervisor`, neben rosbrid
 | `/hexapod/bringup_running` | `std_msgs/Bool` (latched, `transient_local`) | Roboter → App | läuft der schwere Stack? (Connect-/Start-Screen) `[N Ph.3]` |
 | `/cmd_body_height` | (Float) | App → Roboter | Körperhöhe (On-Screen-Slider) |
 | `/cmd_show` | `std_msgs/Float64MultiArray[6]` | App → Roboter | Show-Pose-Offsets (falls On-Screen) |
+| `/hexapod/play_sound` | `std_msgs/String` | **App → Roboter** | **Soundboard (Phase 7A):** Sound-Key (`sound_01`/`sound_02`/`sound_03`) → spielt sofort auf dem Roboter-Speaker (immer, unabhängig von `sound_enable`). §6b |
+| `/hexapod/sound_enabled` | `std_msgs/Bool` (latched, `transient_local`) | **Roboter → App** | **Auto-Sound-Mute-Status (Phase 7A):** aktueller `sound_enable`-Zustand für die „mit/ohne Audio"-Anzeige. §6b |
+| `/hexapod/audio_cue` | `std_msgs/String` | gait_node → hexapod_audio | **intern** (nicht App): Bewegungs-Audio-Events. Der Vollständigkeit halber. |
 
-> ⚠️ **Latched Topics** (`shutdown_request/complete`, **`bringup_running`**) brauchen beim
-> Lesen `reliable + transient_local` QoS ([[project_latched_topic_qos_reliable]]). Über
+> ⚠️ **Latched Topics** (`shutdown_request/complete`, **`bringup_running`**, **`sound_enabled`**)
+> brauchen beim Lesen `reliable + transient_local` QoS ([[project_latched_topic_qos_reliable]]). Über
 > rosbridge kommt der gelatchte Wert an — **rosbridge 2.7.0 auto-matcht** die QoS, deterministisch
 > per explizitem `qos`-Feld im subscribe-Frame (Details + Frame-Beispiel: §7.4).
 
@@ -213,6 +218,8 @@ On-Screen-Toggles/Slider setzen `gait_node`-Parameter. Beispiele (vollständige 
 - `adaptive_touchdown_enable`, `adaptive_stand_enable`, `slip_detection_enable` (bool)
 - `gait_pattern` (string, **standing_only**), `body_height`/`radial_distance` (**standing_only**)
 - `step_height` (H1: modus-gedeckelt), `step_length_max` (H2: modus-gedeckelt)
+- **`sound_enable`** (bool, Node **`/hexapod_audio`**, Phase 7A) — Auto-Sounds an/aus; Live-Anzeige
+  latched auf `/hexapod/sound_enabled` (§6b)
 
 > ⚠️ **`standing_only`-Params** werden außerhalb STANDING **rejected** — die App muss den
 > State kennen (Status-Topic §6) und solche Steller nur im Stand aktiv schalten. Sonst
@@ -251,7 +258,7 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 | **Kamera an/aus** (`camera_enable`) | Kamera-Node am Pi starten/stoppen (Strom/Wärme); in Sim app-seitig | `[TBD-Phase 7]` |
 | **E-Stop** (`/hexapod_estop`) | App-Not-Halt, latched Freeze Sim+HW | **✅ erledigt (v0.10, §2)** |
 | **Recovery-Service** (`/hexapod_recover`) | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | **✅ erledigt (v0.10, §2)** |
-| Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | `[TBD-Phase 7]` |
+| Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | **✅ erledigt (v0.11, §6b)** |
 
 ---
 
@@ -324,6 +331,65 @@ lehnt der gait_node ab, `_cycle_tempo` bricht sauber ab.
 > **Verfügbarkeit:** `capabilities`/`config_manifest`/`alerts` laufen in der **Always-On-Schicht**
 > (`hmi_status`) → schon **beim App-Connect** da, vor dem On-Demand-Stack. `status`/`tempo` kommen aus
 > dem Stack (gait_node/joy_to_twist) → erst nach `bringup_start`.
+
+---
+
+## 6b. Audio (Block I Phase 7A) — festgezurrt v0.11
+
+**Sound spielt NUR auf dem Roboter-Speaker** (MAX98357A), nie am Handy ([D5]). Der `hexapod_audio`-Node
+(Pi, im On-Demand-Stack) spielt kurze mp3s. Zwei App-relevante Nähte + ein interner Cue:
+
+**Manuelle Sounds (Soundboard)** — `/hexapod/play_sound` (`std_msgs/String`, App → Roboter):
+die App **publisht** einen Key, der Node spielt die gemappte mp3 **sofort** (ein neuer Sound bricht den
+laufenden ab). Keys v1: `sound_01` / `sound_02` / `sound_03`. Spielen **immer** — unabhängig von
+`sound_enable`.
+```json
+// rosbridge publish auf /hexapod/play_sound:
+{"op":"publish","topic":"/hexapod/play_sound","msg":{"data":"sound_01"}}
+```
+
+**Auto-Sounds + Mute** — bei Bewegungs-Ereignissen spielt der Node automatisch:
+`sound_aufstehen` (Aufstehen vom Boden) · `sound_hinsetzen` (Hinsetzen) · `sound_repositioning`
+(Höhenwechsel/Stance-Switch) · `sound_freeze` (Safety-Freeze/E-Stop). **Recovery-Aufstehen ist
+stumm.** Diese Auto-Sounds werden über den **Param `sound_enable`** (bool) auf dem Node
+**`/hexapod_audio`** gemutet:
+- **Setzen** (App): native rosbridge-`set_parameters` auf `/hexapod_audio` (wie das Config-Panel §6a) —
+  die zwei Buttons „**Fahren mit Audio**" (`true`) / „**Fahren ohne Audio**" (`false`) beim Übergang
+  Verbinden→Fahren, plus ein Zuschalt-Toggle im Fahr-Modus.
+- **Lesen** (App): **`/hexapod/sound_enabled`** (`std_msgs/Bool`, **latched** `transient_local`) —
+  der aktuelle Mute-Zustand für die Toggle-Anzeige (kommt sofort beim Subscribe).
+
+**Intern (nicht App):** `/hexapod/audio_cue` (`std_msgs/String`, gait_node → hexapod_audio) trägt die
+Bewegungs-Events; die App nutzt es nicht.
+
+> **Verfügbarkeit:** `hexapod_audio` läuft im **On-Demand-Stack** (mit `gait_node`) → `play_sound` +
+> `sound_enabled` sind **nach `/hexapod_bringup_start`** da (wie `/hexapod/status`; **nicht** schon
+> beim Connect wie die Always-On-Config-Topics). `sound_enable` live-toggelbar. In Sim läuft der Node
+> **log-only** (kein Speaker) — die App-Nähte sind identisch.
+
+**rosbridge-Frames (kopierbar):**
+```jsonc
+// (a) Soundboard-Button — advertise EINMAL, dann publish je Tap (RELIABLE-Default genügt):
+{"op":"advertise","topic":"/hexapod/play_sound","type":"std_msgs/msg/String"}
+{"op":"publish","topic":"/hexapod/play_sound","msg":{"data":"sound_01"}}
+
+// (b) "Fahren mit/ohne Audio" + Toggle — sound_enable (BOOL) setzen (type 1 = PARAMETER_BOOL):
+{"op":"call_service","service":"/hexapod_audio/set_parameters",
+ "type":"rcl_interfaces/srv/SetParameters",
+ "args":{"parameters":[{"name":"sound_enable",
+   "value":{"type":1,"bool_value":false}}]}}
+// Antwort: results[0].successful == true.
+
+// (c) Mute-Status lesen — latched Bool (deterministisch mit explizitem qos):
+{"op":"subscribe","topic":"/hexapod/sound_enabled","type":"std_msgs/msg/Bool",
+ "qos":{"history":"keep_last","depth":1,"durability":"transient_local","reliability":"reliable"}}
+// -> msg.data (true = Auto-Sounds an). Kommt sofort beim Subscribe (gelatcht), sofern der
+//    On-Demand-Stack läuft.
+```
+> **App-Pflichten:** (1) Audio-Buttons erst aktiv, wenn der Stack läuft (`bringup_running`), sonst
+> gibt es `/hexapod_audio` noch nicht. (2) Der Zuschalt-Toggle spiegelt `sound_enabled` (nicht den
+> eigenen Button-State raten) — der Roboter ist die Wahrheit. (3) `set_parameters`-Antwort
+> `successful=false` → Fehler zeigen (sollte hier nicht vorkommen; `sound_enable` ist immer setzbar).
 
 ---
 

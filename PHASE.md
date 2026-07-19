@@ -6,8 +6,8 @@
 Stufen hoch/runter, Hinsetzen/Aufstehen, IMU-Balance, alles was der PS4-Controller bedient hat.
 Kamera (Raspi-Cam) + Audio (MAX98357A) sind **verkabelt + hello-world-in-Betrieb**; offen ist deren
 ROS-/App-Integration (Phase 7). **Aktuelle Arbeit = App + Feature-Erweiterungen:** Block-I-App
-Phasen 1–6 fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel, E-Stop+Recovery —
-Sim-E2E-verifiziert), **Phase 7 (Audio + echte Cam am Roboter) als Nächstes**, danach 8 (Politur).
+Phasen 1–6 + 7A fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel, E-Stop+Recovery,
+**Audio** — je Sim-verifiziert), **Phase 7B (echte Raspi-Cam am Roboter) als Nächstes**, danach 8 (Politur).
 Detail: [`project_finalization/app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md)
 · auch: Rubicon-Scene für den App-Flow, Video-Pipeline, Config-Manifest.
 _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi/phase_12_progress.md).)_
@@ -66,7 +66,7 @@ _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi
 | **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim + **HW** |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |
 | **D** Hardware-Bring-up / Plattform | **D1 Pi-Plattform (=Phase 12)** · **D2 Elektrik 2S LiPo (=Phase 8)** · D3 LVC/Telemetrie · D4 Power-On-Sequenz · D5 untethered | 🟢 **abgeschlossen** (Roboter fährt untethered mit Akku) |
-| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio+echte Cam (Ph.7) · Politur (Ph.8) | 🟡 **aktiv** — Ph.1–6 🟢 (Ph.6 Sim-E2E; HW-T6.8 deferiert), Ph.7 als Nächstes |
+| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio (Ph.7A) · echte Cam (Ph.7B) · Politur (Ph.8) | 🟡 **aktiv** — Ph.1–6 + **7A** 🟢 (Sim-verifiziert; HW-Verify + App-Buttons je deferiert), **Ph.7B** als Nächstes |
 | **E** Robustheit / später | Safe-State im Lauf (E1), Terrain/Foot-Contact (E2), Preset-Management (E3) | ⚪ später |
 
 ### Cross-Phase-Threads
@@ -98,11 +98,15 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
    (latched Freeze, gated den Tick, Sim+HW) + **`/hexapod_recover`** (ursachen-agnostisch: Freeze
    lösen + Latches/Monitore reset + Joint-Space-Ramp in den Stand, [D6]); App-E-STOP-/Recover-Button.
    Contract v0.10. **HW-Verifikation T6.8** am echten Roboter deferiert (Defer-Pattern).
-3. **Phase 7 — Audio + echte Kamera am Roboter (als Nächstes):** `hexapod_audio`-Node (Sound an/aus + Buttons +
-   Auto-Play) — HW (MAX98357A) hello-world-fertig; **Raspi-Cam** publisht `/camera/image_raw` auf dem
-   Pi (Cam verkabelt) + `camera_enable`. Beides am fertigen Roboter live testen.
-4. **Phase 8 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
-5. **Optionale Politur (jederzeit):** A5 IP3-Feintuning (Terrain-Following im Laufen), Fußtaster-
+3. ✅ **Phase 7A — Audio** fertig (Sim-verifiziert): neues Paket `hexapod_audio` spielt mp3s auf dem
+   Roboter-Speaker (MAX98357A) — **Auto-Sounds** bei Aufstehen/Hinsetzen/Höhenwechsel/Freeze (explizite
+   Cues vom gait_node, **Recovery stumm**) + **Soundboard** (`/hexapod/play_sound`); Mute via
+   `sound_enable`. Contract v0.11. **HW (echte mp3s + Speaker) + App-Buttons** deferiert (Defer-Pattern).
+4. **Phase 7B — echte Raspi-Cam am Roboter (als Nächstes):** OV5647 publisht `/camera/image_raw` auf
+   dem Pi (via `rpicam-vid` MJPEG → `CompressedImage`) + `camera_enable` → `web_video_server` + App
+   unverändert. Plan liegt: `phase_7b_camera_plan.md`.
+5. **Phase 8 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
+6. **Optionale Politur (jederzeit):** A5 IP3-Feintuning (Terrain-Following im Laufen), Fußtaster-
    Latenz-Recheck auf HW (aus dem App-Overlay-Test), Show-Pose-Erweiterung, Audio-Knarz-Fix
    (Stützelko im Finalaufbau).
 

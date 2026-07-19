@@ -163,6 +163,26 @@
   STARTUP_RAMP→STANDING. **Walking-Regression** (T6.9) beachten — der Gate darf normal-Walking nicht
   bremsen (setzt `_safety_frozen` nur über die echten Fehler-Pfade).
 
+### Audio / Sounds ändern (Block I Phase 7A — mp3 auf dem Roboter-Speaker)
+- **Naht = Contract §6b** (`interface_contract.md`, v0.11) + **[D5]/[D-Audio-1..6]** (plan §9).
+- **Node:** `hexapod_audio/hexapod_audio/audio_node.py` — subscribt `/hexapod/audio_cue` (Auto, mutbar)
+  + `/hexapod/play_sound` (manuell, immer), spielt via `mpg123`-Subprozess; latched
+  `/hexapod/sound_enabled`. Params `sound_enable`/`playback_enabled`/`sound_dir`/`alsa_device`.
+- **Auto-Sounds = explizite Cues vom gait_node** (nicht status-basiert): `gait_node._emit_audio_cue`
+  an `_on_stand_up` (`standup`), `_start_sitdown_sequence` (`sitdown`), `_on_cycle_stance`
+  (`reposition`), `_trigger_safety_freeze` (`freeze`, nur Übergang). **`_on_recover` feuert keinen →
+  Recovery stumm.** Warum explizit: Recovery-stumm + `REPOSITION`-Mehrdeutigkeit sonst nicht lösbar.
+- **Neuen Sound hinzufügen:** mp3 in `hexapod_audio/sounds/` + Zeile in `config/sound_map.yaml` (Key→
+  Datei); für manuelle Trigger publisht die App den Key auf `/hexapod/play_sound`. Für einen neuen
+  Auto-Sound zusätzlich einen `_emit_audio_cue('<key>')` an der passenden gait_node-Stelle.
+- **Sounds tauschen:** mp3 gleichen Namens ersetzen (git-versioniert im Paket) + `colcon build`
+  (oder `--symlink-install`). Platzhalter-Töne bis der User echte mp3s liefert.
+- **Fallen:** (1) `sound_enable` mutet **nur** Auto-Cues (manuelle spielen immer). (2) Sim =
+  `playback_enabled=false` (log-only, kein mpg123/ALSA). (3) `mpg123` = System-Binary
+  (`apt install mpg123`, kein rosdep-key). (4) Karten-Nr ≠ 0 → `alsa_device:=plughw:N,0`.
+- **Validieren:** `hexapod_audio/test/test_audio_node.py` + `hexapod_gait/test/test_audio_cue.py` +
+  Live (`phase_7a_audio_test_commands.md`, Sim log-only Cues + HW hörbar).
+
 ### Teleop-Mapping / neue Controller-Funktion
 - **Dateien:** `hexapod_teleop/config/ps4_usb.yaml` (Indizes/Skalen) · `joy_to_twist.py` (Logik).
 - **Falle:** `joy_to_twist` publisht beim Start **einmalig** `/cmd_body_height = body_height_init`

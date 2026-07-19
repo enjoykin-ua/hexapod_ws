@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>hexapod_audio</name>
+  <version>0.0.0</version>
+  <description>
+    Audio-Ausgabe für den Hexapod (Block I Phase 7A). Ein Node spielt kurze
+    mp3s auf dem Roboter-Speaker (MAX98357A): automatische Sounds bei
+    Bewegungs-Ereignissen (/hexapod/audio_cue vom gait_node) und manuelle
+    Sounds aus der App (/hexapod/play_sound). Mute nur der Auto-Sounds über
+    den Param sound_enable. Sound spielt NUR auf dem Roboter, nie am Handy.
+  </description>
+  <maintainer email="noreply@gmx.net">enjoykin-ua</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- Wiedergabe nutzt zur Laufzeit das System-Binary 'mpg123' (aus dem
+       Audio-Hello-World, peripherals_tests/audio_max98357a.md §5.3). Bewusst
+       KEIN rosdep-exec_depend (kein zuverlaessig aufloesbarer Key). Bereitstellung:
+       'sudo apt install mpg123' auf dem Pi. Der Aufruf ist ueber subprocess
+       gekapselt + guarded (fehlt mpg123 -> WARN, kein Crash); in Sim laeuft der
+       Node mit playback_enabled=false (log-only) ganz ohne mpg123/ALSA. -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1106,6 +1106,13 @@ class GaitNode(Node):
         self._status_pub = self.create_publisher(
             String, '/hexapod/status', 10,
         )
+        # Block I Phase 7A — Audio-Cues (Sequenz-Logik triggert Auto-Sounds, [D5]).
+        # Der hexapod_audio-Node spielt bei diesen Cues die passende mp3. Nicht
+        # latched (Events, kein Zustand). Cues: standup/sitdown/reposition/freeze.
+        # Bewusst NICHT bei Recovery (_on_recover feuert keinen → Recovery stumm).
+        self._audio_cue_pub = self.create_publisher(
+            String, '/hexapod/audio_cue', 10,
+        )
         self._last_contact_log_t = time.monotonic()
         # S4-1 Mess-Zusatz (a): tatsächliche Sim-Gelenkstellung → FK-Fuß-z von
         # Bein 1, um bei jeder Kontakt-Flanke kommandiert vs. tatsächlich zu
@@ -1814,7 +1821,12 @@ class GaitNode(Node):
         """
         # Block I Phase 5 — fürs Overlay merken, dass ein Freeze ausgelöst
         # wurde (auch wenn der Service unerreichbar ist: der lokale Stop greift).
-        # Bleibt gesetzt bis Node-Neustart (Recovery/Reset = Phase 6).
+        # Bleibt latched bis /hexapod_recover (Phase 6).
+        # Block I Phase 7A — Freeze-Audio-Cue NUR beim Eintritt (nicht wiederholt,
+        # nicht wenn schon frozen). Zentraler Punkt: E-Stop/Tip-CRIT/Slip/IK-
+        # joint-limit laufen alle hier durch.
+        if not self._safety_frozen:
+            self._emit_audio_cue('freeze')
         self._safety_frozen = True
         if not self._safety_freeze_client.service_is_ready():
             if not self._safety_freeze_logged_unreachable:
@@ -1829,6 +1841,18 @@ class GaitNode(Node):
         # call_async returns a Future we deliberately ignore — the
         # plugin will process the Trigger request on its own executor.
         self._safety_freeze_client.call_async(Trigger.Request())
+
+    def _emit_audio_cue(self, name: str) -> None:
+        """
+        Block I Phase 7A — ein Bewegungs-/Freeze-Audio-Event feuern.
+
+        Fire-and-forget auf ``/hexapod/audio_cue`` (``std_msgs/String``). Der
+        ``hexapod_audio``-Node mappt den Namen (``standup``/``sitdown``/
+        ``reposition``/``freeze``) auf eine mp3 und spielt sie auf dem Roboter-
+        Speaker (nur wenn dort ``sound_enable`` gesetzt ist). Ist kein
+        Audio-Node da (Sim ohne Speaker-Node), verpufft der Publish folgenlos.
+        """
+        self._audio_cue_pub.publish(String(data=name))
 
     def _publish_status(self) -> None:
         """
@@ -2344,6 +2368,7 @@ class GaitNode(Node):
                 self.get_logger().info(
                     'sit-down aus "hoch": erst Switch auf mittel, dann hinsetzen'
                 )
+                self._emit_audio_cue('sitdown')   # Phase 7A (Hinsetz-Intent)
             return ok
         now = time.monotonic()
         t = now - self._t_start
@@ -2352,13 +2377,16 @@ class GaitNode(Node):
         # vollständige Pose empfangen wurde → None (Engine-Fallback rad 0).
         rest = self._spawn_joints if self._spawn_joints else None
         try:
-            return self._engine.start_sitdown(
+            ok = self._engine.start_sitdown(
                 t, lower_dur, flatten_dur, self._body_height_start,
                 rest_joints=rest,
             )
         except (ValueError, IKError) as exc:
             self.get_logger().error(f'sit-down failed to start: {exc}')
             return False
+        if ok:
+            self._emit_audio_cue('sitdown')   # Phase 7A
+        return ok
 
     def _on_sit_down(self, request, response):
         """``/hexapod_sit_down`` (Rest): nur STANDING → Hinsetzen, bleibt SAT."""
@@ -2418,6 +2446,7 @@ class GaitNode(Node):
         self.get_logger().info(
             f'stand_up: SAT → Aufstehen ({self._standup_mode})'
         )
+        self._emit_audio_cue('standup')   # Phase 7A (NICHT in _on_recover)
         return response
 
     def _on_estop(self, request, response):
@@ -2431,7 +2460,9 @@ class GaitNode(Node):
         Der Freeze bleibt **latched** bis ``/hexapod_recover`` — ein Not-Halt
         soll nicht von selbst resumen ([D6]). Wirkt in **Sim UND HW**.
         """
-        self._safety_frozen = True          # gated den Tick (Freeze-Gate)
+        # _trigger_safety_freeze setzt _safety_frozen=True (gated den Tick) UND
+        # feuert den Freeze-Audio-Cue beim Übergang (Phase 7A) — daher hier NICHT
+        # separat _safety_frozen setzen, sonst schluckt der Übergangs-Guard den Cue.
         self._trigger_safety_freeze()       # Plugin-PWM-Hold (HW), guarded skip in Sim
         self.get_logger().warn(
             'E-STOP — Roboter eingefroren (latched; /hexapod_recover zum '
@@ -2722,6 +2753,10 @@ class GaitNode(Node):
         )
         if ok:
             self.get_logger().info(f'cycle_stance: {response.message}')
+            # Phase 7A — Höhenwechsel-Audio-Cue nur beim echten Switch (dieser
+            # Service = User-Höhenwechsel; der interne _do_stance_switch aus dem
+            # Hinsetzen feuert bewusst KEINEN reposition-Cue).
+            self._emit_audio_cue('reposition')
         return response
 
     def _do_stance_switch(self, new_idx: int) -> bool:

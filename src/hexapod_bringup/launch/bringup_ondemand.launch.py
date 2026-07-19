@@ -115,6 +115,7 @@ def _setup(context, *args, **kwargs):
                     'use_sim_time': 'false',
                     'auto_standup_on_start': 'false',
                     'robot_description_file': hw_urdf,
+                    'audio_playback': 'true',   # Phase 7A — echter Speaker
                 }.items(),
             )],
         )

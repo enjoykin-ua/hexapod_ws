@@ -30,6 +30,40 @@ auf "Pi-Recheck statt Erst-Bringup" angepasst.
 
 ---
 
+## Block-I Phase-7A-Retro (Audio, ✅ ROS-Seite Sim-verifiziert, 2026-07-19)
+
+**Ziel:** ein `hexapod_audio`-Node spielt kurze mp3s auf dem Roboter-Speaker (MAX98357A) — Auto-Sounds
+bei Bewegung + manuelles Soundboard aus der App. Sound nur am Roboter, nie am Handy ([D5]).
+
+**Was angelegt wurde:**
+- **Neues Paket `hexapod_audio`:** Node subscribt `/hexapod/audio_cue` (Auto, mutbar) +
+  `/hexapod/play_sound` (manuell, immer), spielt via `mpg123` (neuer bricht alten ab); Param
+  `sound_enable` (mutet nur Auto) + latched `/hexapod/sound_enabled`; Sim = log-only. `sound_map.yaml`
+  + 7 Platzhalter-mp3s (git-versioniert).
+- **`gait_node`:** Publisher `/hexapod/audio_cue` + `_emit_audio_cue` an `_on_stand_up` (`standup`),
+  `_start_sitdown_sequence` (`sitdown`), `_on_cycle_stance` (`reposition`), `_trigger_safety_freeze`
+  (`freeze`, nur Übergang); `_on_recover` feuert **keinen** → Recovery stumm.
+- Launch: `hexapod_audio` mit dem gait-Stack (`gait.launch.py`, `audio_playback` real=true/sim=false).
+- Contract **v0.11/v0.11.1** (§6b, mit kopierbaren rosbridge-Frames für den App-Agenten).
+
+**Wichtige Design-Entscheidung:** **explizite Audio-Cues vom gait_node** statt status-basiert
+([D-Audio-1]). Trigger war die User-Vorgabe „Recovery-Aufstehen stumm" (RA2) — status-basiert sind
+stand_up und Recovery beide `STARTUP_RAMP` und nicht unterscheidbar; explizite Cues lösen das trivial
+und umgehen die `REPOSITION`-Mehrdeutigkeit (kommt beim Auf- UND Hinsetzen vor). D5-konform.
+
+**Was gut lief / gelernt:** Der **Runtime-Smoke** (Node real starten, nicht nur Unit-Tests) deckte
+einen echten Bug auf — die fehlende **`setup.cfg`** (`script_dir`), ohne die `ros2 run` das
+console_script nicht findet (`No executable found`). Die gemockten Unit-Tests fanden das nicht (sie
+importieren das Paket, statt das executable zu starten). Lehre: bei einem neuen ament_python-Paket mit
+Node den **echten Node-Start** verifizieren, nicht nur `colcon test`. — Außerdem einmalig ein flakiger
+rclpy-Teardown-Segfault in `colcon test hexapod_gait` (viele GaitNode-Module × init/shutdown im selben
+Prozess); in 3 Folgeläufen nicht reproduzierbar — bekanntes ROS2-Muster, kein Code-Bug.
+
+**Offen / deferiert:** **HW** (echte mp3s liefern + Speaker-Verifikation, T7A.13) + **App-Buttons**
+(P7A.10/11, Android-Session gegen §6b). Sim-Seite (Cues + Mute + log-only) ist verifiziert.
+
+---
+
 ## Block-I Phase-6-Retro (E-Stop + Recovery, ✅ ROS+App Sim-E2E, 2026-07-19)
 
 **Ziel:** ein scharfer, latched Not-Halt aus der App + ein Ein-Klick-Recovery, das den Roboter

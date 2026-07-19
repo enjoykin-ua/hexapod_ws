@@ -241,6 +241,25 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # Block I Phase 7A — Audio-Node (mp3 auf dem Roboter-Speaker) mit dem
+    # gait-Stack starten (die Auto-Sounds hängen an den gait-Cues).
+    audio_enable_arg = DeclareLaunchArgument(
+        'audio_enable',
+        default_value='true',
+        description=(
+            'hexapod_audio-Node mit starten (Auto-Sounds bei Bewegung + '
+            'Soundboard). false lässt ihn ganz weg.'
+        ),
+    )
+    audio_playback_arg = DeclareLaunchArgument(
+        'audio_playback',
+        default_value='false',
+        description=(
+            'Echte mp3-Wiedergabe via mpg123. real=true (Roboter-Speaker), '
+            'sim/dev=false (log-only, kein ALSA/mpg123 nötig).'
+        ),
+    )
+
     def setup_gait_node(context, *args, **kwargs):
         """
         Build Node-Aktion mit conditional params_file-Loading.
@@ -314,7 +333,7 @@ def generate_launch_description() -> LaunchDescription:
         if params_file:
             parameters.append(params_file)
 
-        return [Node(
+        actions = [Node(
             package='hexapod_gait',
             executable='gait_node',
             name='gait_node',
@@ -322,6 +341,24 @@ def generate_launch_description() -> LaunchDescription:
             emulate_tty=True,
             parameters=parameters,
         )]
+        # Block I Phase 7A — hexapod_audio zusammen mit dem gait_node starten.
+        # playback_enabled: real=true (Speaker), sim=false (log-only).
+        if (LaunchConfiguration('audio_enable').perform(context).lower()
+                == 'true'):
+            actions.append(Node(
+                package='hexapod_audio',
+                executable='hexapod_audio',
+                name='hexapod_audio',
+                output='screen',
+                emulate_tty=True,
+                parameters=[{
+                    'playback_enabled': (
+                        LaunchConfiguration('audio_playback')
+                        .perform(context).lower() == 'true'),
+                    'use_sim_time': inline_params['use_sim_time'],
+                }],
+            ))
+        return actions
 
     return LaunchDescription([
         gait_pattern_arg,
@@ -343,5 +380,7 @@ def generate_launch_description() -> LaunchDescription:
         auto_standup_on_start_arg,
         params_file_arg,
         robot_description_file_arg,
+        audio_enable_arg,
+        audio_playback_arg,
         OpaqueFunction(function=setup_gait_node),
     ])

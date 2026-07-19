@@ -1,0 +1,23 @@
+# Block I Phase 7A — Mapping: Sound-Key -> mp3-Dateiname (im sounds/-Ordner).
+#
+# Zwei Gruppen:
+#   - Auto-Cues (vom gait_node auf /hexapod/audio_cue): standup/sitdown/
+#     reposition/freeze. Werden über den Param `sound_enable` gemutet.
+#   - Manuelle Keys (von der App auf /hexapod/play_sound): sound_01..03.
+#     Spielen IMMER (unabhängig von sound_enable).
+#
+# Die mp3s liegen im Paket (sounds/, git-versioniert). Zum Ändern eines Sounds
+# einfach die mp3 gleichen Namens ersetzen (kein Code-Change); nach dem Tausch
+# `colcon build --packages-select hexapod_audio` (kopiert sounds/ ins install/),
+# oder mit `--symlink-install` bauen, dann ist der Tausch sofort wirksam.
+
+# Auto-Cues (gait_node -> hexapod_audio):
+standup: sound_aufstehen.mp3
+sitdown: sound_hinsetzen.mp3
+reposition: sound_repositioning.mp3
+freeze: sound_freeze.mp3
+
+# Manuelle Soundboard-Buttons (App -> hexapod_audio):
+sound_01: sound_01.mp3
+sound_02: sound_02.mp3
+sound_03: sound_03.mp3

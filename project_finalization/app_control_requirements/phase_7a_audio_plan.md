@@ -5,8 +5,9 @@
 > Höhenwechsel / Freeze) **und** drei **manuelle** Sounds aus der App. Sound spielt **nur auf dem
 > Hexapod**, nie auf dem Handy ([D5]).
 >
-> **Seite:** ROS + App. **Status: 🟡 Plan.** Self-contained für einen frischen Chat.
-> Contract: [`interface_contract.md`](interface_contract.md) (§2/§3/§6, `[TBD-Phase 7]`).
+> **Seite:** ROS + App. **Status: 🟢 ROS-Seite umgesetzt + Sim-verifiziert** (Contract v0.11.1;
+> Progress: [`phase_7a_audio_progress.md`](phase_7a_audio_progress.md)). Deferiert: App-Buttons +
+> HW-Speaker. Contract: [`interface_contract.md`](interface_contract.md) (§3/§4/§6b, festgezurrt v0.11).
 > HW-Hello-World (verifiziert): [`../peripherals_tests/audio_max98357a.md`](../peripherals_tests/audio_max98357a.md).
 
 ---

@@ -58,6 +58,9 @@ status overlay and on-screen configuration.
 - **Emergency stop & one-click recovery:** a latched software **E-stop** (from the app, works in sim
   and on hardware) freezes the robot in place; one **recovery** ramps it — cause-agnostic,
   joint-space, no IK — from the frozen pose back to a stand, without restarting the stack.
+- **On-board audio:** the robot plays short mp3s through its own speaker (MAX98357A) — **movement
+  sounds** (stand-up / sit-down / height-change / freeze, triggered by the gait sequence logic) plus
+  a **soundboard** the app can fire; auto-sounds mutable via a `sound_enable` param.
 - **Free-leg "show" pose:** support on 4 legs, 2 front legs steered freely by joystick (incl. tibia reach).
 - **PS4 teleop:** USB **and** Bluetooth — omnidirectional sticks, dead-man, intent services.
 - **Mobile app (phone + Razer Kishi):** drives the robot over rosbridge (Wi-Fi) — full-screen
@@ -265,6 +268,8 @@ Pi's Wi-Fi hotspot (hardware).
 - **Lifecycle:** start / stop the heavy stack, stand / sit, and guarded shutdown — all from the phone.
 - **Emergency stop & recovery:** a big red **E-STOP** (latched freeze, works in sim and on hardware)
   and a one-tap **Recover** that ramps the robot from the frozen pose back to standing.
+- **Audio:** drive-with / drive-without-audio + a live mute toggle (movement sounds), and a soundboard
+  — all played on the robot's speaker (the app is only the trigger).
 
 > 📱 **App repository:** [`enjoykin-ua/hexapod_app`](https://github.com/enjoykin-ua/hexapod_app)
 > &nbsp;·&nbsp; ROS-side design + interface docs:
@@ -284,6 +289,7 @@ Pi's Wi-Fi hotspot (hardware).
 | `hexapod_teleop` | PS4 USB + Bluetooth → `/cmd_vel` + `/cmd_show` + intent services (the app publishes the same `/joy` over rosbridge) |
 | `hexapod_hardware` | C++ `HardwareInterface` (pluginlib), Servo2040 USB-CDC |
 | `hexapod_supervisor` | Always-on lifecycle (Block I): `bringup_launcher` (start/stop the on-demand stack + guarded shutdown), `hmi_status` (app status / config-manifest / alerts), controlled sit-down + power-off |
+| `hexapod_audio` | On-board audio (Block I 7A): plays mp3s on the robot speaker (MAX98357A) — movement cues from the gait node + soundboard from the app; `sound_enable` mute |
 
 ## Tools (`tools/`)
 
@@ -319,9 +325,9 @@ The robot is **complete and runs untethered in the field** — sim phases (0–6
 (7–11), the Pi 5 platform and the full bring-up are done: all 18 servos calibrated, IMU body
 leveling + tip protection and the foot-contact pipeline (adaptive touchdown, slip freeze) verified
 live, gaits / stance / speed presets on battery in the field. Current work is the **mobile app
-(Block I)**: controller mapping, teleop, lifecycle, video, status + config panel and
-**emergency-stop + recovery** are done (phases 1–6, sim-verified end-to-end); next up is **audio +
-the on-board camera** (phase 7), then polish (phase 8). Details: [`PHASE.md`](PHASE.md).
+(Block I)**: controller mapping, teleop, lifecycle, video, status + config panel, **emergency-stop +
+recovery** and **on-board audio** are done (phases 1–6 + 7A, sim-verified); next up is the **on-board
+camera** (phase 7B), then polish (phase 8). Details: [`PHASE.md`](PHASE.md).
 
 ## License
 
