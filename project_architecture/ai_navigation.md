@@ -72,6 +72,19 @@
   korrigiert, NICHT via `sign_*` in `ps4_usb.yaml` (sonst PS4-Fallback [NF7] verkehrt).
 - **Validieren:** `app_teleop.launch.py` + Sim-Walk → `joy_ws_test_client.py` → Roboter fährt; kein
   Doppel-`/joy` (app-Modus lässt `joy_node` weg). Phasen-Doku: `.../phase_2_control_baseline_*`.
+- **App-Sim-Welt (Scene) wählen / neue Welt in den App-Pfad:** `always_on.launch.py scene:=<name>`
+  (Default `ramp` = flache Welt · `rubicon` = Rauhterrain + Kamera + Terrain-Regelkreise scharf).
+  Kette: `always_on._launcher_cfg(mode,scene)` → **scene-spezifische** `launcher.<mode>.<scene>.yaml`
+  (spezifischer Node-Key, **kein** Param-Dict-Override — der verliert in rcl gegen den yaml-Key) →
+  `bringup_launch_args` mit `scene:=…` → `bringup_ondemand` (sim-Zweig: `scene==rubicon` → `rubicon_walk`,
+  sonst `ramp_walk`) → Welt-Launch + `gait.launch.py params_file:=presets/<scene>.yaml`.
+  **Neue Scene:** (1) Welt-`.sdf` **mit `gz-sim-sensors-system`** (sonst kein Kamera-Bild),
+  (2) `<scene>_walk.launch.py` (Welt + delayed gait + Preset), (3) `bringup_ondemand`-scene-Branch,
+  (4) `launcher.sim.<scene>.yaml`, (5) `_launcher_cfg` erweitern, (6) Preset
+  `hexapod_gait/config/presets/<scene>.yaml`. ⚠️ **Schwere Welten:** Controller-Spawner in
+  `sim.launch.py` haben `--switch-timeout 30` (JSB-Aktivierung überlebt die langsame Hardware-Init) +
+  scene-`gait_delay` hoch (z.B. 30), sonst JSB inaktiv → kein `/joint_states` → kein Standup.
+  Doku: `.../rubicon_scene_{plan,progress}.md`.
 
 ### Kamera / Video-Pipeline ändern (Block I Phase 4 — MJPEG-Vollbild)
 - **Naht = Contract §5** (`interface_contract.md`, v0.7): MJPEG via `web_video_server` :8080,

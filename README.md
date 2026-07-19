@@ -3,8 +3,9 @@
 A six-legged walking robot (18 servos) — built in **ROS 2 Jazzy** + **Gazebo Harmonic** and
 running **1:1 on real hardware** (Servo2040 + Raspberry Pi 5) via `ros2_control`. Omnidirectional
 walking, multiple gaits, validated stance & speed presets, IMU-based body leveling and tip-over
-protection, foot-contact terrain adaptation, sit/stand sequences, free-leg "show" poses, and
-PS4 control (USB + Bluetooth).
+protection, foot-contact terrain adaptation, sit/stand sequences, free-leg "show" poses,
+PS4 control (USB + Bluetooth), and a **mobile app** (phone + Razer Kishi) with live video,
+status overlay and on-screen configuration.
 
 <p align="center">
   <img src="docs/images/hexapod_outside.png" alt="The hexapod outdoors on grass" width="700"/>
@@ -33,6 +34,10 @@ PS4 control (USB + Bluetooth).
 
 ---
 
+**Contents:** [Features](#features) · [Hardware](#hardware-target-platform) · [Software](#software-requirements) · [Quickstart](#quickstart-simulation) · [Controls](#controls-ps4-dualshock-4) · [Mobile app](#mobile-app-phone--kishi) · [Packages](#packages) · [Tools](#tools-tools) · [Documentation](#documentation) · [Status](#status)
+
+---
+
 ## Features
 
 - **Omnidirectional walking** via `/cmd_vel` — forward/back, strafe, turn, arcs (analog, proportional).
@@ -52,6 +57,11 @@ PS4 control (USB + Bluetooth).
 - **Sit / stand / shutdown** as clean sequences (graceful power-off, comms-loss fail-safe).
 - **Free-leg "show" pose:** support on 4 legs, 2 front legs steered freely by joystick (incl. tibia reach).
 - **PS4 teleop:** USB **and** Bluetooth — omnidirectional sticks, dead-man, intent services.
+- **Mobile app (phone + Razer Kishi):** drives the robot over rosbridge (Wi-Fi) — full-screen
+  **video**, live **status overlay** (state / stance / gait / speed / foot contacts / tip warning),
+  an **rqt-style config panel** (tunable parameters, live), and full **lifecycle** (start / stand /
+  walk / sit / stop the whole stack from the phone). Simulation today; the same seam drives the Pi.
+  See [Mobile app](#mobile-app-phone--kishi).
 - **Sim ↔ hardware identical — proven:** the same high-level code runs in Gazebo and on the
   real servos (`ros2_control` abstraction, plugin chosen by a launch argument); the full
   locomotion stack has been walking on the physical robot.
@@ -90,7 +100,19 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-Each step in its own terminal (`source install/setup.bash` in each):
+### Run it — two ways
+
+**A) Mobile app — one command.** Start the always-on layer; the
+[mobile app](#mobile-app-phone--kishi) then connects over Wi-Fi and runs the robot from the phone
+(connect → **Start** → **Stand up** → drive). The command below is the **only** thing you launch on
+the desktop — the app starts / stops the heavy stack itself:
+```bash
+ros2 launch hexapod_bringup always_on.launch.py                 # flat world
+ros2 launch hexapod_bringup always_on.launch.py scene:=rubicon  # rough terrain + camera + terrain features on
+```
+> `scene:=rubicon` loads a heightmap world — allow ~20–30 s for it to come up before standing.
+
+**B) Manual (PS4 / keyboard).** Each step in its own terminal (`source install/setup.bash` in each):
 
 **1 — Gazebo** (physics + the robot; empty world):
 ```bash
@@ -107,8 +129,14 @@ ros2 launch hexapod_bringup ramp.launch.py slope_deg:=8.0     # flat → slope �
 ros2 launch hexapod_bringup rubicon.launch.py                 # rough terrain (Gazebo Fuel, see note)
 ```
 
-One-command variants (world **+** gait stack together, replaces steps 1+3):
-`step_walk.launch.py`, `trench_walk.launch.py` (same arguments).
+One-command variants (world **+** gait stack + auto-stand, replaces steps 1+3):
+`ramp_walk.launch.py`, `rubicon_walk.launch.py`, `step_walk.launch.py`, `trench_walk.launch.py`
+(same arguments) — the standalone (PS4 / `cmd_vel`) path.
+
+> 📱 **For the mobile app, don't use these** — the app picks the world through the one-command
+> app bringup: `always_on.launch.py` (flat) or `always_on.launch.py scene:=rubicon` (rough terrain
+> + camera + terrain features), then connect and press **Start**. See
+> [Run it — two ways](#run-it--two-ways) and [Mobile app](#mobile-app-phone--kishi).
 
 For terrain worlds, enable the foot-contact features (live, extra terminal):
 ```bash
@@ -179,6 +207,10 @@ ros2 topic list                                 # /cmd_vel, /cmd_show, /joint_st
 
 ## Controls (PS4 DualShock 4)
 
+> The robot consumes the **same `/joy` stream** whether it comes from a PS4 pad (below) or from the
+> [mobile app](#mobile-app-phone--kishi) (phone + Razer Kishi) — the mapping here is the reference
+> for both.
+
 > **R1 is the dead-man** — driving and front-leg control only work while R1 is held.
 
 | Input | Action | Notes |
@@ -209,6 +241,30 @@ Full reference (controller mapping, gait × stride stability sweet-spots, axis/s
 [`project_finalization/C_teleop.md`](project_finalization/C_teleop.md); tuning details live in the
 package READMEs ([`hexapod_gait`](src/hexapod_gait/README.md), [`hexapod_teleop`](src/hexapod_teleop/README.md)).
 
+## Mobile app (phone + Kishi)
+
+A native Android app turns a **phone in a Razer Kishi gamepad holder** into the robot's controller
+**and** screen — physical sticks/buttons drive it (exactly like the PS4), and the touchscreen adds
+video, status and configuration. It talks to the robot over **rosbridge** (WebSocket/JSON) plus a
+separate **MJPEG video** stream — no ROS on the phone; the same seam works over a router (sim) or the
+Pi's Wi-Fi hotspot (hardware).
+
+- **Drive:** reads the Kishi, normalizes to the PS4 layout and publishes `sensor_msgs/Joy` → the
+  **same** `joy_to_twist` chain as the PS4 pad (dead-man, sit/stand, stance, gait, speed, show).
+- **Center view — camera or 3D:** full-screen live **video** (Gazebo cam in sim, Raspi-Cam on
+  hardware, same `/camera/image_raw`) **or** a **live 3D model** of the robot animated from
+  `/joint_states` — toggle between them (or off).
+- **Status overlay:** state / stance / gait / speed / foot-contact grid / tip warning, live.
+- **On-screen selectors:** gait / speed / stance dropdowns (standing-only, mirror the controller).
+- **Config panel:** rqt-style tunable parameters (gait, speed scales, terrain toggles, IMU gains)
+  with live limits, rendered generically from a ROS-published manifest.
+- **Alerts:** live warning / error feed from the robot (`WARN`+ from the ROS log), copyable.
+- **Lifecycle:** start / stop the heavy stack, stand / sit, and guarded shutdown — all from the phone.
+
+> 📱 **App repository:** [`enjoykin-ua/hexapod_app`](https://github.com/enjoykin-ua/hexapod_app)
+> &nbsp;·&nbsp; ROS-side design + interface docs:
+> [`project_finalization/app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md)
+
 ## Packages
 
 | Package | Purpose |
@@ -220,8 +276,9 @@ package READMEs ([`hexapod_gait`](src/hexapod_gait/README.md), [`hexapod_teleop`
 | `hexapod_kinematics` | Pure-Python IK/FK + joint-limit check |
 | `hexapod_sensors` | Gazebo→ROS foot-contact adapter (sim) + BNO-055 IMU node (hardware, I²C) |
 | `hexapod_gait` | Gait engine + `gait_node` (state machine: stand/walk/stop/sit/standup/reposition/show/stance-switch), gaits, stance & speed presets, IMU leveling/tip monitor, foot-contact terrain adaptation (adaptive touchdown/stand, slip freeze) |
-| `hexapod_teleop` | PS4 USB + Bluetooth → `/cmd_vel` + `/cmd_show` + intent services |
+| `hexapod_teleop` | PS4 USB + Bluetooth → `/cmd_vel` + `/cmd_show` + intent services (the app publishes the same `/joy` over rosbridge) |
 | `hexapod_hardware` | C++ `HardwareInterface` (pluginlib), Servo2040 USB-CDC |
+| `hexapod_supervisor` | Always-on lifecycle (Block I): `bringup_launcher` (start/stop the on-demand stack + guarded shutdown), `hmi_status` (app status / config-manifest / alerts), controlled sit-down + power-off |
 
 ## Tools (`tools/`)
 
@@ -243,6 +300,7 @@ package READMEs ([`hexapod_gait`](src/hexapod_gait/README.md), [`hexapod_teleop`
 | [`PHASE.md`](PHASE.md) | **Current status** + phase / block overview |
 | [`PHASE_NOTES.md`](PHASE_NOTES.md) | Phase retros + archived early build reports |
 | [`project_finalization/`](project_finalization/00_backlog.md) | Finalization blocks A–E (locomotion, teleop, stance modes, show pose) + backlog |
+| [`app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md) | **Mobile app (Block I):** interface contract (the app↔robot seam), phase plans, app repo link |
 | [`project_architecture/`](project_architecture/00_overview.md) | Architecture overview, AI-navigation ("I change X → where"), tool catalog |
 | [`docs/`](docs/00_conventions.md) | Phases 0–6 (sim), conventions, [hardware-change workflow](docs/01_hardware_change_workflow.md) |
 | `docs_raspi/` | Phases 7+ (hardware bench, Pi platform) |

@@ -88,6 +88,6 @@
 | Teleop (PS4 USB) | `ros2 launch hexapod_teleop joy_teleop.launch.py` |
 | **App-Teleop (Block I)** | `ros2 launch hexapod_bringup app_teleop.launch.py` (rosbridge :9090 + `joy_to_twist` app-Modus) |
 | rosbridge allein | `ros2 launch hexapod_bringup rosbridge.launch.py` |
-| **Always-On (Block I Ph.3)** | `ros2 launch hexapod_bringup always_on.launch.py` (rosbridge + supervisor + `bringup_launcher`; App startet den schweren Stack on demand via `/hexapod_bringup_start`) |
+| **Always-On (Block I Ph.3)** | `ros2 launch hexapod_bringup always_on.launch.py` (rosbridge + supervisor + `bringup_launcher` + `hmi_status`; App startet den schweren Stack on demand via `/hexapod_bringup_start`). **`scene:=rubicon`** → App-Stack lädt die Rubicon-Rauhterrain-Welt + Kamera + Terrain-Regelkreise scharf (statt flacher Rampe) |
 | Reachability-Viz | `ros2 launch hexapod_gait reachability_viz.launch.py` |
 | Modell-Anzeige (RViz + Slider) | `ros2 launch hexapod_description display.launch.py` |
