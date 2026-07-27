@@ -3,8 +3,10 @@
 > **Done-Vertrag** aus [`phase_8_look_around_plan.md`](phase_8_look_around_plan.md) §3.
 > Alle Bullets `[x]` = Phase fertig. Keine retroaktive Anpassung der Kriterien.
 >
-> **Stand: ROS-Seite fertig** (implementiert, unit-getestet, Contract v0.13 festgezurrt).
-> Offen: App-Seite (P8.9/P8.10) + Sim-/HW-Abnahme (P8.12).
+> **Stand: 🟢 ABGESCHLOSSEN.** ROS-Seite implementiert + unit-getestet (1014 Tests grün),
+> Contract v0.13 festgezurrt, App-Show-Menü gebaut — **in der Simulation UND am echten Roboter
+> verifiziert** (User-Abnahme: „läuft gut, passt alles"). Die Stick-Vorzeichen-Defaults
+> (`sign_body_pose_*`) haben sich dabei als korrekt bestätigt, keine Korrektur nötig.
 
 ---
 
@@ -23,11 +25,15 @@ Phase 8 (Show-Erweiterung Look-Around):
 - [x] P8.6 [ROS] joy_to_twist: Look-Around-Stick-Mapping -> /cmd_body_pose (rechter=pitch/yaw, linker=dx/dy, R2-L2=dz), R1-Dead-Man, beide Profile
 - [x] P8.7 [ROS] Unit-Tests (T8.1-T8.6, T8.10-T8.12) + Lint + Walking-Regression (T8.9)
 - [x] P8.8 [ROS] Contract §3/§4/§6 festgezurrt (show_mode + /cmd_body_pose + status.show_mode + capabilities.show_modes), Version-Bump v0.13
-- [ ] P8.9 [App] Show-Menü (NICHT Config-Panel): Kamera-Umschauen / Dancing / Free-Leg / Normalbetrieb -> setzt show_mode
-- [ ] P8.10 [App] Look-Around-Stick-Hinweis (R1 halten; rechter=schauen, linker=wandern, L2/R2=Höhe); Dancing/Free-Leg als Platzhalter sichtbar
+- [x] P8.9 [App] Show-Menü (NICHT Config-Panel): Kamera-Umschauen / Dancing / Free-Leg / Normalbetrieb -> setzt show_mode
+- [x] P8.10 [App] Look-Around-Stick-Hinweis (R1 halten; rechter=schauen, linker=wandern, L2/R2=Höhe); Dancing/Free-Leg als Platzhalter sichtbar
 - [x] P8.11 [ROS] Self-Review + Doku (README/architecture/ai_navigation, progress/test_commands)
-- [ ] P8.12 [Integration, User+App/HW] Umschauen in Sim, dann am echten Roboter (T8.7/T8.8)
+- [x] P8.12 [Integration, User+App/HW] Umschauen in Sim, dann am echten Roboter (T8.7/T8.8)
 ```
+
+**Abnahme:** T8.7 (Sim, aus der App über `always_on.launch.py`) ✅ · T8.8 (HW, echter Roboter über
+`always_on.launch.py mode:=real`) ✅ — Körper bewegt sich in allen Achsen, Füße bleiben fix, Video
+schwenkt mit, sauberer Rückweg, kein Freeze, danach normal fahrbar.
 
 ---
 
@@ -126,19 +132,13 @@ Phase 8 (Show-Erweiterung Look-Around):
 | 7 | **Rotations-Reihenfolge**: `rotate_xy(p,−roll,−pitch)` ist **nicht** die Inverse von `Ry·Rx`. | Fallstrick | **OK**: eigenes `_rot_body_inv` (exakt `Rx(−roll)·Ry(−pitch)·Rz(−yaw)`), Test `test_rot_body_inv_is_true_inverse` + Quervergleich mit unabhängiger Rechnung (`test_body_pose_matches_direct_ik`) |
 | 8 | **Kipp-Erkennung ist in der Show aus** (`_update_tip` gated auf STANDING/WALKING). Auf einem Hang + 12° pitch gibt es keine Tip-Warnung. | bewusst | **OK (dokumentiert)**: identisch zu den B4-Show-States („kippt gewollt"); statisch abgesichert durch 6 tragende Füße + CoG-Marge ≥ 166 mm (offline belegt) |
 | 9 | **Comms-Loss-Fail-safe greift in der Show nicht** (`_check_comms_loss` nur aus STANDING) → bei Verbindungsverlust setzt sich der Roboter nicht hin, sondern bleibt in der Show. | bewusst | **OK (dokumentiert)**: der Staleness-Pfad führt den Körper trotzdem in die Ausgangs-Pose zurück; Param ist Default 0 (aus). 🟢 später: Show-Ende bei Comms-Loss |
-| 10 | **Vorzeichen der Stick-Achsen** sind hergeleitet, nicht gemessen. | offen | 🟡 **Sim-Verify** (T8.7): Korrektur = ein Param (`sign_body_pose_*`), kein Code |
+| 10 | **Vorzeichen der Stick-Achsen** waren hergeleitet, nicht gemessen. | erledigt | **OK**: in Sim **und** auf HW verifiziert — die Defaults (`sign_body_pose_pitch: −1.0`, `_yaw: 1.0`, `_z: 1.0`) stimmen, keine Korrektur nötig |
 | 11 | **Kein Audio-Cue** beim Betreten/Verlassen der Show (Phase 7A kennt nur standup/sitdown/reposition/freeze). | Politur | 🟢 später (eine Zeile `_emit_audio_cue`, wenn gewünscht) |
 | 12 | **Envelope-Defaults sind gepinnt** (`test_envelope_defaults_match_tool`) — wer sie ändert, ohne das Tool zu fahren, bekommt einen roten Test. | Absicherung | **OK** |
 | 13 | **`show_mode` doppelt bedienbar?** Nein — nicht im `config_manifest` (Test `test_show_mode_not_in_config_panel`), Controller-Weg bleibt per `show_enabled: false` tot. | Absicherung | **OK** |
 
 ## Offene Punkte / Nachträge
 
-- **P8.9/P8.10 (App):** Show-Menü bauen — Start-Brief: [`phase_8_app_brief.md`](phase_8_app_brief.md)
-  (self-contained, verweist auf Contract §6c).
-- **P8.12 (Sim/HW):** T8.7 (Sim) + T8.8 (HW) durch den User, Befehle in
-  [`phase_8_look_around_test_commands.md`](phase_8_look_around_test_commands.md).
-- **Vorzeichen der Stick-Achsen** (`sign_body_pose_{pitch,yaw,z}`) sind hergeleitet, aber **in der
-  Sim zu verifizieren** („Stick hoch = Kamera hoch", „R2 = höher"). Korrektur = ein Param, kein Code.
 - **`roll` v1 aus** (`body_pose_roll_max_deg: 0.0`) — Slot + Engine sind 6-DOF-fähig, „Dancing"
   kann ihn ohne Interface-Änderung scharf schalten.
 - 🟡 **Deferred:** Komfort-Routing „Hinsetzen direkt aus der Show" und der direkte

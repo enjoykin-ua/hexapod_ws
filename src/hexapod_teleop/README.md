@@ -4,8 +4,9 @@ Teleop-Knoten für den Hexapod. Stufe A (Phase 6): PS4-Controller via
 USB. Stufe B (geplant): BT-Pairing.
 
 Konsumiert `/joy` (von `joy_node` aus `ros-jazzy-joy`), publisht
-`/cmd_vel` (geometry_msgs/Twist) und `/cmd_body_height`
-(std_msgs/Float64).
+`/cmd_vel` (geometry_msgs/Twist), `/cmd_body_height`
+(std_msgs/Float64), `/cmd_show` (B4-Vorderbein-Show, opt-in) und
+`/cmd_body_pose` (Look-around-Show, Block I Phase 8).
 
 ## Quickstart
 
@@ -35,6 +36,7 @@ können später dazukommen (`controller:=ps4_bt`, `controller:=ps5`).
 | **△ Triangle** (Druck) | **Sit/Stand-Toggle** → `/hexapod_sit_stand_toggle` | gait_node löst nach State auf |
 | **○ Circle** (lang) | **Shutdown** → `/hexapod_shutdown` | Long-Press, terminal (Relay aus) |
 | **✕ Cross** (lang) | **Show-Pose** (B4) — **aktuell DEAKTIVIERT** (`show_enabled:false`) | leg_changes/S6: aktuelle Show-Pose auf HW instabil → Teleop schickt weder `/hexapod_show_toggle` noch `/cmd_show`. Code bleibt; `show_enabled:=true` reaktiviert. |
+| **Im Look-Around + R1** | **Umschauen** (rechter Stick: Y=pitch ±12°, X=yaw ±10°), **Wandern** (linker Stick: Y=dx ±50 mm, X=dy ±35 mm), **Höhe** (R2−L2, ±20 mm) → `/cmd_body_pose` | Phase 8: Körper über **fixen Füßen**. **Kein Controller-Einstieg** — die Show startet ausschließlich die App über den gait_node-Param `show_mode`; wirkt nur im State `BODY_POSE`. Loslassen → federt zurück |
 | **D-Pad ←/→** | Gangart vorige/nächste (→ = next) | C2: Intent `/hexapod_cycle_gait`; nur STANDING |
 | **D-Pad ↑/↓** | **Tempo-Preset schneller/langsamer** (langsam/mittel/schnell/aggressiv) | H2: `cycle_time` am gait_node + eigene Scales (`_TEMPO_MODES`); nur STANDING (gait-Guard). Ersetzt das C3-Schrittweiten-Binding — der Service `/hexapod_adjust_step_length` bleibt (ohne Teleop-Binding) |
 
@@ -122,6 +124,18 @@ Skalen/Schwellen YAML-tunbar). Defaults:
   nur `linear.x` und `angular.z`, andere Felder bleiben 0.
 - `/cmd_body_height` (`std_msgs/Float64`) — Absolute body_height in
   m. `gait_node` clampt + ignoriert wenn nicht STANDING.
+- `/cmd_show` (`std_msgs/Float64MultiArray[6]`) — B4-Vorderbein-Show,
+  nur wenn `show_enabled` (Default **false**, leg_changes/S6).
+- `/cmd_body_pose` (`std_msgs/Float64MultiArray[6]`) — **Look-around-Show**
+  (Block I Phase 8): `[dx, dy, dz, roll, pitch, yaw]`, normiert −1..+1,
+  **R1-gegated** (ohne Dead-Man sechs Nullen → der Körper federt zurück).
+  Wird **immer** publisht (beide Profile, zustandslos wie `cmd_vel`) — der
+  `gait_node` wertet es **nur im State `BODY_POSE`** aus und skaliert dort auf
+  seinen Envelope. Es gibt **keinen** Teleop-Enable-Schalter dafür: in die Show
+  kommt man ausschließlich über den gait_node-Param `show_mode`, den nur die App
+  setzen kann (ein Controller publisht nur `/joy`). Vorzeichen-Params:
+  `sign_body_pose_pitch` (Default −1.0 = Stick hoch → Kamera hoch),
+  `sign_body_pose_yaw`, `sign_body_pose_z` (R2 = höher).
 
 ## Stolperfallen
 

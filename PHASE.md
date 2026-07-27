@@ -7,10 +7,10 @@ Stufen hoch/runter, Hinsetzen/Aufstehen, IMU-Balance, alles was der PS4-Controll
 Kamera (Raspi-Cam) + Audio (MAX98357A) sind **verkabelt + hello-world-in-Betrieb**; offen ist deren
 ROS-/App-Integration. **Aktuelle Arbeit = App + Feature-Erweiterungen:** Block-I-App
 Phasen 1–6 + 7A + 7B fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel,
-E-Stop+Recovery, **Audio**, **echte Raspi-Cam** — je Sim-/Desktop-verifiziert). **Aktiv: Phase 8 —
-Show „Look-Around"** (Körper bewegt sich in 6 DOF über fixen Füßen; App-Show-Menü mit Platzhaltern
-für Dancing/Free-Leg): **ROS-Seite fertig** (Contract v0.13), offen App-Menü + Sim-/HW-Abnahme.
-Danach Politur (Reconnect, Controller-Profile).
+E-Stop+Recovery, **Audio**, **echte Raspi-Cam** — je Sim-/Desktop-verifiziert) und **Phase 8 —
+Show „Look-Around"** 🟢 (Körper bewegt sich in 6 DOF über fixen Füßen, App-Show-Menü mit
+Platzhaltern für Dancing/Free-Leg; Contract v0.13) — **in Sim UND am echten Roboter verifiziert**.
+**Als Nächstes: Politur** (Reconnect-Handling, Controller-Profile, Robustheit).
 Detail: [`project_finalization/app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md)
 · auch: Rubicon-Scene für den App-Flow, Video-Pipeline, Config-Manifest.
 _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi/phase_12_progress.md).)_
@@ -69,7 +69,7 @@ _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi
 | **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim + **HW** |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |
 | **D** Hardware-Bring-up / Plattform | **D1 Pi-Plattform (=Phase 12)** · **D2 Elektrik 2S LiPo (=Phase 8)** · D3 LVC/Telemetrie · D4 Power-On-Sequenz · D5 untethered | 🟢 **abgeschlossen** (Roboter fährt untethered mit Akku) |
-| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio (Ph.7A) · echte Cam (Ph.7B) · Politur (Ph.8) | 🟡 **aktiv** — Ph.1–6 + **7A** 🟢 (Sim-verifiziert; HW-Verify + App-Buttons je deferiert), **Ph.7B** als Nächstes |
+| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio (Ph.7A) · echte Cam (Ph.7B) · **Show „Look-Around" (Ph.8)** · Politur (Ph.9) | 🟡 **aktiv** — Ph.1–7B 🟢 · **Ph.8 🟢 Sim + HW verifiziert** (Körper-Pose über fixen Füßen, App-Show-Menü, Contract v0.13); **Ph.9 Politur** als Nächstes |
 | **E** Robustheit / später | Safe-State im Lauf (E1), Terrain/Foot-Contact (E2), Preset-Management (E3) | ⚪ später |
 
 ### Cross-Phase-Threads
@@ -105,13 +105,21 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
    Roboter-Speaker (MAX98357A) — **Auto-Sounds** bei Aufstehen/Hinsetzen/Höhenwechsel/Freeze (explizite
    Cues vom gait_node, **Recovery stumm**) + **Soundboard** (`/hexapod/play_sound`); Mute via
    `sound_enable`. Contract v0.11. **HW (echte mp3s + Speaker) + App-Buttons** deferiert (Defer-Pattern).
-4. **Phase 7B — echte Raspi-Cam am Roboter (als Nächstes):** OV5647 publisht `/camera/image_raw` auf
+4. ✅ **Phase 7B — echte Raspi-Cam am Roboter** fertig: OV5647 publisht `/camera/image_raw` auf
    dem Pi (via `rpicam-vid` MJPEG → `CompressedImage`) + `camera_enable` → `web_video_server` + App
-   unverändert. Plan liegt: `phase_7b_camera_plan.md`.
-5. **Phase 8 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
-6. **Optionale Politur (jederzeit):** A5 IP3-Feintuning (Terrain-Following im Laufen), Fußtaster-
-   Latenz-Recheck auf HW (aus dem App-Overlay-Test), Show-Pose-Erweiterung, Audio-Knarz-Fix
-   (Stützelko im Finalaufbau).
+   unverändert. Contract v0.12.
+5. ✅ **Phase 8 — Show „Look-Around"** fertig (**Sim + HW verifiziert**): der Roboter steht, alle
+   6 Füße bleiben fix, der **Körper** bewegt sich in 6 DOF (umschauen/wandern/Höhe, R1-Dead-Man,
+   federt zurück) — die Kamera schwenkt mit. Auswahl über den Param **`show_mode`** aus dem
+   **App-Show-Menü** (app-exklusiv); **Dancing/Free-Leg** als Platzhalter vorgebaut, damit die App
+   für sie später nicht mehr angefasst werden muss. Zweistufige Sicherung (Per-Achse-Envelope +
+   Greedy-Achsen-Clamp) → **kein Freeze aus der Show**. Contract v0.13,
+   `phase_8_look_around_progress.md`.
+6. **Phase 9 — Politur (als Nächstes):** Reconnect-Handling, Controller-Profile (Portabilität),
+   Robustheit (App).
+7. **Optionale Politur (jederzeit):** A5 IP3-Feintuning (Terrain-Following im Laufen), Fußtaster-
+   Latenz-Recheck auf HW (aus dem App-Overlay-Test), **Dancing/Free-Leg ROS-seitig umsetzen**
+   (App-Menü steht schon), Audio-Knarz-Fix (Stützelko im Finalaufbau).
 
 ---
 

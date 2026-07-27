@@ -5,11 +5,10 @@
 > Live-Bild** — Steuerung wie beim PS4, plus On-Screen-Konfiguration, Status-Overlay,
 > Kamera-Stream, Sound und Lifecycle (Bringup/Shutdown/Recovery) aus der App.
 >
-> **Status: 🟡 aktiv — Phasen 1–6 + 7A + 7B 🟢 fertig** (Kishi-Mapping, Teleop, Lifecycle, Video,
-> Status/Config-Panel, **E-Stop + Recovery**, **Audio**, **echte Raspi-Cam** — Sim-/Desktop-E2E-
-> verifiziert). **Phase 8 = Show „Look-Around" (Kamera-Umschauen)** — **ROS-Seite fertig**
-> (implementiert + unit-getestet, Contract **v0.13**), offen sind die App-Seite (Show-Menü) und die
-> Sim-/HW-Abnahme. Die frühere „Politur" (Reconnect/Controller-Profile) rückt dahinter.
+> **Status: 🟡 aktiv — Phasen 1–8 🟢 fertig** (Kishi-Mapping, Teleop, Lifecycle, Video,
+> Status/Config-Panel, **E-Stop + Recovery**, **Audio**, **echte Raspi-Cam** und die **Show
+> „Look-Around"** — letztere **in Sim UND am echten Roboter verifiziert**, Contract **v0.13**).
+> Als Nächstes: **Politur** (Reconnect-Handling, Controller-Profile, Robustheit — jetzt Phase 9).
 > Deferiert: HW-Verify T6.8 (E-Stop/Recover) + T7A.13 (Audio-Speaker) + die zugehörigen App-Buttons.
 > Arbeitsweise CLAUDE.md §4 (Plan → Freigabe → Code → Tests → Self-Review), §5 (Agent macht NIE
 > git). Deutsch durchgehend.
@@ -91,8 +90,8 @@ angebunden:
 | **6** | **Recovery + Not-Halt** | E-Stop (`safety_freeze`) + Ein-Klick-Recovery-Service (Joint-Space-Ramp in den Stand) + App-Button | App + ROS |
 | **7A** | **Audio** 🟢 (ROS-Seite Sim-verifiziert) | `hexapod_audio`-Node: Bewegungs-Cues (gait) + Soundboard + `sound_enable`-Mute. Contract v0.11 | App + ROS |
 | **7B** | **Echte Raspi-Cam** 🟢 (ROS-Seite + Desktop-E2E) | OV5647 → `/camera/image_raw` (`rpicam-vid` MJPEG → CompressedImage) + `camera_enable`; web_video_server + App unverändert. Contract v0.12 | ROS (+App-Feinschliff) |
-| **8** | **Show „Look-Around"** *(aktiv — ROS 🟢)* | Körper bewegt sich in 6 DOF über **fixen Füßen** (umschauen/wandern/Höhe, R1-Dead-Man, federt zurück); App-**Show-Menü** setzt `show_mode`; **Dancing/Free-Leg als Platzhalter** vorgebaut. Contract v0.13, §6c | App + ROS |
-| **9** | **Politur** | Controller-Profile (Portabilität), Reconnect-Handling, Robustheit | App |
+| **8** | **Show „Look-Around"** 🟢 (Sim + **HW** verifiziert) | Körper bewegt sich in 6 DOF über **fixen Füßen** (umschauen/wandern/Höhe, R1-Dead-Man, federt zurück); App-**Show-Menü** setzt `show_mode`; **Dancing/Free-Leg als Platzhalter** vorgebaut. Contract v0.13, §6c | App + ROS |
+| **9** | **Politur** *(als Nächstes)* | Controller-Profile (Portabilität), Reconnect-Handling, Robustheit | App |
 
 **Abhängigkeiten:** 1 → 2 → 3 sind linear (Input → Steuerstrecke → Lifecycle). 4/5/6 bauen
 auf 2/3 auf, sind untereinander aber weitgehend unabhängig. 7 schwebt (jederzeit). 8 zum

@@ -62,6 +62,11 @@ status overlay and on-screen configuration.
   sounds** (stand-up / sit-down / height-change / freeze, triggered by the gait sequence logic) plus
   a **soundboard** the app can fire; auto-sounds mutable via a `sound_enable` param.
 - **Free-leg "show" pose:** support on 4 legs, 2 front legs steered freely by joystick (incl. tibia reach).
+- **Look-around show:** the robot stands still — **all six feet stay planted** — while the **body**
+  moves in 6 DOF: look up/down and left/right, walk in place, change height; let go and it springs
+  back. The camera rides on the body, so the **live video pans with it**. Two-stage safety (per-axis
+  envelope + greedy per-axis clamp): no stick combination can push it out of its joint limits, and
+  **no show input can trigger a safety freeze**.
 - **PS4 teleop:** USB **and** Bluetooth — omnidirectional sticks, dead-man, intent services.
 - **Mobile app (phone + Razer Kishi):** drives the robot over rosbridge (Wi-Fi) — full-screen
   **video**, live **status overlay** (state / stance / gait / speed / foot contacts / tip warning),
@@ -213,6 +218,10 @@ ros2 service call /hexapod_cycle_gait   std_srvs/srv/SetBool "{data: true}" # ne
 ros2 service call /hexapod_cycle_stance std_srvs/srv/SetBool "{data: true}" # higher stance (false = lower)
 ros2 service call /hexapod_show_toggle  std_srvs/srv/Trigger "{}"           # enter / leave show pose
 
+# Look-around show (normally picked from the app's show menu; STANDING only)
+ros2 param set /gait_node show_mode look_around  # body follows the sticks, feet stay planted
+ros2 param set /gait_node show_mode none         # leave the show (always accepted)
+
 # Live parameter tuning (step height, cycle time, scales, …)
 ros2 run rqt_reconfigure rqt_reconfigure        # GUI; many params are STANDING-only
 
@@ -243,6 +252,14 @@ ros2 topic list                                 # /cmd_vel, /cmd_show, /joint_st
 | **✕ Cross** (long-press) | Enter / leave **show pose** | |
 | **In show + R1 — left / right stick** | Move front legs leg_6 / leg_1: X = sideways, Y = up/down | SHOW_ACTIVE only |
 | **In show + R1 — L2 / R2** | **Tibia reach** leg_6 / leg_1 (extend leg, tibia opens up) | SHOW_ACTIVE only |
+| **In look-around + R1 — right stick** | **Look around:** Y = up/down (±12°), X = left/right (±10°) | BODY_POSE only |
+| **In look-around + R1 — left stick** | **Walk in place:** Y = forward/back (±50 mm), X = sideways (±35 mm) | BODY_POSE only |
+| **In look-around + R1 — L2 / R2** | **Body height** down / up (±20 mm) | BODY_POSE only |
+
+> **The look-around show is started from the app only** (`show_mode` parameter on `/gait_node` —
+> a controller only publishes `/joy` and cannot set parameters). Once it runs, the sticks move the
+> **body** over planted feet instead of driving; releasing R1 springs everything back. In sim you
+> can start it by hand: `ros2 param set /gait_node show_mode look_around`.
 
 **Stance modes** (cycled with L2/R2) — each couples body height, step height and max step length
 (all offline-gate-validated; higher values are rejected):
@@ -301,7 +318,7 @@ Pi's Wi-Fi hotspot (hardware).
 | `hexapod_kinematics` | Pure-Python IK/FK + joint-limit check |
 | `hexapod_sensors` | Gazebo→ROS foot-contact adapter (sim) + BNO-055 IMU node (hardware, I²C) |
 | `hexapod_gait` | Gait engine + `gait_node` (state machine: stand/walk/stop/sit/standup/reposition/show/stance-switch), gaits, stance & speed presets, IMU leveling/tip monitor, foot-contact terrain adaptation (adaptive touchdown/stand, slip freeze) |
-| `hexapod_teleop` | PS4 USB + Bluetooth → `/cmd_vel` + `/cmd_show` + intent services (the app publishes the same `/joy` over rosbridge) |
+| `hexapod_teleop` | PS4 USB + Bluetooth → `/cmd_vel` + `/cmd_show` + `/cmd_body_pose` (look-around show) + intent services (the app publishes the same `/joy` over rosbridge) |
 | `hexapod_hardware` | C++ `HardwareInterface` (pluginlib), Servo2040 USB-CDC |
 | `hexapod_supervisor` | Always-on lifecycle (Block I): `bringup_launcher` (start/stop the on-demand stack + guarded shutdown), `hmi_status` (app status / config-manifest / alerts), controlled sit-down + power-off |
 | `hexapod_audio` | On-board audio (Block I 7A): plays mp3s on the robot speaker (MAX98357A) — movement cues from the gait node + soundboard from the app; `sound_enable` mute |
@@ -316,6 +333,7 @@ Pi's Wi-Fi hotspot (hardware).
 | `stand_conform_envelope_check.py` | Adaptive-stand floor depth per stance mode |
 | `apex_meter.py` | Live FK foot-lift measurement — commanded vs real swing apex on hardware |
 | `show_pose_cog_check.py` | Show support pose: CoG margin + front-leg reach |
+| `look_around_envelope_check.py` | Look-around show: per-axis body-pose limits, CoG margin (world frame) and reachable stick gestures, per stance height |
 | `torque_sweep.py` | Joint holding torques / heat utilization (CoG-based load model) |
 | `hexapod-shell-aliases.sh` | Opt-in bash aliases: save/load calibration, walking presets |
 
@@ -341,8 +359,9 @@ The robot is **complete and runs untethered in the field** — sim phases (0–6
 leveling + tip protection and the foot-contact pipeline (adaptive touchdown, slip freeze) verified
 live, gaits / stance / speed presets on battery in the field. Current work is the **mobile app
 (Block I)**: controller mapping, teleop, lifecycle, video, status + config panel, **emergency-stop +
-recovery** and **on-board audio** are done (phases 1–6 + 7A, sim-verified); next up is the **on-board
-camera** (phase 7B), then polish (phase 8). Details: [`PHASE.md`](PHASE.md).
+recovery**, **on-board audio**, the **on-board camera** and the **look-around show** are done
+(phases 1–8) — the show is verified **in simulation and on the real robot**. Next up is polish
+(reconnect handling, controller profiles). Details: [`PHASE.md`](PHASE.md).
 
 ## License
 

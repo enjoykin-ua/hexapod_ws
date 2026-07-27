@@ -7,8 +7,9 @@
 > zusätzlich **Platzhalter** für „Dancing" und „Free-Leg" (ROS nimmt sie an, tut aber noch nichts),
 > damit die App **einmal** vollständig gebaut werden kann.
 >
-> **Seite:** ROS + App. **Status: 🟡 Plan — §4 entschieden, User-Freigabe für die Umsetzung
-> eingeholt.** Self-contained für einen frischen Chat.
+> **Seite:** ROS + App. **Status: 🟢 UMGESETZT + verifiziert** (Sim **und** echter Roboter) —
+> Umsetzungs-Stand + Abnahme: [`phase_8_look_around_progress.md`](phase_8_look_around_progress.md).
+> Dieses Dokument bleibt als Entwurfs-/Entscheidungs-Grundlage (§4 Entscheidungen, §9 Design-Log).
 > Contract: [`interface_contract.md`](interface_contract.md) (§3/§4/§6, `[TBD-Phase 8]`).
 
 ---

@@ -32,7 +32,7 @@
 **HW-spezifisch:** `ros2_control_node` (controller_manager) lädt `controllers.real.yaml` + das `hexapod_hardware`-Plugin (statt gz).
 
 ## 3. `gait_node` — Schnittstellen
-- **Subscribes:** `/cmd_vel` (`geometry_msgs/Twist`), `/cmd_body_height` (`std_msgs/Float64`), `/joint_states` (`sensor_msgs/JointState`, für Ramp-Start).
+- **Subscribes:** `/cmd_vel` (`geometry_msgs/Twist`), `/cmd_body_height` (`std_msgs/Float64`), `/joint_states` (`sensor_msgs/JointState`, für Ramp-Start), `/cmd_show` (`std_msgs/Float64MultiArray[6]`, B4-Vorderbein-Show, nur in `SHOW_ACTIVE`), `/cmd_body_pose` (`std_msgs/Float64MultiArray[6]`, Look-around-Show Ph.8, nur in `BODY_POSE`), `/imu/data` (A5), 6× `/leg_<n>/foot_contact` (S4).
 - **Publishes:** 6× `/leg_<n>_controller/joint_trajectory` (`trajectory_msgs/JointTrajectory`, je 1 Punkt/Tick, Position-only, `time_from_start = tfs_factor/tick_rate`).
 - **Service-Client:** `/hexapod_safety_freeze` + `/hexapod_safety_reset` (`std_srvs/Trigger`) — bei IKError/E-Stop feuert er den Plugin-Freeze; Recovery ruft `_reset` (beide guarded: in Sim ohne Plugin skip).
 - **Service-Server (Block I Ph.6):** `/hexapod_estop` (App-Not-Halt → `_safety_frozen` latched + Plugin-Freeze, wirkt Sim+HW) + `/hexapod_recover` (Ein-Klick-Recovery [D6]: Freeze lösen + Latches/Monitore reset + Joint-Space-`start_ramp` in den Stand). **Freeze-Gate:** `if _safety_frozen: return` als erste Tick-Zeile → alle Freezes latched (bis Recover).
