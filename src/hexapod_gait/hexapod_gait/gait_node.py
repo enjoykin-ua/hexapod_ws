@@ -566,6 +566,98 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
             'der Neutral-Pose femur-limit-blockiert → einseitig raus.'
         ),
     ),
+    # Block I Phase 8 — Show-Auswahl + Body-Pose („Look-Around"). show_mode ist
+    # bewusst NICHT standing_only: der generische Check würde im BODY_POSE auch
+    # 'none' ablehnen und die App damit in der Show einsperren. Das Gate steht
+    # als Sonderregel in _on_param_change (Show-Modi nur aus STANDING, 'none'
+    # immer) — Plan §4.1 / [D-Show-6a].
+    _ParamSpec(
+        name='show_mode', default='none',
+        string_constraint='valid values: none | look_around | dancing | free_leg',
+        description=(
+            'Block I Phase 8: aktive Show. "none" = Normalbetrieb, '
+            '"look_around" = Kamera-Umschauen (Körper in 6 DOF über fixen '
+            'Füßen), "dancing"/"free_leg" = PLATZHALTER (werden akzeptiert, '
+            'tun noch nichts, fallen auf none zurück). Wird von der App über '
+            'set_parameters gesetzt (app-exklusiv, kein Controller-Weg). '
+            'Show-Modi nur aus STANDING; "none" (= verlassen) immer erlaubt.'
+        ),
+    ),
+    # Envelope pro DOF (Plan §4.4, belegt via tools/look_around_envelope_check.py:
+    # Einzelachse GREEN + Bedien-Gesten GREEN + CoG-Marge 166-200 mm über alle
+    # 3 Stance-Höhen). Die fp_range-Obergrenzen sind die gemessenen Einzelachs-
+    # Maxima der SCHLECHTESTEN Stance-Höhe. Wer sie erhöht, muss das Tool neu
+    # laufen lassen; Kombinationen jenseits der Gesten beschneidet ohnehin der
+    # Greedy-Achsen-Clamp der Engine (kein IKError/Freeze).
+    _ParamSpec(
+        name='body_pose_dx_max', default=0.050,
+        fp_range=(0.0, 0.060, 0.005),
+        description=(
+            'Phase 8: max. Körper-Versatz vor/zurück in der Body-Pose (m). '
+            'Envelope-Einzelachse 0.062 (schlechteste Stance-Höhe).'
+        ),
+    ),
+    _ParamSpec(
+        name='body_pose_dy_max', default=0.035,
+        fp_range=(0.0, 0.045, 0.005),
+        description=(
+            'Phase 8: max. Körper-Versatz seitwärts in der Body-Pose (m). '
+            'Envelope-Einzelachse 0.048.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_pose_dz_max', default=0.020,
+        fp_range=(0.0, 0.050, 0.005),
+        description=(
+            'Phase 8: max. Körper-Hub hoch/runter in der Body-Pose (m). '
+            'Konkurriert mit dem pitch (beide laden die Femur-Wand ±1.57): '
+            'pitch 12° erlaubt dz 0.020, pitch 10° erlaubt 0.025, '
+            'pitch 15° nur 0.010 — Umschauen hat Vorrang.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_pose_roll_max_deg', default=0.0,
+        fp_range=(0.0, 17.0, 1.0),
+        description=(
+            'Phase 8: max. Körper-Rollwinkel in der Body-Pose (Grad). '
+            'v1 = 0 (AUS, User-Vorgabe [D-Show-6]) — der Slot ist für die '
+            'spätere Show "Dancing" reserviert. Envelope-Einzelachse 17°.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_pose_pitch_max_deg', default=12.0,
+        fp_range=(0.0, 20.0, 1.0),
+        description=(
+            'Phase 8: max. Körper-Nickwinkel in der Body-Pose (Grad) = '
+            'Kamera hoch/runter. Envelope-Einzelachse 20°; 12 = Gesten-'
+            'validiertes Maximum zusammen mit dz 0.020 + yaw 10°.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_pose_yaw_max_deg', default=10.0,
+        fp_range=(0.0, 14.0, 1.0),
+        description=(
+            'Phase 8: max. Körper-Gierwinkel in der Body-Pose (Grad) = '
+            'Kamera links/rechts. Envelope-Einzelachse 14° (Coxa-Limit '
+            '±0.415 bindet).'
+        ),
+    ),
+    _ParamSpec(
+        name='body_pose_rate_lin', default=0.08,
+        fp_range=(0.01, 0.30, 0.01),
+        description=(
+            'Phase 8: Nachführ-/Rückkehr-Rate der Body-Pose-Translation (m/s). '
+            'Gilt fürs Folgen UND fürs Zurückfedern beim Loslassen.'
+        ),
+    ),
+    _ParamSpec(
+        name='body_pose_rate_ang_dps', default=30.0,
+        fp_range=(5.0, 90.0, 5.0),
+        description=(
+            'Phase 8: Nachführ-/Rückkehr-Rate der Body-Pose-Rotation (Grad/s). '
+            'Gilt fürs Folgen UND fürs Zurückfedern beim Loslassen.'
+        ),
+    ),
 )
 
 # Block C2 — Gangart-Cycle-Reihenfolge fürs Controller-Umschalten
@@ -792,6 +884,34 @@ class GaitNode(Node):
         self._show_radial_scale = float(
             self.get_parameter('show_radial_scale').value
         )
+        # Block I Phase 8 — Show-Auswahl + Body-Pose („Look-Around").
+        self._show_mode = str(self.get_parameter('show_mode').value)
+        self._body_pose_dx_max = float(
+            self.get_parameter('body_pose_dx_max').value
+        )
+        self._body_pose_dy_max = float(
+            self.get_parameter('body_pose_dy_max').value
+        )
+        self._body_pose_dz_max = float(
+            self.get_parameter('body_pose_dz_max').value
+        )
+        self._body_pose_roll_max = math.radians(float(
+            self.get_parameter('body_pose_roll_max_deg').value
+        ))
+        self._body_pose_pitch_max = math.radians(float(
+            self.get_parameter('body_pose_pitch_max_deg').value
+        ))
+        self._body_pose_yaw_max = math.radians(float(
+            self.get_parameter('body_pose_yaw_max_deg').value
+        ))
+        # Die Raten werden erst NACH der Engine-Erzeugung gespiegelt (die Engine
+        # gibt es hier noch nicht) — Werte solange als Member halten.
+        self._body_pose_rate_lin = float(
+            self.get_parameter('body_pose_rate_lin').value
+        )
+        self._body_pose_rate_ang = math.radians(float(
+            self.get_parameter('body_pose_rate_ang_dps').value
+        ))
         # Phase 13 Stage 1 — Stance-Modus-Wechsel.
         self._stance_switch_duration = float(
             self.get_parameter('stance_switch_duration').value
@@ -809,6 +929,11 @@ class GaitNode(Node):
         # _do_stance_switch würde vom EIGENEN Validator rejected (State =
         # STANCE_SWITCH). Flag hier, Ausführung im _tick sobald STANDING.
         self._pending_stance_param_sync = False
+        # Block I Phase 8 — analog für show_mode: der wirksame Modus kann vom
+        # gesetzten abweichen (Platzhalter dancing/free_leg → none) oder
+        # serverseitig zurückgesetzt werden (Recovery/Hinsetzen). Der Param-Server
+        # wird deferred im _tick nachgezogen, nie aus dem Set-Callback heraus.
+        self._pending_show_mode_sync = False
 
         self._tfs_seconds = self._tfs_factor / self._tick_rate
 
@@ -850,6 +975,11 @@ class GaitNode(Node):
             standup_radial_distance=self._standup_radial_distance,
             reposition_cycle_time=self._reposition_cycle_time,
         )
+
+        # Block I Phase 8 — Body-Pose-Nachführraten auf die Engine spiegeln
+        # (Envelope-Grenzen bleiben im Node: er skaliert die Stick-Werte).
+        self._engine.body_pose_rate_lin = self._body_pose_rate_lin
+        self._engine.body_pose_rate_ang = self._body_pose_rate_ang
 
         # Stage 0.6: async service-client for the hexapod_safety_freeze
         # service. On IKError in _tick we fire-and-forget a Trigger call;
@@ -927,6 +1057,14 @@ class GaitNode(Node):
         # Block B4 — /cmd_show: 4 Stick-Werte für die Vorderbeine in SHOW_ACTIVE.
         self._cmd_show_sub = self.create_subscription(
             Float64MultiArray, '/cmd_show', self._on_cmd_show, 10
+        )
+
+        # Block I Phase 8 — /cmd_body_pose: 6 normierte DOF für die Body-Pose
+        # („Look-Around"). EIGENES Topic statt /cmd_show-Reuse ([D-Show-7]): die
+        # beiden Mappings sind inkompatibel (dz = R2−L2 ist eine Achsen-
+        # Kombination), und ein Reuse hätte joy_to_twist zustandsbehaftet gemacht.
+        self._cmd_body_pose_sub = self.create_subscription(
+            Float64MultiArray, '/cmd_body_pose', self._on_cmd_body_pose, 10
         )
 
         # Phase 13 Stage A — /joint_states-Subscriber fuer Ramp-Trigger.
@@ -1268,6 +1406,14 @@ class GaitNode(Node):
         self._cmd_show = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self._last_cmd_show_time: float | None = None
 
+        # Block I Phase 8 — /cmd_body_pose-State: zuletzt empfangene 6 normierte
+        # DOF [dx, dy, dz, roll, pitch, yaw] in [-1, 1] (Teleop hat Dead-Man R1
+        # bereits angewandt → 0 wenn losgelassen). Staleness (> cmd_vel_timeout)
+        # → als 0 behandelt (Disconnect-Schutz: der Körper federt in die
+        # Ausgangs-Pose zurück), identisch zum /cmd_show-Muster.
+        self._cmd_body_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self._last_cmd_body_pose_time: float | None = None
+
         # Phase 13 Stage A — Ramp-Trigger-State.
         # _ramp_triggered=True ab erstem vollstaendigem /joint_states-
         # Empfang (alle 18 Joints gefunden). Vorher: _tick publisht
@@ -1461,6 +1607,20 @@ class GaitNode(Node):
         if len(msg.data) >= 6:
             self._cmd_show = [float(v) for v in msg.data[:6]]
             self._last_cmd_show_time = time.monotonic()
+
+    def _on_cmd_body_pose(self, msg: Float64MultiArray) -> None:
+        """
+        ``/cmd_body_pose``-Empfang (Block I Phase 8): 6 DOF cachen + Timestamp.
+
+        Erwartet ``[dx, dy, dz, roll, pitch, yaw]`` **normiert auf [-1, 1]** —
+        der Teleop hat den Dead-Man (R1) bereits angewandt (losgelassen → alle 0).
+        Kürzere/leere Arrays werden ignoriert (malformed → kein State-Change).
+        Die Skalierung auf Meter/Radiant + das Setzen an die Engine passiert im
+        Tick (nur im BODY_POSE), damit es synchron zum Rate-Limit läuft.
+        """
+        if len(msg.data) >= 6:
+            self._cmd_body_pose = [float(v) for v in msg.data[:6]]
+            self._last_cmd_body_pose_time = time.monotonic()
 
     def _on_joint_states(self, msg: JointState) -> None:
         """
@@ -1675,6 +1835,10 @@ class GaitNode(Node):
         # Param-Server bliebe bis zum nächsten Aufstehen stale.
         self._maybe_sync_stance_params()
 
+        # Block I Phase 8 — Param-Server an den wirksamen show_mode angleichen
+        # (Platzhalter-Rückfall / serverseitiger Reset). Zustandslos-idempotent.
+        self._maybe_sync_show_mode()
+
         # Stage 1 — verzögertes Hinsetzen: wenn aus "hoch" geroutet wurde, ist
         # der Stance-Switch auf mittel jetzt fertig (STANDING) → Hinsetzen jetzt.
         if self._pending_sitdown and (
@@ -1745,6 +1909,11 @@ class GaitNode(Node):
         # setzen (vor compute, damit das Rate-Limit diesen Tick greift).
         if self._engine.state == GaitEngine.STATE_SHOW_ACTIVE:
             self._update_show_offsets(now)
+
+        # Block I Phase 8 — in der Body-Pose die Stick-DOF setzen (vor compute,
+        # damit das Rate-Limit diesen Tick greift; analog zum Show-Offset oben).
+        if self._engine.state == GaitEngine.STATE_BODY_POSE:
+            self._update_body_pose(now)
 
         # Block A5 Stufe 2 — Body-Leveling-Korrektur setzen (nur STANDING).
         self._update_leveling()
@@ -1875,6 +2044,11 @@ class GaitNode(Node):
             'tip': self._tip_level,
             'step_height_cap': stance.step_height,
             'step_length_cap': stance.step_length_max,
+            # Block I Phase 8: aktive Show — die App spiegelt damit ihr
+            # Show-Menü, statt den eigenen Klick zu raten (der Roboter setzt den
+            # Modus z.B. bei Recovery selbst zurück). `state` ist während der
+            # Show `BODY_POSE`.
+            'show_mode': self._show_mode,
         }
         self._status_pub.publish(String(data=json.dumps(payload)))
 
@@ -2520,6 +2694,10 @@ class GaitNode(Node):
         self._slope_est.reset()
         self._support_monitor.reset()
         self._tip_monitor.reset()
+        # Block I Phase 8: eine laufende Show endet hier — die Ramp führt in den
+        # Stand, nicht zurück in die Body-Pose. Param + Status nachziehen, damit
+        # das App-Menü nicht auf „Kamera-Umschauen" stehen bleibt.
+        self._reset_show_mode('recover')
 
         # 3) Joint-Space-Ramp aus der eingefrorenen Ist-Pose in den Stand ([D6]).
         now = time.monotonic()
@@ -2719,6 +2897,134 @@ class GaitNode(Node):
                       cs[4] * self._show_vert_scale,
                       cs[5] * self._show_radial_scale),
         })
+
+    # ===== Block I Phase 8 — Show-Auswahl + Body-Pose („Look-Around") ===== #
+
+    def _set_show_mode(self, mode: str) -> str:
+        """
+        Show-Modus anwenden (Block I Phase 8). Returns den **wirksamen** Modus.
+
+        - ``look_around`` → Engine in die Body-Pose (fixe Füße, Körper in 6 DOF).
+        - ``dancing`` / ``free_leg`` → **Platzhalter**: akzeptiert, aber kein
+          State-Wechsel (WARN-Log, fällt auf ``none`` zurück). So kann die App das
+          Show-Menü **einmal** vollständig bauen; kommen die Shows später
+          ROS-seitig dazu, braucht es **keinen** App-Eingriff ([D-Show-5]).
+        - ``none`` → Body-Pose verlassen (Return-to-Origin → STANDING). Aus jedem
+          anderen State ein No-op.
+
+        Der Aufrufer (``_apply_param``) hat über das Gate in ``_on_param_change``
+        bereits sichergestellt, dass Show-Modi nur aus STANDING kommen.
+        """
+        if mode == self._show_mode:
+            return mode
+        t = time.monotonic() - self._t_start
+        if mode == 'look_around':
+            if not self._engine.start_body_pose(t):
+                self.get_logger().warn(
+                    f'show_mode look_around abgelehnt (state='
+                    f'{self._engine.state}) — bleibt {self._show_mode!r}'
+                )
+                return self._show_mode
+            self._cmd_body_pose = [0.0] * 6
+            self.get_logger().info(
+                'show_mode: look_around — Körper folgt den Sticks (R1 halten), '
+                'Füße bleiben fix'
+            )
+            return mode
+        if mode in ('dancing', 'free_leg'):
+            self.get_logger().warn(
+                f'show_mode {mode!r} ist noch nicht implementiert (Platzhalter) '
+                '— Roboter bleibt im Normalbetrieb'
+            )
+            # Defense-in-depth: das Gate lässt Platzhalter nur aus STANDING zu,
+            # dort läuft keine Body-Pose (der Aufruf ist dann ein No-op). Bliebe
+            # das Gate je gelockert, würde die Show hier sauber verlassen statt
+            # weiterzulaufen, während der Param schon auf none steht.
+            self._engine.stop_body_pose(t)
+            return 'none'
+        # mode == 'none'
+        if self._engine.stop_body_pose(t):
+            self.get_logger().info(
+                'show_mode: none — Body-Pose wird verlassen (federt zurück)'
+            )
+        return 'none'
+
+    def _reset_show_mode(self, reason: str) -> None:
+        """
+        ``show_mode`` serverseitig auf ``none`` zurücksetzen (Param deferred).
+
+        Gerufen, wenn der Roboter die Show **nicht** über den Param verlässt —
+        Recovery ([D6]) und Hinsetzen rampen direkt in einen anderen State. Ohne
+        das stünde der Param (und damit das App-Menü) auf ``look_around``, während
+        der Roboter längst woanders ist. Der Param-Server wird über
+        ``_maybe_sync_show_mode`` im Tick nachgezogen (nie aus einem
+        Param-Callback heraus).
+        """
+        if self._show_mode == 'none':
+            return
+        self._show_mode = 'none'
+        self._pending_show_mode_sync = True
+        self.get_logger().info(f'show_mode → none ({reason})')
+
+    def _maybe_sync_show_mode(self) -> None:
+        """
+        Param-Server an den **wirksamen** ``show_mode`` angleichen (aus ``_tick``).
+
+        Zwei Quellen setzen das Flag: (a) ein Platzhalter-Modus
+        (``dancing``/``free_leg``), der akzeptiert wird, aber ``none`` bleibt, und
+        (b) ``_reset_show_mode`` (Recovery/Hinsetzen). Beide dürfen den Param
+        nicht direkt setzen — (a) liefe rekursiv in den eigenen Set-Callback.
+        Muster = ``_maybe_sync_stance_params``. ``none`` passiert das eigene Gate
+        immer, der Set kann also nicht abgelehnt werden.
+
+        Zusätzlich **Selbstheilung**: steht der Modus auf ``look_around``, während
+        die Engine gar nicht (mehr) im BODY_POSE ist, wird zurückgesetzt. Das
+        fängt jeden Pfad ab, der die Show verlässt, ohne den Param anzufassen
+        (heute: Recovery-Ramp; künftig: neue Sequenzen).
+        """
+        if (
+            self._show_mode == 'look_around'
+            and self._engine.state != GaitEngine.STATE_BODY_POSE
+        ):
+            self._reset_show_mode(f'state={self._engine.state}')
+        if not self._pending_show_mode_sync:
+            return
+        self._pending_show_mode_sync = False
+        result = self.set_parameters_atomically([
+            Parameter('show_mode', Parameter.Type.STRING, self._show_mode),
+        ])
+        if not result.successful:
+            # Darf nach Design nicht passieren (Ziel ist der wirksame Zustand).
+            self.get_logger().warn(
+                f'show_mode-Sync am Param-Server fehlgeschlagen: {result.reason}'
+            )
+
+    def _update_body_pose(self, now: float) -> None:
+        """
+        Im BODY_POSE die normierten Stick-Werte → Meter/Radiant an die Engine.
+
+        Pro Achse mit dem jeweiligen ``body_pose_*_max`` skaliert **und** dort
+        geklemmt (Stufe 1 der Begrenzung; Stufe 2 = Greedy-Achsen-Clamp in der
+        Engine). Staleness-Schutz wie bei ``/cmd_show``: ohne frisches
+        ``/cmd_body_pose`` (> ``cmd_vel_timeout``) wird 0 gesetzt → der Körper
+        federt in die Ausgangs-Pose zurück (Disconnect / Teleop-Crash).
+        """
+        fresh = (
+            self._last_cmd_body_pose_time is not None
+            and (now - self._last_cmd_body_pose_time) < self._cmd_vel_timeout
+        )
+        cb = self._cmd_body_pose if fresh else (0.0,) * 6
+        scales = (
+            self._body_pose_dx_max,
+            self._body_pose_dy_max,
+            self._body_pose_dz_max,
+            self._body_pose_roll_max,
+            self._body_pose_pitch_max,
+            self._body_pose_yaw_max,
+        )
+        self._engine.set_body_pose_target(tuple(
+            max(-s, min(s, float(v) * s)) for v, s in zip(cb, scales)
+        ))
 
     def _on_cycle_stance(self, request, response):
         """
@@ -3067,6 +3373,76 @@ class GaitNode(Node):
                         ),
                     )
 
+        # 1h4. Block I Phase 8 — show_mode: eigenes Gate statt standing_only
+        # ([D-Show-6a], Plan §4.1). Show-Modi (look_around/dancing/free_leg)
+        # brauchen STANDING; **'none' ist IMMER erlaubt** — das ist der Rückweg
+        # aus dem BODY_POSE. Stünde show_mode in _STANDING_ONLY_PARAMS, würde der
+        # generische Check auch 'none' ablehnen (der BODY_POSE ist nicht STANDING)
+        # und die App säße in der Show fest.
+        for p in params:
+            if p.name != 'show_mode':
+                continue
+            if p.value not in ('none', 'look_around', 'dancing', 'free_leg'):
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'unknown show_mode {p.value!r}, valid: '
+                        'none | look_around | dancing | free_leg'
+                    ),
+                )
+            if p.value == 'none' or p.value == self._show_mode:
+                continue
+            if self._engine.state != GaitEngine.STATE_STANDING:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'show_mode {p.value!r} requires STATE_STANDING, '
+                        f'current state={self._engine.state} '
+                        "(set show_mode='none' to leave a running show)"
+                    ),
+                )
+            # Der State allein reicht nicht: nach einem E-Stop ist der Tick
+            # gated (der Roboter würde die Show „starten", sich aber nicht
+            # bewegen — die App zeigte eine laufende Show, die keine ist), und
+            # vor dem ersten /joint_states steht der Roboter noch gar nicht
+            # (STANDING ist dann nur der Engine-Default; das Aufstehen würde die
+            # Show gleich wieder überschreiben).
+            if self._safety_frozen:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'show_mode {p.value!r} rejected: robot is frozen '
+                        '(E-Stop/safety) — call /hexapod_recover first'
+                    ),
+                )
+            if not self._ramp_triggered:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(
+                        f'show_mode {p.value!r} rejected: robot has not stood '
+                        'up yet (waiting for /joint_states)'
+                    ),
+                )
+
+        # 1h5. Phase 8 — Body-Pose-Envelope/Raten: nicht-negativ bzw. > 0.
+        for p in params:
+            if p.name in (
+                'body_pose_dx_max', 'body_pose_dy_max', 'body_pose_dz_max',
+                'body_pose_roll_max_deg', 'body_pose_pitch_max_deg',
+                'body_pose_yaw_max_deg',
+            ) and p.value < 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{p.name} must be >= 0, got {p.value}',
+                )
+            if p.name in (
+                'body_pose_rate_lin', 'body_pose_rate_ang_dps',
+            ) and p.value <= 0.0:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{p.name} must be > 0, got {p.value}',
+                )
+
         # 1i. TF-2/HW8.7b leveling_mode ∈ {horizontal, terrain, auto}.
         for p in params:
             if p.name == 'leveling_mode' and p.value not in (
@@ -3360,6 +3736,34 @@ class GaitNode(Node):
             self._show_vert_scale = value
         elif name == 'show_radial_scale':
             self._show_radial_scale = value
+        # Block I Phase 8 — Show-Auswahl + Body-Pose-Envelope/Raten (alle live).
+        elif name == 'show_mode':
+            effective = self._set_show_mode(str(value))
+            self._show_mode = effective
+            if effective != str(value):
+                # Platzhalter (dancing/free_leg) oder abgelehnter Start: der
+                # Param-Server hält gleich den angeforderten Wert, wirksam ist
+                # aber ein anderer. Deferred nachziehen (ein set_parameters HIER
+                # wäre ein rekursiver Aufruf des eigenen Set-Callbacks).
+                self._pending_show_mode_sync = True
+        elif name == 'body_pose_dx_max':
+            self._body_pose_dx_max = float(value)
+        elif name == 'body_pose_dy_max':
+            self._body_pose_dy_max = float(value)
+        elif name == 'body_pose_dz_max':
+            self._body_pose_dz_max = float(value)
+        elif name == 'body_pose_roll_max_deg':
+            self._body_pose_roll_max = math.radians(float(value))
+        elif name == 'body_pose_pitch_max_deg':
+            self._body_pose_pitch_max = math.radians(float(value))
+        elif name == 'body_pose_yaw_max_deg':
+            self._body_pose_yaw_max = math.radians(float(value))
+        elif name == 'body_pose_rate_lin':
+            self._body_pose_rate_lin = float(value)
+            self._engine.body_pose_rate_lin = self._body_pose_rate_lin
+        elif name == 'body_pose_rate_ang_dps':
+            self._body_pose_rate_ang = math.radians(float(value))
+            self._engine.body_pose_rate_ang = self._body_pose_rate_ang
         elif name == 'stance_switch_duration':
             self._stance_switch_duration = value
         elif name == 'stance_switch_step_height':

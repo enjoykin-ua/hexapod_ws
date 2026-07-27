@@ -571,6 +571,12 @@ STANDING ────────────────► WALKING ───�
                     auto-Transition
 ```
 
+Daneben stehen die Sequenz-/Sonder-Zustände, die eigene compute-Pfade haben und
+`cmd_vel` ignorieren: `STARTUP_RAMP`, `CARTESIAN_STANDUP`, `REPOSITION`,
+`STANCE_SWITCH`, `SITDOWN_LOWER`/`SITDOWN_FLATTEN`/`SAT`, die Show-Zustände
+`SHOW_ENTER`/`SHOW_ACTIVE`/`SHOW_EXIT` (B4) und **`BODY_POSE`** (Phase 8,
+„Look-Around" — s.u.).
+
 - **STANDING**: alle 6 Beine in Stand-Pose, kein Cycle.
 - **WALKING**: Tripod-Pattern, Foot-Vortrieb gemäß cmd_vel mit
   Mount-Yaw-Rotation pro Bein.
@@ -578,6 +584,69 @@ STANDING ────────────────► WALKING ───�
   fertig (max 1 s bei cycle_time=2). Stütz-Beine interpolieren in
   0.3 s zu Neutral. Worst-Case-Latenz: 1.3 s (cycle_time=2) bzw. 0.8 s
   (cycle_time=1).
+
+## Show „Look-Around" — Body-Pose über fixen Füßen (Block I Phase 8)
+
+Der Roboter **steht** (alle 6 Füße weltfest am Boden) und der **Körper** wird in
+6 Freiheitsgraden bewegt: umschauen (`pitch`/`yaw`), wandern (`dx`/`dy`) und
+Höhe (`dz`). Losgelassen federt alles in die Ausgangs-Pose zurück. Statisch
+stabil (6 tragende Beine, CoG-Marge ≥ 166 mm) — **nicht** zu verwechseln mit der
+B4-Show, bei der die zwei Vorderbeine frei in der Luft sind.
+
+**Einstieg ist app-exklusiv:** über den Param `show_mode`
+(`none | look_around | dancing | free_leg`). Ein Controller publisht nur `/joy`
+und kann keine Parameter setzen. `dancing`/`free_leg` sind **Platzhalter** — sie
+werden akzeptiert (damit das App-Menü einmal fertig gebaut werden kann), lösen
+aber noch nichts aus.
+
+```bash
+ros2 param set /gait_node show_mode look_around   # Show an (nur aus STANDING)
+ros2 param set /gait_node show_mode none          # Show aus (IMMER erlaubt)
+```
+
+**Bedienung** (`joy_to_twist` → `/cmd_body_pose`, normiert −1..+1):
+
+| Eingabe | DOF | Default-Grenze |
+|---|---|---|
+| **R1 halten** | Dead-Man — ohne R1 alles 0 (federt zurück) | — |
+| rechter Stick Y / X | `pitch` / `yaw` (umschauen) | ±12° / ±10° |
+| linker Stick Y / X | `dx` / `dy` (wandern) | ±50 mm / ±35 mm |
+| R2 − L2 | `dz` (Höhe) | ±20 mm |
+| — | `roll` | 0° (v1 aus, Slot für „Dancing") |
+
+**Wie die Sicherheit entsteht (zwei Stufen, [D-Show-8]):**
+1. Der Node skaliert die Stick-Werte und **klemmt pro Achse** auf
+   `body_pose_*_max` (offline belegt, s.u.).
+2. Die Engine führt die DOF **rate-limitiert** nach und testet jeden Schritt per
+   IK. Schlägt der Gesamt-Schritt fehl, wird er **achsenweise** in der Priorität
+   `dz, pitch, yaw, roll, dx, dy` angewandt und je Achse nur behalten, was gültig
+   bleibt. Eine Achse am Anschlag blockiert die anderen also nicht — und **aus der
+   Show kann kein `IKError` und damit kein Safety-Freeze entstehen.**
+
+Warum zwei Stufen? Einzeln erlaubt die Kinematik viel (dx ±62 mm, pitch ±20°),
+**kombiniert** aber nur wenig (alle Achsen gleichzeitig: ±22 mm / ±5,6°) — ein
+statischer Clamp müsste auf den Worst Case gehen und die Show unsichtbar machen.
+
+**Envelope prüfen/ändern:**
+```bash
+python3 tools/look_around_envelope_check.py           # Gate: Exit 0 = GREEN
+python3 tools/look_around_envelope_check.py --sweep   # Einzelachs-Maxima
+```
+Das Tool prüft je Stance-Höhe: Einzelachsen, CoG-Marge (Welt-Frame, 6-Bein-
+Polygon) und die **Bedien-Gesten** (Stick-Diagonalen mit Gewicht 0,75 — ein
+Analog-Stick liefert diagonal nur ~0,71 pro Achse). ⚠️ `dz` und `pitch`
+konkurrieren um die Femur-Wand: pitch 15° erlaubt nur dz 10 mm.
+
+**Params** (alle live): `body_pose_{dx,dy,dz}_max`,
+`body_pose_{roll,pitch,yaw}_max_deg`, `body_pose_rate_lin` (m/s),
+`body_pose_rate_ang_dps` (°/s). Die Engine ist wertneutral.
+
+**Zustands-Anzeige:** `/hexapod/status` trägt `show_mode` und den State
+`BODY_POSE`. Verlässt der Roboter die Show ohne Param-Set (Recovery), setzt der
+Node `show_mode` selbst auf `none` zurück — die App spiegelt den Ist-Zustand.
+
+**Grenzen (v1, bewusst):** Hinsetzen aus der Show wird abgelehnt (erst
+`show_mode=none`); ein direkter Show-zu-Show-Wechsel ebenso. E-Stop greift immer.
 
 ## Hinsetzen / Abschalten (Block B1)
 

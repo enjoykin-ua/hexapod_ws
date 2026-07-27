@@ -280,6 +280,11 @@ Pi's Wi-Fi hotspot (hardware).
   and a one-tap **Recover** that ramps the robot from the frozen pose back to standing.
 - **Audio:** drive-with / drive-without-audio + a live mute toggle (movement sounds), and a soundboard
   — all played on the robot's speaker (the app is only the trigger).
+- **Show menu — „Look-Around":** the robot stands still (**all six feet stay planted**) while its
+  **body** moves in 6 DOF — look up/down and left/right, walk in place, change height; let go and it
+  springs back. Because the camera rides on the body, the **live video pans with it**. Picked from
+  the app's show menu (`show_mode` parameter); *Dancing* and *Free-Leg* are placeholders already
+  wired up for later.
 
 > 📱 **App repository:** [`enjoykin-ua/hexapod_app`](https://github.com/enjoykin-ua/hexapod_app)
 > &nbsp;·&nbsp; ROS-side design + interface docs:

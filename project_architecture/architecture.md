@@ -37,7 +37,8 @@
 - **Service-Client:** `/hexapod_safety_freeze` + `/hexapod_safety_reset` (`std_srvs/Trigger`) — bei IKError/E-Stop feuert er den Plugin-Freeze; Recovery ruft `_reset` (beide guarded: in Sim ohne Plugin skip).
 - **Service-Server (Block I Ph.6):** `/hexapod_estop` (App-Not-Halt → `_safety_frozen` latched + Plugin-Freeze, wirkt Sim+HW) + `/hexapod_recover` (Ein-Klick-Recovery [D6]: Freeze lösen + Latches/Monitore reset + Joint-Space-`start_ramp` in den Stand). **Freeze-Gate:** `if _safety_frozen: return` als erste Tick-Zeile → alle Freezes latched (bis Recover).
 - **Audio-Cues (Block I Ph.7A):** publisht `/hexapod/audio_cue` (`std_msgs/String`) an den Sequenz-Startpunkten (`standup`/`sitdown`/`reposition`/`freeze`); `_on_recover` feuert **keinen** → Recovery stumm. Konsument = `hexapod_audio`.
-- **State-Machine (`gait_engine`):** `STARTUP_RAMP` / `CARTESIAN_STANDUP` / `REPOSITION` / `STANDING` / `WALKING` / `STOPPING` / `SAT` (+ Sitdown-/Show-States). cmd_vel wird in allen Nicht-STANDING/WALKING-Aufsteh-/Reposition-States **ignoriert**.
+- **State-Machine (`gait_engine`):** `STARTUP_RAMP` / `CARTESIAN_STANDUP` / `REPOSITION` / `STANDING` / `WALKING` / `STOPPING` / `SAT` (+ Sitdown-/Show-States + **`BODY_POSE`**, Ph.8). cmd_vel wird in allen Nicht-STANDING/WALKING-Aufsteh-/Reposition-States **ignoriert**.
+- **Show-Auswahl (Block I Ph.8):** Param **`show_mode`** (`none|look_around|dancing|free_leg`) mit **eigenem Gate** (Show-Modi nur aus STANDING, `none` immer → garantierter Rückweg). `look_around` → `STATE_BODY_POSE`: Körper in 6 DOF über **fixen Füßen** (Sub `/cmd_body_pose`), per-Achse-Envelope + Greedy-Achsen-Clamp → **kein IKError/Freeze aus der Show**. `dancing`/`free_leg` = Platzhalter (akzeptiert, no-op). `show_mode` steht im `/hexapod/status` und wird bei Recovery serverseitig auf `none` zurückgesetzt. Contract §6c.
 - **Bauch-Start (Block I Ph.3):** Param `auto_standup_on_start` (Default `true` = Auto-Standup beim ersten `/joint_states`, unverändert). `false` → `gait_engine.hold_sat_at(spawn)`: bleibt in **SAT** (Bauch-/Spawn-Pose), Aufstehen nur per `/hexapod_stand_up` (sicherer On-Demand-Default, [D7]).
 
 ## 4. Topic-/Service-Übersicht (was wird ausgetauscht)
@@ -62,6 +63,8 @@
 | `/hexapod/audio_cue` | String | gait_node → `hexapod_audio` | Bewegungs-Audio-Events (Ph.7A, intern): standup/sitdown/reposition/freeze |
 | `/hexapod/play_sound` | String | **App** → `hexapod_audio` | Soundboard (Ph.7A): sound_01..03, spielt immer. Contract §6b |
 | `/hexapod/sound_enabled` | Bool (latched) | `hexapod_audio` → **App** | Auto-Sound-Mute-Status (Ph.7A) |
+| `/cmd_show` | Float64MultiArray[6] | joy_to_twist → gait_node | **B4-Show** (Vorderbeine frei): `[l6_lat,l6_vert,l6_radial,l1_lat,l1_vert,l1_radial]`, nur in `SHOW_ACTIVE`. Im Controller-Profil per `show_enabled: false` inaktiv |
+| `/cmd_body_pose` | Float64MultiArray[6] | joy_to_twist → gait_node | **Show „Look-Around" (Ph.8):** `[dx,dy,dz,roll,pitch,yaw]` normiert −1..+1, R1-gegated. Bewegt den **Körper** über **fixen Füßen**, nur im State `BODY_POSE`. Einstieg app-exklusiv über Param `show_mode` (`none\|look_around\|dancing\|free_leg`; letztere zwei = Platzhalter). Envelope per-Achse + Greedy-Clamp → **kein IKError/Freeze aus der Show**. Contract §6c |
 | `/hexapod_bringup_start` / `_stop` / `_status` | Trigger (srv) | App → `bringup_launcher` | On-Demand-Stack starten/stoppen/Status (Block I Ph.3) |
 | `/hexapod_pi_shutdown` | Trigger (srv) | App → `bringup_launcher` | Pi ausschalten, guarded (Stack läuft → Block-F-Kette; idle → direkter Poweroff; **Dev = Dry-Run**) |
 | `/hexapod/bringup_running` | Bool (latched) | `bringup_launcher` → App | läuft der schwere Stack? (Connect-/Start-Screen) |

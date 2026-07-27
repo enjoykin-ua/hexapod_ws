@@ -62,6 +62,19 @@ def test_capabilities_present():
     assert caps['gaits'] == ['tripod', 'wave', 'tetrapod', 'ripple']
     assert caps['stance_modes'] == ['tief', 'mittel', 'hoch']
     assert caps['tempo_presets'] == ['langsam', 'mittel', 'schnell', 'aggressiv']
+    # Block I Phase 8 — Enum fuers Show-Menue (Contract §6c v0.13).
+    assert caps['show_modes'] == ['none', 'look_around', 'dancing', 'free_leg']
+
+
+def test_show_mode_not_in_config_panel():
+    """
+    show_mode gehoert ins Show-MENUE, nicht ins Config-Panel (User-Vorgabe).
+
+    Stuende es im Manifest, wuerde das Panel es automatisch als Dropdown
+    mitrendern — und die Show waere an zwei Stellen bedienbar.
+    """
+    params = _load()['manifest']['params']
+    assert not [p for p in params if p['param'] == 'show_mode']
 
 
 def _source(rel_path):

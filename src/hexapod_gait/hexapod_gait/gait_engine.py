@@ -78,6 +78,31 @@ _SHOW_FRONT_LEGS = ('leg_1', 'leg_6')
 # die Grundpose out-of-envelope → echter IKError/Freeze (NICHT durch Leveling).
 _LEVEL_FALLBACK_SCALES = (1.0, 0.5, 0.25, 0.0)
 
+# Block I Phase 8 — Body-Pose („Look-Around"): Reihenfolge, in der die Achsen bei
+# der Greedy-Nachführung einzeln versucht werden, wenn der Gesamt-Schritt die IK
+# reißt (Plan §1b.2). Reihenfolge = Priorität: erst die Achsen, die der Nutzer als
+# „die Show" wahrnimmt (Höhe + Blickrichtung), dann das Wandern. Indizes in das
+# DOF-Tupel (dx, dy, dz, roll, pitch, yaw).
+_BODY_POSE_AXIS_PRIORITY = (2, 4, 5, 3, 0, 1)   # dz, pitch, yaw, roll, dx, dy
+
+# Konvergenz-Schwellen, ab denen die Body-Pose als „wieder in der Ausgangs-Pose"
+# gilt (Exit nach STANDING). Deutlich unter dem, was ein Servo auflöst, aber groß
+# genug, dass der Rate-Limiter nicht ewig asymptotisch kriecht.
+_BODY_POSE_EPS_LIN = 1e-4    # m
+_BODY_POSE_EPS_ANG = 1e-4    # rad
+
+# Notausgang der Body-Pose: wird schon die AKTUELLE Pose ungültig (kann nur durch
+# eine externe Param-Änderung während der Show passieren, z.B. body_height), wird
+# sie schrittweise Richtung 0 halbiert. 0 = Stand-Pose ist per Definition gültig,
+# also terminiert das; mehr als diese Halbierungen braucht es nie.
+_BODY_POSE_RESCUE_STEPS = 12
+
+# Maximaler Zeitschritt, mit dem die Body-Pose pro Tick nachgeführt wird (s).
+# Deckelt den Nachführ-Schritt nach einem Tick-Aussetzer (0.1 s = 5 Ticks bei
+# 50 Hz) — sonst holt die Engine die verlorene Zeit in EINEM Schritt auf, was
+# limit-sicher, aber ruckartig wäre.
+_BODY_POSE_MAX_DT = 0.1
+
 # Block A5 Stufe 3a — States mit aktivem Body-Leveling: STANDING (Stufe 2) +
 # WALKING/STOPPING (Leveling im Lauf, Stufe 3a). Werte = die STATE_*-Strings der
 # GaitEngine (Modul-Konstante, damit der Bare-Name-Lookup in compute_joint_angles
@@ -155,6 +180,16 @@ class GaitEngine:
     STATE_SHOW_ENTER = 'SHOW_ENTER'
     STATE_SHOW_ACTIVE = 'SHOW_ACTIVE'
     STATE_SHOW_EXIT = 'SHOW_EXIT'
+
+    # Block I Phase 8 — Body-Pose („Look-Around"). Aus STANDING per show_mode-Param
+    # (App-exklusiv). Alle 6 Füße bleiben **weltfest am Boden** (Snapshot beim
+    # Eintritt); bewegt wird der KÖRPER in 6 DOF (dx, dy, dz, roll, pitch, yaw)
+    # relativ zur Stand-Pose. Pro Tick werden die Ist-DOF rate-limitiert Richtung
+    # der vom Node gesetzten Ziel-DOF geführt (Return-to-Origin bei neutralen
+    # Sticks) und die Bein-IK auf den transformierten Fuß-Targets gerechnet.
+    # cmd_vel wird ignoriert (kein Laufen in der Show); Leveling ist in diesem
+    # State bewusst aus (die Pose IST gewollt geneigt).
+    STATE_BODY_POSE = 'BODY_POSE'
 
     # Stance-Modi (Phase 13 Stage 1): Wechsel zwischen 3 validierten Lauf-Höhen
     # (radial + body_height + step_height je Modus). STATE_STANCE_SWITCH fährt
@@ -326,6 +361,28 @@ class GaitEngine:
         }
         self._show_return_rate: float = 0.0   # m/s, Nachführ-/Rückkehr-Rate
         self._show_active_last_t: float = 0.0  # für dt im Rate-Limit
+
+        # Block I Phase 8 — Body-Pose („Look-Around"). Alle Werte wertneutral vom
+        # Node/Config gesetzt; die Engine hardcodet keine Pose-Zahl.
+        #  _body_pose_foot_fix: Snapshot der weltfesten Fuß-Positionen (base-Frame)
+        #    beim Eintritt — damit stehen die Füße wirklich fix (auch mit Adaptive
+        #    Stand S4-7, das per Bein unterschiedlich tief verankert) und DOF = 0
+        #    ist bit-genau die Stand-Pose.
+        #  _body_pose_current/_target: 6 DOF (dx, dy, dz, roll, pitch, yaw) in
+        #    Metern/Radiant. _target kommt pro Tick vom Node (bereits skaliert +
+        #    per-Achse geklemmt), _current wird rate-limitiert nachgeführt.
+        #  _body_pose_exit: Ziel ist 0 UND bei Konvergenz → STANDING (show_mode
+        #    none). Ohne das Flag bleibt die Engine im BODY_POSE stehen.
+        self._body_pose_foot_fix: dict[str, Point3] = {}
+        self._body_pose_foot_leg: dict[str, Point3] = {}
+        self._body_pose_current: tuple[float, ...] = (0.0,) * 6
+        self._body_pose_target: tuple[float, ...] = (0.0,) * 6
+        self._body_pose_exit: bool = False
+        self._body_pose_last_t: float = 0.0
+        # Nachführ-/Rückkehr-Raten (Translation m/s, Rotation rad/s). Gelten fürs
+        # Folgen UND fürs Zurückfedern (Muster B4 show_return_rate).
+        self.body_pose_rate_lin: float = 0.08
+        self.body_pose_rate_ang: float = math.radians(30.0)
 
         # Block A5 Stufe 4 / S4-2 — adaptiver Touchdown (Option A: downward-only,
         # an body_height verankert, lag-tolerant). NUR die Fuß-z-Komponente wird
@@ -588,6 +645,7 @@ class GaitEngine:
             self.STATE_SHOW_ENTER,
             self.STATE_SHOW_ACTIVE,
             self.STATE_SHOW_EXIT,
+            self.STATE_BODY_POSE,
             self.STATE_STANCE_SWITCH,
         ):
             return False
@@ -772,6 +830,11 @@ class GaitEngine:
             return self._compute_walking_targets(t)
         if self._state == self.STATE_STOPPING:
             return self._compute_stopping_targets(t)
+        # Block I Phase 8 — Body-Pose: read-only die aktuellen Fuß-Targets der
+        # laufenden Pose (keine Mutation, kein Nachführ-Schritt) — sonst würde die
+        # Diagnose (S4-1) hier eine Stand-Pose sehen, die es gerade nicht gibt.
+        if self._state == self.STATE_BODY_POSE and self._body_pose_foot_fix:
+            return self._body_pose_foot_targets(self._body_pose_current)
         # Sequenz-Zustände: READ-ONLY. Früher fiel hier ALLES in
         # _compute_stopping_targets, dessen ``all_settled → STANDING``-Seiteneffekt
         # eine laufende Sequenz abbrach, sobald ein Query (S4-1-Debug bei
@@ -1115,10 +1178,18 @@ class GaitEngine:
         # unkritisch, da der erste STANDING-Tick ohnehin nominal startet
         # (Descent = rate·(t − t_entry) = 0). Der Snapshot wird JEDEN Tick
         # aktualisiert, damit die Flanken-Erkennung intakt bleibt.
+        # Block I Phase 8: Rückkehr aus der Body-Pose ist **kein** frischer
+        # STANDING-Eintritt — die Füße standen während der ganzen Show weltfest,
+        # das Terrain unter ihnen ist unverändert. Ein Reset würde sie auf
+        # body_height hochziehen und neu absenken lassen (sichtbarer Ruck auf
+        # unebenem Grund). body_height-Änderungen sind während der Show ohnehin
+        # gesperrt (standing_only) und würden sonst in _compute_standing_targets
+        # selbst erkannt.
         if (
             self.adaptive_stand_enable
             and self._state == self.STATE_STANDING
             and self._prev_state != self.STATE_STANDING
+            and self._prev_state != self.STATE_BODY_POSE
         ):
             self.reset_stand_conform(t)
         self._prev_state = self._state
@@ -1146,6 +1217,9 @@ class GaitEngine:
             return self._compute_show_active_angles(t)
         if self._state == self.STATE_SHOW_EXIT:
             return self._compute_show_exit_angles(t)
+        # Block I Phase 8 — Body-Pose („Look-Around"): Körper über fixen Füßen.
+        if self._state == self.STATE_BODY_POSE:
+            return self._compute_body_pose_angles(t)
         if self._state == self.STATE_STANCE_SWITCH:
             return self._compute_stance_switch_angles(t)
 
@@ -2037,6 +2111,240 @@ class GaitEngine:
         )
         return load.stability_margin_m
 
+    # ----- Block I Phase 8: Body-Pose („Look-Around", Körper über fixen Füßen) --
+
+    def start_body_pose(self, t: float) -> bool:
+        """
+        Body-Pose einleiten (Block I Phase 8). Nur aus STANDING erlaubt.
+
+        Friert die **aktuellen** Stand-Fuß-Positionen im base-Frame ein
+        (``_compute_standing_targets(t)`` → ``leg_to_base_frame``): ab jetzt sind
+        die Füße weltfest, bewegt wird nur der Körper. Der Snapshot ist wichtig,
+        weil der adaptive Stand (S4-7) die Füße per Bein unterschiedlich tief
+        verankert haben kann — eine Live-Neuberechnung würde sie während der Show
+        weiterwandern lassen ([D-Show-11]).
+
+        Alle 6 DOF starten bei 0 → die erste Pose ist **bit-genau** die
+        Stand-Pose (kein Sprung beim Eintritt).
+
+        Returns ``True`` wenn gestartet, ``False`` wenn der State != STANDING ist
+        (Defense-in-depth; der Node prüft ohnehin vorher).
+        """
+        if self._state != self.STATE_STANDING:
+            return False
+        targets = self._compute_standing_targets(t)
+        self._body_pose_foot_fix = {
+            leg.name: leg_to_base_frame(targets[leg.name], leg)
+            for leg in HEXAPOD.legs
+        }
+        # Dieselben Targets im BEIN-Frame — für den Nullpunkt-Kurzschluss unten:
+        # der Round-Trip Bein→base→Bein ist mathematisch die Identität, aber nicht
+        # bit-exakt (Float-Rundung in rotate_z). Für DOF = 0 wird daher direkt
+        # dieser Snapshot geliefert → der Eintritt in die Show ist wirklich
+        # sprungfrei (T8.1) und der Ruhe-Tick spart die Transformation.
+        self._body_pose_foot_leg = dict(targets)
+        self._body_pose_current = (0.0,) * 6
+        self._body_pose_target = (0.0,) * 6
+        self._body_pose_exit = False
+        self._body_pose_last_t = t
+        self._state = self.STATE_BODY_POSE
+        return True
+
+    def stop_body_pose(self, t: float) -> bool:
+        """
+        Body-Pose verlassen (Block I Phase 8): zurückfedern, dann STANDING.
+
+        Setzt die Ziel-DOF auf 0 und markiert den Exit — der reguläre
+        Rate-Limiter fährt den Körper über ``body_pose_rate_lin``/``_ang`` in die
+        Ausgangs-Pose zurück, und sobald alle DOF konvergiert sind, wechselt der
+        State nach STANDING (``_compute_body_pose_angles``). Kein Sprung, keine
+        zweite Sequenz-Mechanik ([D-Show-4]).
+
+        Returns ``True`` wenn ein Exit eingeleitet wurde, ``False`` wenn die
+        Engine gar nicht im BODY_POSE ist (dann gibt es nichts zu verlassen).
+        """
+        if self._state != self.STATE_BODY_POSE:
+            return False
+        self._body_pose_target = (0.0,) * 6
+        self._body_pose_exit = True
+        return True
+
+    def set_body_pose_target(self, dof) -> None:
+        """
+        Ziel-DOF der Body-Pose setzen (Node ruft pro Tick, Block I Phase 8).
+
+        ``dof`` = ``(dx, dy, dz, roll, pitch, yaw)`` in **Metern/Radiant** — der
+        Node hat die Stick-Werte bereits skaliert, **per Achse geklemmt** und den
+        Dead-Man (R1) angewandt (losgelassen/stale → alle 0 → Return-to-Origin).
+        Während eines laufenden Exits (``stop_body_pose``) werden neue Ziele
+        ignoriert, damit der Rückweg nicht von einem Rest-Stick-Wert aufgehalten
+        wird. Nur im BODY_POSE wirksam.
+        """
+        if self._state != self.STATE_BODY_POSE or self._body_pose_exit:
+            return
+        self._body_pose_target = tuple(float(v) for v in dof)
+
+    @property
+    def body_pose(self) -> tuple[float, ...]:
+        """Aktuelle Ist-DOF ``(dx, dy, dz, roll, pitch, yaw)`` (Diagnose/Tests)."""
+        return self._body_pose_current
+
+    def _body_pose_foot_targets(self, dof) -> dict[str, Point3]:
+        """
+        Fuß-Targets im Bein-Frame für eine Body-Pose (fixe Füße).
+
+        ``foot_in_body = R⁻¹ · (foot_base_fix − (dx,dy,dz))`` mit
+        ``R = Rz(yaw)·Ry(pitch)·Rx(roll)``, danach zurück in den Bein-Frame.
+        Bei ``dof == 0`` wird der Bein-Frame-Snapshot direkt geliefert (der
+        Round-Trip wäre mathematisch die Identität, aber nicht bit-exakt).
+        """
+        if not any(dof):
+            return dict(self._body_pose_foot_leg)
+        dx, dy, dz, roll, pitch, yaw = dof
+        out: dict[str, Point3] = {}
+        for leg in HEXAPOD.legs:
+            fx, fy, fz = self._body_pose_foot_fix[leg.name]
+            rel = (fx - dx, fy - dy, fz - dz)
+            out[leg.name] = base_to_leg_frame(
+                _rot_body_inv(rel, roll, pitch, yaw), leg,
+            )
+        return out
+
+    def _body_pose_ik(self, dof) -> dict[str, JointAngles]:
+        """IK aller 6 Beine für eine Body-Pose. Wirft ``IKError`` (Kandidat-Test)."""
+        targets = self._body_pose_foot_targets(dof)
+        angles: dict[str, JointAngles] = {}
+        for leg in HEXAPOD.legs:
+            angles[leg.name] = leg_ik(
+                *targets[leg.name], leg, self.joint_limits.get(leg.name),
+            )
+        return angles
+
+    def _body_pose_feasible(self, dof) -> bool:
+        """Prüfe, ob alle 6 Beine diese Body-Pose limit-konform erreichen."""
+        try:
+            self._body_pose_ik(dof)
+        except IKError:
+            return False
+        return True
+
+    def _advance_body_pose(self, dof_cur, dof_target, max_lin: float,
+                           max_ang: float):
+        """
+        Ein Nachführ-Schritt mit **Greedy-Achsen-Clamp** ([D-Show-8], Plan §1b.2).
+
+        1. Kandidat = alle Achsen rate-limitiert Richtung Ziel. Ist er als
+           **Gesamt-Pose** erreichbar → übernehmen (Normalfall).
+        2. Sonst achsenweise in fester Prioritäts-Reihenfolge
+           (``_BODY_POSE_AXIS_PRIORITY``): jede Achse einzeln auf ihren
+           Kandidaten-Wert setzen und nur behalten, wenn die resultierende
+           Gesamt-Pose gültig bleibt. So blockiert **eine** Achse am Anschlag die
+           anderen nicht — es fühlt sich an wie ein Gummiband statt wie ein Stopp.
+           Die Priorität wirkt auf den **Zuwachs dieses Ticks**, nicht rückwirkend:
+           eine bereits ausgefahrene Achse wird nie von selbst zurückgedrängt
+           (sonst würde sich der Körper in Achsen bewegen, die der Nutzer gar
+           nicht anfasst).
+        3. Bleibt selbst der Ausgangszustand ungültig (nur möglich, wenn extern
+           z.B. ``body_height`` verstellt wurde), Richtung 0 halbieren, bis er
+           wieder gültig ist — 0 ist per Definition erreichbar. Damit kann aus der
+           Body-Pose **kein IKError** und damit kein Safety-Freeze entstehen.
+        """
+        step = [
+            max_lin if i < 3 else max_ang
+            for i in range(6)
+        ]
+        cand = tuple(
+            _limit_step(dof_cur[i], dof_target[i], step[i]) for i in range(6)
+        )
+        if cand == dof_cur or self._body_pose_feasible(cand):
+            return cand
+
+        # Greedy: Achse für Achse, in Prioritäts-Reihenfolge.
+        acc = list(dof_cur)
+        if not self._body_pose_feasible(tuple(acc)):
+            acc = list(self._rescue_body_pose(dof_cur))
+        for idx in _BODY_POSE_AXIS_PRIORITY:
+            if cand[idx] == acc[idx]:
+                continue
+            probe = list(acc)
+            probe[idx] = cand[idx]
+            if self._body_pose_feasible(tuple(probe)):
+                acc = probe
+        return tuple(acc)
+
+    def _rescue_body_pose(self, dof):
+        """
+        Notausgang: ungültige Ist-Pose Richtung 0 halbieren, bis sie gültig ist.
+
+        Nur erreichbar, wenn die Pose durch eine **externe** Änderung ungültig
+        wurde (z.B. ``body_height``-Param mitten in der Show). Terminiert, weil
+        ``dof = 0`` die Stand-Pose ist.
+        """
+        out = tuple(dof)
+        for _ in range(_BODY_POSE_RESCUE_STEPS):
+            out = tuple(v * 0.5 for v in out)
+            if self._body_pose_feasible(out):
+                return out
+        return (0.0,) * 6
+
+    def _body_pose_converged(self, dof) -> bool:
+        """Prüfe, ob alle DOF innerhalb der Konvergenz-Schwellen bei 0 sind."""
+        return (
+            all(abs(v) <= _BODY_POSE_EPS_LIN for v in dof[:3])
+            and all(abs(v) <= _BODY_POSE_EPS_ANG for v in dof[3:])
+        )
+
+    def _compute_body_pose_angles(self, t: float) -> dict[str, JointAngles]:
+        """
+        STATE_BODY_POSE: DOF nachführen → 6-DOF-Transformation → IK.
+
+        ``dt`` aus dem Zeitstempel des letzten Ticks (erster Tick dt=0 → kein
+        Schritt, Pose = Stand). Läuft ein Exit (``stop_body_pose``) und sind alle
+        DOF konvergiert, wechselt der State nach STANDING und liefert die
+        Stand-Pose (nahtlos, da DOF=0 exakt die Snapshot-Pose ist).
+        """
+        dt = t - self._body_pose_last_t
+        if dt < 0.0:
+            dt = 0.0
+        # Tick-Aussetzer (CPU-Hänger, Freeze-Pause, Debugger) dürfen nicht in
+        # einen großen Sprung in EINEM Tick münden — der wäre zwar limit-sicher
+        # (die IK prüft ihn), aber ruckartig für die Servos. Auf 5 Ticks bei
+        # 50 Hz deckeln: der Körper zieht dann etwas langsamer nach, statt zu
+        # springen.
+        if dt > _BODY_POSE_MAX_DT:
+            dt = _BODY_POSE_MAX_DT
+        self._body_pose_last_t = t
+
+        self._body_pose_current = self._advance_body_pose(
+            self._body_pose_current,
+            self._body_pose_target,
+            self.body_pose_rate_lin * dt,
+            self.body_pose_rate_ang * dt,
+        )
+
+        if self._body_pose_exit and self._body_pose_converged(
+            self._body_pose_current
+        ):
+            self._body_pose_current = (0.0,) * 6
+            self._body_pose_exit = False
+            self._state = self.STATE_STANDING
+            # Snapshot-Pose (= DOF 0), NICHT _compute_stand_pose_joints(): die
+            # liefert die STARRE Stand-Pose (t=None-Pfad) und würde bei aktivem
+            # Adaptive Stand (S4-7) die per Bein konform abgesenkten Füße
+            # hochziehen. Der Snapshot ist bit-genau die Pose, mit der die Show
+            # begann — und exakt das, was der nächste STANDING-Tick liefert
+            # (der Konform-Zustand bleibt über die Show erhalten, s.o.).
+            return self._body_pose_ik((0.0,) * 6)
+
+        try:
+            return self._body_pose_ik(self._body_pose_current)
+        except IKError:
+            # Defense-in-depth: _advance_body_pose liefert nur erreichbare Posen
+            # (inkl. Notausgang). Sollte hier doch etwas durchrutschen, lieber die
+            # sichere Stand-Pose halten als den Tick mit einem Freeze zu quittieren.
+            self._body_pose_current = (0.0,) * 6
+            return self._compute_stand_pose_joints()
+
     # ----- Phase 13 Stage 1: Stance-Modus-Wechsel (radial + body_height) ----
 
     def start_stance_switch(
@@ -2141,6 +2449,37 @@ class GaitEngine:
         self.step_height = self._stance_to_step_height
         self._state = self.STATE_STANDING
         return self._compute_stand_pose_joints()
+
+
+def _rot_body_inv(point: Point3, roll: float, pitch: float, yaw: float) -> Point3:
+    """
+    ``R⁻¹ · point`` mit ``R = Rz(yaw)·Ry(pitch)·Rx(roll)`` (REP-103-RPY).
+
+    Block I Phase 8: transformiert einen weltfesten Fuß-Punkt in den **bewegten**
+    Körper-Frame. Exakte Inverse (``Rx(−roll)·Ry(−pitch)·Rz(−yaw)``) — bewusst
+    **nicht** ``rotate_xy(p, −roll, −pitch)``: das wäre ``Ry(−pitch)·Rx(−roll)``
+    und damit die falsche Reihenfolge (bei reinem Leveling ohne yaw fällt der
+    Unterschied nicht auf, mit yaw + großen Winkeln schon). Identisch zu
+    ``tools/look_around_envelope_check.py`` — bei Änderung dort mitziehen.
+    """
+    x, y, z = point
+    c, s = math.cos(-yaw), math.sin(-yaw)
+    x, y = c * x - s * y, s * x + c * y
+    c, s = math.cos(-pitch), math.sin(-pitch)
+    x, z = c * x + s * z, -s * x + c * z
+    c, s = math.cos(-roll), math.sin(-roll)
+    y, z = c * y - s * z, s * y + c * z
+    return (x, y, z)
+
+
+def _limit_step(cur: float, target: float, max_delta: float) -> float:
+    """Ein Skalar um max. ``max_delta`` Richtung ``target`` (skalares _rate_limit)."""
+    d = target - cur
+    if d > max_delta:
+        d = max_delta
+    elif d < -max_delta:
+        d = -max_delta
+    return cur + d
 
 
 def _rate_limit(cur: tuple, target: tuple, max_delta: float) -> tuple:

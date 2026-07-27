@@ -348,3 +348,76 @@ def test_l2r2_cycle_stance_only_without_deadman(node):
     node._on_joy(_joy_show(l2=-1.0))    # Edge
     assert node._cycle_stance_client.count == 2
     assert node._cycle_stance_client.last is False
+
+
+# ----- Block I Phase 8 — Body-Pose („Look-Around", /cmd_body_pose) ----- #
+
+def test_body_pose_zero_without_deadman(node):
+    """T8.3: ohne R1 → /cmd_body_pose = [0]*6 (Körper federt zurück)."""
+    arr = node._body_pose_from_joy(
+        _joy_show(lx=1.0, ly=1.0, rx=1.0, ry=1.0, l2=-1.0, r2=-1.0)
+    )
+    assert list(arr.data) == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_body_pose_maps_sticks_with_deadman(node):
+    """
+    T8.3: R1 gehalten → [dx, dy, dz, roll, pitch, yaw].
+
+    Rechter Stick = umschauen (Y→pitch, X→yaw), linker = wandern (Y→dx, X→dy),
+    roll bleibt 0 (v1 nicht belegt).
+    """
+    node._sign_body_pose_pitch = -1.0
+    node._sign_body_pose_yaw = 1.0
+    arr = node._body_pose_from_joy(
+        _joy_show(lx=0.4, ly=0.8, rx=-0.6, ry=0.5, buttons=[_R1])
+    )
+    dx, dy, dz, roll, pitch, yaw = arr.data
+    assert dx == pytest.approx(0.8)     # linker Stick Y → vor/zurück
+    assert dy == pytest.approx(0.4)     # linker Stick X → seitwärts
+    assert dz == pytest.approx(0.0)     # Trigger idle
+    assert roll == 0.0                  # v1 nicht belegt
+    assert pitch == pytest.approx(-0.5)  # Stick hoch = Kamera hoch
+    assert yaw == pytest.approx(-0.6)
+
+
+def test_body_pose_height_from_triggers(node):
+    """T8.3: dz = R2−L2 (Druck-Anteile), R1-gated."""
+    node._sign_body_pose_z = 1.0
+    # R2 voll (-1.0 → frac 1.0), L2 idle → dz = +1.
+    arr = node._body_pose_from_joy(_joy_show(l2=1.0, r2=-1.0, buttons=[_R1]))
+    assert arr.data[2] == pytest.approx(1.0)
+    # L2 voll, R2 idle → dz = -1.
+    arr = node._body_pose_from_joy(_joy_show(l2=-1.0, r2=1.0, buttons=[_R1]))
+    assert arr.data[2] == pytest.approx(-1.0)
+    # Beide voll → heben sich auf.
+    arr = node._body_pose_from_joy(_joy_show(l2=-1.0, r2=-1.0, buttons=[_R1]))
+    assert arr.data[2] == pytest.approx(0.0)
+
+
+def test_body_pose_deadzone(node):
+    """Stick-Werte unter der Deadzone → 0 (auch mit Dead-Man)."""
+    arr = node._body_pose_from_joy(
+        _joy_show(lx=0.05, ly=0.05, rx=0.05, ry=0.05, buttons=[_R1])
+    )
+    assert list(arr.data)[:2] == [0.0, 0.0]
+    assert list(arr.data)[4:] == [0.0, 0.0]
+
+
+def test_body_pose_published_in_both_profiles(node):
+    """
+    /cmd_body_pose wird IMMER publisht — auch wenn show_enabled false ist.
+
+    Die B4-Show hängt an show_enabled (auf HW instabil), die Body-Pose nicht:
+    in die Show kommt man nur über den gait_node-Param show_mode, den allein die
+    App setzen kann. Deshalb ist das Publishen in beiden Profilen harmlos.
+    """
+    node._show_enabled = False
+    node._cmd_body_pose_pub = _FakeClient(ready=True)
+    node._cmd_body_pose_pub.last = None
+    node._cmd_body_pose_pub.publish = lambda msg: setattr(
+        node._cmd_body_pose_pub, 'last', list(msg.data))
+    node._on_joy(_joy_show(ly=1.0, buttons=[_R1]))
+    assert node._cmd_body_pose_pub.last is not None
+    assert len(node._cmd_body_pose_pub.last) == 6
+    assert node._cmd_body_pose_pub.last[0] == pytest.approx(1.0)

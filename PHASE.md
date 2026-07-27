@@ -5,9 +5,12 @@
 **untethered im Gelände** auf der echten Hardware — Gangarten, Stance-Modi, Hang-Lauf auf/ab,
 Stufen hoch/runter, Hinsetzen/Aufstehen, IMU-Balance, alles was der PS4-Controller bedient hat.
 Kamera (Raspi-Cam) + Audio (MAX98357A) sind **verkabelt + hello-world-in-Betrieb**; offen ist deren
-ROS-/App-Integration (Phase 7). **Aktuelle Arbeit = App + Feature-Erweiterungen:** Block-I-App
-Phasen 1–6 + 7A fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel, E-Stop+Recovery,
-**Audio** — je Sim-verifiziert), **Phase 7B (echte Raspi-Cam am Roboter) als Nächstes**, danach 8 (Politur).
+ROS-/App-Integration. **Aktuelle Arbeit = App + Feature-Erweiterungen:** Block-I-App
+Phasen 1–6 + 7A + 7B fertig (Kishi-Mapping, Teleop, Lifecycle, Video, Status/Config-Panel,
+E-Stop+Recovery, **Audio**, **echte Raspi-Cam** — je Sim-/Desktop-verifiziert). **Aktiv: Phase 8 —
+Show „Look-Around"** (Körper bewegt sich in 6 DOF über fixen Füßen; App-Show-Menü mit Platzhaltern
+für Dancing/Free-Leg): **ROS-Seite fertig** (Contract v0.13), offen App-Menü + Sim-/HW-Abnahme.
+Danach Politur (Reconnect, Controller-Profile).
 Detail: [`project_finalization/app_control_requirements/`](project_finalization/app_control_requirements/00_overview.md)
 · auch: Rubicon-Scene für den App-Flow, Video-Pipeline, Config-Manifest.
 _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi/phase_12_progress.md).)_

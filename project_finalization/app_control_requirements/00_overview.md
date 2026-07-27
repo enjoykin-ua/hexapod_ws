@@ -5,11 +5,14 @@
 > Live-Bild** — Steuerung wie beim PS4, plus On-Screen-Konfiguration, Status-Overlay,
 > Kamera-Stream, Sound und Lifecycle (Bringup/Shutdown/Recovery) aus der App.
 >
-> **Status: 🟡 aktiv — Phasen 1–6 + 7A 🟢 fertig** (Kishi-Mapping, Teleop, Lifecycle, Video,
-> Status/Config-Panel, **E-Stop + Recovery**, **Audio** — Sim-verifiziert; Contract **v0.11.1**).
-> **Phase 7B (echte Raspi-Cam) als Nächstes**, danach 8 (Politur). Deferiert: HW-Verify T6.8
-> (E-Stop/Recover) + T7A.13 (Audio-Speaker) + die zugehörigen App-Buttons. Arbeitsweise CLAUDE.md §4
-> (Plan → Freigabe → Code → Tests → Self-Review), §5 (Agent macht NIE git). Deutsch durchgehend.
+> **Status: 🟡 aktiv — Phasen 1–6 + 7A + 7B 🟢 fertig** (Kishi-Mapping, Teleop, Lifecycle, Video,
+> Status/Config-Panel, **E-Stop + Recovery**, **Audio**, **echte Raspi-Cam** — Sim-/Desktop-E2E-
+> verifiziert). **Phase 8 = Show „Look-Around" (Kamera-Umschauen)** — **ROS-Seite fertig**
+> (implementiert + unit-getestet, Contract **v0.13**), offen sind die App-Seite (Show-Menü) und die
+> Sim-/HW-Abnahme. Die frühere „Politur" (Reconnect/Controller-Profile) rückt dahinter.
+> Deferiert: HW-Verify T6.8 (E-Stop/Recover) + T7A.13 (Audio-Speaker) + die zugehörigen App-Buttons.
+> Arbeitsweise CLAUDE.md §4 (Plan → Freigabe → Code → Tests → Self-Review), §5 (Agent macht NIE
+> git). Deutsch durchgehend.
 
 ---
 
@@ -87,8 +90,9 @@ angebunden:
 | **5** | **Touch-Parameter-UI + Status-Overlay** | On-Screen-Slider/Toggles (Params via rosbridge) + **Status-Publisher (ROS)** → Batterie/Tip/Modus/Safety im Overlay | App + ROS |
 | **6** | **Recovery + Not-Halt** | E-Stop (`safety_freeze`) + Ein-Klick-Recovery-Service (Joint-Space-Ramp in den Stand) + App-Button | App + ROS |
 | **7A** | **Audio** 🟢 (ROS-Seite Sim-verifiziert) | `hexapod_audio`-Node: Bewegungs-Cues (gait) + Soundboard + `sound_enable`-Mute. Contract v0.11 | App + ROS |
-| **7B** | **Echte Raspi-Cam** *(als Nächstes)* | OV5647 → `/camera/image_raw` (`rpicam-vid` MJPEG → CompressedImage) + `camera_enable`; web_video_server + App unverändert | ROS (+App-Feinschliff) |
-| **8** | **Politur** | Controller-Profile (Portabilität), Reconnect-Handling, Robustheit | App |
+| **7B** | **Echte Raspi-Cam** 🟢 (ROS-Seite + Desktop-E2E) | OV5647 → `/camera/image_raw` (`rpicam-vid` MJPEG → CompressedImage) + `camera_enable`; web_video_server + App unverändert. Contract v0.12 | ROS (+App-Feinschliff) |
+| **8** | **Show „Look-Around"** *(aktiv — ROS 🟢)* | Körper bewegt sich in 6 DOF über **fixen Füßen** (umschauen/wandern/Höhe, R1-Dead-Man, federt zurück); App-**Show-Menü** setzt `show_mode`; **Dancing/Free-Leg als Platzhalter** vorgebaut. Contract v0.13, §6c | App + ROS |
+| **9** | **Politur** | Controller-Profile (Portabilität), Reconnect-Handling, Robustheit | App |
 
 **Abhängigkeiten:** 1 → 2 → 3 sind linear (Input → Steuerstrecke → Lifecycle). 4/5/6 bauen
 auf 2/3 auf, sind untereinander aber weitgehend unabhängig. 7 schwebt (jederzeit). 8 zum

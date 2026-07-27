@@ -30,7 +30,8 @@
 | **v0.11** | §3/§4/§6b festgezurrt für Phase 7A (**ROS-Seite implementiert + unit-getestet**): **`/hexapod/play_sound`** (`std_msgs/String`, App→Roboter) = Soundboard (`sound_01..03`, spielt immer); **`/hexapod/sound_enabled`** (`std_msgs/Bool`, latched, Roboter→App) = Auto-Sound-Mute-Status; Param **`sound_enable`** auf `/hexapod_audio` (App setzt via `set_parameters`). Auto-Sounds bei Aufstehen/Hinsetzen/Höhenwechsel/Freeze (**Recovery stumm**); Sound nur am Roboter-Speaker ([D5]). `/hexapod/audio_cue` = intern (gait_node→hexapod_audio). |
 | **v0.11.1** | §6b für die App-Session präzisiert: **kopierbare rosbridge-Frames** (advertise/publish `play_sound`, `set_parameters` für den BOOL `sound_enable`, latched `subscribe` auf `sound_enabled`) + App-Pflichten (Buttons erst wenn Stack läuft, Toggle spiegelt `sound_enabled`). `sound_enabled` in die §3-Latched-QoS-Note aufgenommen. **Kein Interface-Change** — reine Klarstellung für den Android-Bau. |
 | **v0.12** | §5/§6 festgezurrt für Phase 7B (**ROS-Seite + Desktop-E2E verifiziert**): echte **Raspi-Cam (OV5647)** am Pi → `hexapod_camera`-Node (`rpicam-vid` MJPEG → **`CompressedImage`** auf `/camera/image_raw/compressed`). **App-URL Variante A:** `type` je Host — Sim `type=mjpeg` (roh), **HW `type=ros_compressed`** (JPEGs durchgereicht, kein Pi-Decode). Param **`camera_enable`** (rpicam-Subprozess an/aus) + `source:=rpicam\|test` (test = Desktop-E2E). `web_video_server` läuft real via `camera.launch.py`. **App:** einzige Änderung = URL-`type` je Host (P7B.13). |
-| **v0.12.1** (aktuell) | §5 für die App-Session präzisiert (**kein Interface-Change**): explizite **App-Pflicht zur Video-`type`-Wahl** (Sim→`mjpeg` / HW→`ros_compressed`, gekoppelt an das Verbindungs-Profil aus §0 bzw. Auto-Erkennung via `rosapi/topics` auf `/camera/image_raw/compressed`) + kopierbarer **`camera_enable`-Frame** (`/hexapod_camera/set_parameters`, BOOL). FPS-Zeile Sim/HW getrennt. |
+| **v0.12.1** | §5 für die App-Session präzisiert (**kein Interface-Change**): explizite **App-Pflicht zur Video-`type`-Wahl** (Sim→`mjpeg` / HW→`ros_compressed`, gekoppelt an das Verbindungs-Profil aus §0 bzw. Auto-Erkennung via `rosapi/topics` auf `/camera/image_raw/compressed`) + kopierbarer **`camera_enable`-Frame** (`/hexapod_camera/set_parameters`, BOOL). FPS-Zeile Sim/HW getrennt. |
+| **v0.13** (aktuell) | §3/§4/§6a/§6c festgezurrt für Phase 8 — **Show „Look-Around"** (**ROS-Seite implementiert + unit-getestet**): Param **`show_mode`** (`/gait_node`, Enum `none\|look_around\|dancing\|free_leg`) = die **app-exklusive** Show-Auswahl; Gate: Show-Modi nur aus STANDING, **`none` immer** (Rückweg aus der Show). Neues Topic **`/cmd_body_pose`** (`std_msgs/Float64MultiArray[6]`, `[dx,dy,dz,roll,pitch,yaw]`, −1..+1, R1-gegated) — der Körper bewegt sich in 6 DOF über **fixen Füßen**; `/cmd_show` behält seine B4-Semantik unverändert. `/hexapod/status` bekommt **`show_mode`** + den neuen `state`-Wert **`BODY_POSE`**; `capabilities` bekommt **`show_modes`**. `dancing`/`free_leg` sind **Platzhalter** (akzeptiert, no-op) → die App baut ihr Show-Menü **einmal** vollständig. |
 
 ---
 
@@ -199,7 +200,8 @@ Vom `bringup_launcher` (Always-On-Schicht in `hexapod_supervisor`, neben rosbrid
 | `/hexapod/shutdown_complete` | `std_msgs/Bool` (latched) | Roboter → App | Shutdown-Sequenz fertig |
 | `/hexapod/bringup_running` | `std_msgs/Bool` (latched, `transient_local`) | Roboter → App | läuft der schwere Stack? (Connect-/Start-Screen) `[N Ph.3]` |
 | `/cmd_body_height` | (Float) | App → Roboter | Körperhöhe (On-Screen-Slider) |
-| `/cmd_show` | `std_msgs/Float64MultiArray[6]` | App → Roboter | Show-Pose-Offsets (falls On-Screen) |
+| `/cmd_show` | `std_msgs/Float64MultiArray[6]` | App → Roboter | Show-Pose-Offsets der **B4-Vorderbein-Show** (`[l6_lat,l6_vert,l6_radial,l1_lat,l1_vert,l1_radial]`). **Unverändert** — nicht zu verwechseln mit `/cmd_body_pose` (Phase 8). Im Controller-Profil per `show_enabled: false` inaktiv. |
+| `/cmd_body_pose` | `std_msgs/Float64MultiArray[6]` | **App/Teleop → Roboter** | **Show „Look-Around" (Phase 8):** `[dx, dy, dz, roll, pitch, yaw]`, **normiert −1..+1**. Bewegt den **Körper** über fixen Füßen; der gait_node skaliert auf den Envelope und wertet es **nur im State `BODY_POSE`** aus (sonst ignoriert). **R1-Dead-Man**: ohne gehaltenes R1 sendet der Teleop sechs Nullen → der Körper federt zurück. Kommt über `/joy` → `joy_to_twist` — **die App muss dafür nichts publishen**. §6c |
 | `/hexapod/play_sound` | `std_msgs/String` | **App → Roboter** | **Soundboard (Phase 7A):** Sound-Key (`sound_01`/`sound_02`/`sound_03`) → spielt sofort auf dem Roboter-Speaker (immer, unabhängig von `sound_enable`). §6b |
 | `/hexapod/sound_enabled` | `std_msgs/Bool` (latched, `transient_local`) | **Roboter → App** | **Auto-Sound-Mute-Status (Phase 7A):** aktueller `sound_enable`-Zustand für die „mit/ohne Audio"-Anzeige. §6b |
 | `/hexapod/audio_cue` | `std_msgs/String` | gait_node → hexapod_audio | **intern** (nicht App): Bewegungs-Audio-Events. Der Vollständigkeit halber. |
@@ -222,6 +224,16 @@ On-Screen-Toggles/Slider setzen `gait_node`-Parameter. Beispiele (vollständige 
 - `step_height` (H1: modus-gedeckelt), `step_length_max` (H2: modus-gedeckelt)
 - **`sound_enable`** (bool, Node **`/hexapod_audio`**, Phase 7A) — Auto-Sounds an/aus; Live-Anzeige
   latched auf `/hexapod/sound_enabled` (§6b)
+- **`show_mode`** (string, `/gait_node`, Phase 8) — **die Show-Auswahl**, Enum
+  `none | look_around | dancing | free_leg`. **Eigenes Gate** (nicht `standing_only`): Show-Modi
+  werden nur aus **STANDING** angenommen, **`none` immer** (= Show verlassen, auch aus `BODY_POSE`).
+  Nur `look_around` wirkt; `dancing`/`free_leg` sind **Platzhalter** (akzeptiert, no-op, fallen auf
+  `none` zurück). Steht **bewusst nicht** im `config_manifest` — die Auswahl gehört ins
+  **Show-Menü** der App, nicht ins Config-Panel. §6c
+- Envelope/Tempo der Body-Pose (optional, für Feintuning): `body_pose_dx_max` (0.050 m),
+  `body_pose_dy_max` (0.035), `body_pose_dz_max` (0.020), `body_pose_pitch_max_deg` (12),
+  `body_pose_yaw_max_deg` (10), `body_pose_roll_max_deg` (0 = v1 aus), `body_pose_rate_lin`
+  (0.08 m/s), `body_pose_rate_ang_dps` (30 °/s) — alle live, alle am `/gait_node`.
 
 > ⚠️ **`standing_only`-Params** werden außerhalb STANDING **rejected** — die App muss den
 > State kennen (Status-Topic §6) und solche Steller nur im Stand aktiv schalten. Sonst
@@ -278,6 +290,7 @@ Diese werden beim Bau der jeweiligen Phase hier mit Typ/Feldern festgezurrt.
 | **E-Stop** (`/hexapod_estop`) | App-Not-Halt, latched Freeze Sim+HW | **✅ erledigt (v0.10, §2)** |
 | **Recovery-Service** (`/hexapod_recover`) | Freeze → Joint-Space-Ramp → Stand ([D6](decisions.md)) | **✅ erledigt (v0.10, §2)** |
 | Audio: `play_sound` + Param `sound_enable` | Sound-Trigger + Mute ([D5](decisions.md)) | **✅ erledigt (v0.11, §6b)** |
+| **Shows: Param `show_mode` + `/cmd_body_pose` + `status.show_mode` + `capabilities.show_modes`** | Show-Menü (Look-Around implementiert, Dancing/Free-Leg als Platzhalter) | **✅ erledigt (v0.13, §6c)** |
 
 ---
 
@@ -290,11 +303,13 @@ dort ohnehin JSON; kein neues Message-Paket, [D-neu]). Feld-Formen ROS-seitig **
 **~5 Hz**, nicht latched.
 ```json
 {"state":"STANDING","stance_idx":1,"stance":"mittel","gait":"tripod",
- "safety_frozen":false,"tip":"none","step_height_cap":0.05,"step_length_cap":0.08}
+ "safety_frozen":false,"tip":"none","step_height_cap":0.05,"step_length_cap":0.08,
+ "show_mode":"none"}
 ```
 | Feld | Typ | Werte |
 |---|---|---|
-| `state` | string | `STARTUP_RAMP`/`CARTESIAN_STANDUP`/`REPOSITION`/`STANDING`/`WALKING`/`STOPPING`/`SAT`/Sitdown-/Show-States |
+| `state` | string | `STARTUP_RAMP`/`CARTESIAN_STANDUP`/`REPOSITION`/`STANDING`/`WALKING`/`STOPPING`/`SAT`/Sitdown-/Show-States/**`BODY_POSE`** (Phase 8: „Look-Around" läuft) |
+| `show_mode` | string | **`none`/`look_around`/`dancing`/`free_leg`** (Phase 8) — der **wirksame** Modus. Die App spiegelt damit ihr Show-Menü, statt den eigenen Klick zu raten: der Roboter setzt ihn z.B. bei Recovery selbst auf `none` zurück. |
 | `stance_idx` / `stance` | int / string | 0/1/2 · `tief`/`mittel`/`hoch` |
 | `gait` | string | `tripod`/`wave`/`tetrapod`/`ripple` |
 | `safety_frozen` | bool | true nach Safety-Freeze/E-Stop; **latched** bis `/hexapod_recover` (Phase 6) |
@@ -310,8 +325,11 @@ dort ohnehin JSON; kein neues Message-Paket, [D-neu]). Feld-Formen ROS-seitig **
 **latched**.
 ```json
 {"gaits":["tripod","wave","tetrapod","ripple"],"stance_modes":["tief","mittel","hoch"],
- "tempo_presets":["langsam","mittel","schnell","aggressiv"]}
+ "tempo_presets":["langsam","mittel","schnell","aggressiv"],
+ "show_modes":["none","look_around","dancing","free_leg"]}
 ```
+> **`show_modes`** (Phase 8) ist die Enum-Quelle fürs Show-Menü. Die App darf das Menü daraus
+> generisch rendern — welche Einträge **wirken**, steht in §6c (v1: nur `look_around`).
 
 **`/hexapod/config_manifest`** — die kuratierte Whitelist der verstellbaren Params (Config-Panel).
 Quelle **`hmi_status`** (Always-On), **latched**. Die App rendert das Panel **generisch**; get/set der
@@ -409,6 +427,78 @@ Bewegungs-Events; die App nutzt es nicht.
 > gibt es `/hexapod_audio` noch nicht. (2) Der Zuschalt-Toggle spiegelt `sound_enabled` (nicht den
 > eigenen Button-State raten) — der Roboter ist die Wahrheit. (3) `set_parameters`-Antwort
 > `successful=false` → Fehler zeigen (sollte hier nicht vorkommen; `sound_enable` ist immer setzbar).
+
+---
+
+## 6c. Shows / „Look-Around" (Block I Phase 8) — festgezurrt v0.13
+
+**Shows sind app-exklusiv.** Der Einstieg läuft **nur** über den Parameter `show_mode` am
+`/gait_node` — ein Controller publisht ausschließlich `/joy` und kann keine Parameter setzen. Der
+alte Controller-Weg (Cross-Longpress → `/hexapod_show_toggle`) bleibt unangetastet und ist in beiden
+Controller-Profilen per `show_enabled: false` inaktiv.
+
+**Die vier Modi:**
+
+| `show_mode` | Menü-Eintrag | Wirkung |
+|---|---|---|
+| `none` | **Normalbetrieb** | Show verlassen (federt zurück → STANDING), danach normal fahren |
+| `look_around` | **Kamera-Umschauen** | **implementiert** — Körper bewegt sich in 6 DOF über fixen Füßen |
+| `dancing` | **Dancing** | **Platzhalter** — wird akzeptiert, tut noch nichts (bleibt STANDING) |
+| `free_leg` | **Free-Leg** | **Platzhalter** — wird akzeptiert, tut noch nichts (bleibt STANDING) |
+
+**Regeln (serverseitig durchgesetzt):**
+1. **Show-Modi nur aus `STANDING`** — und nur, wenn der Roboter wirklich steht: nicht bei aktivem
+   **E-Stop** (`status.safety_frozen` → erst `/hexapod_recover`) und nicht, bevor er aufgestanden
+   ist. Sonst `successful=false` + `reason` (Klartext) → anzeigen.
+2. **`none` wird immer akzeptiert** — auch im `BODY_POSE`. Das ist der garantierte Rückweg.
+3. **Show-zu-Show-Wechsel geht nicht direkt:** erst `none`, warten bis `status.state == STANDING`
+   (das Zurückfedern dauert ~1 s), dann den neuen Modus setzen.
+4. **Hinsetzen** wird während der Show abgelehnt („erst `show_mode=none`"). **E-Stop** greift immer.
+5. Der **wirksame** Modus steht in `/hexapod/status.show_mode` — die App spiegelt ihn, statt den
+   eigenen Klick zu raten (bei Recovery setzt ihn der Roboter selbst auf `none`; ein Platzhalter
+   fällt sofort auf `none` zurück).
+
+**Bedienung im Look-Around** — läuft komplett über `/joy` wie gehabt, die App muss dafür **nichts
+Neues publishen**, nur den Modus setzen:
+
+| Eingabe | Wirkung |
+|---|---|
+| **R1 halten** | **Dead-Man** — ohne R1 federt der Körper in die Ausgangs-Pose zurück |
+| rechter Stick | **umschauen** (hoch/runter = pitch ±12°, links/rechts = yaw ±10°) |
+| linker Stick | **wandern** (vor/zurück ±50 mm, seitwärts ±35 mm) |
+| L2 / R2 | **Höhe** (±20 mm) |
+| loslassen | federt sanft in die Ausgangs-Pose zurück |
+
+Die Füße bleiben dabei **fix am Boden** (alle sechs). Kombinationen, die kinematisch nicht gehen,
+werden weich beschnitten — es gibt **keinen** Safety-Freeze aus der Show heraus.
+
+**rosbridge-Frames (kopierbar):**
+```jsonc
+// (a) Show starten — Menü-Eintrag „Kamera-Umschauen" (type 4 = PARAMETER_STRING):
+{"op":"call_service","service":"/gait_node/set_parameters",
+ "type":"rcl_interfaces/srv/SetParameters",
+ "args":{"parameters":[{"name":"show_mode",
+   "value":{"type":4,"string_value":"look_around"}}]}}
+// Antwort: results[0].successful == true. Bei false: results[0].reason anzeigen
+//          (typisch: "requires STATE_STANDING").
+
+// (b) Show verlassen — Menü-Eintrag „Normalbetrieb" (wird IMMER akzeptiert):
+{"op":"call_service","service":"/gait_node/set_parameters",
+ "type":"rcl_interfaces/srv/SetParameters",
+ "args":{"parameters":[{"name":"show_mode",
+   "value":{"type":4,"string_value":"none"}}]}}
+
+// (c) Ist-Zustand fürs Menü — aus dem Status-Topic (§6a, 5 Hz, nicht latched):
+{"op":"subscribe","topic":"/hexapod/status","type":"std_msgs/msg/String"}
+// -> JSON.parse(msg.data).show_mode  bzw.  .state == "BODY_POSE"
+```
+
+> **App-Pflichten:** (1) Show-Menü nur aktiv, wenn der Stack läuft (`bringup_running`) **und**
+> `status.state == STANDING` — sonst kommt ein Reject. (2) Der aktive Eintrag folgt
+> `status.show_mode`, nicht dem eigenen Klick. (3) `reason` bei `successful=false` anzeigen.
+> (4) Für einen Wechsel zwischen zwei Shows erst `none` senden und auf `STANDING` warten.
+> (5) Ein Hinweis-Text zur Bedienung (R1 halten, rechter Stick = schauen, linker = wandern,
+> L2/R2 = Höhe) gehört ins Show-Menü — die Steuerung selbst braucht **keinen** App-Code.
 
 ---
 

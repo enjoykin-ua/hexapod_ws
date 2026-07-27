@@ -35,6 +35,13 @@ capabilities:
   gaits: [tripod, wave, tetrapod, ripple]
   stance_modes: [tief, mittel, hoch]
   tempo_presets: [langsam, mittel, schnell, aggressiv]
+  # Block I Phase 8 — Enum fürs Show-MENÜ der App (NICHT fürs Config-Panel:
+  # show_mode steht bewusst nicht in `manifest` unten). Reihenfolge = Anzeige-
+  # Reihenfolge. v1 wirkt nur `look_around`; `dancing`/`free_leg` sind
+  # Platzhalter, die der gait_node akzeptiert, aber (noch) nicht ausführt —
+  # so wird das Menü einmal gebaut und braucht später keinen App-Eingriff.
+  # Contract §6c (v0.13).
+  show_modes: [none, look_around, dancing, free_leg]
 
 manifest:
   version: 1

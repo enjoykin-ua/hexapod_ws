@@ -288,6 +288,60 @@
   `B4_show_pose_plan.md` §4a/§9 nachfahren) · **Sim** (RViz+Gazebo, [`B4_show_pose_test_commands.md`](../project_finalization/B4_show_pose_test_commands.md))
   · **HW aufgebockt → Boden** (CoG-kritisch, nur 4 Stützbeine!).
 
+### Show „Look-Around" / Body-Pose (Block I Phase 8) ändern
+
+> ⚠️ **Nicht verwechseln mit der B4-Show oben.** Zwei getrennte Mechanismen, zwei getrennte Topics:
+> B4 = **Vorderbeine** frei in der Luft (`/cmd_show`, 4 Stützbeine, CoG-kritisch, auf HW instabil →
+> `show_enabled: false`). Phase 8 = **Körper** über **allen 6 fixen Füßen** (`/cmd_body_pose`,
+> statisch stabil). Sie teilen kein Topic und keinen State.
+
+- **Voll-Doku:** [`../project_finalization/app_control_requirements/phase_8_look_around_plan.md`](../project_finalization/app_control_requirements/phase_8_look_around_plan.md)
+  (§1 Logik, §4 Entscheidungen + Envelope-Zahlen, §9 Design-Log) + `phase_8_look_around_progress.md`
+  (Done-Vertrag, IST-Architektur) + `phase_8_look_around_test_commands.md`.
+- **Naht = Contract §6c** (`interface_contract.md`, v0.13): Param `show_mode`
+  (`none|look_around|dancing|free_leg`) + Topic `/cmd_body_pose` + `status.show_mode` +
+  `capabilities.show_modes`. Ändert sich das → **dort Version hochzählen**, App zieht nach.
+- **Wo (3 Schichten):**
+  - **Engine** (`gait_engine.py`): `STATE_BODY_POSE`, `start_body_pose`/`stop_body_pose`/
+    `set_body_pose_target`, `_compute_body_pose_angles` (Rate-Limit → Greedy-Clamp → IK),
+    `_advance_body_pose` + `_rescue_body_pose`, `_rot_body_inv`, `_BODY_POSE_AXIS_PRIORITY`.
+  - **Node** (`gait_node.py`): `show_mode`-Gate in `_on_param_change` (**1h4**), `_set_show_mode`,
+    `_reset_show_mode`/`_maybe_sync_show_mode` (deferred Param-Sync + Selbstheilung),
+    `_on_cmd_body_pose`/`_update_body_pose`, die 8 `body_pose_*`-Params, `show_mode` in
+    `_publish_status`.
+  - **Teleop** (`joy_to_twist.py`): `_body_pose_from_joy` → `/cmd_body_pose` (R1-gegated,
+    `sign_body_pose_{pitch,yaw,z}`), publisht in **beiden** Profilen.
+- **Verhalten tunen:** alles über **Params** (live): `body_pose_{dx,dy,dz}_max`,
+  `body_pose_{roll,pitch,yaw}_max_deg`, `body_pose_rate_lin`, `body_pose_rate_ang_dps`.
+  **Engine wertneutral** — keine Pose-Zahl im Code.
+- **Envelope-Werte ändern → Gate neu fahren:** `python3 tools/look_around_envelope_check.py`
+  (Exit-Code auswerten!). Prüft Einzelachsen, **CoG-Marge im Welt-Frame** (6-Bein-Polygon) und die
+  **Bedien-Gesten** (Stick-Diagonalen mit Gewicht 0.75 — ein Analog-Stick liefert diagonal nur ~0.71
+  pro Achse). Defaults: dx 0.050 / dy 0.035 / dz 0.020 / pitch 12° / yaw 10° / roll 0°;
+  `test_body_pose_node.test_envelope_defaults_match_tool` pinnt sie.
+- **Fallen:**
+  1. **`show_mode` ist NICHT `standing_only`** — es hat ein **eigenes** Gate (1h4): Show-Modi nur
+     aus STANDING, **`none` immer**. Käme es in `_STANDING_ONLY_PARAMS`, würde auch `none` im
+     BODY_POSE abgelehnt → die App säße in der Show fest.
+  2. **`dz` und `pitch` konkurrieren** (Femur-Wand ±1.57): pitch 15° erlaubt nur dz 10 mm.
+     Wer eine Achse erhöht, muss die andere prüfen (das Gesten-Gate im Tool zeigt es).
+  3. **Fuß-Snapshot beim Eintritt** — nicht auf `_compute_standing_targets` pro Tick umbauen, sonst
+     wandern die Füße bei aktivem Adaptive Stand (S4-7) während der Show.
+  4. **Konform-Zustand über die Show erhalten:** der STANDING-Reset in `compute_joint_angles`
+     überspringt `_prev_state == BODY_POSE` (die Füße standen ja fix) — sonst Ruck beim Verlassen.
+  5. **Aus der Show darf kein IKError entstehen** (Greedy-Clamp + Notausgang). Wer den Pfad ändert:
+     `test_body_pose.test_no_ikerror_escapes_body_pose` muss grün bleiben — sonst freezt eine Show.
+  6. **Rotations-Reihenfolge** `R = Rz·Ry·Rx`; die Inverse ist `Rx(−roll)·Ry(−pitch)·Rz(−yaw)`,
+     **nicht** `rotate_xy(p, −roll, −pitch)`. Engine und Envelope-Tool müssen identisch bleiben.
+  7. **cmd_vel-Guard**: `STATE_BODY_POSE` steht in der `set_command`-Ignore-Liste (jeder neue State
+     muss dort hinein).
+  8. **`show_mode` gehört NICHT ins `hmi_config_manifest.yaml`** — die Auswahl lebt im **Show-Menü**
+     der App, nicht im Config-Panel (`test_hmi_status.test_show_mode_not_in_config_panel` pinnt das).
+- **Validieren:** `colcon test --packages-select hexapod_gait hexapod_teleop hexapod_supervisor`
+  (`test_body_pose`, `test_body_pose_node`, `test_joy_to_twist`, `test_hmi_status`) + Lint ·
+  **Offline** `tools/look_around_envelope_check.py` · **Sim** + **HW** nach
+  `phase_8_look_around_test_commands.md`.
+
 ### IMU-Balance / Leveling / Kipp-Erkennung (A5) ändern
 - **Voll-Doku:** [`../project_finalization/imu_balance/`](../project_finalization/imu_balance/00_imu_balance_plan.md)
   (Master-Plan + Stufen-Pläne + `imu_balance_progress.md` Done-Vertrag + Self-Reviews).

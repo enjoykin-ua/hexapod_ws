@@ -148,6 +148,20 @@ class JoyToTwist(Node):
         # später eine neue, stabile Show-Pose daraus bauen).
         self.declare_parameter('show_enabled', False)
 
+        # --- Body-Pose / Show „Look-Around" (Block I Phase 8) ---
+        # Eigene Naht (/cmd_body_pose), unabhängig von der B4-Show oben: rechter
+        # Stick = umschauen (pitch/yaw), linker Stick = wandern (dx/dy),
+        # R2−L2 = Höhe (dz). R1-Dead-Man wie cmd_vel. Der Teleop bleibt
+        # ZUSTANDSLOS (kennt den Engine-State nicht, C §0) und publisht immer —
+        # der gait_node wertet es NUR im BODY_POSE aus. Kein eigener Enable-
+        # Schalter: in die Show kommt man ausschließlich über den gait_node-Param
+        # `show_mode`, den nur die App setzen kann (Controller publishen nur /joy).
+        # Vorzeichen: Stick hoch = Kamera hoch (pitch negativ, REP-103: +pitch =
+        # Nase runter) und = Körper nach vorne. In Sim verifizieren, dann fix.
+        self.declare_parameter('sign_body_pose_pitch', -1.0)
+        self.declare_parameter('sign_body_pose_yaw', 1.0)
+        self.declare_parameter('sign_body_pose_z', 1.0)
+
         g = self.get_parameter
         self._axis_lx = int(g('axis_lx').value)
         self._axis_ly = int(g('axis_ly').value)
@@ -184,6 +198,10 @@ class JoyToTwist(Node):
         self._sign_show_vert = float(g('sign_show_vert').value)
         self._sign_show_radial = float(g('sign_show_radial').value)
         self._show_enabled = bool(g('show_enabled').value)
+        # Body-Pose (Phase 8).
+        self._sign_body_pose_pitch = float(g('sign_body_pose_pitch').value)
+        self._sign_body_pose_yaw = float(g('sign_body_pose_yaw').value)
+        self._sign_body_pose_z = float(g('sign_body_pose_z').value)
 
         self._target_body_height = float(g('body_height_init').value)
 
@@ -205,6 +223,11 @@ class JoyToTwist(Node):
         # Block B4 — /cmd_show: 4 Stick-Werte für die Vorderbeine (SHOW_ACTIVE).
         self._cmd_show_pub = self.create_publisher(
             Float64MultiArray, '/cmd_show', 10
+        )
+        # Block I Phase 8 — /cmd_body_pose: 6 normierte Körper-DOF für die Show
+        # „Look-Around" (gait_node nutzt sie nur im BODY_POSE).
+        self._cmd_body_pose_pub = self.create_publisher(
+            Float64MultiArray, '/cmd_body_pose', 10
         )
         # Block I Phase 5 — aktives Tempo-Preset fürs App-Overlay (JSON, latched
         # → ein spät verbindender App-Subscriber bekommt sofort den Ist-Wert).
@@ -398,6 +421,42 @@ class JoyToTwist(Node):
         arr.data = [l6_lat, l6_vert, l6_radial, l1_lat, l1_vert, l1_radial]
         return arr
 
+    def _body_pose_from_joy(self, msg: Joy) -> Float64MultiArray:
+        """
+        Sticks/Trigger → ``/cmd_body_pose`` in [-1, 1] (Block I Phase 8).
+
+        Reihenfolge ``[dx, dy, dz, roll, pitch, yaw]``:
+        - rechter Stick Y (``axis_ry``) → **pitch** (Kamera hoch/runter)
+        - rechter Stick X (``axis_rx``) → **yaw** (Kamera links/rechts)
+        - linker Stick Y (``axis_ly``) → **dx** (vor/zurück wandern)
+        - linker Stick X (``axis_lx``) → **dy** (seitwärts wandern)
+        - ``R2 − L2`` (Druck-Anteile) → **dz** (Höhe hoch/runter)
+        - **roll = 0** (v1 nicht belegt, Slot für „Dancing" reserviert)
+
+        Per R1-Dead-Man gegated (= alle 0 wenn nicht gehalten), wie ``cmd_vel``:
+        Loslassen → der gait_node lässt den Körper in die Ausgangs-Pose
+        zurückfedern. Der gait_node skaliert auf Meter/Radiant und nutzt es NUR
+        im BODY_POSE-State — der Teleop bleibt zustandslos und publisht immer.
+        """
+        arr = Float64MultiArray()
+        if not self._button(msg, self._deadman_button):
+            arr.data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            return arr
+        dx = self._sign_ly * self._apply_deadzone(
+            self._axis(msg, self._axis_ly))
+        dy = self._sign_lx * self._apply_deadzone(
+            self._axis(msg, self._axis_lx))
+        dz = self._sign_body_pose_z * (
+            self._trigger_frac(msg, self._axis_r2)
+            - self._trigger_frac(msg, self._axis_l2)
+        )
+        pitch = self._sign_body_pose_pitch * self._apply_deadzone(
+            self._axis(msg, self._axis_ry))
+        yaw = self._sign_body_pose_yaw * self._apply_deadzone(
+            self._axis(msg, self._axis_rx))
+        arr.data = [dx, dy, dz, 0.0, pitch, yaw]
+        return arr
+
     def _rising_edge(self, idx: int, pressed: bool) -> bool:
         """Gib True genau beim Übergang nicht-gedrückt → gedrückt."""
         prev = self._btn_prev.get(idx, False)
@@ -434,6 +493,11 @@ class JoyToTwist(Node):
         self._cmd_vel_pub.publish(self._twist_from_joy(msg))
         if self._show_enabled:
             self._cmd_show_pub.publish(self._show_from_joy(msg))
+        # Block I Phase 8 — Körper-DOF für die Show „Look-Around". Immer
+        # publishen (beide Profile, zustandslos): wirkungslos, solange der
+        # gait_node nicht im BODY_POSE ist, und dorthin kommt man nur über den
+        # show_mode-Param — den kann ausschließlich die App setzen.
+        self._cmd_body_pose_pub.publish(self._body_pose_from_joy(msg))
 
         # 2) Stance-Modus cyclen (L2/R2 Edge, NUR ohne R1). Stage 1: ersetzt die
         # frühere stufenlose Höhe (die brach die Lauf-Envelope). L2 = tiefer,
