@@ -118,6 +118,16 @@ ros2 launch hexapod_bringup always_on.launch.py scene:=rubicon  # rough terrain 
 ```
 > `scene:=rubicon` loads a heightmap world — allow ~20–30 s for it to come up before standing.
 
+> **On the real robot (Pi):** same app flow, one command — but **`mode:=real`** (no Gazebo world):
+> ```bash
+> ros2 launch hexapod_bringup always_on.launch.py mode:=real
+> ```
+> The app then connects to the **Pi's IP** (phone hotspot, port 9090) and does **Start → Stand up →
+> drive**, exactly like in sim. **Robot on a stand** for the first run. One-time Pi prerequisites
+> (app / video / audio layer, not needed for the PS4-only locomotion): `sudo apt install
+> ros-jazzy-rosbridge-suite ros-jazzy-web-video-server mpg123`. Tip: run the launch inside `tmux`
+> so it survives an SSH drop.
+
 **B) Manual (PS4 / keyboard).** Each step in its own terminal (`source install/setup.bash` in each):
 
 **1 — Gazebo** (physics + the robot; empty world):

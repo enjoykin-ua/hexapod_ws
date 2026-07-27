@@ -105,7 +105,14 @@ def _setup(context, *args, **kwargs):
         # HW-Control (ohne Supervisor — der lebt in der Always-On-Schicht).
         ctrl = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(real_launch),
-            launch_arguments={'with_supervisor': 'false'}.items(),
+            # Block A5/I — die HW-IMU (BNO-055) MUSS im App-Bringup mitlaufen,
+            # sonst gibt es kein /imu/data → kein Body-Leveling/Tip trotz App-
+            # Reglern. real.launch.py hat enable_imu default false (opt-in), also
+            # hier explizit true (der Sensor ist verbaut + kalibriert).
+            launch_arguments={
+                'with_supervisor': 'false',
+                'enable_imu': 'true',
+            }.items(),
         )
         # gait erst nach gait_delay (controller_manager + JTCs müssen erst hoch).
         gait = TimerAction(
