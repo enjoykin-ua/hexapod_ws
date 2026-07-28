@@ -335,8 +335,15 @@
   `sudo` auf eine Passwort-Eingabe warten, die nie kommt. Setzt `/etc/sudoers.d/hexapod-shutdown`
   voraus (NOPASSWD nur für `shutdown`).
 - **Pi-System-Einstellungen gehören in `tools/provision_pi.sh`** (Schritt 10: sudoers, systemd-Unit,
-  `enable-linger`) — sonst sind sie nach einer SD-Neuinstallation weg. Das Skript ist idempotent,
-  ein erneuter Lauf meldet `[skip]`.
+  `enable-linger`, Start) — sonst sind sie nach einer SD-Neuinstallation weg. Das Skript ist
+  idempotent, ein erneuter Lauf meldet `[skip]`. ⚠️ **Es braucht einen gebauten + gesourcten
+  Workspace** — die Unit-Vorlage kommt aus `$(ros2 pkg prefix hexapod_bringup)/share/…/systemd/`;
+  fehlt sie, steigt Schritt 10 **vor** `enable` und `enable-linger` aus (Signatur des Fehlers:
+  `Unit … could not be found` **zusammen mit** `Linger=no`). Der **Self-Check am Skript-Ende**
+  (Schritt 11, `verify_field_autonomy`) macht genau das sichtbar: Poweroff-Recht (cache-frei mit
+  `sudo -k` — ohne das winkt der sudo-Timestamp jeden Test durch), Dienst enabled+active, Linger,
+  `pi_hostname == hostname`. Den Dienst startet das Skript mit, **außer** Port 9090 ist bereits
+  belegt (manuell gestartete Always-On-Schicht → kein Doppelstart).
 - **Der App-HW-Bringup lädt `hw_terrain.yaml`** (`bringup_ondemand.launch.py`, real-Zweig): Balance
   (`leveling_mode: auto`), Tip/Slope, alle S4-Fußkontakt-Features und der Comms-Loss-Fail-safe
   (25 s) sind ab Stack-Start aktiv. **Falle:** `params_file` **überschreibt** die Inline-Launch-Args

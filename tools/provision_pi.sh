@@ -376,6 +376,23 @@ provision_always_on_service() {
         c_ok "Dienst enabled (startet beim Boot)"
     fi
 
+    # Starten — aber NICHT blind 'enable --now': laeuft die Always-On-Schicht
+    # gerade manuell (ros2 launch ... always_on.launch.py), kollidieren zwei
+    # rosbridge auf Port 9090 und zwei bringup_launcher auf denselben
+    # Service-Namen. Deshalb erst pruefen, dann starten.
+    # Der Port ist die eigentliche Kollisionsbedingung — praeziser als ein
+    # Prozessnamen-Match (das haette auch auf einen Editor/grep mit dem String
+    # in der Kommandozeile angeschlagen).
+    if systemctl --user is-active --quiet "${unit}"; then
+        c_skip "Dienst laeuft bereits (active)"
+    elif ss -ltn 2>/dev/null | grep -q ':9090[[:space:]]'; then
+        c_warn "Port 9090 ist belegt — die Always-On-Schicht laeuft schon (manuell gestartet?). Dienst NICHT gestartet"
+        c_manual "Doppelstart vermeiden: den manuellen Start beenden, dann 'systemctl --user start ${unit}' (oder rebooten)."
+    else
+        systemctl --user start "${unit}"
+        c_ok "Dienst gestartet (active)"
+    fi
+
     # Linger: ohne das startet eine User-Unit erst beim ersten LOGIN — also im
     # headless Feld-Betrieb nie.
     if loginctl show-user "${USER}" 2>/dev/null | grep -q '^Linger=yes'; then
@@ -400,6 +417,100 @@ provision_oled() {
     # TODO (D4): I2C aktivieren (SSD1306 @ 0x3C ueber EKM002-QWIIC),
     #   pip-Deps luma.oled (venv). Der Shutdown-Schalter laeuft bereits ueber
     #   den Servo2040 (GET_INPUTS -> Plugin -> /hexapod/shutdown_request).
+}
+
+# ---------------------------------------------------------------------------
+# 11. Self-Check Feld-Autonomie (Block I Phase 9)
+#
+#     Laeuft als LETZTER Block, bewusst nach der Manuell-Liste: beim ersten
+#     echten Lauf am Pi ging die einzelne '[warn] Unit-Vorlage nicht gefunden'-
+#     Zeile in der langen Ausgabe unter — sichtbar wurde der Fehler erst, als
+#     der Dienst spaeter schlicht nicht existierte. Eine Ampel am Schluss
+#     kostet nichts und beantwortet die einzige Frage, die zaehlt:
+#     "kann ich damit ins Feld?"
+#
+#     Geprueft werden die vier Dinge, die den Feld-Zyklus tragen:
+#       1. sudoers      -> ohne ihn faehrt der Pi nicht herunter
+#       2. Unit         -> ohne sie kein rosbridge ab Boot (die App findet nichts)
+#       3. Linger       -> ohne ihn startet eine User-Unit ohne Login nie
+#       4. Host-Guard   -> pi_hostname != hostname => 'host-mismatch', der
+#                          Poweroff feuert NIE (genau der Phase-9-Ausgangsbefund)
+#     Alles read-only ausser 'sudo -k' (verwirft nur den Timestamp-Cache).
+# ---------------------------------------------------------------------------
+verify_field_autonomy() {
+    local unit="hexapod_always_on.service"
+    local failed=0
+    local shutdown_bin
+    shutdown_bin="$(command -v shutdown || echo /usr/sbin/shutdown)"
+
+    echo ""
+    echo "============================================================"
+    printf '\033[1;36mSELF-CHECK Feld-Autonomie (Phase 9)\033[0m\n'
+    echo "============================================================"
+
+    # 1. Poweroff-Recht. 'sudo -k' ist Pflicht: der Timestamp-Cache (~15 min)
+    #    winkt JEDEN 'sudo -n' durch, auch wenn der sudoers-Eintrag fehlt — der
+    #    shutdown_supervisor hat diesen Cache spaeter nicht.
+    sudo -k
+    if sudo -n "${shutdown_bin}" --help > /dev/null 2>&1; then
+        c_ok "Poweroff: '${shutdown_bin}' laeuft passwortlos (sudoers greift)"
+    else
+        c_warn "Poweroff: 'sudo -n ${shutdown_bin}' scheitert -> der Pi wuerde NICHT herunterfahren"
+        echo "         Fix: sudo visudo -f /etc/sudoers.d/hexapod-shutdown"
+        echo "              ${USER} ALL=(root) NOPASSWD: ${shutdown_bin}"
+        failed=1
+    fi
+
+    # 2. Always-On-Dienst: enabled (ab Boot) UND aktiv (jetzt).
+    if systemctl --user is-enabled --quiet "${unit}" 2>/dev/null; then
+        if systemctl --user is-active --quiet "${unit}"; then
+            c_ok "Always-On-Dienst: enabled + active"
+        else
+            c_warn "Always-On-Dienst: enabled, laeuft aber nicht"
+            echo "         Fix: systemctl --user start ${unit}   (oder rebooten)"
+            failed=1
+        fi
+    else
+        c_warn "Always-On-Dienst: nicht enabled -> ab Boot kein rosbridge, die App findet nichts"
+        echo "         Ursache meist: Unit-Vorlage fehlt (Workspace nicht gebaut/gesourced)."
+        echo "         Fix: colcon build --symlink-install && source install/setup.bash && ${0}"
+        failed=1
+    fi
+
+    # 3. Linger: ohne ihn startet die User-Unit erst beim ersten LOGIN.
+    if loginctl show-user "${USER}" 2>/dev/null | grep -q '^Linger=yes'; then
+        c_ok "Linger: aktiv (User-Dienst startet ohne Login)"
+    else
+        c_warn "Linger: inaktiv -> im headless Feld-Betrieb startet der Dienst nie"
+        echo "         Fix: sudo loginctl enable-linger ${USER}"
+        failed=1
+    fi
+
+    # 4. Host-Guard: der dritte Guard in os_shutdown.guarded_shutdown.
+    local cfg="${WS_DIR}/src/hexapod_supervisor/config/supervisor.yaml"
+    local host_now cfg_host
+    host_now="$(hostname)"
+    if [[ -f "${cfg}" ]]; then
+        cfg_host="$(grep -m1 -E '^[[:space:]]*pi_hostname:' "${cfg}" | tr -d " '\"" | cut -d: -f2)" || true
+        if [[ -n "${cfg_host}" && "${cfg_host}" == "${host_now}" ]]; then
+            c_ok "Host-Guard: pi_hostname '${cfg_host}' == hostname"
+        else
+            c_warn "Host-Guard: pi_hostname '${cfg_host:-<leer>}' != hostname '${host_now}' -> 'host-mismatch', der Poweroff feuert NIE"
+            echo "         Fix: pi_hostname in supervisor.yaml UND launcher.real.yaml auf '${host_now}' setzen (beide!)."
+            failed=1
+        fi
+    else
+        c_skip "Host-Guard: ${cfg} nicht gefunden (Workspace nicht ausgecheckt?)"
+    fi
+
+    echo ""
+    if [[ ${failed} -eq 0 ]]; then
+        c_ok "FELD-BEREIT: Pi einschalten -> App verbinden -> fahren -> per Schalter ODER App herunterfahren."
+    else
+        c_warn "NICHT feld-bereit — siehe die [warn]-Zeilen oben."
+        echo "       Details: project_finalization/app_control_requirements/phase_9_field_autonomy_test_commands.md"
+    fi
+    c_info "Der Self-Check hat den sudo-Timestamp verworfen — der naechste sudo-Aufruf fragt wieder nach dem Passwort."
 }
 
 # ---------------------------------------------------------------------------
@@ -462,6 +573,9 @@ main() {
     echo "  rosdep install --from-paths src --ignore-src -r -y --skip-keys \"ros_gz_sim ros_gz_bridge\""
     echo "  colcon build --symlink-install"
     echo "  source install/setup.bash"
+
+    # Ganz zum Schluss, damit die Ampel das Letzte auf dem Terminal ist.
+    verify_field_autonomy
 }
 
 main "$@"

@@ -99,12 +99,24 @@ pi ALL=(root) NOPASSWD: /usr/sbin/shutdown
 > `visudo` prüft die Syntax vor dem Speichern — deshalb **nicht** mit `echo >` oder einem Editor
 > direkt schreiben: ein kaputtes sudoers-File sperrt dich aus.
 
-Prüfen:
+Prüfen — **`sudo -k` ist Pflicht, sonst ist der Test falsch-positiv:**
 ```bash
-sudo -n true; echo "exit=$?"                    # erwartet exit=0 (kein Passwort mehr noetig)
-sudo -n shutdown --help >/dev/null; echo "exit=$?"   # erwartet exit=0
+sudo -k                                              # sudo-Timestamp verwerfen
+sudo -n shutdown --help >/dev/null; echo "exit=$?"   # MUSS exit=0 sein  <- der belastbare Nachweis
+sudo -n true; echo "exit=$?"                         # 0 ODER 1 — beides ok, siehe unten
 ```
-**✅ Erwartung:** beide `exit=0`. (Der zweite Befehl fährt **nichts** herunter, er ruft nur die Hilfe.)
+**✅ Erwartung:** die **erste** Zeile `exit=0`. (Der Befehl fährt **nichts** herunter, er ruft nur die
+Hilfe.)
+
+> ⚠️ **Warum `sudo -k`:** direkt nach `sudo visudo` ist der sudo-Timestamp-Cache frisch (~15 min) —
+> dann liefert **jeder** `sudo -n`-Aufruf `exit=0`, auch wenn der sudoers-Eintrag gar nicht greift.
+> Der Dienst später hat diesen Cache **nicht**. `sudo -k` verwirft ihn und stellt genau die
+> Situation her, in der `shutdown_supervisor` den Poweroff aufruft.
+>
+> ℹ️ **`sudo -n true` darf hier `exit=1` liefern** — das ist sogar das *erwartete* Ergebnis eines eng
+> gefassten Eintrags (`NOPASSWD` nur für `/usr/sbin/shutdown`, [D-Feld-2]). Liefert es `exit=0`,
+> hat der User zusätzlich ein breites NOPASSWD-Recht (Pi-Image-Default) — unschädlich, aber dann sagt
+> diese Zeile nichts über unseren Eintrag aus. Entscheidend ist **nur** die `shutdown --help`-Zeile.
 
 ### 2.3 Guard-Werte im laufenden System prüfen (▶ Pi)
 ```bash
@@ -148,9 +160,13 @@ ssh hexapod-pi 'echo alive'      # ✅ MUSS jetzt fehlschlagen (Pi ist aus)
 ```bash
 ssh hexapod-pi
 cd ~/hexapod_ws
+git pull                                   # holt die provision_pi.sh-Politur (Start + Self-Check)
 source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
 ./tools/provision_pi.sh
 ```
+> ⚠️ **Das `source` ist nicht optional:** das Skript findet die Unit-Vorlage über
+> `ros2 pkg prefix hexapod_bringup`. Ohne gesourcten Workspace steigt Schritt 10 aus (Diagnose:
+> §3.1a). `tools/` wird nicht gebaut — nach dem `git pull` ist **kein** `colcon build` nötig.
 > Das Skript ist **idempotent** — es macht nur, was fehlt (apt-Schritte melden „skip"). Am Ende
 > richtet Schritt 10 den sudoers-Eintrag (falls §2.2 noch nicht erledigt), die systemd-Unit und
 > `enable-linger` ein und listet die manuellen Nachträge auf.
@@ -173,6 +189,86 @@ ros2 node list                                      # -> rosbridge_websocket, br
 ```
 **✅ Erwartung:** `active (running)`, `Linger=yes`, die vier Always-On-Nodes sind da — **ohne** dass
 du etwas manuell gestartet hast.
+
+> ℹ️ **Das Skript startet den Dienst jetzt selbst** (`enable` + `start`, nicht blind `enable --now`):
+> läuft die Always-On-Schicht schon — erkennbar an **belegtem Port 9090**, typisch nach einem
+> manuellen `always_on.launch.py` — startet es den Dienst **nicht**, sondern warnt (zwei rosbridge
+> auf 9090 würden kollidieren). Dann erst den manuellen Start beenden und
+> `systemctl --user start hexapod_always_on` nachziehen.
+>
+> ℹ️ **Am Ende des Skript-Laufs steht ein Self-Check** („SELF-CHECK Feld-Autonomie") mit vier
+> Ampel-Zeilen: Poweroff-Recht (mit `sudo -k`, also cache-frei), Dienst enabled+active, Linger,
+> und `pi_hostname == hostname`. Schlusszeile `FELD-BEREIT` = alles grün. **Das ersetzt den
+> Prüfblock oben nicht** (`ros2 node list` zeigt zusätzlich, dass die vier Nodes wirklich da sind),
+> macht aber sofort sichtbar, wenn ein Schritt still ausgestiegen ist.
+
+### 3.1a Diagnose: `Unit … could not be found` / `Linger=no` (▶ Pi)
+
+> **Symptom:** `systemctl --user status hexapod_always_on` meldet
+> `Unit hexapod_always_on.service could not be found.` **und** `Linger=no`.
+>
+> **Was das bedeutet:** genau dieser Doppel-Befund ist die Signatur des Früh-Ausstiegs in
+> `provision_always_on_service()` — findet das Skript die **Unit-Vorlage** nicht
+> (`$(ros2 pkg prefix hexapod_bringup)/share/hexapod_bringup/systemd/hexapod_always_on.service`),
+> steigt es mit `[warn] Unit-Vorlage nicht gefunden` **vor** `enable` und **vor** `enable-linger`
+> aus. Deshalb fehlt beides gleichzeitig. Der sudoers-Schritt davor ist davon unberührt.
+
+> ⚠️ **Zweite mögliche Ursache — das Skript kam nie bis Schritt 10.** `provision_pi.sh` läuft mit
+> `set -euo pipefail`: schlägt irgendein früherer Schritt fehl (apt, ROS-Repo, rosdep), bricht es
+> **sofort** ab — dann fehlt zusätzlich der sudoers-Eintrag. Unterscheidungsmerkmal ist die
+> Schlusszeile `[ok] Automatisierte Provisionierung abgeschlossen.` samt der Liste
+> „MANUELLE SCHRITTE". Fehlt sie, ist das Skript unterwegs gestorben (Befehl (0) unten zeigt es).
+
+```bash
+ssh hexapod-pi
+cd ~/hexapod_ws
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+
+# (0) Kam das Skript ueberhaupt bis Schritt 10? sudoers ist der Schritt DAVOR:
+sudo -n true; echo "sudo_nopasswd_exit=$?"     # 0 = Schritt 10a lief, 1 = Skript starb vorher
+sudo test -f /etc/sudoers.d/hexapod-shutdown; echo "sudoers_file_exit=$?"
+
+# (1) Kennt ROS das Paket, und liegt die Unit-Vorlage im installierten share/?
+ros2 pkg prefix hexapod_bringup
+ls -l "$(ros2 pkg prefix hexapod_bringup)/share/hexapod_bringup/systemd/"
+
+# (2) Ist im User-Unit-Verzeichnis etwas angekommen?
+ls -la ~/.config/systemd/user/
+
+# (3) Wurde das Paket ueberhaupt gebaut?
+ls -ld ~/hexapod_ws/install/hexapod_bringup
+```
+
+**Auswertung — Fall (0) zuerst:** beide `exit=1` **und** keine Abschluss-Zeile in der Skript-Ausgabe
+→ das Skript ist vor Schritt 10 gestorben. Dann **nicht** raten, sondern es erneut laufen lassen und
+die **vollständige** Ausgabe sichern:
+```bash
+./tools/provision_pi.sh 2>&1 | tee ~/provision_run.log
+```
+(Die Fehlerzeile steht am Ende von `~/provision_run.log`.)
+
+**Auswertung (1)–(3) — drei Fälle:**
+
+| Ausgabe | Ursache | Fix |
+|---|---|---|
+| (1) liefert Pfad **und** die `.service`-Datei ist da | Das Skript lief in einer Shell **ohne** `source install/setup.bash` → `ros2 pkg prefix` war leer | In **dieser** (gesourcten) Shell `./tools/provision_pi.sh` erneut aufrufen — es ist idempotent |
+| (1) leer / (3) fehlt | `hexapod_bringup` ist am Pi **nicht gebaut** | `colcon build --symlink-install --packages-select hexapod_bringup`, dann `source ~/hexapod_ws/install/setup.bash`, dann Skript erneut |
+| Paket da, aber `systemd/`-Verzeichnis fehlt im `share/` | Build ist **älter** als die Install-Regel (`install(DIRECTORY launch config systemd …)` in der `CMakeLists.txt`) | dasselbe: `hexapod_bringup` neu bauen, sourcen, Skript erneut |
+
+Nach dem Fix nochmal prüfen (Block aus §3.1). Wenn der Skript-Weg lief, zusätzlich starten:
+```bash
+systemctl --user start hexapod_always_on
+systemctl --user status hexapod_always_on --no-pager
+loginctl show-user "$USER" | grep -i Linger
+ros2 node list
+```
+**✅ Erwartung:** `active (running)`, `Linger=yes`, vier Nodes (`rosbridge_websocket`,
+`bringup_launcher`, `shutdown_supervisor`, `hmi_status`).
+
+> **Falls du stattdessen den manuellen Drei-Schritt-Weg genommen hast:** dort scheitert dasselbe
+> Problem am `cp` (`ros2 pkg prefix` leer → Quellpfad beginnt mit `/share/…`). Die Fehlermeldung
+> steht dann in der `cp`-Zeile; `enable --now` meldet danach ebenfalls „does not exist". Gleiche
+> Fixe wie oben, dann den Drei-Schritt-Block wiederholen.
 
 ### 3.2 Der eigentliche Test: Reboot ohne SSH (T9.4, ▶ Pi)
 ```bash

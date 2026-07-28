@@ -15,9 +15,9 @@
 ```
 Phase 9 (Feld-Autonomie):
 - [x] P9.1 [ROS] pi_hostname: 'hexapod-pi' in supervisor.yaml + launcher.real.yaml; shutdown_command auf 'sudo -n shutdown -h now' (T9.1/T9.2)
-- [ ] P9.2 [Pi] sudoers-Eintrag /etc/sudoers.d/hexapod-shutdown via visudo (NOPASSWD nur fuer shutdown)
+- [x] P9.2 [Pi] sudoers-Eintrag /etc/sudoers.d/hexapod-shutdown via visudo (NOPASSWD nur fuer shutdown)
 - [ ] P9.3 [Pi] systemd-User-Unit installiert + enable --now + enable-linger; Reboot-Test ohne SSH (T9.4)
-- [ ] P9.4 [Pi] Schalter-Shutdown faehrt den Pi wirklich herunter (T9.5)
+- [x] P9.4 [Pi] Schalter-Shutdown faehrt den Pi wirklich herunter (T9.5)
 - [x] P9.5 [ROS] provision_pi.sh: Platzhalter-Block 10 durch Autonomie-Block ersetzt (sudoers + Unit + linger, idempotent) (T9.11)
 - [x] P9.6 [ROS] Deploy-Regeln dokumentiert (Doppelstart, wann systemctl restart noetig) in ai_navigation + dev_workflow (T9.8)
 - [ ] P9.7 [App] Button "Pi herunterfahren" in der Verbinden-Sicht (mit Bestaetigung) -> /hexapod_pi_shutdown (T9.6)
@@ -40,6 +40,24 @@ Phase 9 (Feld-Autonomie):
   Klartext-Grund inkl. Ausweg; `recover` bleibt erreichbar; danach greift `sit_down` wieder
   (`sitting down (Rest, powered)`, Roboter endet auf dem Bauch). Die `service not available`-Logs
   für `safety_freeze`/`safety_reset` sind der erwartete Sim-Skip (Plugin-Services, nur HW).
+
+**Pi-Abnahme (am Roboter) erledigt:**
+- **P9.2** ✅ sudoers-Eintrag greift — nach `sudo -k` (Cache verworfen) liefert
+  `sudo -n shutdown --help` `exit=0`, `sudo -n true` dagegen `sudo: a password is required` /
+  `exit=1`. Damit ist belegt: passwortlos **nur** `/usr/sbin/shutdown`, kein breites NOPASSWD
+  ([D-Feld-2] wie entworfen). `command -v shutdown` = `/usr/sbin/shutdown` (Pfad wie im Plan §4.3
+  erwartet).
+
+- **§2.3** ✅ Guard-Werte am Pi verifiziert: `pi_hostname: 'hexapod-pi'` +
+  `shutdown_command: 'sudo -n shutdown -h now'` in **beiden** Configs (`supervisor.yaml` Z. 17/22,
+  `launcher.real.yaml` Z. 19/22), Master-Arm `enable_os_shutdown: true` in beiden, und `hostname`
+  liefert exakt `hexapod-pi`. Damit sind alle drei Guards des Schalter-Pfads scharf — offen ist nur
+  noch der Live-Nachweis (T9.5).
+
+- **P9.4 / T9.5** ✅ **Der Schalter fährt den Pi wirklich herunter** — Kette am Roboter komplett
+  durchgelaufen (Hinsetzen → Relay → Poweroff), der Pi war anschließend aus. Damit ist der
+  Block-A-Befund aus Plan §0 behoben: vorher endete die Kette nach dem Relay-Aus (`host-mismatch`),
+  der Pi lief weiter und wurde am Hauptschalter hart getrennt (SD-Karten-Risiko).
 
 **App-Seite gemeldet fertig** (P9.7/P9.8): beide Buttons in der Verbinden-Sicht verdrahtet,
 `interpretShutdown` trennt SHUTTING_DOWN / NOT_PERFORMED / FAILED, Restart-Sequenz mit
@@ -107,6 +125,9 @@ läuft über den Servo2040).
 | 15 | **Abgelehnter Shutdown darf nicht nachwirken** (`_relay_off_after_sat` würde sonst beim nächsten SAT feuern) | Detail beim Fix | **OK**: Reject **vor** dem Setzen des Flags, Test `test_sitdown_does_not_arm_relay_off_while_frozen` |
 | 16 | **`performed=…` ist jetzt Vertragstext** (die App parst den Substring) — eine „harmlose" Log-Umformulierung würde die App brechen | neue Kopplung | **OK (dokumentiert)**: im Contract §2a als stabiler Marker festgeschrieben (v0.13.2) |
 | 17 | **Die App verlässt sich jetzt auf `status.safety_frozen`** als primäres Freeze-Signal (besser als Text-Parsing) — es gab aber **keinen Test**, der garantiert, dass das Feld während des Freeze weiterhin gepublisht wird | echter Fund (App-Nachtrag) | 🔴→**OK**: 3 Tests in `test_frozen_guards.py` (Feld ist true im Freeze · Status-Timer läuft trotz gegatetem Tick weiter · nach `recover` wieder false) + Garantie im Contract §6a |
+| 20 | **Grenzen des neuen Self-Checks** — er prüft `systemctl is-active`, **nicht** ob die vier Always-On-Nodes wirklich laufen (ein aktiver Dienst mit gecrashtem rosbridge wäre grün); und er liest nur `supervisor.yaml`, nicht `launcher.real.yaml` (der App-Pfad) | bewusst | **OK (dokumentiert)**: `ros2 node list` bleibt im Test-Doc-Prüfblock (bräuchte im Skript ein gesourctes ROS-Env + Wartezeit); die Config-Gleichheit pinnt `test_shutdown_config_pinned.py` im Repo, und lokale Pi-Edits sind per [D-Feld-1] ohnehin ausgeschlossen |
+| 21 | **Skript-Änderung am Desktop nicht ausführbar getestet** (Architektur-Guard blockt x86, und `sudo`/`shutdown` auf dem Dev-Host sind tabu) | Verifikations-Lücke | **OK, bewusst**: verifiziert wurden `bash -n`, die `pi_hostname`-Extraktion gegen die echte YAML (Treffer/leer/fehlend), alle Fehlerzweige unter `set -euo pipefail` (kein Abbruch) und der Port-Check gegen einen echten Listener auf 9090 (erkannt / nach dem Schließen korrekt nicht erkannt). **Der Live-Beleg ist der §3.1-Lauf am Pi** |
+| 19 | **§2.2-Prüfung war falsch-positiv möglich:** die beiden `sudo -n`-Checks liefen unmittelbar nach `sudo visudo` — der sudo-**Timestamp-Cache** (~15 min) lässt sie auch dann mit `exit=0` durchgehen, wenn der sudoers-Eintrag gar nicht greift. Der Dienst hat diesen Cache nicht → der Poweroff wäre erst in §2.4 aufgefallen, mit falscher Fährte | echter Fund (Pi-Live) | **OK**: Test-Doc §2.2 um `sudo -k` vor der Prüfung ergänzt + Klarstellung, dass `sudo -n true` bei eng gefasstem Eintrag korrekt `exit=1` liefert und nur die `shutdown --help`-Zeile zählt |
 | 18 | **Sim-Sicherheit belegt statt angenommen:** Dev-Hostname ist `enjoykin-ubutu` und steht in `DEV_HOSTS` → Hard-Block greift; zusätzlich `pi_hostname='hexapod-pi'` ≠ Dev-Host → Guard 3 blockt ebenfalls | verifiziert | **OK**: der Desktop kann sich auch bei App-Tests nicht abschalten (doppelt abgesichert) |
 
 ---
@@ -138,6 +159,22 @@ Test selbst entschärft.
   zusammen**. Konsequenz: die App fährt vor einem geplanten Restart erst `/hexapod_sit_down` (wenn
   der Stack noch antwortet) und stoppt erst danach; bei hängendem Stack hart stoppen **mit Warnung**.
   Steht im App-Brief §3.
+- 🔴 **Befund P9.3 (Pi-Live):** `systemctl --user status hexapod_always_on` meldete
+  `Unit … could not be found.` **zusammen mit** `Linger=no` — die Signatur des Früh-Ausstiegs in
+  `provision_always_on_service()` (Unit-Vorlage über `ros2 pkg prefix hexapod_bringup` nicht
+  gefunden → `return` **vor** `enable` und **vor** `enable-linger`). Diagnose + die drei Fix-Fälle
+  stehen in [§3.1a des Test-Docs](phase_9_field_autonomy_test_commands.md). Ursache am Pi noch zu
+  bestätigen (ungesourcte Shell vs. `hexapod_bringup` nicht gebaut).
+- 🟢 **`provision_pi.sh`-Politur erledigt** (User-Freigabe, zwei Punkte aus dem Pi-Lauf):
+  1. **Dienst wird jetzt auch gestartet** — `enable` + anschließend `start`, aber **nicht** blind
+     `enable --now`: ist Port 9090 belegt (Always-On läuft manuell), warnt das Skript und startet
+     **nicht** (zwei rosbridge würden kollidieren). Port-Check statt Prozessnamen-Match, weil der
+     Port die eigentliche Kollisionsbedingung ist.
+  2. **Self-Check am Skript-Ende** (`verify_field_autonomy`, bewusst als letzter Block nach der
+     Manuell-Liste): Poweroff-Recht **mit `sudo -k`** (cache-frei), Dienst enabled+active, Linger,
+     und `pi_hostname == hostname` — plus Schlusszeile `FELD-BEREIT` / `NICHT feld-bereit`.
+     **Anlass:** die `[warn] Unit-Vorlage nicht gefunden`-Zeile ging beim ersten Pi-Lauf in der
+     langen Ausgabe unter; der Fehler wurde erst beim manuellen Prüfen sichtbar.
 - 🟡 **`foot_contact_debug_enable`** im HW-Preset auf `false`, sobald die S4-Diagnose nicht mehr
   gebraucht wird (Self-Review #6).
 - 🟢 **Watchdog** für eine hängende Always-On-Schicht: bewusst vertagt (Plan §9 [D-Feld-4]) — sauber
