@@ -446,7 +446,8 @@ provision_oled() {
 # ---------------------------------------------------------------------------
 verify_field_autonomy() {
     local unit="hexapod_always_on.service"
-    local failed=0
+    local failed=0        # blockiert den Feld-Zyklus
+    local domain_warn=0   # nur Diagnose-Komfort (SSH/Desktop), kein Blocker
     local shutdown_bin
     shutdown_bin="$(command -v shutdown || echo /usr/sbin/shutdown)"
 
@@ -527,14 +528,23 @@ verify_field_autonomy() {
             echo "         Meist: Unit geaendert, aber alte Instanz laeuft noch."
             echo "         Fix: systemctl --user restart ${unit}"
             echo "         ACHTUNG: der Restart reisst einen laufenden schweren Stack mit (Relay faellt)."
-            failed=1
+            # KEIN failed=1: der Feld-Zyklus haengt nicht daran. Die App spricht
+            # rosbridge per WebSocket an, und der schwere Stack ist ein
+            # Subprozess des Dienstes — beide liegen in DERSELBEN Domain, welche
+            # auch immer das ist. Betroffen ist nur die Diagnose von aussen
+            # (SSH-Shell, Desktop-rviz). Das als "nicht feld-bereit" zu melden
+            # waere ein Fehlalarm — und Fehlalarme entwerten die Ampel.
+            domain_warn=1
         fi
     else
         c_skip "ROS-Domain: Dienst laeuft nicht -> nicht pruefbar"
     fi
 
     echo ""
-    if [[ ${failed} -eq 0 ]]; then
+    if [[ ${failed} -eq 0 && ${domain_warn} -eq 1 ]]; then
+        c_ok "FELD-BEREIT: Pi einschalten -> App verbinden -> fahren -> per Schalter ODER App herunterfahren."
+        c_warn "Aber: Diagnose von aussen eingeschraenkt (Domain-Zeile oben). Meist fehlt nur: systemctl --user restart ${unit}"
+    elif [[ ${failed} -eq 0 ]]; then
         c_ok "FELD-BEREIT: Pi einschalten -> App verbinden -> fahren -> per Schalter ODER App herunterfahren."
     else
         c_warn "NICHT feld-bereit — siehe die [warn]-Zeilen oben."

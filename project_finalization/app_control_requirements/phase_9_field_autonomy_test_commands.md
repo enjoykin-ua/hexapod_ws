@@ -409,6 +409,15 @@ ros2 node list
 Desktop den Roboter wieder. Wer mag, ruft `./tools/provision_pi.sh` noch einmal auf — der Self-Check
 muss dann `ROS-Domain: Dienst und Shell beide in Domain 42` melden.
 
+**✅ Am Pi verifiziert** — `ros2 node list` liefert die fünf Nodes ohne Präfix.
+
+> ℹ️ **Reihenfolge-Effekt im selben Lauf:** `provision_pi.sh` **aktualisiert** die Unit, startet den
+> Dienst aber bewusst nicht neu — der Self-Check am Ende sieht daher noch die **alte** Instanz und
+> meldet `ROS-Domain: Dienst=0, Shell=42`. Das ist korrekt und verschwindet nach dem
+> `systemctl --user restart`. Seit diesem Befund kippt die Domain-Zeile die Schluss-Ampel **nicht**
+> mehr auf „NICHT feld-bereit" (der Feld-Zyklus hängt nicht an der Domain), sondern hängt einen
+> Hinweis an „FELD-BEREIT" an.
+
 ### 3.2 Der eigentliche Test: Reboot ohne SSH (T9.4, ▶ Pi)
 ```bash
 sudo reboot

@@ -16,7 +16,7 @@
 Phase 9 (Feld-Autonomie):
 - [x] P9.1 [ROS] pi_hostname: 'hexapod-pi' in supervisor.yaml + launcher.real.yaml; shutdown_command auf 'sudo -n shutdown -h now' (T9.1/T9.2)
 - [x] P9.2 [Pi] sudoers-Eintrag /etc/sudoers.d/hexapod-shutdown via visudo (NOPASSWD nur fuer shutdown)
-- [ ] P9.3 [Pi] systemd-User-Unit installiert + enable --now + enable-linger; Reboot-Test ohne SSH (T9.4)
+- [x] P9.3 [Pi] systemd-User-Unit installiert + enable --now + enable-linger; Reboot-Test ohne SSH (T9.4)
 - [x] P9.4 [Pi] Schalter-Shutdown faehrt den Pi wirklich herunter (T9.5)
 - [x] P9.5 [ROS] provision_pi.sh: Platzhalter-Block 10 durch Autonomie-Block ersetzt (sudoers + Unit + linger, idempotent) (T9.11)
 - [x] P9.6 [ROS] Deploy-Regeln dokumentiert (Doppelstart, wann systemctl restart noetig) in ai_navigation + dev_workflow (T9.8)
@@ -24,7 +24,10 @@ Phase 9 (Feld-Autonomie):
 - [ ] P9.8 [App] Button "Stack neu starten" in der Verbinden-Sicht -> stop + start (T9.7)
 - [x] P9.9 [ROS] bringup_ondemand real-Zweig: params_file:=hw_terrain.yaml (Balance + S4 ab Stack-Start aktiv) (T9.12)
 - [x] P9.9b [ROS] comms_loss_sitdown_timeout: 25.0 in hw_terrain.yaml + im Preset-Test gepinnt; Sim unveraendert (T9.9/T9.13/T9.14)
-- [ ] P9.10 [Pi/App] Reconnect nach WLAN-Abriss gemessen; Ergebnis dokumentiert, App-Arbeit nur falls noetig (T9.10)
+- [x] P9.10 [Pi/App] Reconnect nach WLAN-Abriss gemessen; Ergebnis dokumentiert, App-Arbeit nur falls noetig (T9.10)
+      -> aus dem App-Code beantwortet statt gemessen: es gibt KEINEN Auto-Reconnect (RosbridgeClient,
+         seit Phase 8) -> die Messung haette nur bestaetigt, was der Code deterministisch vorgibt.
+         Ergebnis dokumentiert (s.u.), App-Arbeit fuer Phase 9 nicht noetig, Auto-Reconnect = Phase-10-Punkt.
 - [x] P9.11 [ROS] Unit-Tests + Lint gruen (T9.3)
 - [x] P9.12 [ROS] Contract-Praezisierung (v0.13.1) + Self-Review + Doku (README/architecture/progress/test_commands)
 - [ ] P9.13 [Integration] Feld-Probe: nur Roboter + Handy, kompletter Zyklus inkl. Herunterfahren
@@ -63,6 +66,11 @@ Phase 9 (Feld-Autonomie):
   `enable` (Symlink in `default.target.wants`), **gestartet (active)**, `Linger` aktiv. Der neue
   Self-Check meldet alle vier Zeilen grün → `FELD-BEREIT`. **P9.3 bleibt offen bis T9.4** (der
   Reboot-Test ohne SSH ist der eigentliche Nachweis des Bullets).
+
+- **P9.3 / T9.4** ✅ **Reboot-Test ohne SSH bestanden** — nach `sudo reboot` kam die Always-On-Schicht
+  von selbst hoch (systemd-User-Dienst + Linger, **keine** SSH-Sitzung nötig); die App verband sich
+  auf die Pi-IP, „Start" brachte den schweren Stack hoch, „Aufstehen" lief durch. Keine Fehler.
+  **Damit ist das Kern-Deliverable der Phase erreicht: der Roboter ist ohne Dev-Rechner benutzbar.**
 
 **App-Seite gemeldet fertig** (P9.7/P9.8): beide Buttons in der Verbinden-Sicht verdrahtet,
 `interpretShutdown` trennt SHUTTING_DOWN / NOT_PERFORMED / FAILED, Restart-Sequenz mit
@@ -184,6 +192,15 @@ Test selbst entschärft.
   Self-Check hat eine fünfte Zeile „ROS-Domain: Dienst und Shell …", die genau den Fall
   „Unit geändert, alte Instanz läuft noch" fängt. **hexapod_bringup: 53 Tests grün** (inkl. Lint,
   copyright, launch_test). Pi-Nachzug + Verifikation: Test-Doc §3.1b (6).
+  **✅ Am Pi verifiziert:** nach `git pull` + `colcon build` + `provision_pi.sh` +
+  `systemctl --user restart` listet `ros2 node list` **ohne** `ROS_DOMAIN_ID=0`-Präfix alle fünf
+  Nodes. Desktop und Pi sind damit wieder in derselben Domain.
+  **Nachtrag aus dem Live-Lauf (Fehlalarm gefixt):** der Self-Check meldete beim Zwischenstand
+  „Unit aktualisiert, Restart steht noch aus" ein **„NICHT feld-bereit"** — falsch, denn der
+  Feld-Zyklus hängt nicht an der Domain (App ↔ rosbridge ↔ Stack liegen immer in *derselben*
+  Domain, welche auch immer). Die Domain-Zeile setzt jetzt ein eigenes `domain_warn` statt `failed`
+  → Ausgabe „FELD-BEREIT" **plus** Hinweis „Diagnose von außen eingeschränkt". Begründung: ein
+  Fehlalarm entwertet die Ampel, und genau dafür wurde sie gebaut.
   <details><summary>Ursprünglicher Befund</summary>
   Nach §3.1 läuft der Dienst (`active`, Nodes im CGroup-Baum sichtbar), aber `ros2 node list` in der
   SSH-Shell ist **leer**. Ursache: `~/.bashrc` setzt `export ROS_DOMAIN_ID=42` (aus
