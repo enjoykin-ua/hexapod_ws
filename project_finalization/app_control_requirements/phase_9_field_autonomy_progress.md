@@ -59,6 +59,11 @@ Phase 9 (Feld-Autonomie):
   Block-A-Befund aus Plan §0 behoben: vorher endete die Kette nach dem Relay-Aus (`host-mismatch`),
   der Pi lief weiter und wurde am Hauptschalter hart getrennt (SD-Karten-Risiko).
 
+- **§3.1** ✅ Always-On-Dienst eingerichtet: Unit nach `~/.config/systemd/user/` installiert,
+  `enable` (Symlink in `default.target.wants`), **gestartet (active)**, `Linger` aktiv. Der neue
+  Self-Check meldet alle vier Zeilen grün → `FELD-BEREIT`. **P9.3 bleibt offen bis T9.4** (der
+  Reboot-Test ohne SSH ist der eigentliche Nachweis des Bullets).
+
 **App-Seite gemeldet fertig** (P9.7/P9.8): beide Buttons in der Verbinden-Sicht verdrahtet,
 `interpretShutdown` trennt SHUTTING_DOWN / NOT_PERFORMED / FAILED, Restart-Sequenz mit
 `show_mode=none` → `sit_down`-Retry (1 s) → Stop → 2 s → Start → 40 s auf den ersten
@@ -159,12 +164,49 @@ Test selbst entschärft.
   zusammen**. Konsequenz: die App fährt vor einem geplanten Restart erst `/hexapod_sit_down` (wenn
   der Stack noch antwortet) und stoppt erst danach; bei hängendem Stack hart stoppen **mit Warnung**.
   Steht im App-Brief §3.
-- 🔴 **Befund P9.3 (Pi-Live):** `systemctl --user status hexapod_always_on` meldete
-  `Unit … could not be found.` **zusammen mit** `Linger=no` — die Signatur des Früh-Ausstiegs in
-  `provision_always_on_service()` (Unit-Vorlage über `ros2 pkg prefix hexapod_bringup` nicht
-  gefunden → `return` **vor** `enable` und **vor** `enable-linger`). Diagnose + die drei Fix-Fälle
-  stehen in [§3.1a des Test-Docs](phase_9_field_autonomy_test_commands.md). Ursache am Pi noch zu
-  bestätigen (ungesourcte Shell vs. `hexapod_bringup` nicht gebaut).
+- 🟢 **Befund P9.3 (Pi-Live) — Ursache bestätigt und behoben:** `systemctl --user status
+  hexapod_always_on` meldete `Unit … could not be found.` **zusammen mit** `Linger=no` — die
+  Signatur des Früh-Ausstiegs in `provision_always_on_service()` (Unit-Vorlage über
+  `ros2 pkg prefix hexapod_bringup` nicht gefunden → `return` **vor** `enable` und **vor**
+  `enable-linger`). **Ursache:** §3 wurde vor §2 gefahren, der Workspace am Pi war nicht auf dem
+  neuen Stand gebaut → die Vorlage lag nicht im installierten `share/`. Nach `git pull` +
+  vollständigem `colcon build` lief das Skript durch (Unit installiert, enabled, gestartet, Linger).
+  **Lehre:** die Reihenfolge §2 → §3 im Test-Doc ist keine Bequemlichkeit — §3 setzt den Build aus
+  §2.1 voraus. Diagnose bleibt als [§3.1a](phase_9_field_autonomy_test_commands.md) stehen.
+- 🟢 **Behoben (Option A, User-Freigabe): `ROS_DOMAIN_ID`-Mismatch zwischen Dienst und Shell.**
+  `hexapod_always_on.service` setzt jetzt `Environment="ROS_DOMAIN_ID=42"
+  "RMW_IMPLEMENTATION=rmw_fastrtps_cpp"` (mit Begründung im Datei-Kommentar), neuer Pin-Test
+  `hexapod_bringup/test/test_always_on_unit_pinned.py` (4 Tests: Variablen vorhanden · Wert
+  **identisch** mit `provision_bashrc` · Domain numerisch/in Range · ExecStart unverändert) —
+  angebunden über `ament_add_pytest_test` + `ament_cmake_pytest`-test_depend. Zusätzlich:
+  `provision_pi.sh` weist nach einer Unit-Änderung auf den nötigen `systemctl --user restart` hin
+  (**kein** Auto-Restart — der reißt einen laufenden schweren Stack mit, Relay fällt), und der
+  Self-Check hat eine fünfte Zeile „ROS-Domain: Dienst und Shell …", die genau den Fall
+  „Unit geändert, alte Instanz läuft noch" fängt. **hexapod_bringup: 53 Tests grün** (inkl. Lint,
+  copyright, launch_test). Pi-Nachzug + Verifikation: Test-Doc §3.1b (6).
+  <details><summary>Ursprünglicher Befund</summary>
+  Nach §3.1 läuft der Dienst (`active`, Nodes im CGroup-Baum sichtbar), aber `ros2 node list` in der
+  SSH-Shell ist **leer**. Ursache: `~/.bashrc` setzt `export ROS_DOMAIN_ID=42` (aus
+  `provision_bashrc`), die Unit startet mit `/bin/bash -lc …` — **nicht interaktiv**, und Ubuntus
+  `~/.bashrc` steigt dort in Zeile 1 aus (`case $- in *i*) ;; *) return;; esac`). Der Dienst läuft
+  damit in **Domain 0**, die Shell in **42**. **Vorher unsichtbar**, weil die Always-On-Schicht
+  manuell aus einer interaktiven Shell gestartet wurde — die Umstellung auf den Dienst (P9.3) hat
+  das Verhalten geändert. **Tragweite:** die App ist **nicht** betroffen (rosbridge + der als
+  Subprozess gestartete Stack liegen in derselben Domain), betroffen ist jede SSH-/Desktop-Diagnose
+  — **inklusive §3.3 und §4** (`ros2 param get /gait_node …`). Nachweis + Workaround
+  (`ROS_DOMAIN_ID=0` vor dem Befehl) in [§3.1b des Test-Docs](phase_9_field_autonomy_test_commands.md).
+  **Fix-Vorschlag (wartet auf Freigabe):** explizites
+  `Environment="ROS_DOMAIN_ID=42" "RMW_IMPLEMENTATION=rmw_fastrtps_cpp"` in
+  `hexapod_always_on.service` + Pin-Test gegen den `provision_bashrc`-Wert (sonst driften die zwei
+  Quellen auseinander — dasselbe Muster wie bei den zwei Shutdown-Configs, Self-Review #2).
+  **Am Pi belegt (§3.1b):** Shell `ROS_DOMAIN_ID=42` · Dienst-Prozess (PID 2035) **ohne**
+  `ROS_DOMAIN_ID` · `ROS_DOMAIN_ID=0 ros2 node list` listet **alle fünf** Always-On-Nodes
+  (`rosbridge_websocket`, `rosapi`, `shutdown_supervisor`, `bringup_launcher`, `hmi_status`) ·
+  Domain 42 leer. Der erste Domain-0-Aufruf war nur wegen des **kalten ros2-Daemons** leer.
+  → Die Always-On-Schicht selbst ist **vollständig und gesund**; es ist rein ein Sichtbarkeits-/
+  Dev-Workflow-Problem (Desktop-Tools in Domain 42 sehen den Roboter nicht mehr, seit die Schicht
+  als Dienst statt aus einer interaktiven Shell läuft).
+  </details>
 - 🟢 **`provision_pi.sh`-Politur erledigt** (User-Freigabe, zwei Punkte aus dem Pi-Lauf):
   1. **Dienst wird jetzt auch gestartet** — `enable` + anschließend `start`, aber **nicht** blind
      `enable --now`: ist Port 9090 belegt (Always-On läuft manuell), warnt das Skript und startet

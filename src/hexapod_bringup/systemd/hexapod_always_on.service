@@ -34,6 +34,22 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# ⚠️ ROS-Umgebung MUSS hier explizit stehen — sie kommt NICHT aus ~/.bashrc.
+#
+# Warum (Phase-9-Befund am Pi): ExecStart nutzt zwar eine Login-Shell
+# (bash -lc), aber eine NICHT-interaktive. Ubuntus ~/.bashrc steigt in der
+# ersten Zeile aus, wenn die Shell nicht interaktiv ist:
+#     case $- in *i*) ;; *) return;; esac
+# Der von provision_pi.sh dort gesetzte 'export ROS_DOMAIN_ID=42' wirkt also
+# im Dienst NIE -> der Dienst lief in Domain 0, waehrend jede SSH-Shell und der
+# Desktop in 42 sitzen. Folge: 'ros2 node list' zeigte nichts, Desktop-Tools
+# (rviz, topic echo) sahen den Roboter nicht mehr. Die App war nicht betroffen
+# (rosbridge laeuft im Dienst, der schwere Stack als dessen Subprozess).
+#
+# Der Wert muss mit tools/provision_pi.sh (provision_bashrc) uebereinstimmen —
+# gepinnt durch test/test_always_on_unit_pinned.py. NICHT als "redundant"
+# entfernen.
+Environment="ROS_DOMAIN_ID=42" "RMW_IMPLEMENTATION=rmw_fastrtps_cpp"
 # Pfade an die Pi-Installation anpassen (ROS-Distro + Workspace-Overlay).
 # mode:=real -> HW-Stack, use_sim_time:=false (auf echter HW kein /clock).
 ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && source %h/hexapod_ws/install/setup.bash && exec ros2 launch hexapod_bringup always_on.launch.py mode:=real'

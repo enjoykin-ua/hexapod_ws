@@ -20,6 +20,13 @@ if(BUILD_TESTING)
     test/launch/test_real_launch_loopback.py
     TIMEOUT 60
   )
+
+  # Phase 9 (Feld-Autonomie): pinnt die ROS-Umgebung der Always-On-Unit gegen
+  # den Wert in tools/provision_pi.sh. Reiner Datei-Test, keine ROS-Laufzeit.
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_always_on_unit_pinned
+    test/test_always_on_unit_pinned.py
+  )
 endif()
 
 ament_package()

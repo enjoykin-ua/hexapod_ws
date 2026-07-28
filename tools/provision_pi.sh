@@ -367,6 +367,13 @@ provision_always_on_service() {
         cp "${src}" "${target_dir}/${unit}"
         systemctl --user daemon-reload
         c_ok "Unit installiert/aktualisiert -> ${target_dir}/${unit}"
+        # Bewusst KEIN automatischer Restart: laeuft gerade der schwere Stack
+        # (Subprozess in derselben Control-Group), reisst ein Restart ihn mit —
+        # das Relay faellt und ein stehender Roboter sackt zusammen. Der Mensch
+        # entscheidet, wann das passt.
+        if systemctl --user is-active --quiet "${unit}"; then
+            c_manual "Unit wurde GEAENDERT, der Dienst laeuft noch mit der alten: 'systemctl --user restart ${unit}'. ACHTUNG: das reisst einen laufenden schweren Stack mit (Relay faellt) — vorher den Roboter hinsetzen."
+        fi
     fi
 
     if systemctl --user is-enabled --quiet "${unit}"; then
@@ -501,6 +508,29 @@ verify_field_autonomy() {
         fi
     else
         c_skip "Host-Guard: ${cfg} nicht gefunden (Workspace nicht ausgecheckt?)"
+    fi
+
+    # 5. Laeuft der DIENST in derselben ROS-Domain wie diese Shell? Das ist der
+    #    haeufigste Grund fuer "ros2 node list ist leer, obwohl alles laeuft":
+    #    entweder fehlt das Environment= in der Unit, oder die Unit wurde
+    #    geaendert und der Dienst nicht neu gestartet (alte Instanz).
+    local main_pid svc_domain shell_domain
+    main_pid="$(systemctl --user show -p MainPID --value "${unit}" 2>/dev/null || echo 0)"
+    shell_domain="${ROS_DOMAIN_ID:-0}"
+    if [[ "${main_pid}" != "0" && -r "/proc/${main_pid}/environ" ]]; then
+        svc_domain="$(tr '\0' '\n' < "/proc/${main_pid}/environ" | sed -n 's/^ROS_DOMAIN_ID=//p')"
+        svc_domain="${svc_domain:-0}"
+        if [[ "${svc_domain}" == "${shell_domain}" ]]; then
+            c_ok "ROS-Domain: Dienst und Shell beide in Domain ${svc_domain}"
+        else
+            c_warn "ROS-Domain: Dienst=${svc_domain}, Shell=${shell_domain} -> 'ros2 node list' bleibt leer, Desktop-Tools sehen den Roboter nicht"
+            echo "         Meist: Unit geaendert, aber alte Instanz laeuft noch."
+            echo "         Fix: systemctl --user restart ${unit}"
+            echo "         ACHTUNG: der Restart reisst einen laufenden schweren Stack mit (Relay faellt)."
+            failed=1
+        fi
+    else
+        c_skip "ROS-Domain: Dienst laeuft nicht -> nicht pruefbar"
     fi
 
     echo ""

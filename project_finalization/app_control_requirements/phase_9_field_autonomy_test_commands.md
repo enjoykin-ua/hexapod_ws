@@ -187,8 +187,12 @@ systemctl --user status hexapod_always_on --no-pager | head -12
 loginctl show-user "$USER" | grep -i linger        # -> Linger=yes
 ros2 node list                                      # -> rosbridge_websocket, bringup_launcher, shutdown_supervisor, hmi_status
 ```
-**✅ Erwartung:** `active (running)`, `Linger=yes`, die vier Always-On-Nodes sind da — **ohne** dass
-du etwas manuell gestartet hast.
+**✅ Erwartung:** `active (running)`, `Linger=yes`, die Always-On-Nodes sind da — **ohne** dass du
+etwas manuell gestartet hast. (Es sind **fünf**: `rosapi` kommt mit `rosbridge` mit.)
+
+> ⚠️ **`ros2 node list` bleibt in der SSH-Shell leer, solange die Unit keine `ROS_DOMAIN_ID` setzt** —
+> der Dienst läuft dann in Domain 0, die Shell in 42. Das ist **kein** Fehler des Dienstes (am Pi
+> gemessen und geklärt): siehe **§3.1b**. Workaround bis zum Fix: `ROS_DOMAIN_ID=0` voranstellen.
 
 > ℹ️ **Das Skript startet den Dienst jetzt selbst** (`enable` + `start`, nicht blind `enable --now`):
 > läuft die Always-On-Schicht schon — erkennbar an **belegtem Port 9090**, typisch nach einem
@@ -269,6 +273,141 @@ ros2 node list
 > Problem am `cp` (`ros2 pkg prefix` leer → Quellpfad beginnt mit `/share/…`). Die Fehlermeldung
 > steht dann in der `cp`-Zeile; `enable --now` meldet danach ebenfalls „does not exist". Gleiche
 > Fixe wie oben, dann den Drei-Schritt-Block wiederholen.
+
+### 3.1b `ros2 node list` bleibt leer, obwohl der Dienst läuft (▶ Pi)
+
+> **Symptom:** `systemctl --user status` zeigt `active (running)` und im CGroup-Baum stehen
+> `rosbridge_websocket`, `rosapi`, `shutdown_supervisor`, `bringup_launcher`, `hmi_status` — aber
+> `ros2 node list` in der SSH-Shell gibt **nichts** aus.
+>
+> **Wichtig zuerst:** der **schwere Stack muss dafür nicht laufen**. Die vier erwarteten Nodes sind
+> die *Always-On*-Nodes aus dem Dienst; sie sind schon vor jedem `bringup_start` da. Bleibt die
+> Liste leer, ist es **kein** Stack-Problem, sondern ein Sichtbarkeits-Problem.
+>
+> **Hypothese:** `ROS_DOMAIN_ID`-Mismatch. `~/.bashrc` setzt `export ROS_DOMAIN_ID=42` (aus
+> `provision_bashrc`), die Unit startet aber mit `/bin/bash -lc …` — **nicht interaktiv**, und
+> Ubuntus `~/.bashrc` steigt bei nicht-interaktiven Shells in der ersten Zeile aus
+> (`case $- in *i*) ;; *) return;; esac`). Der Dienst läuft damit in **Domain 0**, die SSH-Shell in
+> **42**. DDS-Domains sind gegeneinander dicht → man sieht nichts.
+
+**Alle drei Blöcke am Stück ausführbar** (▶ Pi, in der SSH-Shell):
+
+```bash
+# (1) Welche Domain hat die SHELL? (leere Ausgabe = Variable nicht gesetzt)
+env | grep -E 'ROS_DOMAIN_ID|RMW_IMPLEMENTATION'
+echo "---(1) Ende. Steht oben nichts, ist in der Shell keine Domain gesetzt."
+```
+
+```bash
+# (2) Welche Domain hat der DIENST wirklich? Echte Prozess-Umgebung, kein Raten.
+DIENST_PID=$(systemctl --user show -p MainPID --value hexapod_always_on)
+echo "MainPID=${DIENST_PID}"
+tr '\0' '\n' < "/proc/${DIENST_PID}/environ" | grep -E 'ROS_DOMAIN_ID|RMW_IMPLEMENTATION'
+echo "---(2) Ende. Steht oben nichts, laeuft der Dienst OHNE ROS_DOMAIN_ID (= Domain 0)."
+```
+
+```bash
+# (3) Der Gegenbeweis: in Domain 0 nachsehen
+ROS_DOMAIN_ID=0 ros2 node list
+```
+
+**Auswertung:**
+
+| Ergebnis | Bedeutung |
+|---|---|
+| (3) listet die Nodes, (2) zeigt keine `ROS_DOMAIN_ID` | **Hypothese bestätigt** — der Dienst läuft in Domain 0, die Shell in 42 |
+| (3) ebenfalls leer | Domain-Mismatch ist durch (2) trotzdem belegt, aber die **Sichtbarkeit** hat noch eine zweite Ursache → weiter mit (4)/(5) |
+
+**Am Pi gemessen:** (1) `ROS_DOMAIN_ID=42` + `RMW_IMPLEMENTATION=rmw_fastrtps_cpp` · (2) **nichts**
+(Dienst läuft ohne Domain = 0) · (3) **leer**. Der Mismatch ist damit belegt; (3) leer heißt, dass
+zusätzlich die Discovery-/Daemon-Ebene zu klären ist.
+
+#### (4) Daemon-Effekt ausschließen (▶ Pi)
+
+> `ros2 node list` fragt den **ros2-Daemon** — pro Domain einer. Für Domain 0 existierte keiner; der
+> wurde durch Aufruf (3) erst gestartet und hatte noch nichts entdeckt. Der **erste** Aufruf nach
+> einem Daemon-Start ist regelmäßig leer ([[project_ros2_param_set_node_not_found_daemon]]).
+> `--no-daemon` umgeht ihn und macht echte Discovery.
+
+```bash
+ros2 daemon stop
+ROS_DOMAIN_ID=0 ros2 node list --no-daemon
+echo "---(4a) Ende: Domain 0 OHNE Daemon."
+ROS_DOMAIN_ID=0 ros2 node list
+echo "---(4b) Ende: Domain 0 MIT Daemon (jetzt warm)."
+ros2 node list --no-daemon
+echo "---(4c) Ende: Domain 42 (die Shell-Domain) zum Vergleich — hier ist LEER die Erwartung."
+```
+
+**✅ Erwartung, wenn alles normal ist:** (4a) und (4b) listen `rosbridge_websocket`, `rosapi`,
+`shutdown_supervisor`, `bringup_launcher`, `hmi_status` — (4c) bleibt leer (dort läuft nichts).
+
+**Am Pi gemessen — Fall geklärt:** (4a) zeigte 2 Nodes (kürzeres Discovery-Fenster ohne Daemon,
+unkritisch), **(4b) alle fünf**, (4c) leer. Damit ist belegt: die Always-On-Schicht ist **vollständig
+und gesund**, sie läuft nur in **Domain 0**, während die SSH-Shell in **42** sitzt. Die leere Liste
+in (3) war der kalte Daemon. **Bis der Unit-Fix drin ist, gilt für jede SSH-Diagnose:
+`ROS_DOMAIN_ID=0` voranstellen** (betrifft §3.3 und §4).
+
+#### (5) Falls (4a) immer noch leer ist (▶ Pi)
+
+> Dann liegt es nicht am Daemon. Nächste Kandidaten: der Dienst sieht ein anderes `/tmp` bzw.
+> Shared-Memory-Segment als die Shell (FastDDS nutzt beides für lokale Discovery), oder eine
+> Discovery-Variable schränkt ein.
+
+```bash
+ROSBRIDGE_PID=$(pgrep -f rosbridge_websocket | head -1)
+echo "rosbridge_pid=${ROSBRIDGE_PID}"
+tr '\0' '\n' < "/proc/${ROSBRIDGE_PID}/environ" \
+  | grep -E 'ROS_DOMAIN_ID|RMW_IMPLEMENTATION|ROS_LOCALHOST_ONLY|ROS_AUTOMATIC_DISCOVERY_RANGE|FASTRTPS|ROS_STATIC_PEERS'
+echo "---(5a) Ende: Umgebung des ROSBRIDGE-Prozesses selbst."
+ls -l /tmp/launch_params_* 2>/dev/null | head -3
+echo "---(5b) Ende: sind die Launch-Param-Dateien des Dienstes aus der Shell sichtbar? (nein => getrenntes /tmp)"
+ss -ltn | grep 9090
+echo "---(5c) Ende: lauscht rosbridge auf 9090? DAS ist, was die App braucht."
+```
+
+**Tragweite (wichtig für die folgenden Abschnitte):**
+- **Die App ist nicht betroffen.** Sie spricht rosbridge über WebSocket an; rosbridge läuft im Dienst,
+  und der schwere Stack wird als **Subprozess** des Launchers gestartet — er erbt dessen Umgebung.
+  Alles, was der Roboter tut, liegt in **einer** Domain. Der Reboot-Test §3.2 ist also gültig.
+- **Betroffen ist jede Diagnose per SSH:** `ros2 param get /gait_node …` in **§3.3 und §4** findet
+  den Node nicht. **Workaround bis zum Fix:** `ROS_DOMAIN_ID=0` vor den Befehl setzen, oder in der
+  Shell einmalig `export ROS_DOMAIN_ID=0`.
+- **Betroffen ist auch der Desktop** (rviz, `ros2 topic echo` gegen den Pi), falls er Domain 42 nutzt.
+
+#### (6) Der Fix — Unit bringt ihre Domain selbst mit (▶ ROS + Pi)
+
+> **Umgesetzt (Repo-Seite):** `hexapod_always_on.service` setzt jetzt
+> `Environment="ROS_DOMAIN_ID=42" "RMW_IMPLEMENTATION=rmw_fastrtps_cpp"` — mit Begründung im
+> Datei-Kommentar, damit es niemand als „redundant" entfernt. Gepinnt gegen
+> `tools/provision_pi.sh` durch `test/test_always_on_unit_pinned.py` (4 Tests): Variablen vorhanden,
+> Wert **identisch** mit `provision_bashrc`, Domain numerisch/in Range, ExecStart unverändert.
+> Zusätzlich meldet der Self-Check jetzt eine fünfte Zeile („ROS-Domain: Dienst und Shell …") und
+> `provision_pi.sh` weist nach einer Unit-Änderung auf den nötigen Restart hin.
+
+**Am Pi nachziehen** (nach `git push` vom Desktop):
+```bash
+ssh hexapod-pi
+cd ~/hexapod_ws
+git pull
+source /opt/ros/jazzy/setup.bash && source ~/hexapod_ws/install/setup.bash
+colcon build --symlink-install --packages-select hexapod_bringup
+./tools/provision_pi.sh          # erkennt die geaenderte Unit -> kopiert + daemon-reload
+systemctl --user restart hexapod_always_on
+```
+> ⚠️ **Den Restart bewusst setzen:** er reißt einen laufenden **schweren Stack** mit (Subprozess in
+> derselben Control-Group → Relay fällt → ein stehender Roboter sackt zusammen). Deshalb macht das
+> Skript ihn **nicht** von selbst. Hier unkritisch: der Stack läuft noch nicht.
+
+**Verifikation — jetzt ohne Domain-Präfix:**
+```bash
+ros2 daemon stop
+ros2 node list
+```
+**✅ Erwartung:** die fünf Nodes (`rosbridge_websocket`, `rosapi`, `shutdown_supervisor`,
+`bringup_launcher`, `hmi_status`) erscheinen **ohne** `ROS_DOMAIN_ID=0` davor. Danach sieht auch der
+Desktop den Roboter wieder. Wer mag, ruft `./tools/provision_pi.sh` noch einmal auf — der Self-Check
+muss dann `ROS-Domain: Dienst und Shell beide in Domain 42` melden.
 
 ### 3.2 Der eigentliche Test: Reboot ohne SSH (T9.4, ▶ Pi)
 ```bash

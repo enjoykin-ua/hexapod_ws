@@ -333,7 +333,24 @@
   Hauptschalter hart getrennt. Der Dev-Rechner ist unabhängig davon über `DEV_HOSTS` hart geblockt.
 - **`sudo -n`** im `shutdown_command`: aus einem Dienst gibt es kein Terminal — ohne `-n` würde
   `sudo` auf eine Passwort-Eingabe warten, die nie kommt. Setzt `/etc/sudoers.d/hexapod-shutdown`
-  voraus (NOPASSWD nur für `shutdown`).
+  voraus (NOPASSWD nur für `shutdown`). ⚠️ **Beim Prüfen `sudo -k` voranstellen** — der
+  sudo-Timestamp-Cache (~15 min, z.B. nach `visudo`) winkt jeden `sudo -n`-Test durch, auch wenn der
+  Eintrag gar nicht greift. Der Dienst hat diesen Cache nicht.
+- **⚠️ Die Unit muss ihre ROS-Umgebung SELBST mitbringen** (`Environment="ROS_DOMAIN_ID=42"
+  "RMW_IMPLEMENTATION=rmw_fastrtps_cpp"`). Sie kommt **nicht** aus `~/.bashrc`: `ExecStart` nutzt
+  `bash -lc`, also eine **nicht-interaktive** Shell, und Ubuntus `~/.bashrc` steigt dort in Zeile 1
+  aus (`case $- in *i*) ;; *) return;; esac`). Ohne das lief der Dienst in **Domain 0**, während
+  SSH-Shell und Desktop in **42** sitzen — `ros2 node list` blieb leer, `rviz`/`topic echo` vom
+  Desktop sahen den Roboter nicht. **Die App merkt davon nichts** (rosbridge läuft im Dienst, der
+  schwere Stack als dessen Subprozess → alles in einer Domain), es trifft nur die Diagnose. Der Wert
+  steht damit an zwei Stellen (Unit + `provision_bashrc`) → `test_always_on_unit_pinned.py` pinnt die
+  Gleichheit. **Nach jeder Unit-Änderung `systemctl --user restart hexapod_always_on`** — sonst läuft
+  die alte Instanz mit der alten Umgebung weiter; der Self-Check in `provision_pi.sh` zeigt genau das
+  als „Dienst=X, Shell=Y". ⚠️ Der Restart reißt einen laufenden schweren Stack mit (Relay fällt).
+- **`ros2 node list` ist leer, obwohl der Dienst läuft?** Zwei Ursachen, in dieser Reihenfolge
+  prüfen: (1) Domain-Mismatch (s.o.), (2) **kalter ros2-Daemon** — der erste Aufruf in einer Domain
+  liefert oft nichts, weil der Daemon gerade erst startet. `ros2 daemon stop` bzw. `--no-daemon`
+  klärt es ([[project_ros2_param_set_node_not_found_daemon]]).
 - **Pi-System-Einstellungen gehören in `tools/provision_pi.sh`** (Schritt 10: sudoers, systemd-Unit,
   `enable-linger`, Start) — sonst sind sie nach einer SD-Neuinstallation weg. Das Skript ist
   idempotent, ein erneuter Lauf meldet `[skip]`. ⚠️ **Es braucht einen gebauten + gesourcten
