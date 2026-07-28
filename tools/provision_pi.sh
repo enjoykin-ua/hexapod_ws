@@ -296,15 +296,110 @@ provision_udev_servo2040() {
 }
 
 # ---------------------------------------------------------------------------
-# 10. D4/D5 (OLED + GPIO-Button) — NOCH NICHT AKTIV
-#     Wird erst mit dem Autonom-Betrieb-Doc befuellt. Hier nur als
-#     Platzhalter, damit der rote Faden im Skript sichtbar bleibt.
+# 10. Feld-Autonomie (Block I Phase 9): sauberer Shutdown + Always-On ab Boot
+#
+#     Ziel: der Roboter ist OHNE Dev-Rechner benutzbar — Pi einschalten, App
+#     verbinden, fahren, per Schalter ODER App sauber herunterfahren.
+#
+#     Zwei Dinge sind dafuer noetig, die NICHT im Workspace-Git liegen koennen:
+#
+#     a) sudo-Recht fuer den Poweroff. Der shutdown_supervisor ruft
+#        'sudo -n shutdown -h now' aus einem systemd-Dienst — also ohne
+#        Terminal. Ohne NOPASSWD-Eintrag scheitert das (mit -n sofort und mit
+#        Logzeile, statt still auf eine Passwort-Eingabe zu warten).
+#        Befund vor Phase 9: der Schalter setzte den Roboter hin und schaltete
+#        das Relay, der Pi lief aber weiter und wurde am Hauptschalter HART
+#        getrennt (SD-Karten-Risiko).
+#
+#     b) Die Always-On-Schicht als User-Dienst (rosbridge + shutdown_supervisor
+#        + bringup_launcher). Ohne sie laeuft kein rosbridge -> die App findet
+#        nichts -> Feld-Start nur per SSH. Der SCHWERE Stack startet bewusst
+#        NICHT mit ([D7]): beim Einschalten soll sich nichts bewegen, die App
+#        entscheidet.
+#
+#     Die dritte Zutat (pi_hostname + shutdown_command) liegt im Git und kommt
+#     ueber 'git pull' mit: hexapod_supervisor/config/{supervisor,launcher.real}.yaml.
 # ---------------------------------------------------------------------------
-provision_oled_button() {
-    c_skip "OLED/Button (D4/D5): noch nicht aktiv — kommt mit Autonom-Doc"
-    # TODO (D4/D5): I2C aktivieren (SSD1306 @ 0x3C ueber EKM002-QWIIC),
-    #   pip-Deps luma.oled / gpiozero / lgpio (venv), systemd-Service-Paar
-    #   hexapod-supervisor + hexapod-stack. Siehe kuenftiges D4/D5-Doc.
+provision_shutdown_sudoers() {
+    c_info "sudo-Recht fuer den Poweroff sicherstellen ..."
+    local sudoers="/etc/sudoers.d/hexapod-shutdown"
+    local shutdown_bin
+    shutdown_bin="$(command -v shutdown || echo /usr/sbin/shutdown)"
+
+    if sudo test -f "${sudoers}"; then
+        c_skip "sudoers-Eintrag vorhanden (${sudoers})"
+        return
+    fi
+
+    # Nur DAS eine Binary, kein NOPASSWD:ALL. visudo -cf prueft die Syntax,
+    # BEVOR die Datei aktiv wird — ein kaputtes sudoers sperrt sonst aus.
+    local tmp
+    tmp="$(mktemp)"
+    printf '%s ALL=(root) NOPASSWD: %s\n' "${USER}" "${shutdown_bin}" > "${tmp}"
+    if ! sudo visudo -cf "${tmp}" > /dev/null; then
+        rm -f "${tmp}"
+        c_warn "sudoers-Syntaxpruefung fehlgeschlagen — Eintrag NICHT gesetzt"
+        c_manual "sudoers manuell setzen: sudo visudo -f ${sudoers} -> '${USER} ALL=(root) NOPASSWD: ${shutdown_bin}'"
+        return
+    fi
+    sudo install -m 0440 -o root -g root "${tmp}" "${sudoers}"
+    rm -f "${tmp}"
+    c_ok "sudoers-Eintrag gesetzt (${sudoers}, nur ${shutdown_bin})"
+}
+
+provision_always_on_service() {
+    c_info "Always-On-Dienst (rosbridge + supervisor + launcher) einrichten ..."
+    local unit="hexapod_always_on.service"
+    local target_dir="${HOME}/.config/systemd/user"
+    local src
+    src="$(ros2 pkg prefix hexapod_bringup 2>/dev/null)/share/hexapod_bringup/systemd/${unit}"
+
+    if [[ ! -f "${src}" ]]; then
+        c_warn "Unit-Vorlage nicht gefunden (${src}) — Workspace gebaut + gesourced?"
+        c_manual "Nach 'colcon build' erneut ausfuehren: ${0} (Schritt 10 richtet den Always-On-Dienst ein)."
+        return
+    fi
+
+    mkdir -p "${target_dir}"
+    if cmp -s "${src}" "${target_dir}/${unit}"; then
+        c_skip "Unit aktuell (${target_dir}/${unit})"
+    else
+        cp "${src}" "${target_dir}/${unit}"
+        systemctl --user daemon-reload
+        c_ok "Unit installiert/aktualisiert -> ${target_dir}/${unit}"
+    fi
+
+    if systemctl --user is-enabled --quiet "${unit}"; then
+        c_skip "Dienst bereits enabled"
+    else
+        systemctl --user enable "${unit}"
+        c_ok "Dienst enabled (startet beim Boot)"
+    fi
+
+    # Linger: ohne das startet eine User-Unit erst beim ersten LOGIN — also im
+    # headless Feld-Betrieb nie.
+    if loginctl show-user "${USER}" 2>/dev/null | grep -q '^Linger=yes'; then
+        c_skip "Linger bereits aktiv"
+    else
+        sudo loginctl enable-linger "${USER}"
+        c_ok "Linger aktiviert (User-Dienst startet ohne Login)"
+    fi
+
+    c_manual "Ab jetzt laeuft die Always-On-Schicht als Dienst: NICHT zusaetzlich manuell per SSH starten (zwei rosbridge auf Port 9090 kollidieren). Vorher: systemctl --user stop ${unit}"
+    c_manual "Nach einem Update der Always-On-Schicht (rosbridge-Launch, bringup_launcher, hmi_status inkl. hmi_config_manifest.yaml): 'systemctl --user restart ${unit}'. Aendert sich nur der schwere Stack (gait/Engine/Teleop), genuegt in der App 'stoppen -> starten'."
+}
+
+# ---------------------------------------------------------------------------
+# 10b. D4/D5 (OLED) — NOCH NICHT AKTIV
+#      Der GPIO-Button-Teil ist durch den Servo2040-Schalter abgeloest (der
+#      Schalter wird vom hexapod_hardware-Plugin gelesen). Offen bleibt nur das
+#      OLED-Display.
+# ---------------------------------------------------------------------------
+provision_oled() {
+    c_skip "OLED (D4): noch nicht aktiv"
+    # TODO (D4): I2C aktivieren (SSD1306 @ 0x3C ueber EKM002-QWIIC),
+    #   pip-Deps luma.oled (venv). Der Shutdown-Schalter laeuft bereits ueber
+    #   den Servo2040 (GET_INPUTS -> Plugin -> /hexapod/shutdown_request).
 }
 
 # ---------------------------------------------------------------------------
@@ -335,7 +430,14 @@ main() {
     provision_rosdep
     provision_colcon_ignore
     provision_udev_servo2040
-    provision_oled_button
+    # Block I Phase 9 — Feld-Autonomie. Der Dienst braucht einen GEBAUTEN
+    # Workspace (die Unit-Vorlage kommt aus dem installierten share/); beim
+    # allerersten Lauf auf einem frischen Pi meldet der Schritt das und traegt
+    # sich als manueller Nachtrag ein — nach 'colcon build' das Skript einfach
+    # erneut aufrufen (es ist idempotent).
+    provision_shutdown_sudoers
+    provision_always_on_service
+    provision_oled
 
     register_known_manual_steps
 

@@ -2518,6 +2518,39 @@ class GaitNode(Node):
 
     # ===== Block B1 — Hinsetz-/Abschalt-Services + Fail-safe ============== #
 
+    def _reject_if_frozen(self, action: str, response):
+        """
+        Block I Phase 9 [D-Feld-9] — Sequenz-Start bei aktivem Freeze ablehnen.
+
+        **Warum das nötig ist:** ``_tick`` steigt bei ``_safety_frozen`` als erste
+        Zeile aus — es wird keine Trajektorie mehr publisht. Die Sequenz-Services
+        wussten davon aber nichts: sie prüfen nur den Engine-State, und der ist im
+        Freeze unverändert (der Freeze gated den Tick, nicht den State). Ein
+        ``sit_down`` im Freeze meldete daher ``success=true``, die Engine wechselte
+        auf REPOSITION — und dann passierte **nichts**. Wer auf ``state == SAT``
+        wartet, wartet ewig (Befund aus der App-Integration).
+
+        Ein Service, der Erfolg meldet und nichts tut, ist ein Fehler — deshalb
+        hier ein Reject mit Klartext-Grund, für **jeden** Aufrufer (App, Terminal,
+        künftige Automatik).
+
+        **Bewusst NICHT hier gegated:** ``/hexapod_estop`` (idempotenter Not-Halt)
+        und ``/hexapod_recover`` (der einzige Ausweg) — die müssen im Freeze
+        erreichbar bleiben. Reine Werte-Setzer (``cycle_gait``,
+        ``adjust_step_length``) starten keine Sequenz und bleiben ebenfalls offen.
+
+        Returns die Response (gesetzt) wenn abgelehnt wurde, sonst ``None``.
+        """
+        if not self._safety_frozen:
+            return None
+        response.success = False
+        response.message = (
+            f'{action} rejected: robot is frozen (E-Stop/safety) — '
+            'call /hexapod_recover first'
+        )
+        self.get_logger().warn(response.message, throttle_duration_sec=2.0)
+        return response
+
     def _sitdown_durations(self) -> tuple[float, float]:
         """(lower_duration, flatten_duration) aus sitdown_duration + fraction."""
         lower = self._sitdown_duration * self._sitdown_lower_fraction
@@ -2564,6 +2597,9 @@ class GaitNode(Node):
 
     def _on_sit_down(self, request, response):
         """``/hexapod_sit_down`` (Rest): nur STANDING → Hinsetzen, bleibt SAT."""
+        rejected = self._reject_if_frozen('sit_down', response)
+        if rejected is not None:
+            return rejected
         if self._engine.state != GaitEngine.STATE_STANDING:
             response.success = False
             response.message = (
@@ -2582,6 +2618,9 @@ class GaitNode(Node):
 
     def _on_stand_up(self, request, response):
         """``/hexapod_stand_up``: nur SAT (nicht latched) → Aufstehen → STANDING."""
+        rejected = self._reject_if_frozen('stand_up', response)
+        if rejected is not None:
+            return rejected
         if self._shutdown_latched:
             response.success = False
             response.message = (
@@ -2726,6 +2765,13 @@ class GaitNode(Node):
 
     def _on_shutdown(self, request, response):
         """``/hexapod_shutdown`` (terminal): hinsetzen (falls nötig) + Relay-Aus."""
+        # Freeze-Guard: im Freeze käme die Hinsetz-Sequenz nie voran. Der WEG zum
+        # Poweroff bleibt trotzdem offen — der shutdown_supervisor retryt und
+        # erzwingt nach `shutdown_complete_timeout` (12 s) Relay-Aus + Poweroff.
+        # Hier abzulehnen macht die Ursache nur sichtbar, statt sie zu verschlucken.
+        rejected = self._reject_if_frozen('shutdown', response)
+        if rejected is not None:
+            return rejected
         state = self._engine.state
         if state == GaitEngine.STATE_SAT:
             # Sitzt schon → sofort Relay-Aus + latchen.
@@ -2823,6 +2869,9 @@ class GaitNode(Node):
         wieder möglich). In jedem anderen State (Aufstehen/Sitzen/Walking)
         abgelehnt — Show nur aus dem ruhigen Stand bzw. wieder heraus.
         """
+        rejected = self._reject_if_frozen('show_toggle', response)
+        if rejected is not None:
+            return rejected
         state = self._engine.state
         now = time.monotonic()
         t = now - self._t_start
@@ -3035,6 +3084,9 @@ class GaitNode(Node):
         Höhen physisch begrenzt sind). Startet den Engine-Stance-Switch
         (Reposition + body_height-Lerp) zum Ziel-Modus.
         """
+        rejected = self._reject_if_frozen('cycle_stance', response)
+        if rejected is not None:
+            return rejected
         if self._engine.state != GaitEngine.STATE_STANDING:
             response.success = False
             response.message = (

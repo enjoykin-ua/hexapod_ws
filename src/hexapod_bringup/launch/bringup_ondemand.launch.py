@@ -61,6 +61,16 @@ def _setup(context, *args, **kwargs):
     hw_urdf = os.path.join(
         get_package_share_directory('hexapod_description'),
         'urdf', 'hexapod.urdf.xacro')
+    # Block I Phase 9 (Feld-Autonomie, [D-Feld-8]) — das HW-Komplett-Preset für den
+    # App-Pfad. Ohne params_file lief der App-Bringup mit den CODE-Defaults, d.h.
+    # `leveling_enable: false` und alle S4-Fußkontakt-Features AUS: genau im Feld,
+    # wo Balance + Terrain-Following am meisten bringen, waren sie am
+    # wahrscheinlichsten aus (man hätte sie nach JEDEM Stack-Start im Config-Panel
+    # neu setzen müssen). Damit verhält sich der App-Start jetzt wie der
+    # 3-Terminal-Bringup — ein Preset als EINE Wahrheit für den HW-Betrieb.
+    hw_preset = os.path.join(
+        get_package_share_directory('hexapod_gait'),
+        'config', 'presets', 'hw_terrain.yaml')
 
     mode = LaunchConfiguration('mode').perform(context)
     controller = LaunchConfiguration('controller').perform(context)
@@ -124,6 +134,11 @@ def _setup(context, *args, **kwargs):
                     'auto_standup_on_start': 'false',
                     'robot_description_file': hw_urdf,
                     'audio_playback': 'true',   # Phase 7A — echter Speaker
+                    # Phase 9: HW-Preset (Leveling auto + Tip/Slope + S4-Enables +
+                    # comms_loss-Fail-safe). Überschreibt die Inline-Defaults von
+                    # gait.launch.py — NICHT die drei Args darüber, die stehen im
+                    # Preset nicht drin.
+                    'params_file': hw_preset,
                 }.items(),
             )],
         )

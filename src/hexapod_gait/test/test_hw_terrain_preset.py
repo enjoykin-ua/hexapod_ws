@@ -55,3 +55,50 @@ def test_slip_block_within_validator_ranges():
     assert 1 <= p['slip_min_lost_legs'] <= 6
     assert 0.0 <= p['slip_grace_stance_phase'] < 1.0
     assert p['cliff_depth'] >= 0.0
+
+
+# ----- Block I Phase 9 — Feld-Fail-safe + App-Pfad --------------------- #
+
+def test_comms_loss_fail_safe_pinned():
+    """
+    Pinne den Comms-Loss-Fail-safe (Phase 9).
+
+    Bricht die Funkverbindung ab, setzt sich der Roboter nach dieser Zeit
+    selbst hin, statt bestromt stehen zu bleiben. Der Wert ist eine
+    bewusste Feld-Entscheidung (lang genug für einen Funkschatten, kurz
+    genug gegen Dauerlast) — Änderung nur mit neuem Feld-Befund.
+    """
+    p = _load()
+    assert p['comms_loss_sitdown_timeout'] == 25.0
+
+
+def test_comms_loss_within_validator_range():
+    """
+    Der Wert muss die gait_node-fp_range einhalten (0.0 .. 30.0).
+
+    params_file-Werte greifen zur Deklarations-Zeit am Set-Callback vorbei —
+    ein Range-Verstoß fiele sonst erst auf der HW auf.
+    """
+    p = _load()
+    assert 0.0 <= p['comms_loss_sitdown_timeout'] <= 30.0
+
+
+def test_preset_has_no_structural_params():
+    """
+    Das Preset darf KEINE Struktur-Params enthalten.
+
+    Seit Phase 9 lädt auch der App-Pfad dieses Preset
+    (bringup_ondemand mode:=real). Da ``params_file`` gegen die
+    Inline-Launch-Args gewinnt, würde ein hier gesetztes
+    ``auto_standup_on_start`` den Bauch-Start aushebeln — der Roboter
+    stünde beim App-Start unaufgefordert auf. Ebenso würden
+    ``use_sim_time``/``robot_description`` den HW-Pfad brechen.
+    """
+    p = _load()
+    for forbidden in (
+        'auto_standup_on_start', 'use_sim_time', 'robot_description',
+        'robot_description_file',
+    ):
+        assert forbidden not in p, (
+            f'{forbidden!r} gehört nicht ins Preset (überschreibt den Launch-Arg)'
+        )

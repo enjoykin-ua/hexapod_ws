@@ -31,7 +31,9 @@
 | **v0.11.1** | §6b für die App-Session präzisiert: **kopierbare rosbridge-Frames** (advertise/publish `play_sound`, `set_parameters` für den BOOL `sound_enable`, latched `subscribe` auf `sound_enabled`) + App-Pflichten (Buttons erst wenn Stack läuft, Toggle spiegelt `sound_enabled`). `sound_enabled` in die §3-Latched-QoS-Note aufgenommen. **Kein Interface-Change** — reine Klarstellung für den Android-Bau. |
 | **v0.12** | §5/§6 festgezurrt für Phase 7B (**ROS-Seite + Desktop-E2E verifiziert**): echte **Raspi-Cam (OV5647)** am Pi → `hexapod_camera`-Node (`rpicam-vid` MJPEG → **`CompressedImage`** auf `/camera/image_raw/compressed`). **App-URL Variante A:** `type` je Host — Sim `type=mjpeg` (roh), **HW `type=ros_compressed`** (JPEGs durchgereicht, kein Pi-Decode). Param **`camera_enable`** (rpicam-Subprozess an/aus) + `source:=rpicam\|test` (test = Desktop-E2E). `web_video_server` läuft real via `camera.launch.py`. **App:** einzige Änderung = URL-`type` je Host (P7B.13). |
 | **v0.12.1** | §5 für die App-Session präzisiert (**kein Interface-Change**): explizite **App-Pflicht zur Video-`type`-Wahl** (Sim→`mjpeg` / HW→`ros_compressed`, gekoppelt an das Verbindungs-Profil aus §0 bzw. Auto-Erkennung via `rosapi/topics` auf `/camera/image_raw/compressed`) + kopierbarer **`camera_enable`-Frame** (`/hexapod_camera/set_parameters`, BOOL). FPS-Zeile Sim/HW getrennt. |
-| **v0.13** (aktuell) | §3/§4/§6a/§6c festgezurrt für Phase 8 — **Show „Look-Around"** (**ROS-Seite implementiert + unit-getestet**): Param **`show_mode`** (`/gait_node`, Enum `none\|look_around\|dancing\|free_leg`) = die **app-exklusive** Show-Auswahl; Gate: Show-Modi nur aus STANDING, **`none` immer** (Rückweg aus der Show). Neues Topic **`/cmd_body_pose`** (`std_msgs/Float64MultiArray[6]`, `[dx,dy,dz,roll,pitch,yaw]`, −1..+1, R1-gegated) — der Körper bewegt sich in 6 DOF über **fixen Füßen**; `/cmd_show` behält seine B4-Semantik unverändert. `/hexapod/status` bekommt **`show_mode`** + den neuen `state`-Wert **`BODY_POSE`**; `capabilities` bekommt **`show_modes`**. `dancing`/`free_leg` sind **Platzhalter** (akzeptiert, no-op) → die App baut ihr Show-Menü **einmal** vollständig. |
+| **v0.13** | §3/§4/§6a/§6c festgezurrt für Phase 8 — **Show „Look-Around"** (**ROS-Seite implementiert + unit-getestet**): Param **`show_mode`** (`/gait_node`, Enum `none\|look_around\|dancing\|free_leg`) = die **app-exklusive** Show-Auswahl; Gate: Show-Modi nur aus STANDING, **`none` immer** (Rückweg aus der Show). Neues Topic **`/cmd_body_pose`** (`std_msgs/Float64MultiArray[6]`, `[dx,dy,dz,roll,pitch,yaw]`, −1..+1, R1-gegated) — der Körper bewegt sich in 6 DOF über **fixen Füßen**; `/cmd_show` behält seine B4-Semantik unverändert. `/hexapod/status` bekommt **`show_mode`** + den neuen `state`-Wert **`BODY_POSE`**; `capabilities` bekommt **`show_modes`**. `dancing`/`free_leg` sind **Platzhalter** (akzeptiert, no-op) → die App baut ihr Show-Menü **einmal** vollständig. |
+| **v0.13.1** | §2a für Phase 9 (Feld-Autonomie) präzisiert — **kein Interface-Change**, beide Services existieren seit v0.5: **`/hexapod_pi_shutdown`** ist der **Rettungsanker** und funktioniert in **beiden** Zuständen (Stack läuft → Hinsetzen + Relay + Poweroff; Stack aus/hängt → direkter Poweroff; 12-s-Backstop erzwingt den Poweroff auch bei hängendem Hinsetzen) — die App bekommt dafür einen Button in der **Verbinden-Sicht** (mit Bestätigung; der Verbindungsabbruch danach ist **erwartet**). **„Stack neu starten"** = App-Muster aus `bringup_stop` → warten → `bringup_start` (kein neuer Service). Betriebs-Randbedingung: die Always-On-Schicht läuft am Pi ab Boot als systemd-Dienst, und der App-HW-Bringup lädt jetzt `hw_terrain.yaml` (Balance + Terrain-Features + Comms-Loss-Fail-safe ab Stack-Start aktiv). |
+| **v0.13.2** (aktuell) | Drei Festlegungen aus der Phase-9-App-Integration (**ROS-Seite implementiert + unit-getestet**): (1) **`performed=True/False` in der `message` von `/hexapod_pi_shutdown` ist ein STABILER VERTRAGSTEXT** — die App unterscheidet daran „ausgeführt" von „geblockt"; der Wortlaut wird nicht mehr geändert (§2a). (2) **Freeze-Reject:** die Sequenz-Services (`sit_down`/`stand_up`/`shutdown`/`cycle_stance`/`show_toggle`) lehnen bei aktivem E-Stop **sofort mit Klartext-Grund** ab, statt `success=true` zu melden und nichts zu tun; `estop`/`recover`/`pi_shutdown` bleiben erreichbar ([D-Feld-9]). (3) **`gait_delay` ↔ App-Timeout:** der `gait_node` startet erst 12 s nach `bringup_start` — „Stack läuft" (`bringup_status`) ist **nicht** „bedienbar"; der belastbare Indikator ist der erste `/hexapod/status`-Tick (App-Timeout 40 s). |
 
 ---
 
@@ -149,14 +151,14 @@ Alle über rosbridge `call_service` aufrufbar. Verifiziert gegen `gait_node.py` 
 | Service | Typ | Wirkung |
 |---|---|---|
 | `/hexapod_sit_stand_toggle` | `std_srvs/Trigger` | Sit↔Stand nach State (UI-Intent) |
-| `/hexapod_sit_down` | `std_srvs/Trigger` | Hinsetzen (nur STANDING) |
-| `/hexapod_stand_up` | `std_srvs/Trigger` | Aufstehen |
-| `/hexapod_cycle_stance` | `std_srvs/SetBool` | `data=true` höher / `false` tiefer (nur STANDING) |
+| `/hexapod_sit_down` | `std_srvs/Trigger` | Hinsetzen (nur STANDING). **Bei aktivem Freeze: Reject** (v0.13.2) |
+| `/hexapod_stand_up` | `std_srvs/Trigger` | Aufstehen. **Bei aktivem Freeze: Reject** (v0.13.2) |
+| `/hexapod_cycle_stance` | `std_srvs/SetBool` | `data=true` höher / `false` tiefer (nur STANDING). **Bei aktivem Freeze: Reject** (v0.13.2) |
 | `/hexapod_cycle_gait` | `std_srvs/SetBool` | `true` next / `false` prev Gangart |
 | `/hexapod_cycle_tempo` | `std_srvs/SetBool` | `true` schneller / `false` langsamer Tempo-Preset (nur STANDING). **Host = `joy_to_twist`** (Tempo lebt dort). App-Tempo-Dropdown = cycle-to-target via `tempo_idx` aus `/hexapod/tempo`. `[N Ph.5]` |
 | `/hexapod_adjust_step_length` | `std_srvs/SetBool` | `true` größer / `false` kleiner (H2: modus-gedeckelt) |
-| `/hexapod_show_toggle` | `std_srvs/Trigger` | Show-Pose rein/raus |
-| `/hexapod_shutdown` | `std_srvs/Trigger` | Kontrolliertes Hinsetzen + Shutdown-Kette (Block F) |
+| `/hexapod_show_toggle` | `std_srvs/Trigger` | Show-Pose rein/raus. **Bei aktivem Freeze: Reject** (v0.13.2) |
+| `/hexapod_shutdown` | `std_srvs/Trigger` | Kontrolliertes Hinsetzen + Shutdown-Kette (Block F). **Bei aktivem Freeze: Reject** — der Poweroff-Weg bleibt trotzdem offen (Supervisor-Backstop nach 12 s), v0.13.2 |
 | `/hexapod_estop` | `std_srvs/Trigger` | **NOT-HALT (App-Ziel, Phase 6)** — gait_node, wirkt **Sim UND HW**: gated den Tick **latched** (kein joint_trajectory-Publish) + ruft intern den Plugin-`/hexapod_safety_freeze` (HW-PWM-Hold). Resumt NICHT von selbst → nur `/hexapod_recover`. `[N Ph.6]` |
 | `/hexapod_recover` | `std_srvs/Trigger` | **RECOVERY (App-Ziel, Phase 6)** — gait_node: Plugin-Freeze lösen + gait-Latches/Monitore reset + **Joint-Space-Ramp** aus der eingefrorenen Pose in den Stand ([D6]), ursachen-agnostisch. `[N Ph.6]` |
 | `/hexapod_safety_freeze` | `std_srvs/Trigger` | Plugin-Not-Halt (nur HW, hält letzte PWM). **Intern** von `/hexapod_estop` gerufen — **nicht** direkt aus der App (wirkt nicht in Sim). |
@@ -179,12 +181,52 @@ Vom `bringup_launcher` (Always-On-Schicht in `hexapod_supervisor`, neben rosbrid
 | `/hexapod_bringup_start` | `std_srvs/Trigger` | schweren Stack starten (Gazebo/HW + gait + `joy_to_twist(app)`); **idempotent** (läuft schon → `success`). Roboter kommt **auf dem Bauch** hoch (SAT, `auto_standup_on_start:=false`) → danach `/hexapod_stand_up`. |
 | `/hexapod_bringup_stop` | `std_srvs/Trigger` | Stack sauber stoppen (SIGINT→TERM→KILL, keine Zombies); rosbridge lebt weiter. |
 | `/hexapod_bringup_status` | `std_srvs/Trigger` | `message` = `running (pid=…)` / `stopped`. |
-| `/hexapod_pi_shutdown` | `std_srvs/Trigger` | **Pi ausschalten** — Stack läuft: kontrolliertes Hinsetzen (Block-F-Kette via internem `/hexapod_request_shutdown`) + guarded Poweroff; idle: direkter guarded Poweroff. **Dev-Host = nur Dry-Run** (dreifacher Guard). App zeigt **Bestätigungs-Dialog**. |
+| `/hexapod_pi_shutdown` | `std_srvs/Trigger` | **Pi ausschalten** — Stack läuft: kontrolliertes Hinsetzen (Block-F-Kette via internem `/hexapod_request_shutdown`) + guarded Poweroff; idle: direkter guarded Poweroff. **Dev-Host = nur Dry-Run** (dreifacher Guard). App zeigt **Bestätigungs-Dialog**. **Phase 9:** das ist der **Rettungsanker im Feld** — er wirkt auch, wenn der schwere Stack hängt (nach 12 s erzwingt der Supervisor Relay-Aus und fährt trotzdem herunter) und wenn gar kein Stack läuft. Danach bricht die Verbindung ab — **erwartet**, kein Fehler. Der **Hardware-Schalter** am Roboter kann das nicht ersetzen: er wird vom `hexapod_hardware`-Plugin gelesen und funktioniert daher **nur bei laufendem Stack**. |
 
 > **App-Lifecycle-Flow:** Verbinden → `/hexapod/bringup_running` + `/hexapod_bringup_status`
 > lesen → „Hexapod starten" (`bringup_start`) → „Aufstehen" (`/hexapod_stand_up`) → fahren →
 > „Hinsetzen" (`/hexapod_sit_down`) → „stoppen" (`bringup_stop`) → „Pi ausschalten" (Bestätigung
 > → `pi_shutdown`).
+>
+> ### ⚠️ Stabile Vertragstexte + Freeze-Verhalten (v0.13.2)
+>
+> **1. `performed=True` / `performed=False` in der `message` von `/hexapod_pi_shutdown`** ist ein
+> **fester Bestandteil des Contracts**, kein Debug-Text. Die App unterscheidet daran „Pi fährt
+> herunter" von „Poweroff wurde geblockt" (`success` allein sagt nur „Anfrage angenommen").
+> **Dieser Wortlaut wird nicht mehr geändert.** Beispiele:
+> `idle poweroff: performed=True (executed)` · `idle poweroff: performed=False (dev-host)` ·
+> `… (host-mismatch)` · `… (disabled)`.
+>
+> **2. Freeze-Reject (`[D-Feld-9]`):** bei aktivem E-Stop (`status.safety_frozen == true`) lehnen die
+> **Sequenz-Services** sofort ab — `/hexapod_sit_down`, `/hexapod_stand_up`, `/hexapod_shutdown`,
+> `/hexapod_cycle_stance`, `/hexapod_show_toggle` — mit
+> `… rejected: robot is frozen (E-Stop/safety) — call /hexapod_recover first`.
+> **Grund:** der gait-Tick ist im Freeze gated; vorher meldeten diese Services `success=true` und
+> bewirkten **nichts** (wer auf `state == SAT` wartete, wartete ewig).
+> **Immer erreichbar bleiben:** `/hexapod_estop`, **`/hexapod_recover`** (der Ausweg),
+> `/hexapod_pi_shutdown` (der Poweroff-Weg — lehnt der gait_node das Hinsetzen ab, erzwingt der
+> Supervisor nach 12 s Relay-Aus und fährt trotzdem herunter) sowie reine Werte-Setzer
+> (`cycle_gait`, `adjust_step_length`, Params inkl. `show_mode='none'`).
+> **Die App löst einen E-Stop NICHT automatisch auf** — sie zeigt den Grund, der Mensch entscheidet
+> (erst „Recover", oder bewusst hart neu starten).
+>
+> **3. „Stack läuft" ≠ „bedienbar":** nach `bringup_start` meldet `/hexapod_bringup_status` **sofort**
+> `running (pid=…)` — der `gait_node` startet aber erst nach **`gait_delay` (Default 12 s)**, damit
+> controller_manager und die 6 JTCs stehen. Der belastbare Bereitschafts-Indikator ist der **erste
+> `/hexapod/status`-Tick**; die App wartet darauf mit **40 s** Timeout. Wird `gait_delay`
+> ROS-seitig erhöht, muss die App-Seite nachziehen — dann gibt es eine Contract-Meldung.
+>
+> **„Stack neu starten" (Phase 9)** ist **kein eigener Service**, sondern ein App-Muster:
+> `bringup_stop` → auf `success` warten → ~2 s → `bringup_start` → über `/hexapod/bringup_running`
+> prüfen. Der Stop killt die Prozessgruppe hart durch (SIGINT→TERM→KILL) und wirkt daher auch auf
+> einen **hängenden** Stack. Danach liegt der Roboter wieder auf dem Bauch (SAT) → „Aufstehen".
+>
+> **Betriebs-Randbedingungen ab Phase 9** (beeinflussen die App nicht direkt, erklären aber das
+> Verhalten): die Always-On-Schicht läuft auf dem Pi **ab Boot** als systemd-Dienst — die App findet
+> rosbridge also ohne SSH-Vorlauf. Und der HW-Bringup lädt `hw_terrain.yaml`, d.h. IMU-Balance,
+> Terrain-Following und die Fußkontakt-Features sind **ab Stack-Start aktiv** (vorher liefen sie mit
+> Code-Defaults = aus). Der Comms-Loss-Fail-safe setzt den Roboter nach **25 s** ohne `/cmd_vel`
+> selbst hin (bestromt, kein Shutdown) — nach einem Reconnect also ggf. erst „Aufstehen".
 
 ---
 
@@ -312,7 +354,7 @@ dort ohnehin JSON; kein neues Message-Paket, [D-neu]). Feld-Formen ROS-seitig **
 | `show_mode` | string | **`none`/`look_around`/`dancing`/`free_leg`** (Phase 8) — der **wirksame** Modus. Die App spiegelt damit ihr Show-Menü, statt den eigenen Klick zu raten: der Roboter setzt ihn z.B. bei Recovery selbst auf `none` zurück. |
 | `stance_idx` / `stance` | int / string | 0/1/2 · `tief`/`mittel`/`hoch` |
 | `gait` | string | `tripod`/`wave`/`tetrapod`/`ripple` |
-| `safety_frozen` | bool | true nach Safety-Freeze/E-Stop; **latched** bis `/hexapod_recover` (Phase 6) |
+| `safety_frozen` | bool | true nach Safety-Freeze/E-Stop; **latched** bis `/hexapod_recover` (Phase 6). **Garantie (v0.13.2):** bleibt während des **gesamten** Freeze `true` und wird weiterhin gepublisht — der Status-Timer (5 Hz) läuft **unabhängig vom gait-Tick**, der im Freeze aussetzt. Die App verlässt sich darauf als **primäres** Freeze-Signal (statt Reject-Texte zu parsen); gepinnt in `test_frozen_guards.py` |
 | `tip` | string | `none`/`warn`/`crit` |
 | `step_height_cap` / `step_length_cap` | float | **dynamischer H1/H2-Cap des aktuellen Stance** → App klemmt die Slider auf `min(manifest.max, cap)` |
 

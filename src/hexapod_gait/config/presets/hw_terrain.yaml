@@ -7,6 +7,15 @@
 # aktiv (Leveling 'auto' + adaptiver Touchdown + Adaptive Stand + Slip-Freeze
 # + Sensor-Plausibilitaet) — kein einziges `ros2 param set` mehr noetig.
 #
+# ⚠️ SEIT PHASE 9 (Feld-Autonomie) laedt auch der APP-PFAD dieses Preset
+# (bringup_ondemand.launch.py mode:=real -> gait.launch.py params_file:=...).
+# Vorher lief der App-Bringup mit den Code-Defaults, d.h. Leveling + alle
+# S4-Features AUS. Wer hier Werte aendert, aendert damit BEIDE HW-Startwege —
+# das ist gewollt (ein Preset = eine Wahrheit fuer den HW-Betrieb, [D-Feld-8]).
+# Das Preset enthaelt bewusst KEINE Struktur-Params (auto_standup_on_start,
+# use_sim_time, robot_description_file): die kommen als Launch-Args und wuerden
+# sonst ueberschrieben (params_file gewinnt gegen die Inline-Defaults).
+#
 # params_file laedt nur EIN File -> dieses Preset enthaelt deshalb BEIDE
 # Bloecke: die HW-VERIFIZIERTEN Leveling-Werte (uebernommen aus hw_balance.yaml,
 # Stufe 7) + die S4-Fusskontakt-Params (Stand: Sim-Defaults; nach dem
@@ -98,6 +107,18 @@
     adaptive_stand_enable: true
     stand_conform_max_depth: 0.04
     stand_conform_rate: 0.02
+
+    # --- Feld-Fail-safe (Block I Phase 9) --------------------------------------
+    # Bricht die Funkverbindung ab (WLAN weg / Handy-Akku leer / App gecrasht),
+    # bleibt der Roboter sonst BESTROMT STEHEN: cmd_vel verstummt -> cmd_vel_timeout
+    # -> STANDING, und dort haelt er unter Last, bis jemand kommt. Nach 25 s
+    # Funkstille setzt er sich stattdessen selbst hin (Rest, weiterhin bestromt —
+    # KEIN Shutdown, damit ein Reconnect ihn per App wieder aufstehen lassen kann).
+    # 25 s = lang genug, dass ein kurzer Funkschatten ihn nicht hinsetzt, kurz
+    # genug, dass er nicht minutenlang unter Last steht. Aufstehen bleibt bewusst
+    # manuell (der Mensch entscheidet, ob er frei steht). Sim-Presets bekommen den
+    # Wert NICHT (dort wuerde er beim Entwickeln im Leerlauf stoeren).
+    comms_loss_sitdown_timeout: 25.0
 
     # --- Diagnose (S4-1): waehrend Stufe 8 an (Timing-Logs); spaeter false -----
     foot_contact_debug_enable: true

@@ -22,6 +22,7 @@
 ## Workflow / Komfort
 | Tool | Zweck |
 |---|---|
+| `tools/provision_pi.sh` | **Idempotentes Pi-Provisioning** (Phase 12 D1 + Block I Ph.9): alle System-Ebenen-Einstellungen, die NICHT im Workspace-Git liegen — APT/ROS-Repo/Locale, `.bashrc`-Env, rosdep, `COLCON_IGNORE` für hexapod_gazebo, udev-Rule `/dev/servo2040`, **sudoers-Eintrag für den Poweroff** + **Always-On-systemd-Dienst + `enable-linger`**. **Der Recovery-Weg nach SD-/SSD-Tod**: Image flashen → Repo klonen → Skript → `colcon build`. Beliebig oft ausführbar (`[skip]` bei bereits Erledigtem). ⚠️ Nur am Pi (Architektur-Guard blockt x86). |
 | `tools/hexapod-shell-aliases.sh` | Opt-in Aliases: `hexapod-save-walking-params`, `hexapod-load-walking-preset`, `hexapod-save-cal`, … Bei Cal-/Preset-Workflow darauf verweisen. ([[project_phase11_convenience_aliases]]) |
 | `tools/apex_meter.py` (H1) | Realer Fuß-Hub aus `/joint_states` (FK, max−min z je Bein, Rolling-Fenster) — misst, wie viel vom kommandierten `step_height` auf HW ankommt (Servo-Lag + Stützbein-Einfedern). Read-only, Sim+HW. |
 | `tools/joy_ws_test_client.py` (Block I) | Publisht `sensor_msgs/Joy` über **rosbridge** (WebSocket) als **Handy-Ersatz** — testet die Kette rosbridge→`/joy`→`joy_to_twist`→gait→Sim ohne die App. `--host --forward --turn --duration --no-deadman`. Braucht `python3-websocket` + laufende `app_teleop.launch.py`. |

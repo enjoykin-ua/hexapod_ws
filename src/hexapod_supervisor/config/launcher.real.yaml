@@ -13,5 +13,10 @@ bringup_launcher:
     bringup_launch_file: bringup_ondemand.launch.py
     bringup_launch_args: ["mode:=real"]
     enable_os_shutdown: true
-    pi_hostname: ''                   # AUF DEM PI: hostname eintragen
-    shutdown_command: 'sudo shutdown -h now'
+    # Phase 9: echter Pi-Hostname (war leer → App-„Pi ausschalten" lief in einen
+    # host-mismatch und fuhr nie herunter). Dev bleibt über den DEV_HOSTS-
+    # Hard-Block in os_shutdown.py geschützt, unabhängig von diesem Wert.
+    pi_hostname: 'hexapod-pi'
+    # 'sudo -n': ohne Terminal sofort scheitern + loggen statt zu hängen.
+    # Setzt /etc/sudoers.d/hexapod-shutdown voraus (tools/provision_pi.sh).
+    shutdown_command: 'sudo -n shutdown -h now'

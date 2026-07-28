@@ -139,6 +139,38 @@ der Stack ohne Teleop läuft. Die Sim-Presets bekommen den Wert **nicht**.
 zurückkommt, ist ungetestet. Erst messen (Stack läuft, Roboter steht, Hotspot ~15 s aus/an), dann
 entscheiden, ob App-Arbeit nötig ist. Kein Blind-Bauen.
 
+### Block D — Freeze-Guard für die Sequenz-Services (Nachtrag aus der App-Integration)
+
+**Der Befund** (kam aus der Rückfrage der App-Session, „Restart bei aktivem E-Stop"): Bei aktivem
+Freeze steigt `_tick` als **erste Zeile** aus (`if self._safety_frozen: return`) — es wird keine
+Trajektorie mehr publisht. Die Sequenz-**Services** wissen davon aber nichts: `/hexapod_sit_down`
+prüft nur `state != STANDING`, und der State ist im Freeze weiterhin `STANDING` (der Freeze gated
+den Tick, er ändert den State nicht).
+
+Ergebnis heute: der Service antwortet **`success=true`**, die Engine wechselt intern auf
+`REPOSITION` — und dann **passiert nichts**. Ein Aufrufer, der auf `state == SAT` wartet, wartet
+ewig.
+
+Das betrifft **alle** Sequenz-Starter: `sit_down`, `stand_up`, `shutdown`, `cycle_stance`,
+`show_toggle`. Aufgefallen ist es nie, weil bisher ein Mensch davorsaß und sah, dass sich nichts
+rührt — die App automatisiert diese Aufrufe und läuft deshalb in Timeouts.
+
+**Der Fix:** ein Freeze-Guard in genau diesen Handlern → **Reject mit Klartext-Grund**
+(`… rejected: robot is frozen (E-Stop/safety) — call /hexapod_recover first`). Damit ist ein
+Service, der Erfolg meldet, auch wirklich erfolgreich.
+
+**Ausdrücklich NICHT betroffen** (müssen im Freeze erreichbar bleiben):
+- `/hexapod_estop` (der Not-Halt selbst, idempotent) und **`/hexapod_recover`** (der einzige Ausweg)
+- `/hexapod_pi_shutdown` (Always-On-Ebene): der Weg zum Poweroff bleibt offen. Lehnt der gait_node
+  das Hinsetzen jetzt ab, greift im `shutdown_supervisor` der 12-s-Backstop (Relay-Aus erzwingen +
+  trotzdem herunterfahren) — **das gewünschte Verhalten**, nur mit klarer Ursache im Log.
+- Reine Werte-Setzer (`cycle_gait`, `adjust_step_length`, Params): sie starten keine Sequenz.
+
+**Kein automatisches Recovery** ([D-Feld-9]): Ein E-Stop ist eine bewusste Sicherheitsentscheidung
+des Menschen. Eine App-Aktion wie „Stack neu starten" darf ihn **nicht** heimlich aufheben und den
+Roboter bewegen — er könnte in einer Kipplage liegen. Die App zeigt den Reject-Grund, der Mensch
+entscheidet (erst „Recover", oder bewusst hart neu starten).
+
 ---
 
 ## 2. Tests-Liste (+ was bewusst NICHT)
@@ -159,6 +191,9 @@ entscheiden, ob App-Arbeit nötig ist. Kein Blind-Bauen.
 | **T9.12 (Pi/App)** App-Bringup lädt das Preset: nach „Start" ist `leveling_enable=true`, `leveling_mode=auto`, die S4-Enables true und `comms_loss_sitdown_timeout=25` (`ros2 param get`) | C1 — der App-Pfad verhält sich wie der 3-Terminal-Bringup | Pi |
 | **T9.13** `test_hw_terrain_preset.py` pinnt den neuen `comms_loss`-Wert + Validator-Range | Preset-Drift | Unit-Test |
 | **T9.14 (Sim)** Sim-Bringup unverändert: `comms_loss_sitdown_timeout` bleibt 0, kein Auto-Hinsetzen im Leerlauf | keine Sim-Regression | Sim |
+| **T9.15** Freeze-Guard: bei aktivem Freeze lehnen `sit_down`/`stand_up`/`shutdown`/`cycle_stance`/`show_toggle` mit Klartext-Grund ab (statt `success=true` ohne Wirkung) | Block D | Unit-Test |
+| **T9.16** `estop` + `recover` bleiben im Freeze erreichbar; nach `recover` funktionieren die Sequenz-Services wieder | der Ausweg darf nie zu sein | Unit-Test |
+| **T9.17 (Sim)** Restart bei aktivem E-Stop: `sit_down` lehnt **sofort** ab (kein 15-s-Leerlauf), die App zeigt den Grund; nach „Recover" läuft der Restart normal | E2E des Nachtrags | Sim + App |
 
 **Bewusst NICHT getestet / nicht gebaut:**
 - **Watchdog** für eine *hängende* (nicht abgestürzte) Always-On-Schicht — vertagt, siehe §9
@@ -189,6 +224,8 @@ Phase 9 (Feld-Autonomie):
 - [ ] P9.11 [ROS] Unit-Tests + Lint gruen (T9.3)
 - [ ] P9.12 [ROS] Contract-Praezisierung (v0.13.1) + Self-Review + Doku (README/architecture/progress/test_commands)
 - [ ] P9.13 [Integration] Feld-Probe: nur Roboter + Handy, kompletter Zyklus inkl. Herunterfahren
+- [ ] P9.14 [ROS] Freeze-Guard fuer die Sequenz-Services (sit_down/stand_up/shutdown/cycle_stance/show_toggle) — Reject statt wirkungslosem success (T9.15/T9.16)
+- [ ] P9.15 [ROS] Contract v0.13.2: performed-Marker als stabiler Vertragstext, gait_delay<->App-Timeout-Kopplung, Freeze-Reject
 ```
 
 ---
@@ -279,6 +316,14 @@ Feld-Zyklus früh sicher, statt zuerst bequem.
   Einschalten soll sich nichts bewegen. **Verworfen:** Auto-Standup beim Boot.
 - **[D-Feld-6] Buttons in der Verbinden-Sicht, nicht in der Fahr-Sicht** *(User-Vorgabe)*: beides
   sind Lifecycle-Aktionen; in der Fahr-Sicht wäre ein Fehlgriff auf „herunterfahren" teuer.
+- **[D-Feld-9] Freeze-Guard in den Sequenz-Services statt App-seitiger Vorprüfung.** Ein Service, der
+  `success=true` meldet und nichts tut, ist ein Fehler — und er trifft **jeden** Aufrufer (App,
+  Terminal, künftige Automatik), nicht nur die App. Der Guard gehört daher an die Quelle.
+  **Verworfen:** (a) die App prüft vorher `status.safety_frozen` (löst es nur für einen Aufrufer und
+  verlagert Wissen über Engine-Interna in die App), (b) **automatisches `/hexapod_recover`** vor dem
+  Hinsetzen — ein E-Stop ist eine bewusste Sicherheitsentscheidung; ihn durch „Stack neu starten"
+  heimlich aufzuheben und den Roboter zu bewegen (evtl. aus einer Kipplage) wäre gefährlich.
+  Der Mensch entscheidet: erst „Recover", oder bewusst hart neu starten.
 - **[D-Feld-8] Der App-HW-Pfad lädt `hw_terrain.yaml`** *(User-Entscheidung)* statt mit
   Code-Defaults zu starten. Ein Preset als **eine** Wahrheit für den HW-Betrieb — egal ob per App
   oder 3-Terminal gestartet. **Verworfen:** Code-Defaults beibehalten (Features im Feld faktisch

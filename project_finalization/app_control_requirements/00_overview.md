@@ -8,7 +8,9 @@
 > **Status: 🟡 aktiv — Phasen 1–8 🟢 fertig** (Kishi-Mapping, Teleop, Lifecycle, Video,
 > Status/Config-Panel, **E-Stop + Recovery**, **Audio**, **echte Raspi-Cam** und die **Show
 > „Look-Around"** — letztere **in Sim UND am echten Roboter verifiziert**, Contract **v0.13**).
-> Als Nächstes: **Politur** (Reconnect-Handling, Controller-Profile, Robustheit — jetzt Phase 9).
+> **Phase 9 = Feld-Autonomie** (Repo-Seite 🟢, Contract **v0.13.1**): Always-On ab Boot, sauberer
+> Poweroff, App-Buttons „Pi herunterfahren"/„Stack neu starten", HW-Preset im App-Pfad — offen sind
+> die Pi-Schritte + die App-Seite. Danach: **Politur** (Reconnect, Controller-Profile — jetzt Ph.10).
 > Deferiert: HW-Verify T6.8 (E-Stop/Recover) + T7A.13 (Audio-Speaker) + die zugehörigen App-Buttons.
 > Arbeitsweise CLAUDE.md §4 (Plan → Freigabe → Code → Tests → Self-Review), §5 (Agent macht NIE
 > git). Deutsch durchgehend.
@@ -91,7 +93,8 @@ angebunden:
 | **7A** | **Audio** 🟢 (ROS-Seite Sim-verifiziert) | `hexapod_audio`-Node: Bewegungs-Cues (gait) + Soundboard + `sound_enable`-Mute. Contract v0.11 | App + ROS |
 | **7B** | **Echte Raspi-Cam** 🟢 (ROS-Seite + Desktop-E2E) | OV5647 → `/camera/image_raw` (`rpicam-vid` MJPEG → CompressedImage) + `camera_enable`; web_video_server + App unverändert. Contract v0.12 | ROS (+App-Feinschliff) |
 | **8** | **Show „Look-Around"** 🟢 (Sim + **HW** verifiziert) | Körper bewegt sich in 6 DOF über **fixen Füßen** (umschauen/wandern/Höhe, R1-Dead-Man, federt zurück); App-**Show-Menü** setzt `show_mode`; **Dancing/Free-Leg als Platzhalter** vorgebaut. Contract v0.13, §6c | App + ROS |
-| **9** | **Politur** *(als Nächstes)* | Controller-Profile (Portabilität), Reconnect-Handling, Robustheit | App |
+| **9** | **Feld-Autonomie** *(aktiv — Repo 🟢)* | Always-On ab Boot (systemd) → **kein Dev-Rechner mehr nötig**; sauberer Poweroff repariert (`pi_hostname`/`sudo -n`); App-Buttons „Pi herunterfahren" + „Stack neu starten"; HW-Preset im App-Pfad + Comms-Loss-Fail-safe. Contract v0.13.1 | ROS/Pi + App |
+| **10** | **Politur** | Controller-Profile (Portabilität), Reconnect-Handling, Robustheit | App |
 
 **Abhängigkeiten:** 1 → 2 → 3 sind linear (Input → Steuerstrecke → Lifecycle). 4/5/6 bauen
 auf 2/3 auf, sind untereinander aber weitgehend unabhängig. 7 schwebt (jederzeit). 8 zum

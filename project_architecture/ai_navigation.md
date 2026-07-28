@@ -161,9 +161,22 @@
   `recover_duration` (Default 3.0 s, **nicht** standing_only). **Warum sicher:** Lerp zweier gültiger
   Posen → konvexe Kombination pro Gelenk → **kein Limit-Bruch, kein IK, kein Re-Freeze** (während der
   Ramp = STARTUP_RAMP feuern Tip/Slip ohnehin nicht).
+- **Freeze-Guard in den Sequenz-Services (Ph.9, [D-Feld-9]):** bei `_safety_frozen` lehnen
+  `sit_down`/`stand_up`/`shutdown`/`cycle_stance`/`show_toggle` **sofort mit Grund** ab
+  (`_reject_if_frozen`). **Warum:** der Tick ist gegated, die Services prüften aber nur den
+  Engine-*State* (der im Freeze unverändert bleibt) → sie meldeten `success=true` und bewirkten
+  **nichts**; wer auf `state == SAT` wartete, wartete ewig (Befund aus der App-Integration).
+  ⚠️ **Nicht gegated und niemals gaten:** `estop`, **`recover`** (der einzige Ausweg),
+  `/hexapod_pi_shutdown` (Poweroff-Weg; der Supervisor erzwingt nach 12 s Relay-Aus) sowie reine
+  Werte-Setzer (`cycle_gait`, `adjust_step_length`, Params inkl. `show_mode='none'`). Wer einen
+  neuen Sequenz-Service baut, hängt `_reject_if_frozen` davor. Tests: `test_frozen_guards.py`.
 - **Fallen:** (1) App-Ziel ist `/hexapod_estop`, **nicht** `/hexapod_safety_freeze` (Plugin, nur HW).
   (2) Recovery richtet **keine Kipplage** auf (Mensch stellt grob aufrecht, dann Recover). (3) Bei
   weiter schlechten Params freezt er nach dem Loslaufen wieder (Recovery fixt Zustand, nicht Params).
+  (4) **Recovery wird nie automatisch ausgelöst** — auch nicht von der App: ein E-Stop ist eine
+  bewusste Sicherheitsentscheidung, und die Recovery-Ramp **bewegt** den Roboter (evtl. aus einer
+  Kipplage). (5) `performed=True/False` in der `/hexapod_pi_shutdown`-Message ist **Vertragstext**
+  (die App parst ihn) — Wortlaut nicht ändern (Contract v0.13.2).
 - **Validieren:** `test_recover.py` (T6.4 Ramp-kein-Limit über 21 Samples · T6.6 Reset-Latches/Monitore
   · T6.7 Reject-ohne-joints · Freeze-Gate · any-state) + Live
   (`phase_6_estop_recovery_test_commands.md`): estop → `safety_frozen:true` latched → recover →
@@ -287,6 +300,53 @@
   (`python3 tools/show_pose_cog_check.py` für die ENTER-Pose; den Offset-Worst-Case-Sweep aus
   `B4_show_pose_plan.md` §4a/§9 nachfahren) · **Sim** (RViz+Gazebo, [`B4_show_pose_test_commands.md`](../project_finalization/B4_show_pose_test_commands.md))
   · **HW aufgebockt → Boden** (CoG-kritisch, nur 4 Stützbeine!).
+
+### Pi-Boot / Always-On-Dienst / Deploy auf die HW (Block I Phase 9)
+
+> ⚠️ **Die zwei Fallen, die man genau einmal erlebt.** Seit Phase 9 läuft die Always-On-Schicht auf
+> dem Pi **als systemd-User-Dienst ab Boot** (`hexapod_always_on.service`) — nicht mehr manuell per
+> SSH.
+
+- **Doppelstart:** Läuft der Dienst, darf die Schicht **nicht** zusätzlich manuell gestartet werden
+  (`ros2 launch hexapod_bringup always_on.launch.py mode:=real`) — zwei rosbridge auf Port 9090 und
+  zwei `bringup_launcher` auf denselben Service-Namen. Vorher immer
+  `systemctl --user stop hexapod_always_on`.
+- **Nach einem Update — was muss neu gestartet werden?**
+  - Nur der **schwere Stack** geändert (gait_node, gait_engine, joy_to_twist, hexapod_hardware,
+    Welten/Presets)? → **nichts** am Dienst; in der App **„stoppen" → „starten"**. Der Stack wird bei
+    jedem Start frisch als Subprozess geladen.
+  - Die **Always-On-Schicht** geändert (`rosbridge.launch.py`, `bringup_launcher.py`,
+    `shutdown_supervisor.py`, **`hmi_status.py` inkl. `hmi_config_manifest.yaml`**, `always_on.launch.py`)?
+    → zusätzlich `systemctl --user restart hexapod_always_on`. **Sonst läuft der alte Code weiter**
+    und ein neuer Param/Manifest-Eintrag „existiert nicht".
+- **Shutdown-Kette (zwei Wege, ein Guard):**
+  `Schalter → Servo2040 → hexapod_hardware-Plugin → /hexapod/shutdown_request (latched) →
+  shutdown_supervisor → /hexapod_shutdown → Hinsetzen → SAT → Relay → guarded_shutdown()`.
+  ⚠️ Das Plugin läuft **nur im schweren Stack** → der **Schalter funktioniert nur bei laufendem
+  Stack**. Der App-Button `/hexapod_pi_shutdown` (`bringup_launcher`, Always-On) wirkt dagegen
+  **immer** — auch ohne Stack und bei hängendem Stack (12-s-Backstop erzwingt Relay-Aus + Poweroff).
+- **Guard-Werte (`pi_hostname`, `shutdown_command`) leben in ZWEI Configs**, weil zwei Nodes sie
+  lesen: `hexapod_supervisor/config/supervisor.yaml` (Schalter-Pfad) **und** `launcher.real.yaml`
+  (App-Pfad). Beide müssen übereinstimmen — `test_shutdown_config_pinned.py` pinnt das.
+  **Historie:** bis Phase 9 war `pi_hostname` leer → `guarded_shutdown` meldete `host-mismatch`,
+  der Poweroff feuerte **nie**; sichtbar war nur Hinsetzen + Relay, danach wurde der Pi am
+  Hauptschalter hart getrennt. Der Dev-Rechner ist unabhängig davon über `DEV_HOSTS` hart geblockt.
+- **`sudo -n`** im `shutdown_command`: aus einem Dienst gibt es kein Terminal — ohne `-n` würde
+  `sudo` auf eine Passwort-Eingabe warten, die nie kommt. Setzt `/etc/sudoers.d/hexapod-shutdown`
+  voraus (NOPASSWD nur für `shutdown`).
+- **Pi-System-Einstellungen gehören in `tools/provision_pi.sh`** (Schritt 10: sudoers, systemd-Unit,
+  `enable-linger`) — sonst sind sie nach einer SD-Neuinstallation weg. Das Skript ist idempotent,
+  ein erneuter Lauf meldet `[skip]`.
+- **Der App-HW-Bringup lädt `hw_terrain.yaml`** (`bringup_ondemand.launch.py`, real-Zweig): Balance
+  (`leveling_mode: auto`), Tip/Slope, alle S4-Fußkontakt-Features und der Comms-Loss-Fail-safe
+  (25 s) sind ab Stack-Start aktiv. **Falle:** `params_file` **überschreibt** die Inline-Launch-Args
+  von `gait.launch.py` — deshalb darf das Preset **keine** Struktur-Params enthalten
+  (`auto_standup_on_start`, `use_sim_time`, `robot_description*`), sonst stünde der Roboter beim
+  App-Start unaufgefordert auf. `test_hw_terrain_preset.py` pinnt das.
+- **Validieren:** `colcon test --packages-select hexapod_supervisor hexapod_gait hexapod_bringup`
+  (`test_shutdown_config_pinned`, `test_hw_terrain_preset`, `test_os_shutdown_guard`) · Pi-Schritte
+  + Reboot-/Shutdown-Test nach
+  [`phase_9_field_autonomy_test_commands.md`](../project_finalization/app_control_requirements/phase_9_field_autonomy_test_commands.md).
 
 ### Show „Look-Around" / Body-Pose (Block I Phase 8) ändern
 

@@ -123,15 +123,20 @@ ros2 launch hexapod_bringup always_on.launch.py scene:=rubicon  # rough terrain 
 ```
 > `scene:=rubicon` loads a heightmap world — allow ~20–30 s for it to come up before standing.
 
-> **On the real robot (Pi):** same app flow, one command — but **`mode:=real`** (no Gazebo world):
+> **On the real robot (Pi): nothing to launch at all.** The always-on layer runs **from boot** as a
+> systemd user service (`hexapod_always_on.service`, set up by `tools/provision_pi.sh`). Switch the
+> robot on, open the phone hotspot, connect the app to the **Pi's IP** (port 9090) and do
+> **Start → Stand up → drive** — no laptop, no SSH. Shutting down works from the hardware switch on
+> the robot **or** from the app (sit down → relay off → the Pi powers off cleanly).
+>
+> If you ever need it manually (e.g. the service is stopped):
 > ```bash
+> systemctl --user stop hexapod_always_on          # avoid a double start first
 > ros2 launch hexapod_bringup always_on.launch.py mode:=real
 > ```
-> The app then connects to the **Pi's IP** (phone hotspot, port 9090) and does **Start → Stand up →
-> drive**, exactly like in sim. **Robot on a stand** for the first run. One-time Pi prerequisites
-> (app / video / audio layer, not needed for the PS4-only locomotion): `sudo apt install
-> ros-jazzy-rosbridge-suite ros-jazzy-web-video-server mpg123`. Tip: run the launch inside `tmux`
-> so it survives an SSH drop.
+> **Robot on a stand** for the first run. One-time Pi prerequisites (app / video / audio layer, not
+> needed for the PS4-only locomotion): `sudo apt install ros-jazzy-rosbridge-suite
+> ros-jazzy-web-video-server mpg123` — all handled by `provision_pi.sh`.
 
 **B) Manual (PS4 / keyboard).** Each step in its own terminal (`source install/setup.bash` in each):
 

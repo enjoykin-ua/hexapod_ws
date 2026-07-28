@@ -119,6 +119,20 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+> ⚠️ **Seit Block I Phase 9 läuft die Always-On-Schicht als systemd-Dienst ab Boot.** Damit ändert
+> sich der Deploy-Abschluss — sonst läuft nach dem Build **der alte Prozess weiter**:
+>
+> | Was hast du geändert? | Was ist danach nötig? |
+> |---|---|
+> | Nur den **schweren Stack** (gait_node, gait_engine, joy_to_twist, hexapod_hardware, Presets, Welten) — der Normalfall | **nichts** am Dienst; in der App **„stoppen" → „starten"**. Der Stack wird bei jedem Start frisch geladen |
+> | Die **Always-On-Schicht** (`rosbridge.launch.py`, `bringup_launcher.py`, `shutdown_supervisor.py`, `hmi_status.py` **inkl. `hmi_config_manifest.yaml`**, `always_on.launch.py`) | zusätzlich `systemctl --user restart hexapod_always_on` |
+>
+> **Doppelstart vermeiden:** die Schicht **nicht** zusätzlich manuell starten
+> (`always_on.launch.py`) — zwei rosbridge auf Port 9090 kollidieren. Vorher
+> `systemctl --user stop hexapod_always_on`.
+>
+> Prüfen, ob wirklich neuer Code läuft: `ros2 param get /gait_node <neuer_param>`.
+
 Helper-Alias am Desktop:
 ```bash
 alias hexapod-deploy='ssh hexapod-pi "cd ~/hexapod_ws && git pull && colcon build --symlink-install"'
