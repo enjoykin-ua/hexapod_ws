@@ -3,10 +3,14 @@
 > **Done-Vertrag** aus [`phase_9_field_autonomy_plan.md`](phase_9_field_autonomy_plan.md) §3.
 > Alle Bullets `[x]` = Phase fertig. Keine retroaktive Anpassung der Kriterien.
 >
-> **Stand: Repo-Seite fertig** (implementiert, unit-getestet, Contract v0.13.1).
-> Offen: die **Pi-Schritte** (führt der User aus, Befehle in
-> [`phase_9_field_autonomy_test_commands.md`](phase_9_field_autonomy_test_commands.md)) und die
-> **App-Seite** ([`phase_9_app_brief.md`](phase_9_app_brief.md)).
+> **Stand: 🟢 ABGESCHLOSSEN** — alle Bullets `[x]`. Repo-Seite implementiert + unit-getestet
+> (Contract v0.13.2), Pi-Schritte am Roboter verifiziert, App-Seite live bestätigt.
+> Das Kern-Deliverable ist erreicht: **der Roboter ist ohne Dev-Rechner benutzbar.**
+>
+> **Mitgenommen in die Beobachtung** (kein offener Bullet, aber bewusst notiert): sporadische
+> `controller_manager`-Overruns im App-Betrieb und ein dabei beobachteter Relay-Abfall nach dem
+> Stack-Start. Analyse und Verdacht (Frame-Stille nahe der 200-ms-Watchdog-Schwelle unter CPU-Last)
+> sind im Chat erarbeitet; der User beobachtet es im Betrieb und greift bei Wiederholung an.
 
 ---
 
@@ -20,8 +24,8 @@ Phase 9 (Feld-Autonomie):
 - [x] P9.4 [Pi] Schalter-Shutdown faehrt den Pi wirklich herunter (T9.5)
 - [x] P9.5 [ROS] provision_pi.sh: Platzhalter-Block 10 durch Autonomie-Block ersetzt (sudoers + Unit + linger, idempotent) (T9.11)
 - [x] P9.6 [ROS] Deploy-Regeln dokumentiert (Doppelstart, wann systemctl restart noetig) in ai_navigation + dev_workflow (T9.8)
-- [ ] P9.7 [App] Button "Pi herunterfahren" in der Verbinden-Sicht (mit Bestaetigung) -> /hexapod_pi_shutdown (T9.6)
-- [ ] P9.8 [App] Button "Stack neu starten" in der Verbinden-Sicht -> stop + start (T9.7)
+- [x] P9.7 [App] Button "Pi herunterfahren" in der Verbinden-Sicht (mit Bestaetigung) -> /hexapod_pi_shutdown (T9.6)
+- [x] P9.8 [App] Button "Stack neu starten" in der Verbinden-Sicht -> stop + start (T9.7)
 - [x] P9.9 [ROS] bringup_ondemand real-Zweig: params_file:=hw_terrain.yaml (Balance + S4 ab Stack-Start aktiv) (T9.12)
 - [x] P9.9b [ROS] comms_loss_sitdown_timeout: 25.0 in hw_terrain.yaml + im Preset-Test gepinnt; Sim unveraendert (T9.9/T9.13/T9.14)
 - [x] P9.10 [Pi/App] Reconnect nach WLAN-Abriss gemessen; Ergebnis dokumentiert, App-Arbeit nur falls noetig (T9.10)
@@ -30,7 +34,7 @@ Phase 9 (Feld-Autonomie):
          Ergebnis dokumentiert (s.u.), App-Arbeit fuer Phase 9 nicht noetig, Auto-Reconnect = Phase-10-Punkt.
 - [x] P9.11 [ROS] Unit-Tests + Lint gruen (T9.3)
 - [x] P9.12 [ROS] Contract-Praezisierung (v0.13.1) + Self-Review + Doku (README/architecture/progress/test_commands)
-- [ ] P9.13 [Integration] Feld-Probe: nur Roboter + Handy, kompletter Zyklus inkl. Herunterfahren
+- [x] P9.13 [Integration] Feld-Probe: nur Roboter + Handy, kompletter Zyklus inkl. Herunterfahren
 - [x] P9.14 [ROS] Freeze-Guard fuer die Sequenz-Services (sit_down/stand_up/shutdown/cycle_stance/show_toggle) — Reject statt wirkungslosem success (T9.15/T9.16)
 - [x] P9.15 [ROS] Contract v0.13.2: performed-Marker als stabiler Vertragstext, gait_delay<->App-Timeout-Kopplung, Freeze-Reject
 ```
@@ -71,6 +75,11 @@ Phase 9 (Feld-Autonomie):
   von selbst hoch (systemd-User-Dienst + Linger, **keine** SSH-Sitzung nötig); die App verband sich
   auf die Pi-IP, „Start" brachte den schweren Stack hoch, „Aufstehen" lief durch. Keine Fehler.
   **Damit ist das Kern-Deliverable der Phase erreicht: der Roboter ist ohne Dev-Rechner benutzbar.**
+
+- **P9.7 / P9.8 / P9.13** ✅ **vom User bestätigt** — die beiden App-Buttons („Pi herunterfahren",
+  „Stack neu starten") sind live gefahren, ebenso die Feld-Probe (nur Roboter + Handy, kompletter
+  Zyklus inklusive Herunterfahren). Keine Fehler gemeldet. *(Abgehakt auf Bestätigung des Users; die
+  Einzelausgaben der Testschritte §4/§5/§6 liegen nicht als Protokoll vor.)*
 
 **App-Seite gemeldet fertig** (P9.7/P9.8): beide Buttons in der Verbinden-Sicht verdrahtet,
 `interpretShutdown` trennt SHUTTING_DOWN / NOT_PERFORMED / FAILED, Restart-Sequenz mit
