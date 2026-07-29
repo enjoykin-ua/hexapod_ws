@@ -36,7 +36,12 @@ from __future__ import annotations
 import math
 
 from hexapod_gait.gait_patterns import GaitPattern
-from hexapod_gait.joint_load import compute_load, MassModel
+from hexapod_gait.joint_load import (
+    _convex_hull,
+    _signed_margin,
+    compute_load,
+    MassModel,
+)
 from hexapod_gait.trajectory_gen import stance_traj, stand_pose, swing_traj
 from hexapod_kinematics import (
     base_to_leg_frame,
@@ -71,6 +76,13 @@ _STANCE_SETTLING_TIME = 0.3
 # 1=vorne-R, 2=mitte-R, 3=hinten-R, 4=hinten-L, 5=mitte-L, 6=vorne-L.
 _SHOW_SUPPORT_LEGS = ('leg_2', 'leg_3', 'leg_4', 'leg_5')
 _SHOW_FRONT_LEGS = ('leg_1', 'leg_6')
+# Block I Phase 10 — Vorzeichen des lateralen Neutral-Anteils je Vorderbein.
+# leg_1 (vorne rechts, mount_yaw −45°) und leg_6 (vorne links, +45°) müssen
+# GEGENSINNIG schwenken, damit beide auf die Körper-Längsachse zu zeigen statt
+# beide zur selben Seite. Ohne diesen Anteil steht die Show-Pose auf Coxa 0 —
+# das Bein zeigt dann in seine Montagerichtung (45° schräg nach außen), was die
+# „viel zu weit auseinander"-Optik der alten Show erzeugte.
+_SHOW_FRONT_LAT_SIGN = {'leg_1': +1.0, 'leg_6': -1.0}
 
 # Block A5 Stufe 2 — Body-Leveling-Stellpfad. Skalierungs-Stufen für den
 # IKError-Fallback (Risiko 1): volle Korrektur → halbe → viertel → 0
@@ -323,7 +335,11 @@ class GaitEngine:
         self._show_shift_back: float = 0.0       # Body-Rückversatz (m)
         self._show_shift_fraction: float = 0.5   # Anteil Phase a (Shift)
         self._show_front_radial: float = radial_distance   # Vorderbein-Neutral
+        self._show_front_lat: float = 0.0        # lateraler Neutral-Anteil (m)
         self._show_front_z: float = body_height
+        # Körper-Neigung der Show (rad, positiv = Nase hoch). Wird über σ
+        # eingefahren, damit ENTER/EXIT sprungfrei bleiben. 0 = wie B4.
+        self._show_pitch_rad: float = 0.0
         self._show_safety_margin: float = 0.0    # min. CoG-Marge (m)
         self._show_mass_model: MassModel = MassModel()
         # CoG-Gate-Hold: bei Marge-Unterschreitung in Phase b wird die letzte
@@ -1795,6 +1811,8 @@ class GaitEngine:
         safety_margin: float,
         return_rate: float = 0.0,
         mass_model: MassModel | None = None,
+        front_lat: float = 0.0,
+        body_pitch_deg: float = 0.0,
     ) -> bool:
         """
         Show-Pose einleiten (Block B4). Nur aus STANDING erlaubt.
@@ -1826,7 +1844,9 @@ class GaitEngine:
         self._show_shift_back = body_shift_back
         self._show_shift_fraction = shift_fraction
         self._show_front_radial = front_radial
+        self._show_front_lat = front_lat
         self._show_front_z = front_z
+        self._show_pitch_rad = math.radians(body_pitch_deg)
         self._show_safety_margin = safety_margin
         self._show_return_rate = return_rate
         self._show_mass_model = mass_model or MassModel()
@@ -1894,7 +1914,11 @@ class GaitEngine:
         if leg.name in _SHOW_FRONT_LEGS and sigma > frac:
             sub_b = (sigma - frac) / (1.0 - frac)
             s_b = sub_b * sub_b * (3.0 - 2.0 * sub_b)
-            neutral = (self._show_front_radial, 0.0, self._show_front_z)
+            # Phase 10: der laterale Anteil dreht das Bein nach vorne (Coxa).
+            # Vorzeichen pro Bein gespiegelt (_SHOW_FRONT_LAT_SIGN), damit beide
+            # auf die Längsachse zu schwenken. front_lat=0 → B4-Verhalten.
+            lat = _SHOW_FRONT_LAT_SIGN[leg.name] * self._show_front_lat
+            neutral = (self._show_front_radial, lat, self._show_front_z)
             return _lerp(ground_leg, neutral, s_b)
         return ground_leg
 
@@ -1926,6 +1950,53 @@ class GaitEngine:
             fz + offset[1] * lam,
         )
 
+    def _show_pitch_at(self, sigma: float) -> float:
+        """
+        Wirksamer Körper-Pitch (rad) bei Show-Skalar σ — positiv = Nase hoch.
+
+        Der Pitch fährt **mit λ(σ) in Phase b** hoch, also genau dann, wenn die
+        Vorderbeine abheben. Zwei Gründe: (a) in Phase a stehen noch alle sechs
+        Füße am Boden — den Körper dort zu neigen hieße, gegen die eigene Stütze
+        zu arbeiten; (b) so ist der Übergang bei σ = shift_fraction stetig
+        (λ=0) und der EXIT baut den Pitch ab, **bevor** die Beine aufsetzen.
+        """
+        return self._show_pitch_rad * self._show_front_offset_factor(sigma)
+
+    def _show_pitched(self, leg, target_leg: Point3, pitch: float) -> Point3:
+        """
+        Körper-Neigung auf ein **weltfestes** Foot-Target anwenden (Phase 10).
+
+        Gilt nur für die **Stützfüße**: die stehen am Boden, also weltfest —
+        kippt der Körper um ``pitch``, wandern sie im körperfesten Frame
+        gegenläufig. Genau das rechnet diese Funktion: Bein-Frame → base →
+        ``rotate_xy`` → zurück in den Bein-Frame.
+
+        Die **Vorderbeine** werden bewusst NICHT so behandelt: sie hängen in der
+        Luft am Körper, ihre Neutral-Pose ist körperfest definiert und kippt
+        einfach mit. Sie hier mitzurotieren würde sie im Raum festhalten,
+        während der Körper sich darunter wegdreht.
+
+        **Vorzeichen:** ``rotate_xy``/REP-103 dreht bei positivem Pitch die Nase
+        nach unten (Ry: +X → −Z). Der Anwender-Parameter ist anschaulich
+        (positiv = Nase hoch), deshalb geht ``+pitch`` in ``rotate_xy`` —
+        dieselbe Konvention wie ``tools/show_pose_cog_check.py --pitch-deg``.
+        """
+        if pitch == 0.0:
+            return target_leg
+        base_pt = leg_to_base_frame(target_leg, leg)
+        return base_to_leg_frame(rotate_xy(base_pt, 0.0, pitch), leg)
+
+    def _show_front_target(self, leg, sigma: float, offset: Point3) -> Point3:
+        """
+        Vorderbein-Target inkl. Offset (körperfest — ohne Pitch-Rotation).
+
+        Eine Funktion für beide Aufrufer — den Tick (``_show_pose_targets``) und
+        die Clamp-Vorprüfung in ``_compute_show_active_angles``. Würden die zwei
+        unterschiedlich rechnen, könnte die Vorprüfung eine Pose als gültig
+        durchwinken, die der Tick danach als IKError verwirft.
+        """
+        return self._front_foot(leg, sigma, offset)
+
     def _show_pose_targets(self, sigma: float) -> dict[str, Point3]:
         """
         Foot-Targets aller 6 Beine für σ (Stützbeine + Vorderbeine mit Offset).
@@ -1933,15 +2004,21 @@ class GaitEngine:
         Verwendet von ENTER (Offsets = 0) und EXIT (Offsets eingefroren →
         verblassen über λ(σ)). SHOW_ACTIVE führt die Offsets vorher
         rate-limitiert nach und ruft dann mit σ=1.
+
+        Der Pitch (Phase 10) wirkt **nur auf die Stützfüße** — sie sind
+        weltfest; die Vorderbeine hängen körperfest am Rumpf und kippen mit.
         """
         targets: dict[str, Point3] = {}
+        pitch = self._show_pitch_at(sigma)
         for leg in HEXAPOD.legs:
             if leg.name in _SHOW_FRONT_LEGS:
-                targets[leg.name] = self._front_foot(
+                targets[leg.name] = self._show_front_target(
                     leg, sigma, self._show_offset_current[leg.name],
                 )
             else:
-                targets[leg.name] = self._show_foot(leg, sigma)
+                targets[leg.name] = self._show_pitched(
+                    leg, self._show_foot(leg, sigma), pitch,
+                )
         return targets
 
     def _compute_show_enter_angles(
@@ -2013,7 +2090,10 @@ class GaitEngine:
             if new != cur:
                 leg_limits = self.joint_limits.get(name)
                 try:
-                    leg_ik(*self._front_foot(leg, 1.0, new), leg, leg_limits)
+                    # Pitch MUSS mitgerechnet werden — sonst prüft die Clamp
+                    # eine andere Pose als der Tick danach stellt.
+                    leg_ik(*self._show_front_target(leg, 1.0, new), leg,
+                           leg_limits)
                     self._show_offset_current[name] = new
                 except IKError:
                     pass   # Limit-Rand erreicht → letzten gültigen Offset halten
@@ -2102,14 +2182,54 @@ class GaitEngine:
                 ) from exc
         return angles
 
+    def _show_cog_margin_pitched(
+        self, angles: dict[str, JointAngles], load,
+    ) -> float:
+        """
+        CoG-Marge im **Welt-Frame** bei geneigtem Körper (Phase 10).
+
+        ``compute_load`` projiziert den Schwerpunkt in die **körperfeste**
+        xy-Ebene. Ist der Körper gepitcht, arbeitet die Schwerkraft aber gegen
+        die *horizontale* Ebene — die körperfeste Projektion ist dann schlicht
+        die falsche. Deshalb werden CoG **und** Stützfüße gemeinsam um den
+        aktuellen Pitch in die Welt gedreht und dort verglichen.
+
+        Ohne diese Korrektur wäre das Gate bei Nase-hoch-Pitch zu pessimistisch
+        (es würde eine Show einfrieren, die real stabiler ist) — und bei
+        Nase-runter-Pitch **zu optimistisch**, was gefährlich wäre.
+        Deckungsgleich mit ``tools/show_pose_cog_check.py``.
+        """
+        # ⚠️ Vorzeichen: die Fuß-Targets werden mit ``Ry(+p)`` in den
+        # Körper-Frame gedreht (``_show_pitched``) — der Rückweg in die Welt ist
+        # damit ``Ry(−p)``. CoG **und** Füße müssen dieselbe Richtung nehmen,
+        # sonst kippt die Aussage ins Gegenteil (mit +p meldete das Gate bei
+        # Nase-hoch 30.8 mm statt der realen 44.7 mm).
+        p = -self._show_pitch_at(self._show_sigma)
+        cog = rotate_xy(load.cog_base, 0.0, p)
+        feet_xy = []
+        for name in _SHOW_SUPPORT_LEGS:
+            leg = HEXAPOD.by_name(name)
+            foot_base = leg_to_base_frame(leg_fk(*angles[name], leg), leg)
+            fx, fy, _fz = rotate_xy(foot_base, 0.0, p)
+            feet_xy.append((fx, fy))
+        return _signed_margin((cog[0], cog[1]), _convex_hull(feet_xy))
+
     def _show_cog_margin(self, angles: dict[str, JointAngles]) -> float:
-        """CoG-Marge (m) im 4-Bein-Stützpolygon (leg_2,3,4,5) für eine Pose."""
+        """
+        CoG-Marge (m) im 4-Bein-Stützpolygon (leg_2,3,4,5) für eine Pose.
+
+        Ohne Körper-Neigung ist das direkt ``load.stability_margin_m`` (B4-
+        Verhalten, bit-identisch). Mit Neigung übernimmt
+        ``_show_cog_margin_pitched`` — dort wird in den Welt-Frame gedreht.
+        """
         load = compute_load(
             angles,
             stance_legs=list(_SHOW_SUPPORT_LEGS),
             masses=self._show_mass_model,
         )
-        return load.stability_margin_m
+        if self._show_pitch_rad == 0.0:
+            return load.stability_margin_m
+        return self._show_cog_margin_pitched(angles, load)
 
     # ----- Block I Phase 8: Body-Pose („Look-Around", Körper über fixen Füßen) --
 

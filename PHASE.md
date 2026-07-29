@@ -73,7 +73,7 @@ _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi
 | **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim + **HW** |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |
 | **D** Hardware-Bring-up / Plattform | **D1 Pi-Plattform (=Phase 12)** · **D2 Elektrik 2S LiPo (=Phase 8)** · D3 LVC/Telemetrie · D4 Power-On-Sequenz · D5 untethered | 🟢 **abgeschlossen** (Roboter fährt untethered mit Akku) |
-| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio (Ph.7A) · echte Cam (Ph.7B) · **Show „Look-Around" (Ph.8)** · **Feld-Autonomie (Ph.9)** · Politur (Ph.10) | 🟡 **aktiv** — Ph.1–7B 🟢 · **Ph.8 🟢 Sim + HW verifiziert** (Körper-Pose über fixen Füßen, App-Show-Menü, Contract v0.13) · **Ph.9 🟡 Repo-Seite 🟢** (Always-On ab Boot, reparierter Poweroff, HW-Preset im App-Pfad; offen: Pi-Schritte + App-Buttons, Contract v0.13.1) |
+| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio (Ph.7A) · echte Cam (Ph.7B) · **Show „Look-Around" (Ph.8)** · **Feld-Autonomie (Ph.9)** · **Show „Free-Leg" (Ph.10)** · Politur (Ph.11) | 🟡 **aktiv** — Ph.1–7B 🟢 · **Ph.8 🟢 Sim + HW verifiziert** (Körper-Pose über fixen Füßen, App-Show-Menü, Contract v0.13) · **Ph.9 🟡 Repo-Seite 🟢** (Always-On ab Boot, reparierter Poweroff, HW-Preset im App-Pfad; offen: Pi-Schritte + App-Buttons, Contract v0.13.1) |
 | **E** Robustheit / später | Safe-State im Lauf (E1), Terrain/Foot-Contact (E2), Preset-Management (E3) | ⚪ später |
 
 ### Cross-Phase-Threads
@@ -126,7 +126,13 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
    starten", **HW-Preset im App-Bringup** (Balance + Terrain-Features waren dort bisher aus!) +
    Comms-Loss-Fail-safe (25 s). Pi-Einstellungen in `tools/provision_pi.sh` (Neuaufsetz-Fall).
    Contract v0.13.1, `phase_9_field_autonomy_progress.md`.
-7. **Phase 10 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
+7. **Phase 10 — Show „Free-Leg" (aktiv, Repo-Seite 🟢):** die B4-Show ist zurück — 4 Beine stützen,
+   die **2 Vorderbeine folgen den Sticks**, Start aus dem App-Show-Menü (`show_mode='free_leg'`,
+   war seit Phase 8 als Platzhalter vorgebaut → **keine App-Änderung nötig**). Mit den kurzen Beinen
+   komplett neu ausgelegt (Neutral-Pose mit Coxa-Anteil → Beine zeigen nach vorne statt gespreizt;
+   Körper lehnt 5° zurück; tiefe Stance wegen des besseren Kippwinkels). Contract v0.14,
+   `phase_10_free_leg_progress.md`. Offen: Sim- + HW-Verifikation.
+8. **Phase 11 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
 7. **Optionale Politur (jederzeit):** A5 IP3-Feintuning (Terrain-Following im Laufen), Fußtaster-
    Latenz-Recheck auf HW (aus dem App-Overlay-Test), **Dancing/Free-Leg ROS-seitig umsetzen**
    (App-Menü steht schon), Audio-Knarz-Fix (Stützelko im Finalaufbau).

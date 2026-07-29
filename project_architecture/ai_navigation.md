@@ -277,7 +277,20 @@
   der echte Engine-Pfad fehlert); Radien daher mit Femur-Marge (~≥0.15 rad), nicht am Min-Radial-Rand.
   Transitions/Standup/Sit-Reposition ebenfalls real-engine prüfen · SIM · HW.
 
-### Show-Pose / Free-Leg (B4) ändern
+### Show-Pose / Free-Leg (B4 + Block I Phase 10) ändern
+
+> **Phase 10 hat die Show reaktiviert** (`show_mode='free_leg'` aus der App). Neu gegenüber B4:
+> `show_front_lat` (Neutral-Pose mit Coxa-Anteil → Beine zeigen nach vorne statt schräg nach außen),
+> `show_body_pitch_deg` (Körper lehnt sich zurück, wirkt **nur auf die Stützfüße** und fährt über
+> λ(σ) erst in Phase b hoch), Auto-Wechsel in die **tiefe** Stance beim Start, und die Bedienung ist
+> im Teleop von `show_enabled` (Controller-Einstieg, bleibt aus) auf `show_sticks_enabled`
+> (Bedienung, an) getrennt. ⚠️ **Werte-Änderung = `tools/show_pose_cog_check.py --sweep` neu fahren**
+> (prüft Hülle, Worst-Case-CoG **mit Pitch** und Bodenfreiheit, Exit-Code auswerten). Die drei
+> Kopplungen, die dabei beißen: Coxa-Budget (`front_lat + lat_scale ≤ 0.415`), Bodenfreiheit
+> (`front_z − vert_scale ≥ body_height + 0.010`) und Femur (`front_z` gegen `radial_scale`).
+> ⚠️ Der Rückversatz ist mit den kurzen Beinen bei **0.065 gedeckelt** (ab 0.070 reißen leg_3/leg_4
+> ihre Limits) — die alte B4-Angabe „bis 0.09" gilt **nicht** mehr.
+> Doku: [`../project_finalization/app_control_requirements/phase_10_free_leg_plan.md`](../project_finalization/app_control_requirements/phase_10_free_leg_plan.md).
 - **Voll-Doku:** [`../project_finalization/B4_show_pose_progress.md`](../project_finalization/B4_show_pose_progress.md)
   (IST-Architektur, Parameter-Referenz, Änderungs-Landkarte) + `B4_show_pose_plan.md` §9 (Design-Log).
 - **Wo (3 Schichten):** `gait_engine.py` (States `SHOW_ENTER`/`SHOW_ACTIVE`/`SHOW_EXIT`, gemeinsamer

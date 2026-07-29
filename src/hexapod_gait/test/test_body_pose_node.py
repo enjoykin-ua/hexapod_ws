@@ -136,13 +136,17 @@ def test_none_leaves_body_pose(node):
     assert node._engine.state == GaitEngine.STATE_STANDING
 
 
-@pytest.mark.parametrize('mode', ('dancing', 'free_leg'))
+@pytest.mark.parametrize('mode', ('dancing',))
 def test_placeholder_modes_are_accepted_but_noop(node, mode):
     """
-    T8.5: dancing/free_leg werden **akzeptiert**, tun aber nichts.
+    T8.5: verbliebene Platzhalter werden **akzeptiert**, tun aber nichts.
 
     Das ist der App-Vorbau ([D-Show-5]): das Show-Menü kann alle vier Einträge
     schon senden; der Roboter bleibt STANDING und meldet wirksam 'none'.
+
+    ⚠️ ``free_leg`` ist seit Block I **Phase 10 implementiert** und deshalb aus
+    dieser Parametrisierung raus — es startet jetzt die B4-Show-Kette
+    (Tests dafür in ``test_show_node.py``). Bleibt ``dancing``.
     """
     node._engine._state = GaitEngine.STATE_STANDING
     result = _set_show_mode(node, mode)

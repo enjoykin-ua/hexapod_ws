@@ -141,12 +141,19 @@ class JoyToTwist(Node):
         # Trigger drücken = Bein streckt sich raus (Tibia fährt auf). Body-Höhe
         # (L2/R2) gibt es nur OHNE R1 → kein Konflikt im Show.
         self.declare_parameter('sign_show_radial', 1.0)
-        # Show-Pose im Teleop aktiv? Default false (leg_changes/S6): die aktuelle
-        # Show-Pose ist auf echter HW nicht stabil → Teleop schickt WEDER den
-        # /hexapod_show_toggle-Intent (Cross) NOCH /cmd_show. Der gait_node-Show-
-        # Code bleibt unangetastet; Wiedereinschalten = show_enabled:=true (bzw.
-        # später eine neue, stabile Show-Pose daraus bauen).
+        # Show-Pose: der CONTROLLER-EINSTIEG (Cross-Longpress →
+        # /hexapod_show_toggle). Default false und bleibt es — seit Phase 10
+        # wird die Free-Leg-Show ausschließlich aus der App gestartet
+        # (show_mode='free_leg'), damit ein Fehlgriff in der Fahr-Sicht nicht
+        # zwei Beine in die Luft nimmt ([E1] Phase-10-Plan).
         self.declare_parameter('show_enabled', False)
+        # Die BEDIENUNG der Show (Sticks/Trigger → /cmd_show) ist davon
+        # getrennt: sie läuft immer mit, denn der gait_node wertet /cmd_show
+        # ausschließlich im SHOW_ACTIVE aus — außerhalb ist es wirkungslos.
+        # Beide an einem Schalter zu haben hieße: Show per App startbar, aber
+        # nicht bedienbar. Wer die Publikation dennoch abschalten will (Debug,
+        # Bandbreite), setzt show_sticks_enabled:=false.
+        self.declare_parameter('show_sticks_enabled', True)
 
         # --- Body-Pose / Show „Look-Around" (Block I Phase 8) ---
         # Eigene Naht (/cmd_body_pose), unabhängig von der B4-Show oben: rechter
@@ -198,6 +205,7 @@ class JoyToTwist(Node):
         self._sign_show_vert = float(g('sign_show_vert').value)
         self._sign_show_radial = float(g('sign_show_radial').value)
         self._show_enabled = bool(g('show_enabled').value)
+        self._show_sticks_enabled = bool(g('show_sticks_enabled').value)
         # Body-Pose (Phase 8).
         self._sign_body_pose_pitch = float(g('sign_body_pose_pitch').value)
         self._sign_body_pose_yaw = float(g('sign_body_pose_yaw').value)
@@ -485,13 +493,12 @@ class JoyToTwist(Node):
         """Joy-Callback: Sticks → cmd_vel, L2/R2 → Höhe, Buttons → Intents."""
         now = time.monotonic()
 
-        # 1) Fahren (Sticks, Dead-Man-gated). Plus /cmd_show (Vorderbeine, B4):
-        # nur publishen wenn show_enabled — sonst bleibt die (auf HW instabile)
-        # Show-Pose komplett unerreichbar (leg_changes/S6). Der gait_node nutzt
-        # cmd_show ohnehin nur in SHOW_ACTIVE; ohne den Toggle (s.u.) wird dieser
-        # State nie betreten.
+        # 1) Fahren (Sticks, Dead-Man-gated). Plus /cmd_show (Vorderbeine der
+        # Free-Leg-Show): seit Phase 10 an `show_sticks_enabled` gekoppelt statt
+        # an `show_enabled` — der Einstieg kommt aus der App, die Bedienung vom
+        # Controller. Zustandslos und wirkungslos außerhalb von SHOW_ACTIVE.
         self._cmd_vel_pub.publish(self._twist_from_joy(msg))
-        if self._show_enabled:
+        if self._show_sticks_enabled:
             self._cmd_show_pub.publish(self._show_from_joy(msg))
         # Block I Phase 8 — Körper-DOF für die Show „Look-Around". Immer
         # publishen (beide Profile, zustandslos): wirkungslos, solange der

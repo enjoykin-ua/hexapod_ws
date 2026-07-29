@@ -10,7 +10,10 @@
 > „Look-Around"** — letztere **in Sim UND am echten Roboter verifiziert**, Contract **v0.13**).
 > **Phase 9 = Feld-Autonomie** (Repo-Seite 🟢, Contract **v0.13.1**): Always-On ab Boot, sauberer
 > Poweroff, App-Buttons „Pi herunterfahren"/„Stack neu starten", HW-Preset im App-Pfad — offen sind
-> die Pi-Schritte + die App-Seite. Danach: **Politur** (Reconnect, Controller-Profile — jetzt Ph.10).
+> die Pi-Schritte + die App-Seite. **Phase 10 = Show „Free-Leg"** (Repo-Seite 🟢, Contract **v0.14**): die B4-Show reaktiviert und auf
+> die kurzen Beine neu ausgelegt — 4 Beine stützen, die 2 Vorderbeine folgen den Sticks, Start aus
+> dem App-Show-Menü ohne App-Änderung. Danach: **Politur** (Reconnect, Controller-Profile — jetzt
+> Ph.11).
 > Deferiert: HW-Verify T6.8 (E-Stop/Recover) + T7A.13 (Audio-Speaker) + die zugehörigen App-Buttons.
 > Arbeitsweise CLAUDE.md §4 (Plan → Freigabe → Code → Tests → Self-Review), §5 (Agent macht NIE
 > git). Deutsch durchgehend.

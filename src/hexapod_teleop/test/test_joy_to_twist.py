@@ -321,15 +321,38 @@ def test_on_joy_publishes_cmd_show_when_enabled(node):
     assert len(node._cmd_show_pub.last) == 6
 
 
-def test_on_joy_no_cmd_show_when_disabled(node):
-    """leg_changes/S6: show_enabled=False (Default) → _on_joy publisht KEIN /cmd_show."""
-    node._show_enabled = False
+def _capture_cmd_show(node):
+    """Ersetze den Publisher durch einen Recorder und gib ihn zurück."""
     node._cmd_show_pub = _FakeClient(ready=True)
     node._cmd_show_pub.last = None
     node._cmd_show_pub.publish = lambda msg: setattr(
         node._cmd_show_pub, 'last', list(msg.data))
+    return node._cmd_show_pub
+
+
+def test_cmd_show_published_although_toggle_disabled(node):
+    """
+    FL-T11 (Phase 10): die zwei Gates sind getrennt.
+
+    ``show_enabled`` steuert nur den **Controller-Einstieg** (Cross-Longpress →
+    /hexapod_show_toggle) und bleibt aus — die Free-Leg-Show startet aus der
+    App. Die **Bedienung** (/cmd_show) muss trotzdem laufen, sonst wäre die
+    Show startbar, aber nicht steuerbar. Hingen beide an einem Schalter, wäre
+    genau das die Folge.
+    """
+    node._show_enabled = False          # Controller-Einstieg aus
+    node._show_sticks_enabled = True    # Bedienung an
+    rec = _capture_cmd_show(node)
     node._on_joy(_joy_show(lx=1.0, buttons=[_R1]))
-    assert node._cmd_show_pub.last is None  # nie publiziert
+    assert rec.last is not None, '/cmd_show muss trotz show_enabled=False kommen'
+
+
+def test_on_joy_no_cmd_show_when_sticks_disabled(node):
+    """``show_sticks_enabled=False`` schaltet die /cmd_show-Publikation ab."""
+    node._show_sticks_enabled = False
+    rec = _capture_cmd_show(node)
+    node._on_joy(_joy_show(lx=1.0, buttons=[_R1]))
+    assert rec.last is None  # nie publiziert
 
 
 def test_l2r2_cycle_stance_only_without_deadman(node):

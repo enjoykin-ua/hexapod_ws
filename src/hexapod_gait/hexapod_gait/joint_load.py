@@ -68,6 +68,15 @@ SERVO_NM = {
 }
 
 
+# Reale Segment-Massen nach dem Bein-Umbau (Quelle:
+# hexapod_description/urdf/hexapod_physical_properties.xacro). Die Coxa blieb
+# unveraendert, Femur/Tibia wurden mit den kuerzeren Segmenten neu gewogen.
+# Gepinnt durch test_mass_model.py gegen die xacro — laeuft der Wert dort
+# auseinander, faellt es auf.
+REAL_FEMUR_MASS = 0.102              # kg
+REAL_TIBIA_MASS = 0.118              # kg
+
+
 @dataclass
 class MassModel:
     """Massen-Parametrisierung (Default = URDF; total_mass ueberschreibt)."""
@@ -78,11 +87,29 @@ class MassModel:
     # Optional: echtes Gesamtgewicht (kg). Der Ueberschuss ggue. der URDF-Summe
     # wird mittig (base_link-Origin) als Koerper-/Akku-Masse addiert.
     total_mass: float | None = None
+    # Block I Phase 10 — optionale per-Segment-Massen. ``None`` = Verhalten wie
+    # bisher (``segment_mass`` fuer alle drei Segmente), damit Bestand
+    # (torque_viz, leveling_envelope_check) **bit-identisch** bleibt. Nur der
+    # Show-Pfad uebergibt hier die realen Werte: das Einheits-Segment 0.1167
+    # stammt aus der Zeit vor dem Bein-Umbau und ueberschaetzt die Beinmassen
+    # um ~3 %, was den Vorwaerts-Zug der angehobenen Vorderbeine zu gross
+    # rechnet.
+    femur_mass: float | None = None
+    tibia_mass: float | None = None
+
+    def segment_masses(self) -> tuple[float, float, float]:
+        """(coxa, femur, tibia) — nicht gesetzte fallen auf segment_mass."""
+        return (
+            self.segment_mass,
+            self.segment_mass if self.femur_mass is None else self.femur_mass,
+            self.segment_mass if self.tibia_mass is None else self.tibia_mass,
+        )
 
     def urdf_sum(self) -> float:
+        m_coxa, m_femur, m_tibia = self.segment_masses()
         return (
             self.base_mass
-            + 18.0 * self.segment_mass
+            + 6.0 * (m_coxa + m_femur + m_tibia)
             + 6.0 * self.foot_mass
         )
 
@@ -248,14 +275,15 @@ def robot_cog_base(
     """Roboter-Schwerpunkt (base_link) + Gesamtmasse."""
     msum = masses.body_center_mass()
     acc = [0.0, 0.0, 0.0]   # body+Akku mittig bei (0,0,0) -> kein Beitrag xy/z=0
-    m_seg, m_foot = masses.segment_mass, masses.foot_mass
+    m_coxa, m_femur, m_tibia = masses.segment_masses()
+    m_foot = masses.foot_mass
     for cfg in HEXAPOD.legs:
         a = all_angles[cfg.name]
         p_coxa, p_hip, p_knee, p_foot = _leg_joint_positions(*a, cfg)
         for com_leg, m in (
-            (_mid(p_coxa, p_hip), m_seg),
-            (_mid(p_hip, p_knee), m_seg),
-            (_mid(p_knee, p_foot), m_seg),
+            (_mid(p_coxa, p_hip), m_coxa),
+            (_mid(p_hip, p_knee), m_femur),
+            (_mid(p_knee, p_foot), m_tibia),
             (p_foot, m_foot),
         ):
             bx, by, bz = _to_base(com_leg, cfg)

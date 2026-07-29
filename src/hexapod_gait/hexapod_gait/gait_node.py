@@ -35,6 +35,11 @@ from hexapod_gait.balance_controller import BalanceController
 from hexapod_gait.contact_diagnostic import ContactDiagnostic
 from hexapod_gait.gait_engine import GaitEngine
 from hexapod_gait.gait_patterns import GAIT_PRESETS
+from hexapod_gait.joint_load import (
+    MassModel,
+    REAL_FEMUR_MASS,
+    REAL_TIBIA_MASS,
+)
 from hexapod_gait.sensor_health_monitor import SensorHealthMonitor
 from hexapod_gait.slope_estimator import SlopeEstimator
 from hexapod_gait.support_monitor import SupportMonitor
@@ -485,13 +490,15 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='show_body_shift_back', default=0.065,
+        name='show_body_shift_back', default=0.060,
         fp_range=(0.0, 0.10, 0.001),
         description=(
-            'Block B4: Körper-Rückversatz für die Show-Stütz-Pose (m). '
-            'B4.0: ≥0.05 halten (Worst-Case-Offset-CoG-Marge ≥30 mm); '
-            'Obergrenze ~0.09 (Stütz-Coxa-Limit ±0.415). Default 0.065 '
-            '(~50 mm Marge).'
+            'Block B4/Phase 10: Körper-Rückversatz für die Show-Stütz-Pose (m). '
+            '⚠️ Obergrenze mit den KURZEN Beinen ist 0.065 — ab 0.070 '
+            'verletzen leg_3/leg_4 ihre Joint-Limits (die alte B4-Angabe '
+            '"bis 0.09" galt für die langen Beine). Untergrenze 0.045 '
+            '(Worst-Case-Marge ≥30 mm). Default 0.060 → 44.7 mm Neutral-Marge, '
+            '38.6 mm über die gesamte Stick-Hülle.'
         ),
     ),
     _ParamSpec(
@@ -513,20 +520,52 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='show_front_radial', default=0.22,
+        name='show_front_radial', default=0.19,
         fp_range=(0.12, 0.28, 0.001),
         description=(
-            'Block B4: radialer Foot-Abstand der neutralen Vorderbein-'
-            'Hoch-Pose (m). Höher heben braucht größeres radial '
-            '(Femur-Limit ±1.57). Default 0.22 (~80 mm über Boden).'
+            'Block B4/Phase 10: radialer Foot-Abstand der neutralen '
+            'Vorderbein-Hoch-Pose (m). Default 0.19 = 83 % der Reichweite '
+            '(0.194 ab Femur-Gelenk) — lässt Spielraum für die Stick-Hülle. '
+            'Der alte Wert 0.22 lag bei 93 % (fast gestrecktes Bein). '
+            '⚠️ radial und show_front_lat teilen sich das Reichweiten-Budget: '
+            'seitliches Ausschwenken vergrößert √(x²+y²).'
         ),
     ),
     _ParamSpec(
-        name='show_front_z', default=-0.04,
+        name='show_front_lat', default=0.04,
+        fp_range=(0.0, 0.10, 0.005),
+        description=(
+            'Block I Phase 10: lateraler Anteil der neutralen Vorderbein-Pose '
+            '(m) — dreht die Beine über die Coxa nach VORNE statt schräg nach '
+            'außen (Vorzeichen pro Bein gespiegelt). 0.0 = altes B4-Verhalten '
+            '(Coxa 0, Beine 0.40 m auseinander). Default 0.04 → Coxa 0.21 rad, '
+            'Fuß-Abstand 0.34 m, per Stick auf 0.29 m zusammenführbar. '
+            '⚠️ Coxa-Budget: atan((show_front_lat + show_lat_scale) / '
+            'show_front_radial) muss ≤ 0.415 bleiben.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_front_z', default=0.0,
         fp_range=(-0.12, 0.04, 0.001),
         description=(
-            'Block B4: Foot-z der neutralen Vorderbein-Hoch-Pose im '
-            'Bein-Frame (m). Boden liegt bei body_height. Default -0.04.'
+            'Block B4/Phase 10: Foot-z der neutralen Vorderbein-Hoch-Pose im '
+            'Bein-Frame (m). Boden liegt bei body_height. Default 0.0 = auf '
+            'Coxa-Höhe, also 65 mm über dem Boden (tiefe Stance) → großer '
+            'Auf/Ab-Hub. Der alte Wert -0.04 ließ nur 25 mm. '
+            '⚠️ show_front_z und show_radial_scale konkurrieren um den '
+            'Femur-Winkel: je höher der Fuß, desto weniger radialer Weg.'
+        ),
+    ),
+    _ParamSpec(
+        name='show_body_pitch_deg', default=5.0,
+        fp_range=(-15.0, 15.0, 0.5),
+        description=(
+            'Block I Phase 10: Körper-Neigung in der Show (Grad), '
+            'positiv = Nase hoch / Hinterteil runter. Verlagert den '
+            'Schwerpunkt zusätzlich nach hinten (Default 5° → +1.3 mm '
+            'CoG-Marge) und hebt die Kamera. Fährt mit λ(σ) in Phase b hoch, '
+            'also erst wenn die Vorderbeine abheben — dadurch sprungfrei und '
+            'beim EXIT rechtzeitig abgebaut. 0.0 = altes B4-Verhalten.'
         ),
     ),
     _ParamSpec(
@@ -539,31 +578,40 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='show_lat_scale', default=0.06,
+        name='show_lat_scale', default=0.04,
         fp_range=(0.0, 0.12, 0.005),
         description=(
-            'Block B4: Skala Stick-X [-1..1] → seitlicher Vorderbein-Offset '
-            '(m) in SHOW_ACTIVE. Konservativ (Coxa-Limit clampt eh). '
-            'Default 0.06.'
+            'Block B4/Phase 10: Skala Stick-X [-1..1] → seitlicher '
+            'Vorderbein-Offset (m) in SHOW_ACTIVE. Default 0.04: zusammen mit '
+            'show_front_lat 0.04 fährt der Stick den Coxa-Bereich '
+            '[0.00 … 0.40] ab — praktisch das ganze freigegebene Fenster '
+            '(Limit ±0.415). Größer heißt nicht mehr Weg, sondern nur, dass '
+            'der Ausschlag am Limit hängen bleibt.'
         ),
     ),
     _ParamSpec(
-        name='show_vert_scale', default=0.06,
+        name='show_vert_scale', default=0.05,
         fp_range=(0.0, 0.12, 0.005),
         description=(
-            'Block B4: Skala Stick-Y [-1..1] → vertikaler Vorderbein-Offset '
-            '(m, hoch/runter) in SHOW_ACTIVE. Default 0.06.'
+            'Block B4/Phase 10: Skala Stick-Y [-1..1] → vertikaler '
+            'Vorderbein-Offset (m, hoch/runter) in SHOW_ACTIVE. Default 0.05: '
+            'der Fuß schwingt 15–115 mm über dem Boden. '
+            '⚠️ Bodenfreiheit: show_front_z − show_vert_scale muss ≥ '
+            'body_height + 0.010 bleiben, sonst fährt der Fuß in den Boden '
+            'und verfälscht das Stützpolygon.'
         ),
     ),
     _ParamSpec(
-        name='show_radial_scale', default=0.05,
+        name='show_radial_scale', default=0.03,
         fp_range=(0.0, 0.08, 0.005),
         description=(
-            'Block B4.11: Skala Trigger [0..1] → radialer Vorderbein-Offset '
-            '(m, reach/Tibia-Curl) in SHOW_ACTIVE. Trigger drücken = Bein '
-            'streckt sich raus (Tibia fährt auf). Offline-CoG-safe bis 0.06 '
-            '(~43 mm Marge); Default 0.05. Negativ-Reach (einrollen) ist von '
-            'der Neutral-Pose femur-limit-blockiert → einseitig raus.'
+            'Block B4.11/Phase 10: Skala Trigger [0..1] → radialer '
+            'Vorderbein-Offset (m) in SHOW_ACTIVE. Trigger drücken = Bein '
+            'streckt sich raus. Default 0.03 — mit den kurzen Beinen ist '
+            'radial die KLEINSTE Achse (2–3 cm), weil show_front_z und '
+            'radial um den Femur-Winkel konkurrieren: nach außen sind 98 % '
+            'der Hülle erreichbar, nach innen nur 82 %. Richtung umkehren = '
+            'sign_show_radial im Teleop (dann Skala auf 0.02 senken).'
         ),
     ),
     # Block I Phase 8 — Show-Auswahl + Body-Pose („Look-Around"). show_mode ist
@@ -701,10 +749,21 @@ _STANCE_MODES = (
     _StanceMode('hoch', 0.160, -0.100, 0.080, 0.050),
 )
 _STANCE_DEFAULT_IDX = 1   # mittel
+# Block I Phase 10 — die Free-Leg-Show laeuft in der TIEFEN Stance: die
+# statische CoG-Marge ist ueber alle drei Hoehen praktisch gleich (49 mm), der
+# KIPPWINKEL aber nicht (tief 37 Grad / mittel 32 / hoch 26). Steht der Roboter
+# hoeher, schaltet _set_show_mode zuerst um ([E3]/[E4] Phase-10-Plan).
+_STANCE_FREE_LEG_IDX = 0  # tief
 # Tiefste body_height, aus der direkt hingesetzt werden kann. leg_changes: alle
 # Modi (tiefste "hoch" -0.100) liegen über -0.115 → jede Höhe direkt sit-/standup-
 # fähig, kein Routing nötig. ⚠️ real-engine (test_sitdown) gegenchecken.
 _SIT_SAFE_MIN_BH = -0.115
+# Die drei B4-Show-States als Gruppe (Eintritt/Halten/Austritt).
+_SHOW_STATES = (
+    GaitEngine.STATE_SHOW_ENTER,
+    GaitEngine.STATE_SHOW_ACTIVE,
+    GaitEngine.STATE_SHOW_EXIT,
+)
 
 # Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.
 # Wenn nach diesem Zeitraum kein /joint_states empfangen wurde, wird
@@ -869,8 +928,14 @@ class GaitNode(Node):
         self._show_front_radial = float(
             self.get_parameter('show_front_radial').value
         )
+        self._show_front_lat = float(
+            self.get_parameter('show_front_lat').value
+        )
         self._show_front_z = float(
             self.get_parameter('show_front_z').value
+        )
+        self._show_body_pitch_deg = float(
+            self.get_parameter('show_body_pitch_deg').value
         )
         self._show_return_rate = float(
             self.get_parameter('show_return_rate').value
@@ -924,6 +989,9 @@ class GaitNode(Node):
         # Hinsetzen aus "hoch" (-0.140) routet erst auf mittel: Flag = Hinsetzen
         # nachholen, sobald der Stance-Switch fertig ist (STANDING).
         self._pending_sitdown = False
+        # Block I Phase 10 — Show-Start, der auf das Ende eines Stance-Wechsels
+        # wartet (Muster wie _pending_sitdown; im _tick bei STANDING geloest).
+        self._pending_show_enter = False
         # H2 (H1-🟡-Fix) — Param-Server-Sync nach Stance-Switch: body_height/
         # radial_distance sind standing_only, ein set_parameters direkt in
         # _do_stance_switch würde vom EIGENEN Validator rejected (State =
@@ -1846,6 +1914,22 @@ class GaitNode(Node):
         ):
             self._pending_sitdown = False
             self._start_sitdown_sequence()
+
+        # Block I Phase 10 — verzögerter Show-Eintritt: der Stance-Wechsel auf
+        # tief ist jetzt fertig (STANDING) → Show starten. Schlägt der Start
+        # fehl, fällt show_mode zurück (der deferred Sync zieht den Param-Server
+        # nach), statt still hängen zu bleiben.
+        if self._pending_show_enter and (
+            self._engine.state == GaitEngine.STATE_STANDING
+        ):
+            self._pending_show_enter = False
+            if not self._start_show_enter(now - self._t_start):
+                self.get_logger().warn(
+                    'free_leg: Show-Eintritt nach dem Stance-Wechsel abgelehnt '
+                    '— show_mode fällt auf none zurück'
+                )
+                self._show_mode = 'none'
+                self._pending_show_mode_sync = True
 
         # Block B1 — Comms-Loss-Fail-safe (opt-in). Kann eine Hinsetz-Sequenz
         # starten (nur aus STANDING); danach ignoriert set_command cmd_vel.
@@ -2860,6 +2944,35 @@ class GaitNode(Node):
 
     # ===== Block B4 — Show-Pose-Toggle + Vorderbein-Offsets ============== #
 
+    def _start_show_enter(self, t: float) -> bool:
+        """
+        Show-Pose einleiten (Block I Phase 10).
+
+        **Die** Stelle, an der die Show-Parameter in die Engine gehen.
+        Zwei Aufrufer: der Controller-Weg ``/hexapod_show_toggle`` und der
+        App-Weg ``show_mode='free_leg'``. Beide müssen dieselben Werte
+        übergeben — sonst verhielte sich die Show je nach Startweg anders.
+
+        Das Massen-Modell bekommt hier die **realen** Segment-Massen aus dem
+        Bein-Umbau. Der globale Default in ``joint_load`` bleibt bewusst beim
+        alten Einheits-Segment, damit Torque-Analyse und Leveling-Envelope
+        unverändert rechnen ([E9]/[D-FL-9] im Phase-10-Plan).
+        """
+        ok = self._engine.start_show_enter(
+            t, self._show_enter_duration, self._show_body_shift_back,
+            self._show_shift_fraction, self._show_front_radial,
+            self._show_front_z, self._show_safety_margin,
+            self._show_return_rate,
+            mass_model=MassModel(
+                femur_mass=REAL_FEMUR_MASS, tibia_mass=REAL_TIBIA_MASS,
+            ),
+            front_lat=self._show_front_lat,
+            body_pitch_deg=self._show_body_pitch_deg,
+        )
+        if ok:
+            self._cmd_show = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        return ok
+
     def _on_show_toggle(self, request, response):
         """
         ``/hexapod_show_toggle`` (Trigger, Teleop-Intent, reines UI).
@@ -2877,18 +2990,12 @@ class GaitNode(Node):
         t = now - self._t_start
         if state == GaitEngine.STATE_STANDING:
             try:
-                ok = self._engine.start_show_enter(
-                    t, self._show_enter_duration, self._show_body_shift_back,
-                    self._show_shift_fraction, self._show_front_radial,
-                    self._show_front_z, self._show_safety_margin,
-                    self._show_return_rate,
-                )
+                ok = self._start_show_enter(t)
             except ValueError as exc:
                 response.success = False
                 response.message = f'show_enter failed: {exc}'
                 self.get_logger().error(response.message)
                 return response
-            self._cmd_show = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             response.success = ok
             response.message = (
                 'entering show pose' if ok else 'show_enter rejected'
@@ -2980,9 +3087,40 @@ class GaitNode(Node):
                 'Füße bleiben fix'
             )
             return mode
-        if mode in ('dancing', 'free_leg'):
+        if mode == 'free_leg':
+            # Block I Phase 10 — die B4-Show-Pose: 4 Beine stützen, die 2
+            # Vorderbeine folgen den Sticks. Die Show ist auf die TIEFE Stance
+            # ausgelegt (bester Kippwinkel, 37° statt 26°); steht der Roboter
+            # höher, wird zuerst umgeschaltet und der Show-Start aufgeschoben
+            # ([E3]/[E4] im Phase-10-Plan) — Muster wie ``_pending_sitdown``.
+            if self._stance_idx != _STANCE_FREE_LEG_IDX:
+                if not self._do_stance_switch(_STANCE_FREE_LEG_IDX):
+                    self.get_logger().warn(
+                        'show_mode free_leg: Stance-Wechsel auf tief abgelehnt '
+                        f'(state={self._engine.state}) — bleibt '
+                        f'{self._show_mode!r}'
+                    )
+                    return self._show_mode
+                self._pending_show_enter = True
+                self.get_logger().info(
+                    'show_mode: free_leg — erst Stance-Wechsel auf tief, '
+                    'dann Show-Eintritt'
+                )
+                return mode
+            if not self._start_show_enter(t):
+                self.get_logger().warn(
+                    f'show_mode free_leg abgelehnt (state={self._engine.state})'
+                    f' — bleibt {self._show_mode!r}'
+                )
+                return self._show_mode
+            self.get_logger().info(
+                'show_mode: free_leg — Vorderbeine folgen den Sticks '
+                '(R1 halten), 4 Beine stützen'
+            )
+            return mode
+        if mode == 'dancing':
             self.get_logger().warn(
-                f'show_mode {mode!r} ist noch nicht implementiert (Platzhalter) '
+                'show_mode dancing ist noch nicht implementiert (Platzhalter) '
                 '— Roboter bleibt im Normalbetrieb'
             )
             # Defense-in-depth: das Gate lässt Platzhalter nur aus STANDING zu,
@@ -2992,6 +3130,17 @@ class GaitNode(Node):
             self._engine.stop_body_pose(t)
             return 'none'
         # mode == 'none'
+        # Phase 10: ein noch aufgeschobener Show-Start wird verworfen — sonst
+        # würde die Show nach dem Stance-Wechsel doch noch anlaufen, obwohl der
+        # Nutzer sie bereits abgewählt hat.
+        self._pending_show_enter = False
+        if self._engine.state in _SHOW_STATES:
+            if self._engine.start_show_exit(t, self._show_exit_duration):
+                self.get_logger().info(
+                    'show_mode: none — Show wird verlassen (Vorderbeine runter, '
+                    'dann Körper vor)'
+                )
+            return 'none'
         if self._engine.stop_body_pose(t):
             self.get_logger().info(
                 'show_mode: none — Body-Pose wird verlassen (federt zurück)'
@@ -3009,6 +3158,10 @@ class GaitNode(Node):
         ``_maybe_sync_show_mode`` im Tick nachgezogen (nie aus einem
         Param-Callback heraus).
         """
+        # Phase 10: einen noch wartenden Show-Start ebenfalls verwerfen — sonst
+        # liefe die Show nach dem Stance-Wechsel an, obwohl der Roboter gerade
+        # aus einem anderen Grund (Recovery/Hinsetzen) woanders hin fährt.
+        self._pending_show_enter = False
         if self._show_mode == 'none':
             return
         self._show_mode = 'none'

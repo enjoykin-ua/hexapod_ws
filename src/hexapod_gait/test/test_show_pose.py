@@ -25,33 +25,35 @@ import pytest
 
 
 # leg_changes (S4): Show ist RAUS aus dem Bein-Umbau-Scope (User-Entscheid). Die
-# alte Show-Pose (radial 0.215 @ bh -0.120) ist mit den kurzen Beinen nicht mehr
-# erreichbar → separate Re-Param-Aufgabe. Bis dahin geskippt (sonst out-of-reach-Fails).
-pytestmark = pytest.mark.skip(
-    reason='Show raus aus leg_changes (S4) — alte Pose out-of-reach, separate Re-Param')
-
+# Block I Phase 10: entsperrt und auf die KURZEN Beine re-parametriert. Die
+# alte Auslegung (Stand radial 0.215 @ bh -0.120, Show-Pose radial 0.22) war
+# mit Femur 0.060 / Tibia 0.134 out-of-reach — deshalb war diese Datei seit
+# dem Bein-Umbau geskippt. Werte unten = phase_10_free_leg_plan.md §1.1,
+# offline belegt durch tools/show_pose_cog_check.py --sweep.
 
 _TRIPOD = GAIT_PRESETS['tripod']
 
-# URDF-Limits (= HW, Stage F symmetrisch + Tibia-Unlock): coxa ±0.415,
-# femur ±1.57, tibia -1.00..+2.50.
+# URDF-Limits (= HW, leg_changes): coxa ±0.415, femur ±1.57,
+# tibia **-0.28**..+2.50 (der Ueberstreck-Anschlag der kurzen Tibia ist enger).
 _URDF_LIMITS = JointLimits(
     coxa_lower=-0.415, coxa_upper=0.415,
     femur_lower=-1.57, femur_upper=1.57,
-    tibia_lower=-1.00, tibia_upper=2.50,
+    tibia_lower=-0.28, tibia_upper=2.50,
 )
 
-# Stand-/Walk-Pose (feet_closer_walk.yaml).
-_WALK_RADIAL = 0.215
-_BH = -0.120
+# Stand-/Walk-Pose = Stance "tief" (die Show laeuft dort, [E3]).
+_WALK_RADIAL = 0.160
+_BH = -0.065
 
-# Show-Parameter (B4.0-bestätigt: Shift 0.065 → Marge ~50 mm; moderate
-# Vorderbein-Hoch-Pose radial 0.22 / z -0.04 = Fuß ~80 mm über Boden).
+# Show-Parameter (Phase 10 §1.1; Auslegung: 44.7 mm Neutral-Marge, 38.6 mm
+# Worst-Case ueber die Stick-Huelle, 98 % erreichbar, 15 mm Bodenfreiheit).
 _SHOW_DURATION = 4.0
-_SHIFT_BACK = 0.065
+_SHIFT_BACK = 0.060
 _SHIFT_FRACTION = 0.5
-_FRONT_RADIAL = 0.22
-_FRONT_Z = -0.04
+_FRONT_RADIAL = 0.19
+_FRONT_LAT = 0.04
+_FRONT_Z = 0.0
+_PITCH_DEG = 5.0
 _SAFETY_MARGIN = 0.030
 _RETURN_RATE = 0.5        # m/s (B4.2 Nachführ-/Rückkehr-Rate)
 
@@ -59,13 +61,13 @@ _RETURN_RATE = 0.5        # m/s (B4.2 Nachführ-/Rückkehr-Rate)
 def _make_engine() -> GaitEngine:
     return GaitEngine(
         pattern=_TRIPOD,
-        step_height=0.080,
+        step_height=0.040,
         cycle_time=2.0,
         radial_distance=_WALK_RADIAL,
         body_height=_BH,
-        step_length_max=0.089,
+        step_length_max=0.060,
         joint_limits={leg.name: _URDF_LIMITS for leg in HEXAPOD.legs},
-        standup_radial_distance=0.295,
+        standup_radial_distance=0.200,
         reposition_cycle_time=2.0,
     )
 
@@ -429,14 +431,19 @@ def test_radial_offset_extends_leg_and_moves_tibia():
     a0, _ = _active_tick(engine, _SHOW_DURATION, 2)
     tibia0 = a0['leg_1'][2]
     x0 = _front_foot_leg(a0, 'leg_1')[0]
-    # Radial raus (3-Tupel: lat, vert, radial).
-    engine.set_show_offsets({'leg_1': (0.0, 0.0, 0.05), 'leg_6': (0.0, 0.0, 0.05)})
+    # Radial raus (3-Tupel: lat, vert, radial). Phase 10: 0.03 statt 0.05 —
+    # mit den kurzen Beinen ist radial die kleinste Achse (show_radial_scale
+    # Default 0.03). Bei 0.05 bleibt der Fuß bei ~0.04 stehen: die Engine
+    # hält dann am Limit, statt zu werfen — richtiges Verhalten, aber der
+    # Test soll die WIRKUNG des Offsets prüfen, nicht die Clamp (dafür gibt
+    # es test_offset_clamped_to_urdf_limits_no_ikerror).
+    engine.set_show_offsets({'leg_1': (0.0, 0.0, 0.03), 'leg_6': (0.0, 0.0, 0.03)})
     a1, _ = _active_tick(engine, _SHOW_DURATION + 1.0, 80)
     _assert_in_limits(a1)
     x1 = _front_foot_leg(a1, 'leg_1')[0]
     tibia1 = a1['leg_1'][2]
-    assert x1 - x0 == pytest.approx(0.05, abs=2e-3)   # Fuß ~5 cm weiter raus
-    assert tibia1 < tibia0 - 0.2                       # Tibia deutlich gestreckt
+    assert x1 - x0 == pytest.approx(0.03, abs=2e-3)   # Fuß ~3 cm weiter raus
+    assert tibia1 < tibia0 - 0.1                       # Tibia messbar gestreckt
     # Stützbeine unbeeinflusst.
     for n in _SHOW_SUPPORT_LEGS:
         assert abs(_foot_base_z(a1, n) - _BH) < 1e-6

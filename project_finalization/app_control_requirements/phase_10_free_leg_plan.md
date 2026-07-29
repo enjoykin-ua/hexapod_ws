@@ -4,7 +4,10 @@
 > und werden mit den Sticks des Kishi bewegt. Gestartet wird **aus der App** über den bereits
 > vorhandenen Menüeintrag `show_mode = free_leg`.
 >
-> **Status: 🟡 Plan — wartet auf Freigabe.** Self-contained für einen frischen Chat.
+> **Status: 🟢 umgesetzt (Repo-Seite)** — Auslegung offline belegt, Code implementiert, Tests grün
+> (hexapod_gait 560 / hexapod_teleop 64, Lint inklusive). Offen: Sim- und HW-Verifikation.
+> Fortschritt + Befunde: [`phase_10_free_leg_progress.md`](phase_10_free_leg_progress.md).
+> Self-contained für einen frischen Chat.
 > **Vorgänger:** Phase 9 (Feld-Autonomie) 🟢 · fachlich:
 > [`B4_show_pose_plan.md`](../B4_show_pose_plan.md) +
 > [`B4_show_pose_progress.md`](../B4_show_pose_progress.md) — die ursprüngliche Show, mit den
@@ -117,14 +120,15 @@ Vorwärts-Zug der angehobenen Vorderbeine → die echten Margen sind eher **bess
 | `show_lat_scale` | 0.06 | **0.04** | Coxa nutzt damit [0.00 … 0.40] — praktisch der volle freigegebene Bereich |
 | `show_vert_scale` | 0.06 | **0.05** | Fuß schwingt 15–115 mm über Boden, bleibt **immer** darüber |
 | `show_radial_scale` | 0.05 | **0.03** | Trigger **nach außen** ([E6]); 98 % der Hülle erreichbar |
-| `show_body_shift_back` | 0.065 | **0.055–0.060** | 0.065 ist die harte Kante (0.3b); der Pitch übernimmt einen Teil |
+| `show_body_shift_back` | 0.065 | **0.060** ✅ | 0.065 ist die harte Kante (0.3b); der Pitch übernimmt einen Teil |
 | **`show_body_pitch_deg`** | — (neu) | **5.0** | Hinterteil runter, Nase hoch — zusätzliche CoG-Verlagerung + Optik |
 | `show_safety_margin` | 0.030 | 0.030 | unverändert (ENTER-Gate) |
 | `show_return_rate` | 0.5 | 0.5 | unverändert |
 
-**Erwartetes Ergebnis:** Stick-Hülle **100 %** erreichbar (lat/vert), Trigger 98 %; Fuß-Abstand in
-Ruhe **0,34 m**, per Stick zusammenführbar auf **0,29 m**, spreizbar auf 0,40 m. **Alles im
-bestehenden Limit ±0.415 — keine Kalibrierung, kein URDF-Eingriff.**
+**Ergebnis (gemessen, FL.1/FL.2 ✅):** CoG-Marge **44,7 mm** neutral und **38,6 mm** im Worst-Case
+über die gesamte Stick-/Trigger-Hülle (Ziel 30), Hülle zu **98 %** erreichbar, **15 mm**
+Bodenfreiheit. Fuß-Abstand in Ruhe **0,34 m**, per Stick zusammenführbar auf **0,29 m**, spreizbar
+auf 0,40 m. **Alles im bestehenden Limit ±0.415 — keine Kalibrierung, kein URDF-Eingriff.**
 
 ### 1.2 Das Coxa-Budget (so bewegen sich die Beine seitlich)
 

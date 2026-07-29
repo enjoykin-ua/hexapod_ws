@@ -9,10 +9,17 @@ Deckt B4.4 (Toggle-Service + Guards, /cmd_show-Subscriber + Skalierung +
 Staleness, Params).
 """
 
+import math
 import time
 
 from hexapod_gait.gait_engine import GaitEngine
-from hexapod_gait.gait_node import _STANCE_DEFAULT_IDX, _STANCE_MODES, GaitNode
+from hexapod_gait.gait_node import (
+    _STANCE_DEFAULT_IDX,
+    _STANCE_FREE_LEG_IDX,
+    _STANCE_MODES,
+    GaitNode,
+)
+
 import pytest
 import rclpy
 from std_msgs.msg import Float64MultiArray
@@ -62,10 +69,50 @@ def test_show_params_have_range(node):
 
 
 def test_show_param_defaults(node):
-    """Defaults entsprechen der B4.0/B4.2-Empfehlung."""
-    assert node._show_body_shift_back == pytest.approx(0.065)
+    """
+    Defaults = Phase-10-Auslegung (phase_10_free_leg_plan.md §1.1).
+
+    Offline belegt durch ``tools/show_pose_cog_check.py --sweep``: 44.7 mm
+    Neutral-Marge, 38.6 mm Worst-Case über die Stick-Hülle, 98 % erreichbar,
+    15 mm Bodenfreiheit. Wer hier Werte ändert, muss das Tool erneut fahren.
+    """
+    assert node._show_body_shift_back == pytest.approx(0.060)
     assert node._show_shift_fraction == pytest.approx(0.5)
     assert node._show_safety_margin == pytest.approx(0.030)
+    assert node._show_front_radial == pytest.approx(0.19)
+    assert node._show_front_lat == pytest.approx(0.04)
+    assert node._show_front_z == pytest.approx(0.0)
+    assert node._show_body_pitch_deg == pytest.approx(5.0)
+    assert node._show_lat_scale == pytest.approx(0.04)
+    assert node._show_vert_scale == pytest.approx(0.05)
+    assert node._show_radial_scale == pytest.approx(0.03)
+
+
+def test_show_coxa_budget_within_urdf_limit(node):
+    """
+    FL-T4: Neutral-Anteil + Stick-Ausschlag müssen ins Coxa-Limit passen.
+
+    ``show_front_lat`` und ``show_lat_scale`` teilen sich denselben Bereich —
+    zusammen dürfen sie ±0.415 rad nicht überschreiten, sonst hängt der Stick
+    am Limit statt zu bewegen.
+    """
+    coxa_max = math.atan2(
+        node._show_front_lat + node._show_lat_scale, node._show_front_radial)
+    assert coxa_max < 0.415, f'Coxa-Budget gesprengt: {coxa_max:.3f} rad'
+    assert coxa_max > 0.30, (
+        f'Coxa-Budget verschenkt: nur {coxa_max:.3f} rad von 0.415 genutzt')
+
+
+def test_show_ground_clearance(node):
+    """
+    FL-T3: der Fuß darf im tiefsten Punkt nicht in den Boden fahren.
+
+    Boden liegt bei ``body_height``; setzte der Fuß auf, würde er das
+    Stützpolygon verfälschen und die CoG-Rechnung wertlos machen.
+    """
+    lowest = node._show_front_z - node._show_vert_scale
+    clearance = lowest - (-0.065)      # tiefe Stance
+    assert clearance >= 0.010, f'nur {clearance * 1000:.0f} mm Bodenfreiheit'
 
 
 # ----- Toggle --------------------------------------------------------- #
@@ -242,3 +289,72 @@ def test_sit_from_mittel_direct(node):
     assert node._pending_sitdown is False
     # Direkt in die Sitdown-Sequenz (Phase-1-Reposition Füße raus), nicht Stance-Switch.
     assert node._engine.state == GaitEngine.STATE_REPOSITION
+
+
+# ----- Block I Phase 10: free_leg über show_mode ----------------------- #
+
+def test_free_leg_starts_show_from_low_stance(node):
+    """
+    FL-T8: ``show_mode='free_leg'`` startet die B4-Show — nicht mehr Platzhalter.
+
+    Steht der Roboter schon tief, geht es direkt in SHOW_ENTER (kein
+    Stance-Wechsel dazwischen).
+    """
+    node._stance_idx = _STANCE_FREE_LEG_IDX
+    node._engine._state = GaitEngine.STATE_STANDING
+    assert node._set_show_mode('free_leg') == 'free_leg'
+    assert node._engine.state == GaitEngine.STATE_SHOW_ENTER
+    assert node._pending_show_enter is False
+
+
+def test_free_leg_switches_stance_first(node):
+    """
+    FL-T10: aus mittel/hoch wird ZUERST auf tief gewechselt.
+
+    Der Show-Start wartet dann auf das Ende des Switches (``_pending_show_enter``,
+    Muster von ``_pending_sitdown``) — sonst liefe start_show_enter gegen den
+    STANCE_SWITCH-State und würde abgelehnt.
+    """
+    node._stance_idx = _STANCE_DEFAULT_IDX      # mittel
+    node._engine._state = GaitEngine.STATE_STANDING
+    assert node._set_show_mode('free_leg') == 'free_leg'
+    assert node._engine.state == GaitEngine.STATE_STANCE_SWITCH
+    assert node._pending_show_enter is True
+    # Die App muss den Modus schon während des Wechsels sehen: _set_show_mode
+    # liefert 'free_leg' zurück (der Aufrufer schreibt es nach _show_mode, aus
+    # dem _publish_status das Status-Feld speist) — nicht erst nach dem Switch.
+
+
+def test_free_leg_none_exits_show(node):
+    """``show_mode='none'`` verlässt die Show über SHOW_EXIT (Rückweg immer offen)."""
+    node._stance_idx = _STANCE_FREE_LEG_IDX
+    node._engine._state = GaitEngine.STATE_STANDING
+    node._show_mode = node._set_show_mode('free_leg')   # wie _apply_param
+    node._engine._state = GaitEngine.STATE_SHOW_ACTIVE
+    assert node._set_show_mode('none') == 'none'
+    assert node._engine.state == GaitEngine.STATE_SHOW_EXIT
+
+
+def test_free_leg_none_cancels_pending_start(node):
+    """
+    Ein noch wartender Show-Start wird durch ``none`` verworfen.
+
+    Sonst liefe die Show nach dem Stance-Wechsel doch noch an, obwohl der
+    Nutzer sie bereits abgewählt hat.
+    """
+    node._stance_idx = _STANCE_DEFAULT_IDX
+    node._engine._state = GaitEngine.STATE_STANDING
+    node._show_mode = node._set_show_mode('free_leg')   # wie _apply_param
+    assert node._pending_show_enter is True
+    node._set_show_mode('none')
+    assert node._pending_show_enter is False
+
+
+def test_reset_show_mode_cancels_pending_start(node):
+    """Recovery/Hinsetzen verwirft einen wartenden Show-Start ebenfalls."""
+    node._stance_idx = _STANCE_DEFAULT_IDX
+    node._engine._state = GaitEngine.STATE_STANDING
+    node._show_mode = node._set_show_mode('free_leg')   # wie _apply_param
+    node._reset_show_mode('test')
+    assert node._pending_show_enter is False
+    assert node._show_mode == 'none'
