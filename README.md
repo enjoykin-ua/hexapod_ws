@@ -3,14 +3,21 @@
 A six-legged walking robot (18 servos) — built in **ROS 2 Jazzy** + **Gazebo Harmonic** and
 running **1:1 on real hardware** (Servo2040 + Raspberry Pi 5) via `ros2_control`. Omnidirectional
 walking, multiple gaits, validated stance & speed presets, IMU-based body leveling and tip-over
-protection, foot-contact terrain adaptation, sit/stand sequences, free-leg "show" poses,
-PS4 control (USB + Bluetooth), and a **mobile app** (phone + Razer Kishi) with live video,
-status overlay and on-screen configuration.
+protection, foot-contact terrain adaptation, sit/stand sequences, two **show modes** (look-around
+and free-leg), PS4 control (USB + Bluetooth), and a **mobile app** (phone + Razer Kishi) with live
+video, status overlay and on-screen configuration.
 
 <p align="center">
   <img src="docs/images/hexapod_outside.png" alt="The hexapod outdoors on grass" width="700"/>
 </p>
 <p align="center"><sub>The real robot — 18 servos, Raspberry Pi 5 + Servo2040, foot switches, BNO-055 IMU</sub></p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=TW4aUqSsOeI">
+    <img src="https://img.youtube.com/vi/TW4aUqSsOeI/maxresdefault.jpg" alt="Watch the hexapod demo on YouTube" width="700"/>
+  </a>
+</p>
+<p align="center"><sub><b><a href="https://www.youtube.com/watch?v=TW4aUqSsOeI">▶ Watch the full demo on YouTube</a></b> — stand-up from the app, walking, uphill, all four gaits, stance heights, sounds and both show modes</sub></p>
 
 <p align="center">
   <img src="docs/images/rubicon.png" alt="Hexapod in the Rubicon rough-terrain world (Gazebo)" width="700"/>
@@ -61,7 +68,14 @@ status overlay and on-screen configuration.
 - **On-board audio:** the robot plays short mp3s through its own speaker (MAX98357A) — **movement
   sounds** (stand-up / sit-down / height-change / freeze, triggered by the gait sequence logic) plus
   a **soundboard** the app can fire; auto-sounds mutable via a `sound_enable` param.
-- **Free-leg "show" pose:** support on 4 legs, 2 front legs steered freely by joystick (incl. tibia reach).
+- **Free-leg show:** the robot **shifts its weight back, lifts both front legs off the ground** and
+  leans its nose up — standing on the four rear legs while the **two front legs follow the sticks**
+  (left stick = left leg, right stick = right leg, triggers extend the leg, R1 dead-man; let go and
+  they spring back). Picked from the app's show menu. Entering it drops the robot into its **low
+  stance** first, because that is where the tip-over angle is best. The pose is verified offline
+  before it is ever driven: a CoG sweep over the **entire** stick envelope has to keep a margin
+  inside the 4-leg support polygon, and the feet must stay clear of the ground —
+  `tools/show_pose_cog_check.py --sweep` gates it.
 - **Look-around show:** the robot stands still — **all six feet stay planted** — while the **body**
   moves in 6 DOF: look up/down and left/right, walk in place, change height; let go and it springs
   back. The camera rides on the body, so the **live video pans with it**. Two-stage safety (per-axis
@@ -223,8 +237,9 @@ ros2 service call /hexapod_cycle_gait   std_srvs/srv/SetBool "{data: true}" # ne
 ros2 service call /hexapod_cycle_stance std_srvs/srv/SetBool "{data: true}" # higher stance (false = lower)
 ros2 service call /hexapod_show_toggle  std_srvs/srv/Trigger "{}"           # enter / leave show pose
 
-# Look-around show (normally picked from the app's show menu; STANDING only)
+# Shows (normally picked from the app's show menu; STANDING only)
 ros2 param set /gait_node show_mode look_around  # body follows the sticks, feet stay planted
+ros2 param set /gait_node show_mode free_leg     # 4 legs support, 2 front legs follow the sticks
 ros2 param set /gait_node show_mode none         # leave the show (always accepted)
 
 # Live parameter tuning (step height, cycle time, scales, …)
@@ -255,8 +270,8 @@ ros2 topic list                                 # /cmd_vel, /cmd_show, /joint_st
 | **△ Triangle** | **Sit / stand** toggle | resolved by robot state |
 | **○ Circle** (long-press) | **Shutdown** (sit down + relay off) | deliberate, terminal |
 | **✕ Cross** (long-press) | Enter / leave **show pose** | |
-| **In show + R1 — left / right stick** | Move front legs leg_6 / leg_1: X = sideways, Y = up/down | SHOW_ACTIVE only |
-| **In show + R1 — L2 / R2** | **Tibia reach** leg_6 / leg_1 (extend leg, tibia opens up) | SHOW_ACTIVE only |
+| **In free-leg show + R1 — left / right stick** | Move front legs leg_6 / leg_1: X = sideways (legs swing **forward**, up to 0.29 m apart), Y = up/down (15–115 mm above ground) | SHOW_ACTIVE only |
+| **In free-leg show + R1 — L2 / R2** | **Extend** leg_6 / leg_1 outward (~3 cm — radial is the shortest axis on the short legs) | SHOW_ACTIVE only |
 | **In look-around + R1 — right stick** | **Look around:** Y = up/down (±12°), X = left/right (±10°) | BODY_POSE only |
 | **In look-around + R1 — left stick** | **Walk in place:** Y = forward/back (±50 mm), X = sideways (±35 mm) | BODY_POSE only |
 | **In look-around + R1 — L2 / R2** | **Body height** down / up (±20 mm) | BODY_POSE only |
@@ -365,8 +380,12 @@ leveling + tip protection and the foot-contact pipeline (adaptive touchdown, sli
 live, gaits / stance / speed presets on battery in the field. Current work is the **mobile app
 (Block I)**: controller mapping, teleop, lifecycle, video, status + config panel, **emergency-stop +
 recovery**, **on-board audio**, the **on-board camera** and the **look-around show** are done
-(phases 1–8) — the show is verified **in simulation and on the real robot**. Next up is polish
-(reconnect handling, controller profiles). Details: [`PHASE.md`](PHASE.md).
+(phases 1–8) — the latter verified **in simulation and on the real robot**. **Field autonomy**
+(phase 9) is done as well: the robot boots straight into its always-on layer, so it needs **no dev
+machine at all** — switch it on, connect the app, drive, and shut it down cleanly from the app or
+the hardware switch. **Phase 10 brings the free-leg show back** (re-designed for the shorter legs,
+started from the app's show menu); its simulation and hardware runs are the current work. Next up is
+polish (reconnect handling, controller profiles). Details: [`PHASE.md`](PHASE.md).
 
 ## License
 
