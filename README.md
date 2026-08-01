@@ -17,7 +17,12 @@ video, status overlay and on-screen configuration.
     <img src="https://img.youtube.com/vi/TW4aUqSsOeI/maxresdefault.jpg" alt="Watch the hexapod demo on YouTube" width="700"/>
   </a>
 </p>
-<p align="center"><sub><b><a href="https://www.youtube.com/watch?v=TW4aUqSsOeI">▶ Watch the full demo on YouTube</a></b> — stand-up from the app, walking, uphill, all four gaits, stance heights, sounds and both show modes</sub></p>
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=TW4aUqSsOeI">
+    <img src="https://img.shields.io/badge/Watch%20the%20demo-YouTube-red?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch the demo on YouTube"/>
+  </a>
+</p>
+<p align="center"><sub>Stand-up from the app, walking, uphill, all four gaits, stance heights, sounds and both show modes</sub></p>
 
 <p align="center">
   <img src="docs/images/rubicon.png" alt="Hexapod in the Rubicon rough-terrain world (Gazebo)" width="700"/>
