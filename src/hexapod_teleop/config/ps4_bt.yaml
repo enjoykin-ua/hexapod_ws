@@ -53,6 +53,8 @@ joy_to_twist:
     # --- Skalen (matchen Engine-Limits) ---
     # H2: = "schnell"-Eintrag der _TEMPO_MODES (joy_to_twist.py) — Boot-Tempo,
     # erster D-Pad-Druck sprungfrei. Identisch zu ps4_usb.yaml halten.
+    # Phase 11: bewusst UNVERÄNDERT — längere Schritte kommen aus der längeren
+    # Bodenzeit (cycle_time 3.4), nicht aus höheren Scales.
     linear_x_scale: 0.05
     linear_y_scale: 0.05
     angular_z_scale: 0.46

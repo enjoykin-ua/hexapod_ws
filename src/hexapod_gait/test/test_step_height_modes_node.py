@@ -65,14 +65,20 @@ def test_stance_modes_table_pinned():
     """
     Pinne die Gate-validierten Tabellenwerte (H1.2 sh + H2.1 sl).
 
-    Änderungen nur mit neuem Offline-Gate-Durchlauf (check + engine-check;
-    H2.1: mittel sl 0.09 fiel im engine-check B:diagonal am S4-Floor —
-    0.08 GREEN).
+    Änderungen nur mit neuem Offline-Gate-Durchlauf (check + engine-check).
+
+    Phase 11: die Werte stehen am geometrischen Optimum — gemessen mit
+    beiden Gates und allen vier Gangarten. Je Modus reisst die naechste
+    5-mm-Stufe: tief 0.070 (femur 0.0885 im sidestep), mittel 0.090
+    (S4-Floor out-of-reach, H2.1), hoch 0.060 (out_of_reach am Probe-Floor
+    z=-0.130). Der Fuss-Hub ist ebenfalls ausgereizt (mittel 0.055 →
+    femur 0.0822). Messreihe: app_control_requirements/
+    phase_11_stride_envelope_progress.md.
     """
     assert [tuple(m) for m in _STANCE_MODES] == [
-        ('tief', 0.160, -0.065, 0.040, 0.060),
-        ('mittel', 0.160, -0.080, 0.050, 0.080),
-        ('hoch', 0.160, -0.100, 0.080, 0.050),
+        ('tief', 0.160, -0.065, 0.040, 0.065),
+        ('mittel', 0.160, -0.080, 0.050, 0.085),
+        ('hoch', 0.160, -0.100, 0.080, 0.055),
     ]
 
 
@@ -228,18 +234,18 @@ def test_mode_apex_stays_below_femur_wall():
 
 
 def test_sl_reject_above_current_mode(node):
-    """0.09 im Boot-Modus (mittel, Deckel 0.08) → Reject (H2.1-RED-Zelle)."""
+    """0.09 im Boot-Modus (mittel, Deckel 0.085) → Reject (H2.1-RED-Zelle)."""
     res = node.set_parameters([
         Parameter('step_length_max', Parameter.Type.DOUBLE, 0.09),
     ])
     assert not res[0].successful
     assert 'exceeds validated max' in res[0].reason
-    assert node._step_length_max == pytest.approx(0.08)  # unverändert
+    assert node._step_length_max == pytest.approx(0.085)  # unverändert
 
 
 def test_sl_allows_at_and_below(node):
     """Deckel exakt + kleinere Werte sind erlaubt (nur oben gedeckelt)."""
-    for value in (0.08, 0.05):
+    for value in (0.085, 0.05):
         res = node.set_parameters([
             Parameter('step_length_max', Parameter.Type.DOUBLE, value),
         ])
@@ -275,14 +281,14 @@ def test_sl_cap_follows_stance_mode(node):
 
 
 def test_switch_applies_mode_step_length(node):
-    """Der Stance-Switch übernimmt sl gekoppelt (hoch 0.05, zurück 0.08)."""
+    """Der Stance-Switch übernimmt sl gekoppelt (hoch 0.055, zurück 0.085)."""
     assert node._do_stance_switch(2)  # hoch
-    assert node._step_length_max == pytest.approx(0.05)
-    assert node._engine.step_length_max == pytest.approx(0.05)
+    assert node._step_length_max == pytest.approx(0.055)
+    assert node._engine.step_length_max == pytest.approx(0.055)
     node._engine.compute_joint_angles(1e6)          # Switch fertig
     assert node._do_stance_switch(1)                # zurück mittel
-    assert node._step_length_max == pytest.approx(0.08)
-    assert node._engine.step_length_max == pytest.approx(0.08)
+    assert node._step_length_max == pytest.approx(0.085)
+    assert node._engine.step_length_max == pytest.approx(0.085)
 
 
 def test_param_server_sync_deferred_until_standing(node):
@@ -324,18 +330,18 @@ def test_adjust_step_length_clamped_to_mode_cap(node):
     /hexapod_adjust_step_length clampt auf den Modus-Deckel (H2).
 
     Der Intent-Handler schreibt _step_length_max am Validator vorbei —
-    in hoch (Deckel 0.05) darf ein „größer"-Intent nicht über 0.05.
+    in hoch (Deckel 0.055) darf ein „größer"-Intent nicht über 0.055.
     """
-    assert node._do_stance_switch(2)  # hoch → sl 0.05
+    assert node._do_stance_switch(2)  # hoch → sl 0.055
     node._engine.compute_joint_angles(1e6)
     node._maybe_sync_stance_params()
     req = SetBool.Request()
     req.data = True   # größer
     resp = node._on_adjust_step_length(req, SetBool.Response())
     assert resp.success
-    assert node._step_length_max == pytest.approx(0.05)  # geclampt
-    assert node._engine.step_length_max == pytest.approx(0.05)
+    assert node._step_length_max == pytest.approx(0.055)  # geclampt
+    assert node._engine.step_length_max == pytest.approx(0.055)
     # Kleiner geht weiterhin (intent_step 0.01).
     req.data = False
     node._on_adjust_step_length(req, SetBool.Response())
-    assert node._step_length_max == pytest.approx(0.04)
+    assert node._step_length_max == pytest.approx(0.045)

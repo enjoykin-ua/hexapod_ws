@@ -211,11 +211,18 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='cycle_time', default=2.0, standing_only=True,
+        name='cycle_time', default=3.4, standing_only=True,
         fp_range=(0.5, 6.0, 0.05),
         description=(
             'Zeit pro Gait-Cycle (s). '
-            'Live-Update nur in STANDING (Stride-Math-Konsistenz).'
+            'Live-Update nur in STANDING (Stride-Math-Konsistenz). '
+            'Phase 11: Default 3.4 = Tempo-Stufe "schnell" (Boot). Die '
+            'laengere Bodenzeit (T_stance = cycle_time/2 bei Tripod) ist '
+            'der Hebel fuer die LAENGEREN Schritte bei unveraenderter '
+            'Fahrgeschwindigkeit: 0.050 m/s x 1.7 s = 0.085 m = der '
+            'mittel-Deckel. Wer den Wert hier verstellt, verstellt den '
+            'Tempo-Index NICHT — der naechste Tempo-Wechsel springt auf '
+            'den Tabellenwert zurueck (_TEMPO_MODES in joy_to_twist).'
         ),
     ),
     _ParamSpec(
@@ -281,14 +288,15 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_max', default=0.080,
+        name='step_length_max', default=0.085,
         fp_range=(0.01, 0.15, 0.001),
         description=(
             'Max Stride pro Cycle (m). Begrenzt linear_max = '
             'step_length_max / stance_duration. Live-Update wirkt sofort. '
-            'H2: gedeckelt auf den step_length_max des aktuellen Stance-'
-            'Modus (tief 0.06 / mittel 0.08 / hoch 0.05 — Gate-validiert '
-            'inkl. engine-check-Transitions); Default = mittel (Boot-Modus).'
+            'H2/Phase 11: gedeckelt auf den step_length_max des aktuellen '
+            'Stance-Modus (tief 0.065 / mittel 0.085 / hoch 0.055 — '
+            'Gate-validiert inkl. engine-check-Transitions und aller vier '
+            'Gangarten); Default = mittel (Boot-Modus).'
         ),
     ),
     _ParamSpec(
@@ -443,15 +451,16 @@ _GAIT_PARAMS: tuple[_ParamSpec, ...] = (
         ),
     ),
     _ParamSpec(
-        name='step_length_intent_max', default=0.080,
+        name='step_length_intent_max', default=0.085,
         fp_range=(0.01, 0.15, 0.001),
         description=(
             'Block C2: obere Clamp-Grenze für den Schrittweiten-Trim (m). '
-            'H2: 0.080 = mittel-Modus-Deckel (Gate-validiert; sonst würde '
-            'ein "größer"-Intent den Boot-Wert 0.080 auf die alte Grenze '
-            '0.070 SENKEN). Der Handler clampt zusätzlich auf den Deckel '
-            'des aktuellen Stance-Modus. Kein Teleop-Binding mehr (D-Pad '
-            '↑/↓ = Tempo-Cycle); Service bleibt rückwärtskompatibel.'
+            'Phase 11: 0.085 = mittel-Modus-Deckel (Gate-validiert; sonst '
+            'würde ein "größer"-Intent den Boot-Wert auf die kleinere '
+            'Grenze SENKEN — Clamp-Artefakt, per Invarianten-Test gepinnt). '
+            'Der Handler clampt zusätzlich auf den Deckel des aktuellen '
+            'Stance-Modus. Kein Teleop-Binding mehr (D-Pad ↑/↓ = '
+            'Tempo-Cycle); Service bleibt rückwärtskompatibel.'
         ),
     ),
     # Phase 13 Stage 1 — Stance-Modus-Wechsel.
@@ -738,15 +747,27 @@ _StanceMode = namedtuple(
 # Block H2: per-Modus step_length_max (Hub und Schrittweite teilen die Bein-
 # Hülle: hoch = Terrain-Modus mit kurzen Schritten, mittel = Speed-Modus).
 # Gleiches Deckel-Prinzip (Reject in _on_param_change); der Stance-Switch
-# setzt sl gekoppelt mit. Gate: steady-state-check (H1.2) + engine-check-
-# Transitions (H2.1) — dort fiel mittel 0.09 (§0-Kandidat) im B:diagonal-
-# Richtungswechsel am S4-Probe-Floor out-of-reach (d=0.1953 > 0.194);
-# 0.08 GREEN mit Marge (femur 0.159), 0.085 nur knapp (Reach-Rest ~1 mm).
-# hoch sl > 0.05 = der User-Sim-Befund out-of-reach-IKError (H2-Plan §0).
+# setzt sl gekoppelt mit.
+#
+# Block I Phase 11 — die Deckel stehen am GEOMETRISCHEN OPTIMUM. Gemessen
+# (walking_envelope_check, beide Gates, alle vier Gangarten):
+#   * tief   0.065 — ab 0.070 femur 0.0885 im sidestep/diagonal (Schwelle 0.10)
+#   * mittel 0.085 — ab 0.090 der H2.1-Befund (S4-Floor out-of-reach)
+#   * hoch   0.055 — ab 0.060 out_of_reach am S4-Probe-Floor (z = bh−0.03 =
+#     −0.130): die Basis-Distanz ab Femur-Gelenk ist dort schon
+#     hypot(0.160−0.0436, 0.130) = 0.1745 von 0.194 Reichweite.
+# Der FUSS-HUB ist ebenfalls ausgereizt: mittel 0.055 → femur 0.0822,
+# mittel 0.060 → femur 0.0328 (Apex bh+sh läuft in die Femur-Wand). Ebenso
+# verworfen (alle RED): kleinerer Walk-Radius (0.145/0.150/0.155 — femur
+# kollabiert auf 0.002–0.043), flacherer S4-Floor (bringt ~5 mm, kostet
+# Kantenschutz), Zwischen-Stances bh −0.085/−0.090/−0.095 mit mehr Hub.
+# Messreihe: app_control_requirements/phase_11_stride_envelope_progress.md.
+# ⚠️ Der Deckel wirkt nur, wenn Tempo × Bodenzeit ihn freigibt — siehe
+# _TEMPO_MODES in joy_to_twist.py (Phase 11 Baustein 2).
 _STANCE_MODES = (
-    _StanceMode('tief', 0.160, -0.065, 0.040, 0.060),
-    _StanceMode('mittel', 0.160, -0.080, 0.050, 0.080),
-    _StanceMode('hoch', 0.160, -0.100, 0.080, 0.050),
+    _StanceMode('tief', 0.160, -0.065, 0.040, 0.065),
+    _StanceMode('mittel', 0.160, -0.080, 0.050, 0.085),
+    _StanceMode('hoch', 0.160, -0.100, 0.080, 0.055),
 )
 _STANCE_DEFAULT_IDX = 1   # mittel
 # Block I Phase 10 — die Free-Leg-Show laeuft in der TIEFEN Stance: die
@@ -764,6 +785,23 @@ _SHOW_STATES = (
     GaitEngine.STATE_SHOW_ACTIVE,
     GaitEngine.STATE_SHOW_EXIT,
 )
+
+# Block I Phase 11 — ab welcher Staerke ein cmd_vel-Clamp eine WARN wert ist.
+# Unter diesem Faktor meldet der Node WARN, darueber nur debug.
+#
+# Hintergrund: die Tempo-Auslegung verlaengert die Bodenzeit, wodurch
+# linear_max (= step_length_max / stance_duration) in den Stance-Modi mit
+# kleinem Deckel und bei wave/tetrapod/ripple unter der Stick-Skala liegt —
+# ein Clamp ist damit **Normalbetrieb** und darf die App-Alert-Liste
+# (/hexapod/alerts speist sich aus /rosout WARN+) nicht fluten.
+#
+# Der Wert ist GERECHNET, nicht geschaetzt: ueber alle 48 ausgelegten
+# Betriebspunkte (4 Gangarten x 4 Tempo-Stufen x 3 Stance-Modi) ist der
+# kleinste auftretende Faktor **0.39** (wave + schnell + hoch). 0.25 laesst
+# damit jeden regulaeren Punkt still und meldet nur echte Fehlkonfiguration
+# (Kommando mehr als 4x ueber linear_max, z. B. manuell gesetzte Scales).
+# Gepinnt in hexapod_teleop/test/test_tempo_presets.py.
+_CLAMP_WARN_FACTOR = 0.25
 
 # Phase 13 Stage A — Timeout-Warning fuer fehlende /joint_states.
 # Wenn nach diesem Zeitraum kein /joint_states empfangen wurde, wird
@@ -1862,6 +1900,37 @@ class GaitNode(Node):
             self._default_angular_z,
         )
 
+    def _log_cmd_clamp(
+        self, v_x: float, v_y: float, omega_z: float
+    ) -> None:
+        """
+        Einen cmd_vel-Clamp melden — gestaffelt nach Staerke (Phase 11).
+
+        Die Engine stutzt ein Kommando proportional, sobald die groesste
+        Bein-Geschwindigkeit ueber ``linear_max`` liegt. Seit der
+        Tempo-Auslegung (laengere Bodenzeit → kleineres
+        ``linear_max = step_length_max / stance_duration``) ist ein
+        leichter Clamp der **Normalfall**: in den Stance-Modi mit kleinem
+        Deckel (tief/hoch) und bei den Nicht-Tripod-Gangarten liegt die
+        Stick-Skala regelmaessig darueber.
+
+        Eine WARN alle 2 s liefe ueber ``/rosout`` in die App-Alert-Liste
+        (``/hexapod/alerts``) und wuerde echte Warnungen zudecken. Daher:
+        **WARN nur bei deutlicher Begrenzung** (Faktor unter
+        ``_CLAMP_WARN_FACTOR``), sonst ``debug`` — und beides mit 10 s
+        Throttle statt 2 s.
+        """
+        factor = self._engine.last_clamp_factor
+        msg = (
+            f'cmd_vel clamped (Faktor {factor:.2f}): input '
+            f'(vx={v_x:.3f}, vy={v_y:.3f}, omega={omega_z:.3f}) > '
+            f'max-leg-speed {self._engine.linear_max:.3f} m/s'
+        )
+        if factor < _CLAMP_WARN_FACTOR:
+            self.get_logger().warn(msg, throttle_duration_sec=10.0)
+        else:
+            self.get_logger().debug(msg, throttle_duration_sec=10.0)
+
     def _tick(self):
         # Block I Phase 6 — E-Stop / Safety-Freeze-Gate (§4.1 unified, [D6]).
         # Solange _safety_frozen gesetzt ist: KEINE Trajektorie publishen →
@@ -1981,13 +2050,7 @@ class GaitNode(Node):
 
         clamped = self._engine.set_command(v_x, v_y, omega_z, t)
         if clamped:
-            self.get_logger().warn(
-                f'cmd_vel clamped: input '
-                f'(vx={v_x:.3f}, vy={v_y:.3f}, '
-                f'omega={omega_z:.3f}) > '
-                f'max-leg-speed {self._engine.linear_max:.3f} m/s',
-                throttle_duration_sec=2.0,
-            )
+            self._log_cmd_clamp(v_x, v_y, omega_z)
 
         # Block B4 — in SHOW_ACTIVE die Joystick-Offsets der Vorderbeine
         # setzen (vor compute, damit das Rate-Limit diesen Tick greift).

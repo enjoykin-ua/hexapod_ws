@@ -73,7 +73,7 @@ _(Historie Pi-Plattform Phase 12: [`docs_raspi/phase_12_progress.md`](docs_raspi
 | **S1** Stance-Modi (3 Lauf-Höhen) | hoch/mittel/tief, L2/R2-Cycle, gekoppelte Reposition+Höhen-Lerp — ersetzt stufenlose Höhe (Envelope-sicher) | 🟢 Sim + **HW** |
 | **C** Teleop / Steuerungs-UX | PS4 USB (C1/C2) + Live-Verstellung Gangart/Schrittweite (C3) + Bluetooth (C4) | 🟢 abgeschlossen |
 | **D** Hardware-Bring-up / Plattform | **D1 Pi-Plattform (=Phase 12)** · **D2 Elektrik 2S LiPo (=Phase 8)** · D3 LVC/Telemetrie · D4 Power-On-Sequenz · D5 untethered | 🟢 **abgeschlossen** (Roboter fährt untethered mit Akku) |
-| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio (Ph.7A) · echte Cam (Ph.7B) · **Show „Look-Around" (Ph.8)** · **Feld-Autonomie (Ph.9)** · **Show „Free-Leg" (Ph.10)** · Politur (Ph.11) | 🟡 **aktiv** — Ph.1–7B 🟢 · **Ph.8 🟢 Sim + HW verifiziert** (Körper-Pose über fixen Füßen, App-Show-Menü, Contract v0.13) · **Ph.9 🟡 Repo-Seite 🟢** (Always-On ab Boot, reparierter Poweroff, HW-Preset im App-Pfad; offen: Pi-Schritte + App-Buttons, Contract v0.13.1) |
+| **I** Mobile-Teleop-App | Handy+Kishi statt PS4-BT: Mapping/Teleop/Lifecycle/Video/Status+Config (Ph.1–5) · E-Stop+Recovery (Ph.6) · Audio (Ph.7A) · echte Cam (Ph.7B) · **Show „Look-Around" (Ph.8)** · **Feld-Autonomie (Ph.9)** · **Show „Free-Leg" (Ph.10)** · **Längere Schritte (Ph.11)** · Politur (Ph.12) | 🟡 **aktiv** — Ph.1–7B 🟢 · **Ph.8 🟢 Sim + HW verifiziert** (Körper-Pose über fixen Füßen, App-Show-Menü, Contract v0.13) · **Ph.9 🟡 Repo-Seite 🟢** (Always-On ab Boot, reparierter Poweroff, HW-Preset im App-Pfad; offen: Pi-Schritte + App-Buttons, Contract v0.13.1) |
 | **E** Robustheit / später | Safe-State im Lauf (E1), Terrain/Foot-Contact (E2), Preset-Management (E3) | ⚪ später |
 
 ### Cross-Phase-Threads
@@ -132,7 +132,16 @@ Status-Legende: ⚪ offen/optional — 🟡 aktiv/als Nächstes — 🟢 abgesch
    komplett neu ausgelegt (Neutral-Pose mit Coxa-Anteil → Beine zeigen nach vorne statt gespreizt;
    Körper lehnt 5° zurück; tiefe Stance wegen des besseren Kippwinkels). Contract v0.14,
    `phase_10_free_leg_progress.md`. Offen: Sim- + HW-Verifikation.
-8. **Phase 11 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
+8. **Phase 11 — Längere Schritte (Repo-Seite 🟢):** die Schritte waren im Feld gefühlt überall
+   ~50 mm kurz. Ursache war **nicht** der Stance-Deckel, sondern dass der erlaubte Deckel nie
+   ausgeschöpft wurde (Stick-Skala × Bodenzeit gab nur 50 mm her). Zwei Bausteine: die Deckel
+   stehen jetzt auf dem gemessenen geometrischen Optimum (tief 0.065 / mittel **0.085** / hoch
+   0.055 — mehr gibt die Bein-Geometrie nicht her, der Fuß-Hub gar nichts), und die Tempo-Stufen
+   sind nach „Geschwindigkeit halten, Schritte länger" ausgelegt (längere Zykluszeit statt höherer
+   Skalen). Ergebnis in der Boot-Kombination: **50 → 85 mm bei gleicher Fahrgeschwindigkeit**.
+   Contract v0.14.1 (kein Interface-Change), `phase_11_stride_envelope_progress.md`.
+   Offen: Sim- (über die App) + HW-Verifikation.
+9. **Phase 12 — Politur:** Reconnect-Handling, Controller-Profile (Portabilität), Robustheit (App).
 7. **Optionale Politur (jederzeit):** A5 IP3-Feintuning (Terrain-Following im Laufen), Fußtaster-
    Latenz-Recheck auf HW (aus dem App-Overlay-Test), **Dancing/Free-Leg ROS-seitig umsetzen**
    (App-Menü steht schon), Audio-Knarz-Fix (Stützelko im Finalaufbau).

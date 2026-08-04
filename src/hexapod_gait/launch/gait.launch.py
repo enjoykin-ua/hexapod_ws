@@ -49,11 +49,14 @@ def generate_launch_description() -> LaunchDescription:
 
     cycle_time_arg = DeclareLaunchArgument(
         'cycle_time',
-        default_value='2.0',
+        default_value='3.4',
         description=(
-            'Periode in s pro Cycle. Default 2.0 (1 s Swing + 1 s '
-            'Stance bei Tripod). Für DK-3-Test (Stopp-Latenz <0.5 s) '
-            'auf 1.0 setzen.'
+            'Periode in s pro Cycle. Phase 11: Default 3.4 = Tempo-Stufe '
+            '"schnell" (Boot; 1.7 s Swing + 1.7 s Stance bei Tripod). Die '
+            'laengere Bodenzeit ist der Hebel fuer laengere Schritte bei '
+            'gleicher Fahrgeschwindigkeit (0.050 m/s x 1.7 s = 0.085 m = '
+            'mittel-Deckel). Kuerzer = flotter, aber kuerzere Schritte; '
+            'fuer den DK-3-Test (Stopp-Latenz <0.5 s) auf 1.0 setzen.'
         ),
     )
 
@@ -96,15 +99,17 @@ def generate_launch_description() -> LaunchDescription:
 
     step_length_max_arg = DeclareLaunchArgument(
         'step_length_max',
-        default_value='0.080',
+        default_value='0.085',
         description=(
             'Obere Schranke für Schritt-Länge in m. Aus '
             'step_length_max + cycle_time leitet Engine den maximalen '
             'cmd_vel.linear.x ab: linear_max = step_length_max / '
-            'stance_duration. H2: Default 0.080 = Stance-Modus "mittel" '
-            '(Boot-Konvention); per-Modus-Deckel im gait_node (tief 0.06 / '
-            'mittel 0.08 / hoch 0.05, Gate-validiert). Das Stick-Tempo '
-            'begrenzen weiterhin die joy-Scales (Tempo-Presets, Teleop).'
+            'stance_duration. Phase 11: Default 0.085 = Stance-Modus '
+            '"mittel" (Boot-Konvention); per-Modus-Deckel im gait_node '
+            '(tief 0.065 / mittel 0.085 / hoch 0.055 — geometrisches '
+            'Optimum, Gate-validiert). Das Stick-Tempo begrenzen weiterhin '
+            'die joy-Scales (Tempo-Presets, Teleop) — erst deren '
+            'Bodenzeit (cycle_time) gibt den Deckel wirklich frei.'
         ),
     )
 

@@ -49,21 +49,37 @@ from std_srvs.srv import SetBool, Trigger
 # lebt als DIE eine Wahrheit im gait_node (Ablehnung → keine Scale-Änderung).
 # Reihenfolge aufsteigendes Tempo; D-Pad ↑ = Index+1 (schneller), geklemmt.
 # Boot-Index "schnell" = EXAKT die heutigen YAML-Scales → der erste D-Pad-
-# Druck erzeugt keinen Verhaltens-Sprung. "aggressiv" = User-erprobt (die
-# Scales sind cmd-Limits; die Engine clampt zusätzlich proportional auf
-# linear_max = step_length_max/stance — 0.17 > linear_max ⇒ WARN+clamp, ok).
-# Startwerte — finale Werte nach Sim-Tuning H2.5 nachziehen (Muster
+# Druck erzeugt keinen Verhaltens-Sprung.
+#
+# Block I Phase 11 — Auslegung "Geschwindigkeit halten, Schritte länger".
+# Die real gefahrene Schrittweite ist
+#     s = min(scale, linear_max) × T_stance   mit T_stance = cycle_time/2
+#         (Tripod) und linear_max = step_length_max / T_stance.
+# Vorher klemmte in drei von vier Stufen die SCALE: 0.05 m/s × 1.0 s = 50 mm,
+# obwohl der mittel-Deckel 80 mm erlaubt hätte. Statt die Scales (= das Tempo)
+# anzuheben, verlängern wir die BODENZEIT — derselbe Vortrieb entsteht dann in
+# weniger, dafür längeren Schritten:
+#     schnell: 0.050 m/s × 1.7 s = 0.085 m = exakt der mittel-Deckel.
+# Die Scales bleiben deshalb unverändert (Sprungfrei-Invariante gegen die
+# YAMLs bleibt erfüllt); nur "aggressiv" wird gebremst: dort stand die Scale
+# bewusst über linear_max, und der angehobene Deckel hätte den Engine-Clamp
+# mit hochgezogen (die Stufe wäre ungewollt schneller geworden).
+# ⚠️ In den Stance-Modi mit kleinem Deckel (tief/hoch) sinkt durch die längere
+# Bodenzeit die Höchstgeschwindigkeit der unteren Stufen — die Monotonie
+# (v steigt langsam→aggressiv) bleibt in JEDEM Stance-Modus erhalten, per
+# Test gepinnt. Wer in "hoch" zügiger will, schaltet eine Stufe höher.
+# Startwerte — finale Werte nach dem Sim-Tuning (P11.6) nachziehen (Muster
 # hw_balance: Code trägt Startwerte, Tuning-Ergebnis wird nachgezogen).
 _TempoMode = namedtuple(
     '_TempoMode',
     'name cycle_time linear_x_scale linear_y_scale angular_z_scale')
 _TEMPO_MODES = (
-    _TempoMode('langsam', 3.3, 0.03, 0.03, 0.28),
-    _TempoMode('mittel', 2.6, 0.04, 0.04, 0.35),
-    _TempoMode('schnell', 2.0, 0.05, 0.05, 0.46),
-    _TempoMode('aggressiv', 1.5, 0.17, 0.13, 1.2),
+    _TempoMode('langsam', 4.0, 0.03, 0.03, 0.28),
+    _TempoMode('mittel', 3.6, 0.04, 0.04, 0.35),
+    _TempoMode('schnell', 3.4, 0.05, 0.05, 0.46),
+    _TempoMode('aggressiv', 1.7, 0.10, 0.09, 0.95),
 )
-_TEMPO_DEFAULT_IDX = 2   # schnell (= Boot: cycle_time-Default 2.0 + YAML-Scales)
+_TEMPO_DEFAULT_IDX = 2   # schnell (= Boot: cycle_time-Default 3.4 + YAML-Scales)
 
 # Antwort-Timeout für den cycle_time-Request: bleibt die Future so lange ohne
 # Antwort (gait_node zwischen ready-Check und Antwort weg), wird der nächste

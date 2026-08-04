@@ -24,27 +24,47 @@ _URDF = JointLimits(
     femur_lower=-1.57, femur_upper=1.57,
     tibia_lower=-0.28, tibia_upper=2.50,
 )
-# (radial, body_height, step_height) je Modus = die ECHTEN _STANCE_MODES-
-# Werte (Block H1: per-Modus step_height, Gate-validiert).
-HOCH = (0.160, -0.100, 0.08)
-MITTEL = (0.160, -0.080, 0.05)
-TIEF = (0.160, -0.065, 0.04)
+# (radial, body_height, step_height, step_length_max) je Modus = die ECHTEN
+# _STANCE_MODES-Werte (H1 per-Modus step_height · H2/Phase 11 per-Modus
+# step_length_max, beide Gate-validiert). Der Sync gegen die Produktiv-Tabelle
+# ist unten gepinnt (test_mode_constants_match_production).
+# ⚠️ Phase 11: die Schrittweite wird jetzt MITGEFAHREN — vorher lief dieser
+# real-engine-Test mit festen 0.05 für alle Modi und prüfte damit ausgerechnet
+# die per-Modus-Schrittweite nicht.
+HOCH = (0.160, -0.100, 0.08, 0.055)
+MITTEL = (0.160, -0.080, 0.05, 0.085)
+TIEF = (0.160, -0.065, 0.04, 0.065)
 _SWITCH_DUR = 2.0
 
 
 def _engine(mode=MITTEL) -> GaitEngine:
-    radial, bh, sh = mode
+    radial, bh, sh, sl = mode
     return GaitEngine(
         pattern=_TRIPOD, step_height=sh, cycle_time=2.0,
-        radial_distance=radial, body_height=bh, step_length_max=0.05,
+        radial_distance=radial, body_height=bh, step_length_max=sl,
         joint_limits={leg.name: _URDF for leg in HEXAPOD.legs},
         standup_radial_distance=0.20, reposition_cycle_time=2.0,
     )
 
 
 def _switch(engine, target, t=0.0):
-    r, bh, sh = target
+    r, bh, sh = target[0], target[1], target[2]
     return engine.start_stance_switch(t, r, bh, sh, _SWITCH_DUR)
+
+
+def test_mode_constants_match_production():
+    """
+    Die Testkonstanten müssen die echten `_STANCE_MODES` sein.
+
+    Sonst validiert dieser real-engine-Test (die Wahrheit am Femur-Rand)
+    eine Pose, die der Roboter nie fährt — genau der Drift, der vor den
+    leg_changes elf Tests wertlos gemacht hat.
+    """
+    from hexapod_gait.gait_node import _STANCE_MODES
+    produktiv = {m.name: tuple(m)[1:] for m in _STANCE_MODES}
+    assert produktiv['hoch'] == pytest.approx(HOCH)
+    assert produktiv['mittel'] == pytest.approx(MITTEL)
+    assert produktiv['tief'] == pytest.approx(TIEF)
 
 
 def _assert_in_limits(angles):
@@ -89,7 +109,7 @@ def test_switch_path_in_limits_and_reaches_target(frm, to):
     # Über das Ende → Ziel-Modus übernommen, STANDING.
     end = engine.compute_joint_angles(_SWITCH_DUR + 0.5)
     assert engine.state == GaitEngine.STATE_STANDING
-    r, bh, sh = to
+    r, bh, sh = to[0], to[1], to[2]
     assert engine.radial_distance == pytest.approx(r)
     assert engine.body_height == pytest.approx(bh)
     assert engine.step_height == pytest.approx(sh)
@@ -130,10 +150,10 @@ def test_mode_walks_all_directions_no_ikerror(mode):
     das Envelope-Tool sagt GREEN, aber der echte Engine-Pfad fehlert).
     """
     from hexapod_kinematics import IKError
-    radial, bh, sh = mode
+    radial, bh, sh, sl = mode
     engine = GaitEngine(
         pattern=_TRIPOD, step_height=sh, cycle_time=2.0,
-        radial_distance=radial, body_height=bh, step_length_max=0.05,
+        radial_distance=radial, body_height=bh, step_length_max=sl,
         joint_limits={leg.name: _URDF for leg in HEXAPOD.legs},
         standup_radial_distance=radial, reposition_cycle_time=2.0,
     )

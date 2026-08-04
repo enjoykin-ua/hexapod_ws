@@ -44,21 +44,48 @@ können später dazukommen (`controller:=ps4_bt`, `controller:=ps5`).
 über D-Pad ↑/↓ (Tempo-Presets). Die Schrittweite selbst ist per Stance-Modus
 gedeckelt (`step_length_max`, gait_node) und wird vom Stick ohnehin moduliert.
 
-### Tempo-Presets (Block H2) — Konzept
+### Tempo-Presets (Block H2, Auslegung Phase 11) — Konzept
 
 Tempo = **nur** `cycle_time` (gait_node) + joy-Scales (Teleop) — die Lauf-Envelope
 (Bein-Hülle) hängt an Schrittweite/Hub/Höhe/Radius, nicht am Tempo, darum brauchen
 die Stufen keine eigene Envelope-Validierung. Die Tabelle `_TEMPO_MODES`
 (`joy_to_twist.py`) trägt `(name, cycle_time, linear_x/y_scale, angular_z_scale)`:
 
-| Stufe | cycle_time | Scales (x/y/z) | Hinweis |
-|---|---|---|---|
-| langsam | 3.3 | 0.03 / 0.03 / 0.28 | |
-| mittel | 2.6 | 0.04 / 0.04 / 0.35 | |
-| **schnell (Boot)** | 2.0 | 0.05 / 0.05 / 0.46 | = YAML-Scales → erster D-Pad-Druck **sprungfrei** |
-| aggressiv | 1.5 | 0.17 / 0.13 / 1.2 | User-erprobt; Scales > `linear_max` ⇒ Engine clampt (WARN, ok) |
+| Stufe | cycle_time | Scales (x/y/z) | Schritt @ mittel | Hinweis |
+|---|---|---|---|---|
+| langsam | 4.0 | 0.03 / 0.03 / 0.28 | 60 mm | Rangieren |
+| mittel | 3.6 | 0.04 / 0.04 / 0.35 | 72 mm | |
+| **schnell (Boot)** | 3.4 | 0.05 / 0.05 / 0.46 | **85 mm** | = YAML-Scales → erster D-Pad-Druck **sprungfrei**; schöpft den mittel-Deckel aus |
+| aggressiv | 1.7 | 0.10 / 0.09 / 0.95 | 85 mm | gebremst, damit der angehobene Stance-Deckel die Stufe nicht schneller macht |
 
-*(Startwerte — Sim-Tuning H2.5 zieht die finalen Werte nach.)*
+*(Startwerte — das Sim-Tuning P11.6 zieht die finalen Werte nach.)*
+
+**Die Auslegungsregel (Phase 11): „Geschwindigkeit halten, Schritte länger".**
+Was real am Boden ankommt, ist
+
+    Schritt = min(joy-Skala, linear_max) × T_stance,
+              T_stance  = cycle_time × (1 − swing_duty)   (Tripod: cycle_time/2)
+              linear_max = step_length_max / T_stance
+
+Vorher klemmte in drei von vier Stufen die **Skala**: 0.05 m/s × 1.0 s = 50 mm,
+obwohl der mittel-Deckel 80 mm erlaubt hätte. Statt die Skalen (= das Tempo)
+anzuheben, ist die **Bodenzeit** verlängert — derselbe Vortrieb entsteht in
+weniger, dafür längeren Schritten. Deshalb sind die Skalen unverändert geblieben.
+
+⚠️ **Zwei Nebenwirkungen, die man kennen muss:**
+1. In den Stance-Modi mit kleinem Deckel (tief/hoch) begrenzt `linear_max` statt der
+   Skala → dort ist die Höchstgeschwindigkeit der unteren Stufen niedriger als
+   früher. Eine Stufe höher schalten stellt sie wieder her; die Monotonie
+   (langsam → aggressiv wird schneller) gilt in **jedem** Stance-Modus und ist per
+   Test gepinnt.
+2. Ein leichter Engine-Clamp ist damit Normalbetrieb. Der `gait_node` meldet ihn
+   nur noch bei **echter Fehlkonfiguration** als WARN (Faktor < 0.25 = Kommando mehr als
+   4× über `linear_max`, 10 s Throttle), sonst als debug — sonst liefe die App-Alert-Liste (`/hexapod/alerts` speist sich
+   aus `/rosout` WARN+) im Fahrbetrieb voll.
+
+⚠️ Ein manueller `cycle_time`-Zug (Config-Panel der App) verstellt den **Tempo-Index
+nicht** — der nächste D-Pad-/Tempo-Wechsel springt auf den Tabellenwert des alten
+Index zurück. Bewusst simpel gehalten; zum Tuning gedacht.
 
 **Zwei-Schritt-Protokoll** (neues ROS2-Idiom hier: `rclpy.parameter_client.
 AsyncParameterClient` = vorgefertigte Service-Clients auf die Param-Services eines

@@ -47,9 +47,22 @@ manifest:
   version: 1
   params:
     # ---------------- Lauf / Gang (gait_node) ----------------
-    - {node: /gait_node, param: cycle_time, group: "Lauf / Gang", label: "Schrittdauer", hint: "kleiner = schneller", widget: slider, type: double, default: 2.0, min: 1.0, max: 4.0, step: 0.1, unit: s, gating: standing}
-    - {node: /gait_node, param: step_length_max, group: "Lauf / Gang", label: "Schrittweite", hint: "größer = weiter", widget: slider, type: double, default: 0.080, min: 0.02, max: 0.12, step: 0.005, unit: m, dynamic_cap: step_length_cap}
+    # Phase 11: cycle_time-Default 3.4 = Tempo-Stufe "schnell" (Boot). Die
+    # laengere Bodenzeit ist der Hebel fuer laengere Schritte bei gleicher
+    # Fahrgeschwindigkeit — kleiner ziehen macht flotter, aber kuerzer.
+    - {node: /gait_node, param: cycle_time, group: "Lauf / Gang", label: "Schrittdauer", hint: "kleiner = schneller, aber kürzere Schritte", widget: slider, type: double, default: 3.4, min: 1.0, max: 4.0, step: 0.1, unit: s, gating: standing}
+    - {node: /gait_node, param: step_length_max, group: "Lauf / Gang", label: "Schrittweite", hint: "größer = weiter", widget: slider, type: double, default: 0.085, min: 0.02, max: 0.12, step: 0.005, unit: m, dynamic_cap: step_length_cap}
     - {node: /gait_node, param: step_height, group: "Lauf / Gang", label: "Fuß-Hub", hint: "größer = höher", widget: slider, type: double, default: 0.050, min: 0.01, max: 0.09, step: 0.005, unit: m, dynamic_cap: step_height_cap}
+    # Phase 11 (Feld-Tuning): time_from_start = factor / tick_rate ist die Zeit,
+    # die der Bein-Controller bekommt, um den naechsten Sollpunkt zu erreichen.
+    # Ist sie groesser als das Tick-Intervall (20 ms bei 50 Hz), startet die
+    # Interpolation staendig neu, bevor der Punkt erreicht ist → die Bewegung
+    # wird gedaempft und von der kommandierten Schrittweite kommt weniger an
+    # (Sim-Messung: bei factor 4.0 nur 66 %, bei 1.0 volle Amplitude).
+    # Kleiner = straffer + volle Schrittweite, aber keine Zeitreserve gegen
+    # Tick-Jitter und haertere Beschleunigungen. Wirkt auf ALLE Bewegungen
+    # (Laufen, Aufstehen, Hinsetzen, Stance-Wechsel, Shows, Recovery-Rampe).
+    - {node: /gait_node, param: time_from_start_factor, group: "Lauf / Gang", label: "Bahn-Nachführung", hint: "kleiner = straffer, volle Schrittweite", widget: slider, type: double, default: 2.0, min: 1.0, max: 4.0, step: 0.1}
 
     # ---------------- Teleop / Tempo (joy_to_twist) ----------------
     - {node: /joy_to_twist, param: linear_x_scale, group: "Teleop / Tempo", label: "Vorwärts-Tempo", hint: "größer = schneller", widget: slider, type: double, default: 0.05, min: 0.0, max: 0.25, step: 0.01, unit: "m/s"}

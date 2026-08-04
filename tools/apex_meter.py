@@ -93,7 +93,9 @@ def main() -> None:
         description='Realer Fuß-Hub (max−min FK-z) je Bein aus /joint_states.')
     parser.add_argument('--window', type=float, default=10.0,
                         help='Rolling-Fenster in s (default 10 — deckt >=2 '
-                             'Gait-Zyklen bei cycle_time 2.0).')
+                             'Gait-Zyklen bis cycle_time 5.0; seit Phase 11 '
+                             'ist der Boot-Wert 3.4 s, die langsamste '
+                             'Tempo-Stufe 4.0 s).')
     parser.add_argument('--period', type=float, default=2.0,
                         help='Report-Intervall in s (default 2).')
     args, ros_args = parser.parse_known_args()

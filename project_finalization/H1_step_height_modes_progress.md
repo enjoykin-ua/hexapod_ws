@@ -8,6 +8,11 @@
 > mittel 0.160/−0.080/**0.06** · hoch **0.17|0.18**/−0.100/**0.10** (Fallback-Treppe Plan §6.2).
 > Deckel-Semantik: **Reject**. Nur tripod; Tempo-Presets = H2.
 
+> ℹ️ **H1.4–H1.6 (Sim/HW) sind durch [Block I Phase 11](app_control_requirements/phase_11_stride_envelope_progress.md)
+> abgelöst** — dort werden alle drei Stance-Modi in Sim und auf HW mit den *aktuellen* Werten
+> verifiziert. Der Fuß-Hub dieser Tabelle wurde in Phase 11 erneut gemessen und **bestätigt**
+> (eine Erhöhung auf mittel 0.055/0.060 reisst die Femur-Marge). Historie bleibt unverändert.
+
 ```
 H1 (Schritthöhen-Modi):
 - [x] H1.1 Tool: Margen-Report + --min-margin (auch fuer check) + --leveling-deg + engine-check-Subcommand (Transitions: Start/Richtungswechsel/Stopp/Stance-Switch/Sit-Stand) + volle Tick-Aufloesung + --s4-floor + apex_meter.py + Tool-Tests gruen  [18 Tool-Tests; Design-Iterationen aus der Eichung: (a) Sequenz-Margen (Sitdown faehrt bewusst grenznah, femur 0.070) ohne Schwelle/informativ, (b) Leveling-Ecken = Coverage-Metrik statt Hard-Fail (heutiger tief-Modus schafft 4°-Voll-Ecken am Apex nicht — 3a-Befund; Engine-Fallback degradiert sanft), (c) min-margin haerten NUR den nominalen Pfad]

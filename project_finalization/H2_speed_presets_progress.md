@@ -17,6 +17,12 @@
 > **0.08 GREEN mit Marge** (femur 0.159) → konservativ 0.08 (H1-Präzedenz „Schwelle
 > glaubwürdig halten"). Messreihe unten. Finale Tabelle: **tief 0.06 / mittel 0.08 / hoch 0.05.**
 
+> ℹ️ **H2.5 (Sim-Tuning) + H2.6 (HW) sind durch [Block I Phase 11](app_control_requirements/phase_11_stride_envelope_progress.md)
+> abgelöst.** Dort wurden die sl-Deckel auf das geometrische Optimum gehoben
+> (tief 0.065 / mittel **0.085** / hoch 0.055 — der hier als „zu knapp" verworfene 0.085-Wert ist
+> mit beiden Gates und allen vier Gangarten bestätigt) und die Tempo-Tabelle neu ausgelegt
+> („Geschwindigkeit halten, Schritte länger"). Historie bleibt unverändert.
+
 ```
 H2 (Tempo-Presets + Schrittweiten-Deckel):
 - [x] H2.1 Offline: engine-check-Transitions für die sl-Deckel-Zellen exit-code-basiert (hoch 0.08/0.05 bereits H1.2)  [tief 0.04/0.06 GREEN (inkl. Switch→mittel @ sl 0.06); mittel 0.05/0.09 RED (B:diagonal, S4-Floor out-of-reach d=0.1953>0.194) → Treppe: 0.085 GREEN (knapp, ~1 mm Reach), 0.08 GREEN (femur-Marge 0.159) → mittel-Deckel = 0.08. mittel-Lauf OHNE --switch-to: der C:walk_target_mode-Pfad führe mit der QUELL-sl im Zielmodus — genau das unreale Szenario, das die H2-Kopplung verhindert; die Switch-Motion selbst ist sl-unabhängig + H1.2-validiert]

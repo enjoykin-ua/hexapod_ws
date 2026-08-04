@@ -17,6 +17,12 @@
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <!-- Nur fuer die Phase-11-Auslegungs-Invarianten in test_tempo_presets:
+       die Tempo-Tabelle wird gegen die Stance-Deckel des gait_node geprueft
+       (der Deckel wirkt nur, wenn Skala x Bodenzeit ihn freigibt). Zur
+       Laufzeit besteht KEINE Abhaengigkeit; fehlt das Paket, skippen die
+       betroffenen Tests. -->
+  <test_depend>hexapod_gait</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

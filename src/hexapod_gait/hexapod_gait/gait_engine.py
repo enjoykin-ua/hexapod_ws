@@ -281,6 +281,13 @@ class GaitEngine:
         self._prev_state = self.STATE_STANDING
         self._v_body: Vec2 = (0.0, 0.0)
         self._omega: float = 0.0
+        # Block I Phase 11: Skalierungsfaktor des letzten set_command-Clamps
+        # (1.0 = nicht geclamped). Der Node entscheidet daran, ob die
+        # Begrenzung erwähnenswert ist — seit der Tempo-Auslegung ist ein
+        # leichter Clamp der Normalfall (in den Stance-Modi mit kleinem
+        # Deckel und bei den Nicht-Tripod-Gangarten), und eine WARN pro
+        # 2 s würde die App-Alert-Liste zumüllen.
+        self._last_clamp_factor: float = 1.0
         self._v_body_at_stop: Vec2 = (0.0, 0.0)
         self._omega_at_stop: float = 0.0
         self._t_stop_start: float = 0.0
@@ -500,6 +507,19 @@ class GaitEngine:
         """
         return self.step_length_max / self.stance_duration
 
+    @property
+    def last_clamp_factor(self) -> float:
+        """
+        Skalierungsfaktor des letzten ``set_command``-Clamps (Phase 11).
+
+        ``1.0`` = das Kommando ging unverändert durch, ``0.6`` = es wurde
+        auf 60 % gestutzt. Der Node staffelt daran seine Log-Stufe: ein
+        leichter Clamp ist seit der Tempo-Auslegung der Normalfall (Stance
+        mit kleinem ``step_length_max``, Nicht-Tripod-Gangarten) und darf
+        nicht als WARN in der App-Alert-Liste landen.
+        """
+        return self._last_clamp_factor
+
     def _max_leg_speed(
         self,
         v_body_x: float,
@@ -667,6 +687,7 @@ class GaitEngine:
             return False
         max_speed = self._max_leg_speed(v_body_x, v_body_y, omega_z)
         clamped = False
+        self._last_clamp_factor = 1.0
         linear_max = self.linear_max
         if max_speed > linear_max:
             scale = linear_max / max_speed
@@ -674,6 +695,7 @@ class GaitEngine:
             v_body_y *= scale
             omega_z *= scale
             clamped = True
+            self._last_clamp_factor = scale
 
         # is_zero check auf gemeinsame Skala — max_leg_speed nach Clamp.
         max_speed_after = self._max_leg_speed(

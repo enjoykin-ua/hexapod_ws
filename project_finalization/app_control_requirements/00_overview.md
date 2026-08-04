@@ -12,8 +12,11 @@
 > Poweroff, App-Buttons „Pi herunterfahren"/„Stack neu starten", HW-Preset im App-Pfad — offen sind
 > die Pi-Schritte + die App-Seite. **Phase 10 = Show „Free-Leg"** (Repo-Seite 🟢, Contract **v0.14**): die B4-Show reaktiviert und auf
 > die kurzen Beine neu ausgelegt — 4 Beine stützen, die 2 Vorderbeine folgen den Sticks, Start aus
-> dem App-Show-Menü ohne App-Änderung. Danach: **Politur** (Reconnect, Controller-Profile — jetzt
-> Ph.11).
+> dem App-Show-Menü ohne App-Änderung. **Phase 11 = Längere Schritte** (Repo-Seite 🟢, Contract
+> **v0.14.1**, kein Interface-Change): die Stance-Deckel stehen auf dem gemessenen geometrischen
+> Optimum und die Tempo-Stufen sind neu ausgelegt („Geschwindigkeit halten, Schritte länger") —
+> in der Boot-Kombination 50 → 85 mm Schrittweite. Danach: **Politur** (Reconnect,
+> Controller-Profile — jetzt Ph.12).
 > Deferiert: HW-Verify T6.8 (E-Stop/Recover) + T7A.13 (Audio-Speaker) + die zugehörigen App-Buttons.
 > Arbeitsweise CLAUDE.md §4 (Plan → Freigabe → Code → Tests → Self-Review), §5 (Agent macht NIE
 > git). Deutsch durchgehend.

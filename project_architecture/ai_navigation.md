@@ -45,6 +45,16 @@
 - **Validieren:** `walking_envelope_check recommend/check` (nutzt URDF-Limits live) +
   `standup_envelope_check` für den Aufsteh-Pfad (eigene Pose!). **Beide separat** — eine
   Walk-Pose kann gehen, der Standup-Pfad dorthin aber nicht (Femur-90°-Befund 2.3).
+- **⚠️ `time_from_start_factor` bestimmt, wie viel von der kommandierten Schrittweite REAL
+  ankommt** (Phase-11-Sim-Befund). `time_from_start = factor / tick_rate` ist die Zeit, die der
+  Bein-Controller für den nächsten Sollpunkt bekommt; ist sie größer als das Tick-Intervall
+  (20 ms @ 50 Hz), startet die Interpolation ständig neu → die Bewegung wird gedämpft. Sim-Messung
+  bei 2 s Zykluszeit: factor 4.0 → 45 %, 2.0 (Default) → 70 %, 1.0 → 93 % der vollen Amplitude.
+  Der Effekt ist **proportional** (unabhängig von Hub und Schrittweite) und wirkt auf **alle**
+  Bewegungen (Laufen, Auf-/Hinsetzen, Stance-Wechsel, Shows, Recovery-Rampe). Wer „die Schritte
+  sind zu kurz" untersucht, prüft **zuerst hier** und erst dann die Deckel. ⚠️ HW-Gegenprobe
+  steht aus (Echo-State-Feedback → Größenordnung nicht aus der Sim übertragbar). Live-Param,
+  seit Phase 11 im App-Config-Panel. Messreihe: `.../phase_11_stride_envelope_progress.md`.
 - **Constraint-Fallen:** `body_height` fp_range-Floor = −0.110 (leg_changes/S5); `body_height_min ≤ body_height ≤ body_height_max`; `standing_only`-Params nur im STANDING setzbar.
 
 ### Neue Gangart
@@ -222,8 +232,15 @@
   Timeout (2-s-Lock) ⇒ lokal NICHTS ändern. ⚠️ Fallen: (1) **Boot-Eintrag „schnell" == YAML-Scales
   halten** (ps4_usb+bt; sonst springt der erste D-Pad-Druck — per Test gepinnt: `test_tempo_presets`).
   (2) Tabellen-Werte ändern = nur Tempo (envelope-frei), aber **Scales > linear_max** heißt
-  Engine-Clamp-WARN (aggressiv: bewusst). (3) Werte nach Sim-Tuning (H2.5) in Tabelle UND YAML-
-  Kommentar nachziehen. **Doku:** `project_finalization/H2_speed_presets_*`.
+  Engine-Clamp (seit Phase 11 nur bei Faktor < 0.25 als WARN, sonst debug — der Clamp ist in 34 der
+  48 ausgelegten Betriebspunkte normal und flutete sonst die App-Alert-Liste). (3) Werte nach Sim-Tuning in Tabelle UND YAML-Kommentar nachziehen.
+  (4) **Phase-11-Auslegung „Geschwindigkeit halten, Schritte länger":** `cycle_time` ist der Hebel
+  für die Schrittweite (`Schritt = min(Skala, linear_max) × cycle_time/2`), nicht die Skala. Die
+  Skalen sind deshalb unverändert; nur „aggressiv" wurde gebremst, weil der angehobene Stance-Deckel
+  sonst den Clamp mit hochgezogen hätte. Drei Invarianten sind gepinnt (`test_tempo_presets`):
+  Boot-`cycle_time` == gait_node-Default · Boot-Stufe schöpft den mittel-Deckel aus · Monotonie der
+  Stufen in **jedem** Stance-Modus. **Doku:** `project_finalization/H2_speed_presets_*` +
+  `app_control_requirements/phase_11_stride_envelope_*`.
 - **Validieren:** `colcon test hexapod_teleop` (`test_live_scales` — live-Update je Param, negativ/Range
   abgelehnt, struktureller Param kein Crash, atomarer Reject; `test_tempo_presets` — Tabellen-Pin,
   Sprungfrei-Invariante, Reject-/Timeout-Pfade ändern nichts).
@@ -245,8 +262,8 @@
 - **Modi/Werte ändern:** nur die `_STANCE_MODES`-Tabelle (offline-validiert!). Default-Boot-Pose =
   Index 1 (mittel) = die `body_height`/`radial_distance`/`step_height`/`step_length_max`-Param-
   Defaults (⚠️ `gait.launch.py`-Arg-Defaults sind eine ZWEITE Default-Quelle — mitziehen, H2-Befund).
-  **Block H1 — per-Modus `step_height` (tief 0.04 / mittel 0.05 / hoch 0.08) · Block H2 — per-Modus
-  `step_length_max` (tief 0.06 / mittel 0.08 / hoch 0.05):** der Tabellenwert ist zugleich **Deckel**
+  **Block H1 — per-Modus `step_height` (tief 0.04 / mittel 0.05 / hoch 0.08) · Block H2 + Phase 11 —
+  per-Modus `step_length_max` (tief 0.065 / mittel 0.085 / hoch 0.055):** der Tabellenwert ist zugleich **Deckel**
   für `param set step_height`/`step_length_max` im jeweiligen Modus (Reject; Boot-Override
   via params_file wird im Init gedeckelt+WARN — der umgeht den Set-Callback). Der Switch setzt beide
   gekoppelt; danach zieht `_maybe_sync_stance_params` (im `_tick`) den **Param-Server deferred** nach
@@ -261,6 +278,19 @@
   Datenlage/Verworfenes (10 cm = Apex-Marge; radial 0.17/0.18 = S4-Floor-Reach; sl 0.09 =
   B:diagonal-Reach): `project_finalization/H1_step_height_modes_*` + `H2_speed_presets_*`.
   ⚠️ Tool-Ausgaben IMMER exit-code-basiert auswerten (H1.2-Lehre: `grep|tail` übersah RED-Szenarien).
+- **⚠️ Der Deckel ist eine ERLAUBNIS, kein Antrieb (Phase-11-Befund).** Real gefahren wird
+  `min(joy-Skala, linear_max) × T_stance` mit `linear_max = step_length_max / T_stance` und
+  `T_stance = cycle_time × (1 − swing_duty)`. Vor Phase 11 klemmte in drei von vier Tempo-Stufen die
+  **Skala** (50 mm), obwohl der mittel-Deckel 80 mm erlaubte — eine Deckel-Anhebung allein wäre
+  wirkungslos geblieben. Wer mehr Schrittweite will, muss **beides** ansehen: Deckel (hier) **und**
+  `_TEMPO_MODES` in `joy_to_twist.py`. Umgekehrt senkt eine längere `cycle_time` in Modi mit kleinem
+  Deckel die Höchstgeschwindigkeit (`linear_max`) — Monotonie der Tempo-Stufen per Test gepinnt.
+- **Die Deckel stehen am geometrischen Optimum (Phase 11, gemessen).** Je Modus reisst die nächste
+  5-mm-Stufe; der **Fuß-Hub** ist gar nicht mehr erhöhbar (mittel 0.055 → femur 0.082). Ebenfalls
+  gemessen und verworfen: kleinerer Walk-Radius (femur kollabiert auf 0.002–0.043), flacherer
+  S4-Floor (~5 mm für den Kantenschutz), Zwischen-Stances mit mehr Hub (alle RED). **Erst neu
+  messen, wenn sich Geometrie oder Limits ändern** — Messreihe:
+  `app_control_requirements/phase_11_stride_envelope_progress.md`.
 - **Fallen:** (1) **leg_changes/S5+S6: einheitlicher WALK-Radius 0.160 über alle Höhen** (tief −0.065 /
   mittel −0.080 / hoch −0.100). Aufstehen/Hinsetzen läuft NICHT an 0.160 (dort reiten die Vorderbeine
   an der Femur-(−90°)-Wand → IKError/Schleifen), sondern am **breiten `standup_radial` 0.20**

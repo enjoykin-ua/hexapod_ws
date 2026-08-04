@@ -96,9 +96,12 @@ def test_param_set_step_length_max_updates_engine(node):
     assert result[0].successful
     assert node._engine.step_length_max == pytest.approx(0.08)
     # linear_max = step_length_max / stance_duration
-    # = 0.08 / (cycle_time * (1 - swing_duty))
-    # mit cycle_time=2.0, swing_duty=0.5 → stance_duration=1.0
-    assert node._engine.linear_max == pytest.approx(0.08)
+    # = 0.08 / (cycle_time * (1 - swing_duty)).
+    # Gegen den LEBENDEN cycle_time gerechnet statt gegen eine eingebetonierte
+    # Zahl — der Default folgt seit Phase 11 der Boot-Tempo-Stufe (3.4 s) und
+    # wird beim Tuning nachgezogen.
+    assert node._engine.linear_max == pytest.approx(
+        0.08 / node._engine.stance_duration)
 
 
 def test_param_set_cycle_time_updates_engine_linear_max(node):
@@ -109,9 +112,10 @@ def test_param_set_cycle_time_updates_engine_linear_max(node):
     assert result[0].successful
     assert node._engine.cycle_time == pytest.approx(4.0)
     # stance_duration = 4.0 * 0.5 = 2.0 → linear_max = step_length_max/2.0.
-    # Node-Default step_length_max = 0.080 (H2: Boot = mittel) → 0.040.
+    # Node-Default step_length_max = 0.085 (Phase 11: Boot = mittel) → 0.0425.
     assert node._engine.stance_duration == pytest.approx(2.0)
-    assert node._engine.linear_max == pytest.approx(0.040)
+    assert node._engine.linear_max == pytest.approx(
+        node._engine.step_length_max / 2.0)
 
 
 def test_param_set_tick_rate_restarts_timer(node):

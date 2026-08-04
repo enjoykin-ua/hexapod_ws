@@ -25,6 +25,25 @@ import rclpy
 from std_srvs.srv import SetBool
 import yaml
 
+try:
+    # Block I Phase 11: die Auslegungs-Invarianten koppeln die Tempo-Tabelle
+    # an die Stance-Deckel (der Deckel wirkt nur, wenn Skala × Bodenzeit ihn
+    # freigibt). Reiner test_depend — zur Laufzeit hängt das Teleop nicht am
+    # gait-Paket. Fehlt es (out-of-tree-Build), werden die Pins übersprungen.
+    from hexapod_gait.gait_node import (
+        _CLAMP_WARN_FACTOR,
+        _GAIT_PARAMS,
+        _STANCE_DEFAULT_IDX,
+        _STANCE_MODES,
+    )
+    from hexapod_gait.gait_patterns import GAIT_PRESETS
+    _GAIT_AVAILABLE = True
+except ImportError:                                   # pragma: no cover
+    _GAIT_AVAILABLE = False
+
+_requires_gait = pytest.mark.skipif(
+    not _GAIT_AVAILABLE, reason='hexapod_gait nicht im Pfad')
+
 _CFG = os.path.join(os.path.dirname(__file__), '..', 'config')
 
 
@@ -94,12 +113,21 @@ def _scales(node):
 # ----- Tabelle (Pin, Änderung nur bewusst nach H2.5-Tuning) ------------ #
 
 def test_tempo_table_pinned():
-    """Pinne die H2-Startwerte (finale Werte = Sim-Tuning H2.5)."""
+    """
+    Pinne die Phase-11-Startwerte (finale Werte = Sim-Tuning P11.6).
+
+    Auslegung „Geschwindigkeit halten, Schritte länger": die Scales
+    bleiben wie gehabt, die Zykluszeiten sind verlängert, damit der Fuß
+    länger am Boden bleibt und derselbe Vortrieb in längeren Schritten
+    passiert (schnell: 0.050 m/s × 1.7 s = 0.085 m = mittel-Deckel).
+    „aggressiv" ist gebremst, damit der angehobene Stance-Deckel die
+    Stufe nicht ungewollt schneller macht.
+    """
     assert [tuple(m) for m in _TEMPO_MODES] == [
-        ('langsam', 3.3, 0.03, 0.03, 0.28),
-        ('mittel', 2.6, 0.04, 0.04, 0.35),
-        ('schnell', 2.0, 0.05, 0.05, 0.46),
-        ('aggressiv', 1.5, 0.17, 0.13, 1.2),
+        ('langsam', 4.0, 0.03, 0.03, 0.28),
+        ('mittel', 3.6, 0.04, 0.04, 0.35),
+        ('schnell', 3.4, 0.05, 0.05, 0.46),
+        ('aggressiv', 1.7, 0.10, 0.09, 0.95),
     ]
     assert _TEMPO_MODES[_TEMPO_DEFAULT_IDX].name == 'schnell'
 
@@ -146,9 +174,14 @@ def test_cycle_faster_sets_gait_and_scales(node):
     aggressiv = _TEMPO_MODES[3]
     assert fake.calls == [{'cycle_time': aggressiv.cycle_time}]
     assert node._tempo_idx == 3
-    assert _scales(node) == pytest.approx((0.17, 0.13, 1.2))
+    assert _scales(node) == pytest.approx((
+        aggressiv.linear_x_scale,
+        aggressiv.linear_y_scale,
+        aggressiv.angular_z_scale,
+    ))
     # Eigener Param-Server synchron (Scales via validate-then-apply gesetzt).
-    assert node.get_parameter('linear_x_scale').value == pytest.approx(0.17)
+    assert node.get_parameter('linear_x_scale').value == pytest.approx(
+        aggressiv.linear_x_scale)
     assert not node._tempo_request_pending
 
 
@@ -270,3 +303,133 @@ def test_service_cycle_tempo_maps_return_to_success(node):
     node._gait_param_client = _FakeParamClient(ready=False)
     resp2 = node._on_cycle_tempo(SetBool.Request(data=False), SetBool.Response())
     assert resp2.success is False
+
+
+# ===== Block I Phase 11 — Auslegungs-Invarianten ========================
+#
+# Die real gefahrene Schrittweite ist
+#     s = min(scale, linear_max) × T_stance,
+#     T_stance = cycle_time × (1 − swing_duty),
+#     linear_max = step_length_max / T_stance.
+# Diese Pins halten die Auslegung fest, damit niemand die Tabelle
+# unbemerkt zurück in den 50-mm-Zustand dreht.
+
+_SWING_DUTY_TRIPOD = 0.5
+
+# Effektive Fahrgeschwindigkeit je Stufe VOR Phase 11 (cycle_time/Skala von
+# damals, mittel-Deckel 0.080) — Referenz für „keine Stufe wird schneller".
+_V_BEFORE_PHASE11 = {
+    'langsam': 0.030,
+    'mittel': 0.040,
+    'schnell': 0.050,
+    'aggressiv': 0.080 / (1.5 * _SWING_DUTY_TRIPOD),   # Engine-Clamp: 0.1067
+}
+
+
+def _stance_duration(cycle_time):
+    return cycle_time * (1.0 - _SWING_DUTY_TRIPOD)
+
+
+def _effective_speed(mode, cap):
+    """min(Stick-Skala, linear_max) — was real gefahren wird."""
+    return min(mode.linear_x_scale, cap / _stance_duration(mode.cycle_time))
+
+
+@_requires_gait
+def test_boot_cycle_time_matches_gait_default():
+    """
+    Zweite Sprung-Quelle: Boot-Stufe == gait_node-`cycle_time`-Default.
+
+    Der Tempo-Wechsel setzt `cycle_time` am gait_node. Stimmte der
+    Tabellenwert der Boot-Stufe nicht mit dem Node-Default überein,
+    würde der erste Tempo-Wechsel die Zykluszeit springen lassen.
+    """
+    spec = next(s for s in _GAIT_PARAMS if s.name == 'cycle_time')
+    assert spec.default == pytest.approx(
+        _TEMPO_MODES[_TEMPO_DEFAULT_IDX].cycle_time)
+
+
+@_requires_gait
+def test_boot_tempo_exhausts_boot_stance_cap():
+    """
+    Ausschöpfungs-Pin: die Boot-Stufe erreicht den Boot-Stance-Deckel.
+
+    Das ist der Kern von Phase 11 — vorher klemmte die Skala bei 50 mm,
+    obwohl der Deckel 80 mm erlaubt hätte. Rutscht dieser Test, ist der
+    Schrittweiten-Gewinn wieder weg.
+    """
+    boot = _TEMPO_MODES[_TEMPO_DEFAULT_IDX]
+    cap = _STANCE_MODES[_STANCE_DEFAULT_IDX].step_length_max
+    stride = boot.linear_x_scale * _stance_duration(boot.cycle_time)
+    assert stride == pytest.approx(cap, abs=0.005), (
+        f'Boot-Stufe faehrt {stride * 1000:.0f} mm, Deckel erlaubt '
+        f'{cap * 1000:.0f} mm — Auslegung gebrochen')
+
+
+@_requires_gait
+def test_no_tempo_step_got_faster():
+    """
+    User-Vorgabe: längere Schritte, aber **keine** Stufe schneller.
+
+    Der angehobene Stance-Deckel hebt sonst den Engine-Clamp mit —
+    genau deshalb ist „aggressiv" gebremst.
+    """
+    cap = _STANCE_MODES[_STANCE_DEFAULT_IDX].step_length_max
+    for mode in _TEMPO_MODES:
+        v_new = _effective_speed(mode, cap)
+        assert v_new <= _V_BEFORE_PHASE11[mode.name] + 1e-9, (
+            f'{mode.name}: {v_new:.4f} m/s > vorher '
+            f'{_V_BEFORE_PHASE11[mode.name]:.4f} m/s')
+
+
+@_requires_gait
+def test_no_designed_operating_point_triggers_a_clamp_warning():
+    """
+    Kein ausgelegter Betriebspunkt darf eine Clamp-WARN erzeugen.
+
+    Seit der Tempo-Auslegung liegt die Stick-Skala in vielen Kombinationen
+    über `linear_max` — der Clamp ist dort **Normalbetrieb**. Würde der
+    Node ihn als WARN melden, liefe die App-Alert-Liste
+    (`/hexapod/alerts` ← `/rosout` WARN+) im Fahren voll und echte
+    Warnungen gingen unter.
+
+    Geprüft werden alle 4 Gangarten × 4 Tempo-Stufen × 3 Stance-Modi.
+    Der kleinste reguläre Faktor (wave + schnell + hoch) muss mit Abstand
+    über `_CLAMP_WARN_FACTOR` liegen.
+    """
+    worst = 1.0
+    for gait in ('tripod', 'wave', 'tetrapod', 'ripple'):
+        swing_duty = GAIT_PRESETS[gait].swing_duty
+        for mode in _TEMPO_MODES:
+            t_stance = mode.cycle_time * (1.0 - swing_duty)
+            for stance in _STANCE_MODES:
+                linear_max = stance.step_length_max / t_stance
+                factor = min(1.0, linear_max / mode.linear_x_scale)
+                worst = min(worst, factor)
+                assert factor > _CLAMP_WARN_FACTOR, (
+                    f'{gait}/{mode.name}/{stance.name}: Clamp-Faktor '
+                    f'{factor:.2f} <= Schwelle {_CLAMP_WARN_FACTOR} → '
+                    f'WARN im Normalbetrieb')
+    # Sanity: die Schwelle darf nicht so tief liegen, dass sie nie greift.
+    assert _CLAMP_WARN_FACTOR > worst / 2.0, (
+        f'Schwelle {_CLAMP_WARN_FACTOR} ist gegenüber dem regulären '
+        f'Worst-Case {worst:.2f} zu konservativ — sie meldet dann nichts mehr')
+
+
+@_requires_gait
+def test_tempo_monotonic_in_every_stance_mode():
+    """
+    Bedien-Logik: „schneller" muss in **jedem** Stance-Modus schneller sein.
+
+    In den Modi mit kleinem Deckel begrenzt `linear_max` statt der Skala —
+    eine unbedachte Zykluszeit könnte „schnell" dort langsamer machen als
+    „mittel". Das wäre für den Nutzer nicht nachvollziehbar.
+    """
+    for stance in _STANCE_MODES:
+        speeds = [
+            _effective_speed(m, stance.step_length_max) for m in _TEMPO_MODES
+        ]
+        assert speeds == sorted(speeds), (
+            f'{stance.name}: Tempo-Stufen nicht monoton — {speeds}')
+        assert len(set(speeds)) == len(speeds), (
+            f'{stance.name}: zwei Stufen gleich schnell — {speeds}')

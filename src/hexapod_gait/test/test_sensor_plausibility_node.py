@@ -81,8 +81,11 @@ def test_live_tuning_rebuilds_monitor(node):
     assert node._sensor_dead_cycles == 4
     # apex_fault_cycles = Pässe (keine Tick-Umrechnung).
     assert node._sensor_health_monitor._apex_fault_cycles == 4
-    # dead_ticks = 4 · cycle_time(2.0) · tick_rate(50) = 400.
-    assert node._sensor_health_monitor._dead_ticks == 400
+    # dead_ticks = 4 · cycle_time · tick_rate. Gegen die LEBENDEN Werte
+    # gerechnet — der cycle_time-Default folgt seit Phase 11 der Boot-Tempo-
+    # Stufe und ändert sich beim Tuning.
+    assert node._sensor_health_monitor._dead_ticks == int(
+        4 * node._cycle_time * node._tick_rate)
 
 
 def test_fault_inject_parse_and_apply(node):
@@ -245,13 +248,15 @@ def test_inject_stuck_on_flags_and_masks_end_to_end(node):
 
 def test_dead_ticks_recomputed_on_cycle_time(node):
     # cycle_time-Änderung muss dead_ticks (Cycles → Ticks) neu rechnen.
-    before = node._sensor_health_monitor._dead_ticks  # 2·2.0·50 = 200
-    assert before == 200
+    # Start = sensor_dead_cycles(2) · cycle_time-Default · tick_rate(50).
+    before = node._sensor_health_monitor._dead_ticks
+    assert before == int(2 * node._cycle_time * node._tick_rate)
     res = node.set_parameters([
         Parameter('cycle_time', Parameter.Type.DOUBLE, 1.0),
     ])
     assert res[0].successful
     assert node._sensor_health_monitor._dead_ticks == 100  # 2·1.0·50
+    assert before != 100, 'Default muss sich vom Testwert unterscheiden'
 
 
 def test_not_walking_resets_latch(node):

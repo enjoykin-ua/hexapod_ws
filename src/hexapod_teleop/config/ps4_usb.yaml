@@ -56,6 +56,9 @@ joy_to_twist:
     # H2: MÜSSEN dem "schnell"-Eintrag der _TEMPO_MODES-Tabelle
     # (joy_to_twist.py) entsprechen — Boot-Tempo = schnell, der erste
     # D-Pad-↑/↓-Druck bleibt dadurch sprungfrei.
+    # Phase 11: bewusst UNVERÄNDERT — die längeren Schritte kommen aus der
+    # längeren Bodenzeit (cycle_time 3.4), nicht aus höheren Scales. Der
+    # Roboter fährt also gleich schnell und schreitet weiter aus.
     linear_x_scale: 0.05  # m/s max vor/zurück (bei Voll-Stick)
     linear_y_scale: 0.05  # m/s max seitwärts
     angular_z_scale: 0.46 # rad/s, ~omega_max
